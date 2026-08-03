@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.map
+
+projects/static/projects/css/bootstrap-*
+projects/static/projects/css/bootstrap.css
+projects/static/projects/css/bootstrap.rtl*
+projects/static/projects/js/bootstrap.bundle.js
+projects/static/projects/js/bootstrap.esm*
+projects/static/projects/js/bootstrap.js
+projects/static/projects/js/bootstrap.min.js
