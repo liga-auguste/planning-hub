@@ -12,8 +12,10 @@ def get_upcoming_projects(today: date) -> list:
     response = _client().databases.query(
         database_id=PROJECTS_DB,
         filter={
-            "property": "Termin",
-            "date": {"on_or_after": today.isoformat()}
+            "and": [
+                {"property": "Status/Aufgaben", "status": {"does_not_equal": "abgeschlossen"}},
+                {"property": "Status/Aufgaben", "status": {"does_not_equal": "kein Status erforderlich"}},
+            ]
         },
         sorts=[{"property": "Termin", "direction": "ascending"}]
     )
@@ -21,11 +23,14 @@ def get_upcoming_projects(today: date) -> list:
     projects = []
     for page in response["results"]:
         props = page["properties"]
+        status_prop = props.get("Status/Aufgaben", {}).get("status")
         project = {
             "id": page["id"],
             "name": _text(props["Name der Veranstaltung"]["title"]),
             "event_date": _date(props["Termin"]),
             "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
+            "status": status_prop["name"] if status_prop else None,
+            "status_color": status_prop["color"] if status_prop else "gray",
             "tasks": _get_tasks(page["id"]),
         }
         projects.append(project)
@@ -50,6 +55,7 @@ def _get_tasks(project_page_id: str) -> list:
             "name": _text(props["Aufgabe"]["title"]),
             "due": _date(props["Wann?"]),
             "done": props["Done"]["checkbox"],
+            "kontext": [k["name"] for k in props.get("Kontext", {}).get("multi_select", [])],
         })
 
     return tasks
