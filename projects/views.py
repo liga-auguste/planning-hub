@@ -1,14 +1,12 @@
 from datetime import date
 import markdown
 from django.shortcuts import render
-from .models import Project
+from .notion import get_upcoming_projects
 from .ai import generate_weekly_summary
 
 def dashboard(request):
     today = date.today()
-    projects = Project.objects.filter(
-        event_date__gte=today
-    ).prefetch_related('tasks').order_by('event_date')
+    projects = get_upcoming_projects(today)
 
     summary_md = generate_weekly_summary(projects, today)
     summary = markdown.markdown(summary_md)
