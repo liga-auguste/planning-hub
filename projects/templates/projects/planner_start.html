@@ -1,0 +1,62 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Neue Veranstaltung planen</title>
+    <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
+    <style>
+        body {
+            background: #f7f7f8;
+            color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 14px;
+        }
+        .planner-card {
+            max-width: 640px;
+            margin: 80px auto;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 40px;
+        }
+        h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+        .subtitle { color: #9b9b9b; margin-bottom: 32px; }
+        textarea {
+            width: 100%;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            padding: 12px;
+            font-size: 14px;
+            resize: vertical;
+        }
+        textarea:focus { outline: none; border-color: #1a1a1a; }
+        .btn-primary {
+            background: #1a1a1a;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 24px;
+            color: #fff;
+            font-size: 14px;
+            margin-top: 16px;
+            cursor: pointer;
+        }
+        .btn-primary:hover { background: #333; }
+        .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    </style>
+</head>
+<body>
+    <div class="planner-card">
+        <a href="{% url 'dashboard' %}" class="back">← Dashboard</a>
+        <h1>Neue Veranstaltung planen</h1>
+        <p class="subtitle">Beschreibe kurz die Veranstaltung — Typ, Datum, Besetzung.</p>
+        <form method="post">
+            {% csrf_token %}
+            <textarea name="description" rows="4"
+                placeholder="z.B. Konzert am 15. September 2026, Violine und Orgel"></textarea>
+            <button type="submit" class="btn-primary">Weiter →</button>
+        </form>
+    </div>
+</body>
+</html>

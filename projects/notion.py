@@ -77,3 +77,67 @@ def _date(date_prop: dict) -> date | None:
     if value and value.get("start"):
         return date.fromisoformat(value["start"])
     return None
+
+def get_historical_projects() -> list:
+    response = _client().databases.query(
+        database_id=PROJECTS_DB,
+        filter={
+            "property": "Status/Aufgaben",
+            "status": {"equals": "abgeschlossen"}
+        },
+        sorts=[{"property": "Termin", "direction": "descending"}]
+    )
+
+    projects = []
+    for page in response["results"]:
+        props = page["properties"]
+        name = _text(props["Name der Veranstaltung"]["title"])
+        if "Marktzeit" in name:
+            continue
+        projects.append({
+            "name": name,
+            "event_date": _date(props["Termin"]),
+            "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
+            "tasks": _get_tasks(page["id"]),
+        })
+
+    return projects
+
+def create_project(name: str, event_date: date) -> str:
+    response = _client().pages.create(
+        parent={"database_id": PROJECTS_DB},
+        properties={
+            "Name der Veranstaltung": {
+                "title": [{"text": {"content": name}}]
+            },
+            "Termin": {
+                "date": {"start": event_date.isoformat()}
+            },
+            "Status/Aufgaben": {
+                "status": {"name": "geplant / mit Zeitplan"}
+            },
+        }
+    )
+    return response["id"]
+
+
+def create_tasks(project_id: str, tasks: list) -> None:
+    client = _client()
+    for task in tasks:
+        client.pages.create(
+            parent={"database_id": TASKS_DB},
+            properties={
+                "Aufgabe": {
+                    "title": [{"text": {"content": task["name"]}}]
+                },
+                "Wann?": {
+                    "date": {"start": task["date"]}
+                },
+                "Done": {
+                    "checkbox": False
+                },
+                "Related to Projekte": {
+                    "relation": [{"id": project_id}]
+                },
+            }
+        )

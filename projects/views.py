@@ -4,7 +4,7 @@ import markdown
 from django.shortcuts import render, redirect
 from django.core.cache import cache
 from .notion import get_upcoming_projects
-from .ai import generate_weekly_summary
+from .ai import generate_weekly_summary, derive_kontext
 
 MONTHS_DE = {
     1: "Januar", 2: "Februar", 3: "März", 4: "April",
@@ -45,6 +45,8 @@ def _annotate_tasks(projects, today):
             else:
                 task["urgency"] = "ok"
             task["due_display"] = _format_date(task["due"])
+            if not task["kontext"]:
+                task["kontext"] = derive_kontext(task["name"])
         project["urgency"] = project_urgency
     return projects
 

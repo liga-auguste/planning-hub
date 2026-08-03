@@ -1,0 +1,90 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Klärungsfragen</title>
+    <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
+    <style>
+        body {
+            background: #f7f7f8;
+            color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 14px;
+        }
+        .planner-card {
+            max-width: 640px;
+            margin: 60px auto;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 40px;
+        }
+        h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+        h2 { font-size: 14px; font-weight: 600; margin: 28px 0 12px; }
+        .subtitle { color: #9b9b9b; margin-bottom: 24px; }
+        .questions-box {
+            background: #f7f7f8;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 8px;
+            line-height: 1.7;
+        }
+        textarea, input[type="text"], input[type="number"] {
+            width: 100%;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        textarea:focus, input:focus { outline: none; border-color: #1a1a1a; }
+        .field-label { font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
+        .btn-primary {
+            background: #1a1a1a;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 24px;
+            color: #fff;
+            font-size: 14px;
+            margin-top: 8px;
+            cursor: pointer;
+        }
+        .btn-primary:hover { background: #333; }
+        .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    </style>
+</head>
+<body>
+    <div class="planner-card">
+        <a href="{% url 'planner_start' %}" class="back">← Zurück</a>
+        <h1>Klärungsfragen</h1>
+        <p class="subtitle">{{ description }}</p>
+
+        <div class="questions-box">{{ questions|safe }}</div>
+
+        <form method="post" action="{% url 'planner_review' %}">
+            {% csrf_token %}
+            <input type="hidden" name="description" value="{{ description }}">
+
+            <h2>Antworten</h2>
+            <textarea name="answers" rows="5"
+                placeholder="Beantworte die Fragen oben..."></textarea>
+
+            <h2>Vereinbarung</h2>
+            <div class="field-label">Uhrzeit</div>
+            <input type="text" name="uhrzeit" placeholder="z.B. 17:00">
+            <div class="field-label">Honorar (€)</div>
+            <input type="number" name="honorar" placeholder="0 wenn keines">
+            <div class="field-label">Fahrtkosten (€)</div>
+            <input type="number" name="fahrtkosten" placeholder="0 wenn keine">
+            <div class="field-label">Programm (Titel, Komponisten)</div>
+            <input type="text" name="programm" placeholder="z.B. Bach Sonaten, Buxtehude">
+            <div class="field-label">Besonderer Bedarf</div>
+            <input type="text" name="bedarf" placeholder="z.B. Orgel stimmen, Instrumentenleihe">
+
+            <button type="submit" class="btn-primary">Plan generieren →</button>
+        </form>
+    </div>
+</body>
+</html>
