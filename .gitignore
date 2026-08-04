@@ -1,6 +1,7 @@
 CHANGELOG.md
 staticfiles/
 .env
+demo.sqlite3
 .venv/
 __pycache__/
 *.pyc
