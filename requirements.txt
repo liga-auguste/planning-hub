@@ -1,0 +1,7 @@
+anthropic==0.120.2
+Django==6.0.7
+gunicorn==23.0.0
+Markdown==3.10.3
+notion-client==2.2.1
+psycopg2-binary==2.9.12
+python-dotenv==1.2.2

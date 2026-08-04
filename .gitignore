@@ -1,4 +1,6 @@
 CHANGELOG.md
+staticfiles/
+.env
 .venv/
 __pycache__/
 *.pyc
