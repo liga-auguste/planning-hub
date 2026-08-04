@@ -68,6 +68,13 @@ def toggle_task(task_id: str, done: bool) -> None:
     )
 
 
+def update_task_date(task_id: str, new_date: str) -> None:
+    _client().pages.update(
+        page_id=task_id,
+        properties={"Wann?": {"date": {"start": new_date}}}
+    )
+
+
 def _text(rich_text_list: list) -> str:
     return "".join(t["plain_text"] for t in rich_text_list)
 

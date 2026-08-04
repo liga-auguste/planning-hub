@@ -1,7 +1,9 @@
 from django.shortcuts import render, redirect
 from django.core.cache import cache
+from django.conf import settings
 from .notion import get_historical_projects, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
+from .demo_data import get_demo_history
 import markdown as md
 import json
 import re
@@ -17,6 +19,8 @@ HISTORY_CACHE_KEY = "historical_projects"
 HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 Stunden
 
 def _get_history():
+    if settings.DEMO_MODE:
+        return get_demo_history()
     history = cache.get(HISTORY_CACHE_KEY)
     if not history:
         history = get_historical_projects()
@@ -104,15 +108,15 @@ def planner_create(request):
 
         project_name = request.POST.get('project_name', description).strip()
         event_date = date.fromisoformat(event_date_str)
-        project_id = create_project(project_name, event_date)
 
-        tasks = [
-            {"name": n, "date": d}
-            for n, d in zip(names, dates)
-            if n and d
-        ]
-        create_tasks(project_id, tasks)
-
-        cache.delete('dashboard_data')
+        if not settings.DEMO_MODE:
+            project_id = create_project(project_name, event_date)
+            tasks = [
+                {"name": n, "date": d}
+                for n, d in zip(names, dates)
+                if n and d
+            ]
+            create_tasks(project_id, tasks)
+            cache.delete('dashboard_data')
 
         return redirect('dashboard')
