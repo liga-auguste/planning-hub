@@ -208,6 +208,27 @@
         {% endfor %}
     </div>
 
+    <div style="margin-top: 48px; padding-top: 32px; border-top: 1px solid #e5e5e5;">
+        <div style="font-size: 11px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 12px;">Wie geht's weiter?</div>
+        <p style="font-size: 14px; color: #6b6b6b; line-height: 1.65; max-width: 520px; margin-bottom: 24px;">
+            Im echten Planning Hub erscheint dieses Projekt jetzt im zentralen Dashboard —
+            neben allen anderen laufenden Projekten, mit Fortschrittsanzeige und
+            automatischer KI-Wochenübersicht.
+        </p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="{% url 'dashboard' %}"
+               style="display: inline-block; background: #1a1a1a; color: #fff; text-decoration: none;
+                      border-radius: 6px; padding: 9px 18px; font-size: 13px; font-weight: 500;">
+                Mehrprojekt-Dashboard ansehen →
+            </a>
+            <a href="{% url 'index' %}"
+               style="display: inline-block; color: #9b9b9b; text-decoration: none;
+                      border: 1px solid #e5e5e5; border-radius: 6px; padding: 9px 18px;
+                      font-size: 13px; background: #fff;">
+                ← Zurück zur Startseite
+            </a>
+        </div>
+    </div>
 
 </div>
 

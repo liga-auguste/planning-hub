@@ -494,19 +494,26 @@
     <div class="sidebar-resize" id="sidebar-resize"></div>
     <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
     <div class="sidebar-content">
-        <div class="sidebar-title" style="margin-bottom: 16px; padding-top: 4px;">Planning Hub</div>
+        <div class="sidebar-title" style="margin-bottom: 4px; padding-top: 4px;">Planning Hub</div>
+        {% if demo_mode %}
+        <div style="font-size: 10px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 16px; margin-bottom: 14px;">Demo · Mehrprojekt-Ansicht</div>
+        {% endif %}
         <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
             <span class="dot" style="background: #1a1a1a;"></span>
             Übersicht
         </a>
-        {% if demo_mode and has_session_plan %}
-        <a class="sidebar-item" href="mailto:ligaauguste@gmail.com" style="color: #9b9b9b; font-size:12px;">
-            <span style="margin-right: 8px;">✉</span>Weiteres Projekt anfragen
+        {% if demo_mode %}
+        <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: #6b6b6b;">
+            <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
+            Projekt selbst planen
+        </a>
+        <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
+            <span style="margin-right: 8px;">←</span>Zurück zur Startseite
         </a>
         {% else %}
         <a class="sidebar-item" href="/planner/" style="color: #6b6b6b;">
             <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
-            {% if demo_mode %}Neu planen{% else %}Neue Veranstaltung{% endif %}
+            Neue Veranstaltung
         </a>
         {% endif %}
         <div class="sidebar-title" style="margin-top: 16px;">Projekte {% for year in years %}{{ year }}{% if not forloop.last %}/{% endif %}{% endfor %}</div>
