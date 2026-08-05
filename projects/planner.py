@@ -1,7 +1,8 @@
 import anthropic
 
+
 def _format_history(projects: list) -> str:
-    lines = ["# Vergangene Veranstaltungen als Referenz\n"]
+    lines = ["# Vergangene Projekte als Referenz\n"]
     for p in projects:
         if not p["event_date"]:
             continue
@@ -18,30 +19,35 @@ def _format_history(projects: list) -> str:
     return "\n".join(lines)
 
 
-def get_clarifying_questions(event_description: str, historical_projects: list) -> str:
+def _format_rules(rules: list) -> str:
+    if not rules:
+        return ""
+    lines = "\n".join(f"- {r}" for r in rules)
+    return f"\nWende folgende Regeln an, sofern sie zum Projekttyp passen:\n{lines}\n"
+
+
+def get_clarifying_questions(event_description: str, historical_projects: list, rules: list = None) -> str:
     history = _format_history(historical_projects)
+    rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
 
     prompt = f"""{history}
 
 ---
 
-Eine neue Veranstaltung soll geplant werden:
+Ein neues Projekt soll geplant werden:
 {event_description}
 
-Du bist ein erfahrener Veranstaltungsassistent für eine Kirchenmusikerin.
-Wichtige Regeln für diesen Kontext:
-- GEMA-Meldung: immer bei Konzertveranstaltungen, nie bei Gottesdiensten — hängt am Typ, nicht am Repertoire
-- Musikerverträge + Honorare + Fahrtkosten: immer wenn externe Musiker mitwirken
-- Vorverkauf: selten, nur bei größeren Konzerten relevant
-- Gottesdienste haben grundsätzlich keinen Eintritt
-- Plakat: bei Konzerten immer vorausgesetzt (Standard: professioneller Druck beim Graphiker) — nur fragen wenn die Situation davon abweicht. Bei Gottesdiensten: einfacher Hausausdruck, keine Frage nötig. Bei Veranstaltungsreihen: ein Plakat für die ganze Reihe.
-
-Basierend auf den historischen Daten: Welche Informationen brauchst du noch,
-um einen vollständigen Aufgabenplan zu erstellen?
+Du bist ein erfahrener Planungsassistent. Erkenne den Projekttyp selbst und leite
+alle relevanten Rahmenbedingungen aus dem Kontext ab.
+Nutze die Referenzdaten nur intern zur Kalibrierung von Zeitabständen — erwähne sie
+nicht in deiner Antwort.
+{rules_block}
+Basierend auf dem beschriebenen Projekt: Welche Informationen
+brauchst du noch, um einen vollständigen Aufgabenplan zu erstellen?
 
 Stelle maximal 4 gezielte Fragen. Nur Fragen, deren Antwort die Aufgabenliste
-wirklich verändert. Keine Fragen die du aus dem Kontext schon beantworten kannst.
+wirklich verändert. Keine Fragen, die du aus dem Kontext schon beantworten kannst.
 Auf Deutsch, kurz und direkt."""
 
     response = client.messages.create(
@@ -51,21 +57,26 @@ Auf Deutsch, kurz und direkt."""
     )
     return response.content[0].text
 
-def generate_plan(event_description: str, answers: str, historical_projects: list) -> str:
+
+def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list = None) -> str:
     history = _format_history(historical_projects)
+    rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
 
     prompt = f"""{history}
 
 ---
 
-Neue Veranstaltung: {event_description}
+Neues Projekt: {event_description}
 
 Ausgefüllte Angaben:
 {answers}
 
 Erstelle einen vollständigen Aufgabenplan als JSON.
-Orientiere dich an den typischen Zeitabständen aus den historischen Daten.
+Orientiere dich an den typischen Zeitabständen aus den historischen Daten — erwähne
+die Referenzdaten aber nicht im Output.
+Erkenne den Projekttyp selbst.
+{rules_block}
 Antworte NUR mit JSON, kein erklärender Text darum.
 
 Format:
@@ -76,7 +87,7 @@ Format:
   ]
 }}
 
-Mögliche Kontexte: Planung, Büro, Graphiker, Kommunikation, Unterwegs, Vor Ort"""
+Mögliche Kontexte: Planung, Büro, Extern, Kommunikation, Unterwegs, Vor Ort"""
 
     response = client.messages.create(
         model="claude-sonnet-4-6",

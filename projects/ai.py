@@ -75,7 +75,7 @@ def build_prompt(projects: list, today: date) -> str:
     lines = [
         f"Heute ist der {today.strftime('%d.%m.%Y')}.",
         "",
-        "Ich bin Kirchenmusikerin und verwalte mehrere Veranstaltungsprojekte parallel.",
+        "Ich verwalte mehrere Projekte und Events parallel.",
         "Hier ist der aktuelle Stand meiner laufenden Projekte:",
         "",
     ]

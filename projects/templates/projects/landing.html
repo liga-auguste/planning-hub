@@ -1,0 +1,168 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Planning Hub</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #f7f7f8;
+            color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+
+        .wrapper {
+            max-width: 560px;
+            width: 100%;
+        }
+
+        .header {
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 13px;
+            font-weight: 600;
+            color: #9b9b9b;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            line-height: 1.2;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 15px;
+            color: #6b6b6b;
+            line-height: 1.5;
+        }
+
+        .tiles {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .tile {
+            display: block;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 10px;
+            padding: 20px;
+            text-decoration: none;
+            color: #1a1a1a;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            cursor: pointer;
+        }
+
+        .tile:hover {
+            border-color: #1a1a1a;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .tile-icon {
+            font-size: 22px;
+            margin-bottom: 10px;
+            line-height: 1;
+        }
+
+        .tile-label {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .tile-example {
+            font-size: 12px;
+            color: #9b9b9b;
+            line-height: 1.4;
+        }
+
+        .tile-custom {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+        }
+
+        .tile-custom .tile-label {
+            margin-bottom: 0;
+        }
+
+        .tile-custom .arrow {
+            margin-left: auto;
+            color: #9b9b9b;
+            font-size: 18px;
+        }
+
+        .demo-link {
+            display: block;
+            text-align: center;
+            margin-top: 32px;
+            color: #bbb;
+            font-size: 12px;
+            text-decoration: none;
+        }
+
+        .demo-link:hover {
+            color: #9b9b9b;
+        }
+    </style>
+</head>
+<body>
+<div class="wrapper">
+    <div class="header">
+        <div class="logo">Planning Hub</div>
+        <h1>Was möchtest du planen?</h1>
+        <p class="subtitle">Beschreib dein Projekt — die KI generiert den Aufgabenplan.</p>
+    </div>
+
+    <div class="tiles">
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Konzert am [Datum], [Besetzung / Ort]&type=konzert">
+            <div class="tile-icon">🎵</div>
+            <div class="tile-label">Konzert / Event</div>
+            <div class="tile-example">z.B. Kammerkonzert, Gottesdienst, Vereinsabend</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Hochzeit am [Datum], [Ort], ca. [Anzahl] Gäste&type=hochzeit">
+            <div class="tile-icon">💍</div>
+            <div class="tile-label">Hochzeit / Feier</div>
+            <div class="tile-example">z.B. Hochzeit, Geburtstag, Jubiläum</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle], [Vollzeit / Teilzeit]&type=recruiting">
+            <div class="tile-icon">👤</div>
+            <div class="tile-label">Recruiting</div>
+            <div class="tile-example">z.B. Einstellung bis Quartalsbeginn</div>
+        </a>
+
+        <a class="tile tile-custom" href="{% url 'planner_start' %}?type=eigenes">
+            <div>
+                <div class="tile-label">Eigenes Projekt</div>
+                <div class="tile-example">Freie Beschreibung</div>
+            </div>
+            <span class="arrow">→</span>
+        </a>
+    </div>
+
+    <a href="{% url 'dashboard' %}" class="demo-link">
+        Beispielprojekte ansehen →
+    </a>
+</div>
+</body>
+</html>

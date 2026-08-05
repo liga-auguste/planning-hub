@@ -1,0 +1,246 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ project.name }} – Planning Hub</title>
+    <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
+    <style>
+        body {
+            background: #f7f7f8;
+            color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 14px;
+        }
+
+        .page {
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 48px 24px 80px;
+        }
+
+        /* Header */
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 40px;
+        }
+        .logo {
+            font-size: 12px;
+            font-weight: 600;
+            color: #9b9b9b;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-decoration: none;
+        }
+        .btn-new {
+            background: #1a1a1a;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 7px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .btn-new:hover { background: #333; color: #fff; }
+
+        /* Project header */
+        .project-header {
+            margin-bottom: 32px;
+        }
+        .project-name {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .project-meta {
+            color: #9b9b9b;
+            font-size: 13px;
+            display: flex;
+            gap: 16px;
+        }
+        .progress-bar-wrap {
+            margin-top: 16px;
+            height: 4px;
+            background: #e5e5e5;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: #1a1a1a;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        /* Task list */
+        .task-list {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .task-row {
+            display: flex;
+            align-items: center;
+            padding: 11px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            gap: 12px;
+        }
+        .task-row:last-child { border-bottom: none; }
+        .task-row.done .task-name { color: #bbb; text-decoration: line-through; }
+
+        /* Toggle dot */
+        .dot {
+            width: 14px; height: 14px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            flex-shrink: 0;
+            background: #d0d0d0;
+            transition: background 0.15s;
+        }
+        .dot.overdue { background: #e74c3c; }
+        .dot.urgent { background: #d0d0d0; }
+        .dot.done { background: #e0e0e0; }
+        .dot:hover { outline: 2px solid #bbb; outline-offset: 2px; }
+
+        .task-name { flex: 1; line-height: 1.4; }
+
+        .task-date {
+            font-size: 12px;
+            color: #9b9b9b;
+            white-space: nowrap;
+        }
+        .task-date.overdue { color: #e74c3c; }
+        .task-date.urgent { color: #e87200; }
+
+        .task-kontext {
+            font-size: 11px;
+            color: #bbb;
+            background: #f5f5f5;
+            border-radius: 4px;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+
+        /* AI Summary */
+        .summary-box {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 10px;
+            padding: 24px 28px;
+            margin-bottom: 24px;
+            line-height: 1.7;
+            font-size: 14px;
+        }
+        .summary-box h2 { display: none; }
+        .summary-box strong { font-weight: 600; }
+        .summary-box ul { padding-left: 20px; margin: 8px 0; }
+        .summary-box li { margin-bottom: 4px; }
+        .summary-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #9b9b9b;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        .summary-box hr { border: none; border-top: 1px solid #f0f0f0; margin: 16px 0; }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <div class="top-nav">
+        <a href="{% url 'index' %}" class="logo">Planning Hub</a>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <a href="{% url 'download_plan' %}"
+               style="font-size:13px; color:#9b9b9b; text-decoration:none; padding:7px 12px; border:1px solid #e5e5e5; border-radius:6px;"
+               title="Als Markdown-Datei speichern — nutzbar in Notion, Obsidian, KI-Tools">
+                ↓ Plan herunterladen
+            </a>
+            <a href="{% url 'planner_start' %}" class="btn-new">+ Neu planen</a>
+        </div>
+    </div>
+
+    <div class="project-header">
+        <div class="project-name">{{ project.name }}</div>
+        <div class="project-meta">
+            <span>📅 {{ project.event_date_display }}</span>
+            <span>{{ done_count }} / {{ total }} erledigt</span>
+        </div>
+        {% if total %}
+        <div class="progress-bar-wrap">
+            <div class="progress-bar-fill"
+                 style="width: {{ done_count|floatformat:0 }}00%"
+                 id="progress-fill"></div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if summary %}
+    <div class="summary-label">KI-Übersicht</div>
+    <div class="summary-box">{{ summary|safe }}</div>
+    {% endif %}
+
+    <div class="task-list">
+        {% for task in project.tasks %}
+        <div class="task-row {% if task.done %}done{% endif %}" id="row-{{ task.id }}">
+            <button
+                class="dot {{ task.urgency }}"
+                data-task-id="{{ task.id }}"
+                data-done="{% if task.done %}true{% else %}false{% endif %}"
+                onclick="toggleTask(this)"
+                title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}">
+            </button>
+            <span class="task-name">{{ task.name }}</span>
+            {% if task.due_display %}
+            <span class="task-date {{ task.urgency }}">{{ task.due_display }}</span>
+            {% endif %}
+            {% if task.kontext %}
+            <span class="task-kontext">{{ task.kontext.0 }}</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+
+</div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const total = {{ total }};
+
+function toggleTask(btn) {
+    const taskId = btn.dataset.taskId;
+    const currentDone = btn.dataset.done === 'true';
+    const newDone = !currentDone;
+
+    btn.dataset.done = newDone;
+    const row = document.getElementById('row-' + taskId);
+    row.classList.toggle('done', newDone);
+    btn.classList.toggle('done', newDone);
+
+    updateProgress();
+
+    fetch(`/session-task/${taskId}/toggle/`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({done: newDone}),
+    });
+}
+
+function updateProgress() {
+    const doneCount = document.querySelectorAll('.task-row.done').length;
+    const fill = document.getElementById('progress-fill');
+    if (fill && total > 0) {
+        fill.style.width = (doneCount / total * 100) + '%';
+    }
+}
+</script>
+</body>
+</html>

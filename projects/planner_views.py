@@ -1,6 +1,8 @@
 from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.conf import settings
+from django.http import JsonResponse
+from .models import PlannerRule, DemoEvent
 from .notion import get_historical_projects, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
@@ -18,6 +20,7 @@ MONTHS_DE_REV = {
 HISTORY_CACHE_KEY = "historical_projects"
 HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 Stunden
 
+
 def _get_history():
     if settings.DEMO_MODE:
         return get_demo_history()
@@ -28,13 +31,32 @@ def _get_history():
     return history
 
 
+def _get_active_rules():
+    return list(PlannerRule.objects.filter(active=True).order_by('order').values_list('text', flat=True))
+
+
 def _parse_event_date(description: str):
+    today = date.today()
+    # Mit Jahr
     m = re.search(r'(\d{1,2})\.\s+(\w+)\s+(\d{4})', description, re.IGNORECASE)
     if m:
         month = MONTHS_DE_REV.get(m.group(2).lower())
         if month:
             try:
                 return date(int(m.group(3)), month, int(m.group(1)))
+            except ValueError:
+                pass
+    # Ohne Jahr — nächstes Vorkommen innerhalb ~12 Monate
+    m = re.search(r'(\d{1,2})\.\s+([A-Za-zÄäÖöÜüß]+)', description, re.IGNORECASE)
+    if m:
+        month = MONTHS_DE_REV.get(m.group(2).lower())
+        if month:
+            try:
+                day = int(m.group(1))
+                candidate = date(today.year, month, day)
+                if candidate <= today:
+                    candidate = date(today.year + 1, month, day)
+                return candidate
             except ValueError:
                 pass
     return None
@@ -45,13 +67,18 @@ def planner_start(request):
         description = request.POST.get('description', '').strip()
         if description:
             history = _get_history()
-            questions = get_clarifying_questions(description, history)
+            rules = _get_active_rules()
+            questions = get_clarifying_questions(description, history, rules)
             questions_html = md.markdown(questions)
             return render(request, 'projects/planner_questions.html', {
                 'description': description,
                 'questions': questions_html,
-})
-    return render(request, 'projects/planner_start.html')
+            })
+    prefill = request.GET.get('prefill', '')
+    project_type = request.GET.get('type', '')
+    if project_type:
+        request.session['demo_project_type'] = project_type
+    return render(request, 'projects/planner_start.html', {'prefill': prefill})
 
 
 def planner_questions(request):
@@ -61,24 +88,11 @@ def planner_questions(request):
 def planner_review(request):
     if request.method == 'POST':
         description = request.POST.get('description', '').strip()
-        answers = request.POST.get('answers', '').strip()
-        uhrzeit = request.POST.get('uhrzeit', '')
-        honorar = request.POST.get('honorar', '')
-        fahrtkosten = request.POST.get('fahrtkosten', '')
-        programm = request.POST.get('programm', '')
-        bedarf = request.POST.get('bedarf', '')
-
-        full_answers = f"""{answers}
-
-Vereinbarung:
-- Uhrzeit: {uhrzeit}
-- Honorar: {honorar} €
-- Fahrtkosten: {fahrtkosten} €
-- Programm: {programm}
-- Besonderer Bedarf: {bedarf}"""
+        full_answers = request.POST.get('answers', '').strip()
 
         history = _get_history()
-        plan_json = generate_plan(description, full_answers, history)
+        rules = _get_active_rules()
+        plan_json = generate_plan(description, full_answers, history, rules)
         try:
             plan = json.loads(plan_json)
         except json.JSONDecodeError as e:
@@ -87,7 +101,7 @@ Vereinbarung:
             print(f"Stelle: {plan_json[max(0,e.pos-100):e.pos+100]}")
             raise
 
-        KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
+        KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)
         project_name = description.split(',')[0].strip()
         return render(request, 'projects/planner_review.html', {
@@ -96,8 +110,10 @@ Vereinbarung:
             'tasks': plan['tasks'],
             'kontexte': KONTEXTE,
             'event_date_iso': event_date.isoformat() if event_date else '',
+            'demo_mode': settings.DEMO_MODE,
         })
-        
+
+
 def planner_create(request):
     if request.method == 'POST':
         description = request.POST.get('description', '').strip()
@@ -109,14 +125,88 @@ def planner_create(request):
         project_name = request.POST.get('project_name', description).strip()
         event_date = date.fromisoformat(event_date_str)
 
-        if not settings.DEMO_MODE:
-            project_id = create_project(project_name, event_date)
+        if settings.DEMO_MODE:
             tasks = [
-                {"name": n, "date": d}
-                for n, d in zip(names, dates)
+                {'id': f'demo-session-{i}', 'name': n, 'date': d, 'kontext': k, 'done': False}
+                for i, (n, d, k) in enumerate(zip(names, dates, kontexte))
                 if n and d
             ]
-            create_tasks(project_id, tasks)
-            cache.delete('dashboard_data')
+            request.session['demo_plan'] = {
+                'name': project_name,
+                'event_date': event_date_str,
+                'tasks': tasks,
+            }
+            request.session.pop('demo_plan_summary', None)
+            project_type = request.session.get('demo_project_type', '')
+            DemoEvent.objects.create(
+                event_type='plan_generated',
+                project_type=project_type,
+                task_count=len(tasks),
+            )
+            return redirect('dashboard')
 
+        project_id = create_project(project_name, event_date)
+        tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
+        create_tasks(project_id, tasks)
+        cache.delete('dashboard_data')
         return redirect('dashboard')
+
+
+# --- Regeln-Verwaltung ---
+
+def rules_list(request):
+    rules = PlannerRule.objects.all()
+    return render(request, 'projects/planner_rules.html', {'rules': rules})
+
+
+def rule_add(request):
+    if request.method == 'POST':
+        text = request.POST.get('text', '').strip()
+        if text:
+            last = PlannerRule.objects.order_by('-order').first()
+            next_order = (last.order + 1) if last else 0
+            PlannerRule.objects.create(text=text, active=True, order=next_order)
+    return redirect('rules_list')
+
+
+def rule_toggle(request, rule_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    try:
+        rule = PlannerRule.objects.get(pk=rule_id)
+        rule.active = not rule.active
+        rule.save()
+        return JsonResponse({'active': rule.active})
+    except PlannerRule.DoesNotExist:
+        return JsonResponse({'error': 'not found'}, status=404)
+
+
+def rule_update(request, rule_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    try:
+        data = json.loads(request.body)
+        rule = PlannerRule.objects.get(pk=rule_id)
+        text = data.get('text', '').strip()
+        if text:
+            rule.text = text
+            rule.save()
+        return JsonResponse({'ok': True})
+    except PlannerRule.DoesNotExist:
+        return JsonResponse({'error': 'not found'}, status=404)
+
+
+def rule_delete(request, rule_id):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    PlannerRule.objects.filter(pk=rule_id).delete()
+    return JsonResponse({'ok': True})
+
+
+def rule_reorder(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    data = json.loads(request.body)
+    for i, rule_id in enumerate(data.get('order', [])):
+        PlannerRule.objects.filter(pk=rule_id).update(order=i)
+    return JsonResponse({'ok': True})

@@ -4,11 +4,12 @@ import markdown
 import json
 from django.shortcuts import render, redirect
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.conf import settings
 from .notion import get_upcoming_projects, toggle_task, update_task_date
 from .ai import generate_weekly_summary, derive_kontext
 from .demo_data import get_demo_projects
+from .models import DemoEvent
 
 MONTHS_DE = {
     1: "Januar", 2: "Februar", 3: "März", 4: "April",
@@ -102,12 +103,52 @@ def _strip_year(name):
     return re.sub(r'\s+\d{4}$', '', name).strip()
 
 
+def index(request):
+    if settings.DEMO_MODE:
+        return render(request, 'projects/landing.html')
+    return redirect('dashboard')
+
+
+def _build_session_project(session_plan):
+    event_date = date.fromisoformat(session_plan['event_date'])
+    tasks = [
+        {
+            'id': t['id'],
+            'name': t['name'],
+            'due': date.fromisoformat(t['date']) if t.get('date') else None,
+            'done': t['done'],
+            'kontext': t['kontext'] if t.get('kontext') else '',
+        }
+        for t in session_plan['tasks']
+    ]
+    return {
+        'id': 'session-plan',
+        'name': session_plan['name'],
+        'event_date': event_date,
+        'performers': '',
+        'tasks': tasks,
+        'status': 'in Vorbereitung',
+        'status_color': 'default',
+    }
+
+
 def dashboard(request):
     today = date.today()
+    has_session_plan = False
 
     if settings.DEMO_MODE:
-        projects = _annotate_tasks(get_demo_projects(), today)
-        summary = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, today)))
+        session_plan = request.session.get('demo_plan')
+        if session_plan:
+            has_session_plan = True
+            projects = _annotate_tasks([_build_session_project(session_plan)], today)
+            summary_html = request.session.get('demo_plan_summary')
+            if not summary_html:
+                summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, today)))
+                request.session['demo_plan_summary'] = summary_html
+            summary = summary_html
+        else:
+            projects = _annotate_tasks(get_demo_projects(), today)
+            summary = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, today)))
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
@@ -137,6 +178,8 @@ def dashboard(request):
         'today_display': _format_date(today),
         'today_iso': today.isoformat(),
         'project_map': json.dumps(project_map),
+        'has_session_plan': has_session_plan,
+        'demo_mode': settings.DEMO_MODE,
     })
 
 
@@ -147,11 +190,18 @@ def refresh(request):
 
 def toggle_task_view(request, task_id):
     if request.method != "POST":
-        return JsonResponse({"error": "methon not allowed"}, status=405)
-    
-    data =json.loads(request.body)
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    data = json.loads(request.body)
     done = data["done"]
-    if not settings.DEMO_MODE:
+    if settings.DEMO_MODE:
+        plan = request.session.get('demo_plan')
+        if plan:
+            for t in plan['tasks']:
+                if t['id'] == task_id:
+                    t['done'] = done
+                    break
+            request.session['demo_plan'] = plan
+    else:
         toggle_task(task_id, done)
     return JsonResponse({"ok": True})
 
@@ -162,4 +212,159 @@ def reschedule_task_view(request, task_id):
     data = json.loads(request.body)
     if not settings.DEMO_MODE:
         update_task_date(task_id, data["date"])
+    return JsonResponse({"ok": True})
+
+
+def stats(request):
+    from django.db.models import Count
+    from django.db.models.functions import TruncDate
+
+    total_generated = DemoEvent.objects.filter(event_type='plan_generated').count()
+    total_downloaded = DemoEvent.objects.filter(event_type='plan_downloaded').count()
+
+    by_type = (
+        DemoEvent.objects
+        .filter(event_type='plan_generated')
+        .values('project_type')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+
+    by_day = (
+        DemoEvent.objects
+        .filter(event_type='plan_generated')
+        .annotate(day=TruncDate('created_at'))
+        .values('day')
+        .annotate(count=Count('id'))
+        .order_by('-day')[:14]
+    )
+
+    TYPE_LABELS = {
+        'konzert': 'Konzert / Event',
+        'hochzeit': 'Hochzeit / Feier',
+        'recruiting': 'Recruiting',
+        'eigenes': 'Eigenes Projekt',
+        '': 'Unbekannt',
+    }
+
+    return render(request, 'projects/stats.html', {
+        'total_generated': total_generated,
+        'total_downloaded': total_downloaded,
+        'download_rate': round(total_downloaded / total_generated * 100) if total_generated else 0,
+        'by_type': [{'label': TYPE_LABELS.get(r['project_type'], r['project_type']), 'count': r['count']} for r in by_type],
+        'by_day': list(by_day),
+    })
+
+
+def my_plan(request):
+    plan = request.session.get('demo_plan')
+    if not plan:
+        return redirect('index')
+
+    today = date.today()
+    event_date = date.fromisoformat(plan['event_date'])
+
+    tasks = []
+    for t in plan['tasks']:
+        due = date.fromisoformat(t['date']) if t.get('date') else None
+        tasks.append({
+            'id': t['id'],
+            'name': t['name'],
+            'due': due,
+            'done': t['done'],
+            'kontext': [t['kontext']] if t.get('kontext') else [],
+        })
+
+    project = {
+        'id': 'session-plan',
+        'name': plan['name'],
+        'event_date': event_date,
+        'event_date_display': _format_date(event_date),
+        'performers': '',
+        'tasks': tasks,
+        'status': 'in Vorbereitung',
+    }
+    _annotate_tasks([project], today)
+
+    done_count = sum(1 for t in tasks if t['done'])
+    total = len(tasks)
+
+    summary_html = request.session.get('demo_plan_summary')
+    if not summary_html:
+        summary_md = generate_weekly_summary([project], today)
+        summary_html = markdown.markdown(_fix_ai_markdown(summary_md))
+        request.session['demo_plan_summary'] = summary_html
+
+    return render(request, 'projects/my_plan.html', {
+        'project': project,
+        'done_count': done_count,
+        'total': total,
+        'today': today,
+        'today_display': _format_date(today),
+        'summary': summary_html,
+    })
+
+
+def download_plan(request):
+    plan = request.session.get('demo_plan')
+    if not plan:
+        return redirect('index')
+
+    today = date.today()
+    event_date = date.fromisoformat(plan['event_date'])
+    event_display = _format_date(event_date)
+
+    lines = [
+        f"# {plan['name']}",
+        f"**Zieldatum:** {event_display}",
+        "",
+        "---",
+        "",
+        "## Aufgabenplan",
+        "",
+    ]
+
+    for t in plan['tasks']:
+        checkbox = "[x]" if t['done'] else "[ ]"
+        due = date.fromisoformat(t['date']) if t.get('date') else None
+        due_str = f" — {_format_date(due)}" if due else ""
+        kontext = f" *({t['kontext']})*" if t.get('kontext') else ""
+        lines.append(f"- {checkbox} {t['name']}{kontext}{due_str}")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "> **Tipp für KI-Tools:** Füge diese Datei in Claude, ChatGPT oder dein",
+        "> bevorzugtes KI-Tool ein und schreibe z.B.:",
+        '> - "Erstelle mir einen wöchentlichen Fokusplan aus dieser Aufgabenliste"',
+        '> - "Welche Aufgaben haben diese Woche Priorität?"',
+        '> - "Schreibe mir eine Erinnerungs-E-Mail für die überfälligen Punkte"',
+        "",
+        f"*Generiert mit Planning Hub · {today.strftime('%d.%m.%Y')}*",
+    ]
+
+    content = "\n".join(lines)
+    filename = plan['name'].replace(" ", "_").replace("/", "-")[:50] + ".md"
+
+    project_type = request.session.get('demo_project_type', '')
+    DemoEvent.objects.create(event_type='plan_downloaded', project_type=project_type)
+
+    response = HttpResponse(content, content_type="text/markdown; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def toggle_session_task(request, task_id):
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    data = json.loads(request.body)
+    done = data["done"]
+    plan = request.session.get('demo_plan')
+    if plan:
+        for t in plan['tasks']:
+            if t['id'] == task_id:
+                t['done'] = done
+                break
+        request.session['demo_plan'] = plan
     return JsonResponse({"ok": True})
