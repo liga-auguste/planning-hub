@@ -45,7 +45,10 @@
 </head>
 <body>
 <div class="page">
-    <a href="{% url 'dashboard' %}" class="back">← Dashboard</a>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:32px;">
+        <a href="/" style="font-size:11px; font-weight:600; color:#c0c0c0; letter-spacing:0.1em; text-transform:uppercase; text-decoration:none;">Planning Hub</a>
+        <a href="{% url 'dashboard' %}" style="color:#9b9b9b; font-size:13px; text-decoration:none;">← Dashboard</a>
+    </div>
     <h1>Nutzungsübersicht</h1>
     <p class="subtitle">Anonyme Ereignisse — kein Inhalt, keine personenbezogenen Daten.</p>
 
@@ -89,7 +92,7 @@
             {% for row in by_day %}
             <div class="day-row">
                 <span>{{ row.day }}</span>
-                <span class="day-count">{{ row.count }} Plan{{ row.count|pluralize:"","e" }}</span>
+                <span class="day-count">{{ row.count }} {% if row.count == 1 %}Plan{% else %}Pläne{% endif %}</span>
             </div>
             {% endfor %}
         {% else %}

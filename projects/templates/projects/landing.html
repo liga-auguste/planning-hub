@@ -16,57 +16,62 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 40px 20px;
+            padding: 48px 20px;
         }
 
         .wrapper {
-            max-width: 560px;
+            max-width: 720px;
             width: 100%;
         }
 
-        .header {
-            margin-bottom: 40px;
-        }
-
         .logo {
-            font-size: 13px;
+            font-size: 11px;
             font-weight: 600;
-            color: #9b9b9b;
-            letter-spacing: 0.08em;
+            color: #c0c0c0;
+            letter-spacing: 0.1em;
             text-transform: uppercase;
             margin-bottom: 20px;
         }
 
         h1 {
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 600;
-            line-height: 1.2;
-            margin-bottom: 10px;
+            line-height: 1.25;
+            margin-bottom: 12px;
         }
 
-        .subtitle {
-            font-size: 15px;
+        .intro {
+            font-size: 14px;
             color: #6b6b6b;
-            line-height: 1.5;
+            line-height: 1.65;
+            max-width: 540px;
+            margin-bottom: 36px;
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #c0c0c0;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 12px;
         }
 
         .tiles {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 12px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
         }
 
         .tile {
             display: block;
             background: #fff;
             border: 1px solid #e5e5e5;
-            border-radius: 10px;
-            padding: 20px;
+            border-radius: 8px;
+            padding: 16px;
             text-decoration: none;
             color: #1a1a1a;
             transition: border-color 0.15s, box-shadow 0.15s;
-            cursor: pointer;
         }
 
         .tile:hover {
@@ -75,20 +80,20 @@
         }
 
         .tile-icon {
-            font-size: 22px;
-            margin-bottom: 10px;
+            font-size: 18px;
+            margin-bottom: 8px;
             line-height: 1;
         }
 
         .tile-label {
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 600;
             margin-bottom: 4px;
         }
 
         .tile-example {
-            font-size: 12px;
-            color: #9b9b9b;
+            font-size: 11px;
+            color: #aaa;
             line-height: 1.4;
         }
 
@@ -96,8 +101,9 @@
             grid-column: 1 / -1;
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 16px 20px;
+            gap: 10px;
+            padding: 14px 16px;
+            background: #f7f7f8;
         }
 
         .tile-custom .tile-label {
@@ -106,55 +112,92 @@
 
         .tile-custom .arrow {
             margin-left: auto;
-            color: #9b9b9b;
-            font-size: 18px;
+            color: #c0c0c0;
+            font-size: 15px;
         }
 
         .demo-link {
             display: block;
             text-align: center;
-            margin-top: 32px;
-            color: #bbb;
-            font-size: 12px;
+            margin-top: 28px;
+            color: #ccc;
+            font-size: 11px;
             text-decoration: none;
+            letter-spacing: 0.02em;
         }
 
-        .demo-link:hover {
-            color: #9b9b9b;
+        .demo-link:hover { color: #999; }
+
+        @media (max-width: 520px) {
+            .tiles { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
 <body>
 <div class="wrapper">
-    <div class="header">
-        <div class="logo">Planning Hub</div>
-        <h1>Was möchtest du planen?</h1>
-        <p class="subtitle">Beschreib dein Projekt — die KI generiert den Aufgabenplan.</p>
-    </div>
+    <div class="logo">Planning Hub</div>
+    <h1>KI-Assistent für die Projektplanung</h1>
+    <p class="intro">
+        Beschreib dein Vorhaben in einem Satz — die KI stellt gezielte Rückfragen
+        und generiert daraus einen vollständigen Aufgabenplan mit realistischen Deadlines.
+        Kein Formular, keine Vorlage: einfach beschreiben und loslegen.
+    </p>
+
+    <div class="section-label">Womit möchtest du starten?</div>
 
     <div class="tiles">
         <a class="tile" href="{% url 'planner_start' %}?prefill=Konzert am [Datum], [Besetzung / Ort]&type=konzert">
             <div class="tile-icon">🎵</div>
             <div class="tile-label">Konzert / Event</div>
-            <div class="tile-example">z.B. Kammerkonzert, Gottesdienst, Vereinsabend</div>
+            <div class="tile-example">Musikveranstaltung, Gottesdienst, Vereinsabend</div>
         </a>
 
         <a class="tile" href="{% url 'planner_start' %}?prefill=Hochzeit am [Datum], [Ort], ca. [Anzahl] Gäste&type=hochzeit">
             <div class="tile-icon">💍</div>
             <div class="tile-label">Hochzeit / Feier</div>
-            <div class="tile-example">z.B. Hochzeit, Geburtstag, Jubiläum</div>
+            <div class="tile-example">Hochzeit, Geburtstag, Jubiläum</div>
         </a>
 
-        <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle], [Vollzeit / Teilzeit]&type=recruiting">
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle]&type=recruiting">
             <div class="tile-icon">👤</div>
             <div class="tile-label">Recruiting</div>
-            <div class="tile-example">z.B. Einstellung bis Quartalsbeginn</div>
+            <div class="tile-example">Stelle besetzen, Bewerbungsprozess</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Produktlaunch am [Datum]: [Produkt / Feature / Kollektion]&type=launch">
+            <div class="tile-icon">🚀</div>
+            <div class="tile-label">Produktlaunch</div>
+            <div class="tile-example">Software-Release, neue Kollektion</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Workshop am [Datum], Thema: [Thema], ca. [Anzahl] Teilnehmer&type=workshop">
+            <div class="tile-icon">🎓</div>
+            <div class="tile-label">Workshop / Schulung</div>
+            <div class="tile-example">Seminar, Trainingsday, Webinar</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Marketing-Kampagne für [Produkt / Anlass], Start: [Datum]&type=kampagne">
+            <div class="tile-icon">📣</div>
+            <div class="tile-label">Kampagne</div>
+            <div class="tile-example">Launch-Kampagne, Mailing, Social Media</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Konferenz / Tagung am [Datum], [Ort], ca. [Anzahl] Teilnehmer&type=konferenz">
+            <div class="tile-icon">🤝</div>
+            <div class="tile-label">Konferenz / Tagung</div>
+            <div class="tile-example">Fachtagung, Firmenevent, Meetup</div>
+        </a>
+
+        <a class="tile" href="{% url 'planner_start' %}?prefill=Umzug / Einrichtung am [Datum]: [Büro / Wohnung / Standort]&type=umzug">
+            <div class="tile-icon">🏗️</div>
+            <div class="tile-label">Umzug / Umbau</div>
+            <div class="tile-example">Büroumzug, Renovierung, neue Räume</div>
         </a>
 
         <a class="tile tile-custom" href="{% url 'planner_start' %}?type=eigenes">
             <div>
                 <div class="tile-label">Eigenes Projekt</div>
-                <div class="tile-example">Freie Beschreibung</div>
+                <div class="tile-example">Freie Beschreibung — für alles andere</div>
             </div>
             <span class="arrow">→</span>
         </a>

@@ -23,11 +23,26 @@
         }
         h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
         .subtitle { color: #9b9b9b; margin-bottom: 28px; }
+        .top-bar {
+            max-width: 800px; margin: 32px auto 0; padding-bottom: 20px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .wordmark { font-size: 11px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none; }
+        .wordmark:hover { color: #9b9b9b; }
+        .steps { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        .step { color: #d0d0d0; }
+        .step.active { color: #1a1a1a; font-weight: 600; }
+        .step-sep { color: #e0e0e0; }
         table { width: 100%; border-collapse: collapse; }
         th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
         td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-        td:first-child { width: 45%; }
-        td input[type="text"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; }
+        td:nth-child(2) { width: 150px; white-space: nowrap; }
+        td:last-child { width: 36px; }
+        td textarea[name="task_name"] {
+            border: 1px solid transparent; border-radius: 4px; padding: 5px 8px;
+            font-size: 14px; width: 100%; resize: none; overflow: hidden;
+            font-family: inherit; line-height: 1.4; display: block;
+        }
         td input[type="number"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 80px; }
         td select { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; background: #f0f0f0; }
         td input:hover, td input:focus, td select:hover, td select:focus { border-color: #e5e5e5; outline: none; }
@@ -49,6 +64,16 @@
     </style>
 </head>
 <body>
+    <div class="top-bar">
+        <a href="/" class="wordmark">Planning Hub</a>
+        <div class="steps">
+            <span class="step">Beschreiben</span>
+            <span class="step-sep">›</span>
+            <span class="step">Klärung</span>
+            <span class="step-sep">›</span>
+            <span class="step active">Review</span>
+        </div>
+    </div>
     <div class="planner-card">
         <a href="{% url 'planner_start' %}" class="back">← Neu planen</a>
         <h1>Plan reviewen</h1>
@@ -75,15 +100,18 @@
                     <tr>
                         <th>Aufgabe</th>
                         <th>Datum</th>
-                        <th>Kontext</th>
+                        {% if not demo_mode %}<th>Kontext</th>{% endif %}
                         <th></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for task in tasks %}
                     <tr data-days="{{ task.days_before }}">
-                        <td><input type="text" name="task_name" value="{{ task.name }}"></td>
+                        <td><textarea name="task_name" rows="1">{{ task.name }}</textarea></td>
                         <td><input type="date" name="task_date"></td>
+                        {% if demo_mode %}
+                        <input type="hidden" name="task_kontext" value="">
+                        {% else %}
                         <td>
                             <select name="task_kontext">
                                 {% for k in kontexte %}
@@ -91,6 +119,7 @@
                                 {% endfor %}
                             </select>
                         </td>
+                        {% endif %}
                         <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
                     </tr>
                     {% endfor %}
@@ -134,7 +163,16 @@
 
         document.getElementById('event-date').addEventListener('change', updateDates);
         updateDates();
-        </script>
+
+        function autoResize(ta) {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
+        }
+        document.querySelectorAll('textarea[name="task_name"]').forEach(ta => {
+            autoResize(ta);
+            ta.addEventListener('input', () => autoResize(ta));
+        });
+</script>
     </div>
 </body>
 </html>

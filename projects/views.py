@@ -8,6 +8,7 @@ from django.http import JsonResponse, HttpResponse
 from django.conf import settings
 from .notion import get_upcoming_projects, toggle_task, update_task_date
 from .ai import generate_weekly_summary, derive_kontext
+import copy
 from .demo_data import get_demo_projects
 from .models import DemoEvent
 
@@ -137,18 +138,28 @@ def dashboard(request):
     has_session_plan = False
 
     if settings.DEMO_MODE:
+        sim_date_str = request.session.get('demo_sim_date')
+        sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
+        effective_today = sim_date or today
+
         session_plan = request.session.get('demo_plan')
         if session_plan:
             has_session_plan = True
-            projects = _annotate_tasks([_build_session_project(session_plan)], today)
-            summary_html = request.session.get('demo_plan_summary')
+            project = copy.deepcopy(_build_session_project(session_plan))
+            if sim_date:
+                for task in project['tasks']:
+                    if task.get('due') and task['due'] <= sim_date:
+                        task['done'] = True
+            projects = _annotate_tasks([project], effective_today)
+            summary_key = f'demo_plan_summary_v3_{sim_date_str or "today"}'
+            summary_html = request.session.get(summary_key)
             if not summary_html:
-                summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, today)))
-                request.session['demo_plan_summary'] = summary_html
+                summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today, single_project_demo=True)))
+                request.session[summary_key] = summary_html
             summary = summary_html
         else:
-            projects = _annotate_tasks(get_demo_projects(), today)
-            summary = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, today)))
+            projects = _annotate_tasks(get_demo_projects(), effective_today)
+            summary = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today)))
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
@@ -170,6 +181,18 @@ def dashboard(request):
         for p in group['projects']
     }
 
+    timelapse_moments = request.session.get('demo_timelapse_moments', []) if settings.DEMO_MODE else []
+    sim_date_str = request.session.get('demo_sim_date') if settings.DEMO_MODE else None
+
+    # Project name for demo single-project header
+    demo_project_name = ''
+    demo_project_date = ''
+    if settings.DEMO_MODE and has_session_plan and month_groups:
+        first_project = month_groups[0]['projects'][0] if month_groups[0]['projects'] else None
+        if first_project:
+            demo_project_name = first_project['display_name']
+            demo_project_date = first_project['event_date_display']
+
     return render(request, 'projects/dashboard.html', {
         'month_groups': month_groups,
         'years': years,
@@ -180,6 +203,11 @@ def dashboard(request):
         'project_map': json.dumps(project_map),
         'has_session_plan': has_session_plan,
         'demo_mode': settings.DEMO_MODE,
+        'timelapse_moments': json.dumps(timelapse_moments),
+        'sim_date': sim_date_str,
+        'sim_date_display': _format_date(date.fromisoformat(sim_date_str)) if sim_date_str else '',
+        'demo_project_name': demo_project_name,
+        'demo_project_date': demo_project_date,
     })
 
 
@@ -187,6 +215,48 @@ def refresh(request):
     if request.method == "POST":
         cache.delete(CACHE_KEY)
     return redirect("dashboard")
+
+
+def set_timelapse_date(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    data = json.loads(request.body)
+    sim_date = data.get('date')
+    if sim_date:
+        request.session['demo_sim_date'] = sim_date
+    else:
+        request.session.pop('demo_sim_date', None)
+    return JsonResponse({'ok': True})
+
+
+def preload_timelapse_summary(request):
+    """Pre-generates and caches KI summary for a given sim date (called from JS background)."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'method not allowed'}, status=405)
+    data = json.loads(request.body)
+    sim_date_str = data.get('date')  # None = heute
+
+    today = date.today()
+    sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
+    effective_today = sim_date or today
+    summary_key = f'demo_plan_summary_v3_{sim_date_str or "today"}'
+
+    if request.session.get(summary_key):
+        return JsonResponse({'ok': True, 'cached': True})
+
+    session_plan = request.session.get('demo_plan')
+    if not session_plan:
+        return JsonResponse({'ok': False})
+
+    project = copy.deepcopy(_build_session_project(session_plan))
+    if sim_date:
+        for task in project['tasks']:
+            if task.get('due') and task['due'] <= sim_date:
+                task['done'] = True
+    projects = _annotate_tasks([project], effective_today)
+    summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today, single_project_demo=True)))
+    request.session[summary_key] = summary_html
+    return JsonResponse({'ok': True})
 
 def toggle_task_view(request, task_id):
     if request.method != "POST":
@@ -289,11 +359,11 @@ def my_plan(request):
     done_count = sum(1 for t in tasks if t['done'])
     total = len(tasks)
 
-    summary_html = request.session.get('demo_plan_summary')
+    summary_html = request.session.get('demo_plan_summary_v3_today')
     if not summary_html:
-        summary_md = generate_weekly_summary([project], today)
+        summary_md = generate_weekly_summary([project], today, single_project_demo=True)
         summary_html = markdown.markdown(_fix_ai_markdown(summary_md))
-        request.session['demo_plan_summary'] = summary_html
+        request.session['demo_plan_summary_v3_today'] = summary_html
 
     return render(request, 'projects/my_plan.html', {
         'project': project,

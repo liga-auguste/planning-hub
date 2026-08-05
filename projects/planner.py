@@ -81,6 +81,7 @@ Antworte NUR mit JSON, kein erklärender Text darum.
 
 Format:
 {{
+  "project_name": "Kurzer prägnanter Eventname (max. 5 Wörter, kein Datum)",
   "tasks": [
     {{"name": "Aufgabenname", "days_before": 30, "kontext": "Büro"}},
     ...

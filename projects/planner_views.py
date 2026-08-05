@@ -6,6 +6,7 @@ from .models import PlannerRule, DemoEvent
 from .notion import get_historical_projects, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
+from .ai import generate_timelapse_moments
 import markdown as md
 import json
 import re
@@ -103,7 +104,7 @@ def planner_review(request):
 
         KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)
-        project_name = description.split(',')[0].strip()
+        project_name = plan.get('project_name') or description.split(',')[0].strip()
         return render(request, 'projects/planner_review.html', {
             'description': description,
             'project_name': project_name,
@@ -136,7 +137,17 @@ def planner_create(request):
                 'event_date': event_date_str,
                 'tasks': tasks,
             }
-            request.session.pop('demo_plan_summary', None)
+            # Clear cached summaries and old timelapse state
+            for key in list(request.session.keys()):
+                if key.startswith('demo_plan_summary_v3'):
+                    del request.session[key]
+            request.session.pop('demo_sim_date', None)
+            # Generate narrative timelapse moments
+            try:
+                moments = generate_timelapse_moments(project_name, event_date, tasks)
+                request.session['demo_timelapse_moments'] = moments
+            except Exception:
+                request.session.pop('demo_timelapse_moments', None)
             project_type = request.session.get('demo_project_type', '')
             DemoEvent.objects.create(
                 event_type='plan_generated',

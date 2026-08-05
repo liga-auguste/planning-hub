@@ -23,7 +23,12 @@
             top: 0; left: 0;
             overflow-y: auto;
             overflow-x: hidden;
+            transition: width 0.2s ease;
         }
+        .sidebar.collapsed {
+            width: 48px;
+        }
+        .sidebar.collapsed .sidebar-content { display: none; }
         .sidebar-resize {
             position: absolute;
             top: 0; right: 0;
@@ -31,6 +36,22 @@
             height: 100%;
             cursor: col-resize;
         }
+        .sidebar.collapsed .sidebar-resize { display: none; }
+        .sidebar-toggle {
+            position: absolute;
+            top: 16px;
+            right: 12px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #c0c0c0;
+            font-size: 16px;
+            padding: 2px 4px;
+            line-height: 1;
+            z-index: 10;
+        }
+        .sidebar-toggle:hover { color: #1a1a1a; }
+        .sidebar.collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
         .sidebar-title {
             font-size: 11px;
             font-weight: 600;
@@ -82,8 +103,10 @@
         .dot.orange, .dot.purple, .dot.pink, .dot.brown, .dot.default { background: #c8c8c8; }
         .main {
             margin-left: 320px;
-            max-width: 860px;
+            max-width: 920px;
+            transition: margin-left 0.2s ease;
         }
+        .main.sidebar-collapsed { margin-left: 48px; }
         .content-body { padding: 40px 48px; }
         .ai-card {
             margin-bottom: 40px;
@@ -207,63 +230,415 @@
             margin-left: 8px;
             white-space: nowrap;
         }
+        .timelapse-bar {
+            margin-bottom: 32px;
+        }
+        .timelapse-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #c0c0c0;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 10px;
+        }
+        .timelapse-moments {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .moment-btn {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            text-align: left;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            min-width: 0;
+        }
+        .moment-btn:hover {
+            border-color: #1a1a1a;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+        }
+        .moment-btn.active {
+            border-color: #1a1a1a;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .moment-btn.active .moment-date { color: #aaa; }
+        .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; }
+        .moment-date { font-size: 11px; color: #9b9b9b; margin-top: 2px; white-space: nowrap; }
+        .moment-btn-heute {
+            background: none;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #9b9b9b;
+        }
+        .moment-btn-heute:hover { border-color: #999; color: #1a1a1a; }
+        .moment-btn.loading, .moment-btn-heute.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .moment-btn .spinner {
+            display: none;
+            width: 10px; height: 10px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin-top: 4px;
+        }
+        .moment-btn.active.loading .spinner { display: block; }
+        .moment-btn:not(.active) .spinner {
+            border-top-color: #1a1a1a;
+            border-color: rgba(0,0,0,0.15);
+            border-top-color: #1a1a1a;
+        }
+        .moment-btn.loading .spinner { display: block; }
+        .moment-preloaded::after {
+            content: '';
+            display: block;
+            width: 4px; height: 4px;
+            border-radius: 50%;
+            background: #22c55e;
+            position: absolute;
+            top: 6px; right: 6px;
+        }
+        .moment-btn { position: relative; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .overview-tasks { margin-top: 36px; }
+        .overview-progress { margin-bottom: 24px; }
+        .overview-progress-label {
+            font-size: 11px;
+            color: #9b9b9b;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .progress-track {
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 99px;
+            background: #1a1a1a;
+            transition: width 0.4s ease;
+        }
+        .overview-project-group { margin-bottom: 20px; }
+        .overview-project-name {
+            font-size: 11px;
+            font-weight: 600;
+            color: #c0c0c0;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+        .overview-project-date { font-weight: 400; font-size: 11px; color: #d0d0d0; }
+        .overview-task {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .overview-task:last-child { border-bottom: none; }
+        .ot-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .ot-dot.done    { background: #e0e0e0; }
+        .ot-dot.ok      { background: #c8c8c8; }
+        .ot-dot.urgent  { background: #f97316; }
+        .ot-dot.overdue { background: #ef4444; }
+        .ot-name {
+            font-size: 12px;
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .ot-name.done    { color: #c8c8c8; text-decoration: line-through; }
+        .ot-name.urgent  { color: #1a1a1a; }
+        .ot-name.overdue { color: #ef4444; }
+        .ot-date { font-size: 11px; color: #d0d0d0; white-space: nowrap; }
+        .ot-date.urgent  { color: #f97316; }
+        .ot-date.overdue { color: #ef4444; }
+        .kanban {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 36px;
+        }
+        .kanban-col {
+            background: #f7f7f8;
+            border-radius: 8px;
+            padding: 12px;
+            min-height: 120px;
+        }
+        .kanban-col-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: #9b9b9b;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .kanban-col-count {
+            background: #e5e5e5;
+            color: #9b9b9b;
+            border-radius: 99px;
+            padding: 1px 7px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+        .kanban-col.col-urgent .kanban-col-header { color: #f97316; }
+        .kanban-col.col-urgent .kanban-col-count { background: #fff3e8; color: #f97316; }
+        .kanban-col.col-overdue .kanban-col-header { color: #ef4444; }
+        .kanban-col.col-overdue .kanban-col-count { background: #fef2f2; color: #ef4444; }
+        .kanban-col.col-done .kanban-col-header { color: #c0c0c0; }
+        .kanban-card {
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .kanban-card:last-child { margin-bottom: 0; }
+        .kanban-card.done {
+            background: #fafafa;
+            border-color: #f0f0f0;
+        }
+        .kanban-card.urgent { border-left: 3px solid #f97316; }
+        .kanban-card.overdue { border-left: 3px solid #ef4444; }
+        .kanban-card-name {
+            font-weight: 500;
+            color: #1a1a1a;
+            margin-bottom: 4px;
+        }
+        .kanban-card.done .kanban-card-name {
+            color: #c0c0c0;
+            text-decoration: line-through;
+            font-weight: 400;
+        }
+        .kanban-card-meta {
+            font-size: 11px;
+            color: #c0c0c0;
+            display: flex;
+            justify-content: space-between;
+        }
+        .kanban-card.urgent .kanban-card-meta { color: #f97316; }
+        .kanban-card.overdue .kanban-card-meta { color: #ef4444; }
+        .kanban-card.done .kanban-card-meta { color: #d8d8d8; }
+        .sim-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #1a1a1a;
+            color: #fff;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-size: 12px;
+            margin-bottom: 24px;
+        }
+        .sim-banner-reset {
+            margin-left: auto;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 11px;
+            text-decoration: underline;
+            background: none;
+            border: none;
+        }
+        .sim-banner-reset:hover { color: #fff; }
+        .download-fab {
+            position: fixed;
+            bottom: 28px;
+            right: 28px;
+            background: #1a1a1a;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+            transition: background 0.15s;
+        }
+        .download-fab:hover { background: #333; color: #fff; }
     </style>
 </head>
 <body>
 
 <div class="sidebar" id="sidebar">
     <div class="sidebar-resize" id="sidebar-resize"></div>
-    <div class="sidebar-title" style="margin-bottom: 16px; padding-top: 4px;">Planning Hub</div>
-    <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
-        <span class="dot" style="background: #1a1a1a;"></span>
-        Übersicht
-    </a>
-    <a class="sidebar-item" href="/planner/" style="color: #6b6b6b;">
-        <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
-        {% if demo_mode %}Neu planen{% else %}Neue Veranstaltung{% endif %}
-    </a>
-    {% if has_session_plan %}
-    <a class="sidebar-item" href="{% url 'download_plan' %}" style="color: #9b9b9b; margin-top: 4px;">
-        <span style="margin-right: 8px;">↓</span>
-        Plan herunterladen
-    </a>
-    {% endif %}
-    <div class="sidebar-title" style="margin-top: 16px;">Projekte {% for year in years %}{{ year }}{% if not forloop.last %}/{% endif %}{% endfor %}</div>
-    {% for group in month_groups %}
-    <div style="font-size: 11px; color: #c0c0c0; padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: 0.06em;">{{ group.month }}</div>
-    {% for project in group.projects %}
-    <a class="sidebar-item {{ project.urgency }}" id="nav-{{ project.id }}" onclick="showProject('{{ project.id }}')">
-        <span class="dot {{ project.status_color }}"></span>
-        {{ project.display_name }}
-    </a>
-    {% endfor %}
-    {% endfor %}
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
+    <div class="sidebar-content">
+        <div class="sidebar-title" style="margin-bottom: 16px; padding-top: 4px;">Planning Hub</div>
+        <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
+            <span class="dot" style="background: #1a1a1a;"></span>
+            Übersicht
+        </a>
+        {% if demo_mode and has_session_plan %}
+        <a class="sidebar-item" href="mailto:ligaauguste@gmail.com" style="color: #9b9b9b; font-size:12px;">
+            <span style="margin-right: 8px;">✉</span>Weiteres Projekt anfragen
+        </a>
+        {% else %}
+        <a class="sidebar-item" href="/planner/" style="color: #6b6b6b;">
+            <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
+            {% if demo_mode %}Neu planen{% else %}Neue Veranstaltung{% endif %}
+        </a>
+        {% endif %}
+        <div class="sidebar-title" style="margin-top: 16px;">Projekte {% for year in years %}{{ year }}{% if not forloop.last %}/{% endif %}{% endfor %}</div>
+        {% for group in month_groups %}
+        <div style="font-size: 11px; color: #c0c0c0; padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: 0.06em;">{{ group.month }}</div>
+        {% for project in group.projects %}
+        <a class="sidebar-item {{ project.urgency }}" id="nav-{{ project.id }}" onclick="showProject('{{ project.id }}')">
+            <span class="dot {{ project.status_color }}"></span>
+            {{ project.display_name }}
+        </a>
+        {% endfor %}
+        {% endfor %}
+    </div>
 </div>
 
 <div class="main" id="main">
     <div class="content-body">
     <div id="view-overview">
-        <div style="font-size: 22px; font-weight: 700; margin-bottom: 4px;">Übersicht</div>
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:4px;">
+            <div style="font-size: 22px; font-weight: 700;">Übersicht</div>
+            {% if demo_project_name %}
+            <div style="font-size:15px; font-weight:600; color:#1a1a1a;">
+                {{ demo_project_name }}
+                <span style="font-weight:400; color:#9b9b9b; font-size:13px;">— {{ demo_project_date }}</span>
+            </div>
+            {% endif %}
+        </div>
         <div style="font-size: 13px; color: #9b9b9b; margin-bottom: 28px;">{{ today_display }}</div>
+
         {% if not demo_mode %}
         <form method="post" action="{% url 'refresh' %}" style="margin-bottom: 32px;">
             {% csrf_token %}
             <button type="submit" style="
-                font-size: 12px;
-                font-weight: 500;
-                color: #6b6b6b;
-                background: #ffffff;
-                border: 1px solid #e5e5e5;
-                border-radius: 6px;
-                padding: 5px 12px;
-                cursor: pointer;
+                font-size: 12px; font-weight: 500; color: #6b6b6b;
+                background: #ffffff; border: 1px solid #e5e5e5;
+                border-radius: 6px; padding: 5px 12px; cursor: pointer;
             ">↻ Sync mit Notion</button>
         </form>
         {% endif %}
+
+        {% if demo_mode and has_session_plan %}
+        <div class="timelapse-bar" id="timelapse-bar" style="display:none;">
+            <div class="timelapse-label">Zeitreise</div>
+            <div class="timelapse-moments" id="timelapse-moments">
+                <button class="moment-btn-heute" id="btn-heute" onclick="setSimDate(null)">Heute</button>
+            </div>
+        </div>
+        {% if sim_date %}
+        <div class="sim-banner">
+            <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
+            <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
+        </div>
+        {% endif %}
+        {% endif %}
+
         <div class="ai-card">
-            <div class="ai-card-label">KI-Wochenübersicht</div>
+            <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {{ summary|safe }}
         </div>
+
+        <div class="overview-progress" style="margin-top:36px;">
+            <div class="overview-progress-label">
+                <span>Aufgaben</span>
+                <span id="progress-label"></span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+        </div>
+
+        <div class="kanban">
+            <div class="kanban-col col-open">
+                <div class="kanban-col-header">
+                    Offen <span class="kanban-col-count" id="count-open">0</span>
+                </div>
+                {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
+                {% if task.urgency == 'ok' %}
+                <div class="kanban-card ok">
+                    <div class="kanban-card-name">{{ task.name }}</div>
+                    <div class="kanban-card-meta">
+                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
+                        <span>{{ task.due_display }}</span>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}{% endfor %}{% endfor %}
+            </div>
+
+            <div class="kanban-col col-urgent">
+                <div class="kanban-col-header">
+                    Dringend <span class="kanban-col-count" id="count-urgent">0</span>
+                </div>
+                {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
+                {% if task.urgency == 'overdue' %}
+                <div class="kanban-card overdue">
+                    <div class="kanban-card-name">{{ task.name }}</div>
+                    <div class="kanban-card-meta">
+                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
+                        <span>{{ task.due_display }}</span>
+                    </div>
+                </div>
+                {% endif %}
+                {% if task.urgency == 'urgent' %}
+                <div class="kanban-card urgent">
+                    <div class="kanban-card-name">{{ task.name }}</div>
+                    <div class="kanban-card-meta">
+                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
+                        <span>{{ task.due_display }}</span>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}{% endfor %}{% endfor %}
+            </div>
+
+            <div class="kanban-col col-done">
+                <div class="kanban-col-header">
+                    Erledigt <span class="kanban-col-count" id="count-done">0</span>
+                </div>
+                {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
+                {% if task.urgency == 'done' %}
+                <div class="kanban-card done">
+                    <div class="kanban-card-name">{{ task.name }}</div>
+                    <div class="kanban-card-meta">
+                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
+                        <span>{{ task.due_display }}</span>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}{% endfor %}{% endfor %}
+            </div>
+        </div>
+
     </div>
 
     {% for group in month_groups %}
@@ -304,6 +679,12 @@
     {% endfor %}
     </div>
 </div>
+
+{% if has_session_plan %}
+<a class="download-fab" href="{% url 'download_plan' %}">
+    <span>↓</span> Plan herunterladen
+</a>
+{% endif %}
 
 <script src="{% static 'projects/js/bootstrap.bundle.min.js' %}"></script>
 <script>
@@ -347,6 +728,108 @@ document.querySelectorAll('.toggle-form').forEach(form => {
 <script>
 const TODAY = '{{ today_iso }}';
 const PROJECT_MAP = {{ project_map|safe }};
+const TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+const SIM_DATE = '{{ sim_date }}';
+
+function formatMomentDate(isoStr) {
+    const d = new Date(isoStr + 'T12:00:00');
+    const months = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    return `${d.getDate()}. ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+// Progress bar + Kanban counts
+(function() {
+    const open    = document.querySelectorAll('.kanban-card.ok').length;
+    const urgent  = document.querySelectorAll('.kanban-card.urgent, .kanban-card.overdue').length;
+    const done    = document.querySelectorAll('.kanban-card.done').length;
+    const total   = open + urgent + done;
+    if (!total) return;
+    const pct = Math.round(done / total * 100);
+    const fill = document.getElementById('progress-fill');
+    const label = document.getElementById('progress-label');
+    if (fill) fill.style.width = pct + '%';
+    if (label) label.textContent = `${done} / ${total} erledigt`;
+    document.getElementById('count-open')?.textContent   !== undefined && (document.getElementById('count-open').textContent   = open);
+    document.getElementById('count-urgent')?.textContent !== undefined && (document.getElementById('count-urgent').textContent = urgent);
+    document.getElementById('count-done')?.textContent   !== undefined && (document.getElementById('count-done').textContent   = done);
+})();
+
+// Track which moments are pre-loaded
+const preloaded = new Set();
+
+async function setSimDate(dateStr, clickedBtn) {
+    // Show loading animation immediately
+    document.querySelectorAll('.moment-btn, .moment-btn-heute').forEach(b => {
+        b.classList.add('loading');
+    });
+    if (clickedBtn) {
+        clickedBtn.classList.remove('loading');
+        clickedBtn.classList.add('active', 'loading');
+        const spinner = clickedBtn.querySelector('.spinner');
+        if (spinner) spinner.style.display = 'block';
+        clickedBtn.querySelector('.moment-title') && (clickedBtn.querySelector('.moment-title').style.opacity = '0.7');
+    }
+
+    await fetch('/timelapse/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({date: dateStr})
+    });
+    window.location.reload();
+}
+
+async function preloadOne(dateStr) {
+    if (preloaded.has(dateStr)) return;
+    try {
+        await fetch('/timelapse/preload/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+            body: JSON.stringify({date: dateStr})
+        });
+        preloaded.add(dateStr);
+        // Mark button as ready with green dot
+        const btn = document.querySelector(`[data-moment-date="${dateStr}"]`);
+        if (btn) btn.classList.add('moment-preloaded');
+    } catch(e) {}
+}
+
+async function preloadAll() {
+    // Preload all moment summaries in parallel (heute is already cached)
+    await Promise.all(TIMELAPSE_MOMENTS.map(m => preloadOne(m.date)));
+}
+
+if (TIMELAPSE_MOMENTS.length > 0) {
+    const bar = document.getElementById('timelapse-bar');
+    const container = document.getElementById('timelapse-moments');
+    if (bar && container) {
+        bar.style.display = 'block';
+
+        TIMELAPSE_MOMENTS.forEach(m => {
+            const btn = document.createElement('button');
+            btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '');
+            btn.title = m.description;
+            btn.dataset.momentDate = m.date;
+            btn.innerHTML = `
+                <div class="moment-title">${m.label}</div>
+                <div class="moment-date">${formatMomentDate(m.date)}</div>
+                <div class="spinner"></div>`;
+            btn.addEventListener('click', () => setSimDate(m.date, btn));
+            container.appendChild(btn);
+        });
+
+        const heuteBtn = document.getElementById('btn-heute');
+        if (!SIM_DATE) {
+            heuteBtn.style.fontWeight = '600';
+            heuteBtn.style.color = '#1a1a1a';
+        }
+        heuteBtn.addEventListener('click', () => setSimDate(null, heuteBtn));
+
+        // Start pre-loading all summaries in background after page is ready
+        setTimeout(preloadAll, 800);
+    }
+}
 
 document.querySelectorAll('.ai-card li').forEach(li => {
     if (li.querySelector('strong')) {
@@ -408,12 +891,37 @@ document.querySelectorAll('.heute-btn').forEach(btn => {
 const sidebar = document.getElementById('sidebar');
 const handle = document.getElementById('sidebar-resize');
 const main = document.querySelector('.main');
-const savedWidth = localStorage.getItem('sidebarWidth');
-if (savedWidth) {
-    sidebar.style.width = savedWidth + 'px';
-    main.style.marginLeft = savedWidth + 'px';
+const toggleBtn = document.getElementById('sidebar-toggle');
+
+// Restore collapse state
+if (localStorage.getItem('sidebarCollapsed') === 'true') {
+    sidebar.classList.add('collapsed');
+    main.classList.add('sidebar-collapsed');
+    toggleBtn.textContent = '›';
+} else {
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    if (savedWidth) {
+        sidebar.style.width = savedWidth + 'px';
+        main.style.marginLeft = savedWidth + 'px';
+    }
 }
+
+toggleBtn.addEventListener('click', () => {
+    const collapsed = sidebar.classList.toggle('collapsed');
+    main.classList.toggle('sidebar-collapsed', collapsed);
+    toggleBtn.textContent = collapsed ? '›' : '‹';
+    localStorage.setItem('sidebarCollapsed', collapsed);
+    if (!collapsed) {
+        const savedWidth = localStorage.getItem('sidebarWidth');
+        if (savedWidth) {
+            sidebar.style.width = savedWidth + 'px';
+            main.style.marginLeft = savedWidth + 'px';
+        }
+    }
+});
+
 handle.addEventListener('mousedown', (e) => {
+    if (sidebar.classList.contains('collapsed')) return;
     handle.classList.add('dragging');
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);

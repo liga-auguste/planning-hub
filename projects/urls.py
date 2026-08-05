@@ -11,4 +11,6 @@ urlpatterns = [
     path('task/<str:task_id>/toggle/', views.toggle_task_view, name='toggle_task'),
     path('task/<str:task_id>/reschedule/', views.reschedule_task_view, name='reschedule_task'),
     path('session-task/<str:task_id>/toggle/', views.toggle_session_task, name='toggle_session_task'),
+    path('timelapse/', views.set_timelapse_date, name='set_timelapse_date'),
+    path('timelapse/preload/', views.preload_timelapse_summary, name='preload_timelapse_summary'),
 ]
