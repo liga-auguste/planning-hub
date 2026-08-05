@@ -425,6 +425,14 @@ def download_plan(request):
     return response
 
 
+def impressum(request):
+    return render(request, 'projects/impressum.html')
+
+
+def datenschutz(request):
+    return render(request, 'projects/datenschutz.html')
+
+
 def toggle_session_task(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)

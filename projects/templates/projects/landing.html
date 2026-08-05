@@ -202,6 +202,55 @@
             .mode-cards { grid-template-columns: 1fr; }
             .tiles { grid-template-columns: repeat(2, 1fr); }
         }
+
+        .page-footer {
+            margin-top: 56px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e5e5;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .page-footer a {
+            font-size: 12px;
+            color: #bbb;
+            text-decoration: none;
+        }
+        .page-footer a:hover { color: #555; }
+        .page-footer .footer-copy {
+            font-size: 12px;
+            color: #d0d0d0;
+            margin-left: auto;
+        }
+
+        /* Cookie-Banner */
+        #cookie-banner {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 13px;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            z-index: 9999;
+        }
+        #cookie-banner p { margin: 0; flex: 1; line-height: 1.5; }
+        #cookie-banner a { color: #aaa; text-underline-offset: 2px; }
+        #cookie-banner button {
+            background: #fff;
+            color: #1a1a1a;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -240,6 +289,31 @@
     </div>
 
 
+    <footer class="page-footer">
+        <a href="{% url 'impressum' %}">Impressum</a>
+        <a href="{% url 'datenschutz' %}">Datenschutz</a>
+        <span class="footer-copy">© 2026 Liga Auguste</span>
+    </footer>
+
 </div>
+
+<div id="cookie-banner" style="display:none;">
+    <p>
+        Diese Seite setzt ein technisch notwendiges Session-Cookie und nutzt die
+        Claude API (Anthropic) zur Planungsgenerierung.
+        <a href="{% url 'datenschutz' %}">Mehr erfahren</a>
+    </p>
+    <button onclick="acceptCookies()">Verstanden</button>
+</div>
+
+<script>
+function acceptCookies() {
+    localStorage.setItem('cookieAccepted', '1');
+    document.getElementById('cookie-banner').style.display = 'none';
+}
+if (!localStorage.getItem('cookieAccepted')) {
+    document.getElementById('cookie-banner').style.display = 'flex';
+}
+</script>
 </body>
 </html>
