@@ -21,6 +21,14 @@
             align-items: center;
             justify-content: space-between;
         }
+        .top-bar-wide {
+            max-width: 800px;
+            margin: 32px auto 0;
+            padding-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
         .wordmark {
             font-size: 11px; font-weight: 600; color: #c0c0c0;
             letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none;
@@ -30,6 +38,49 @@
         .step { color: #d0d0d0; }
         .step.active { color: #1a1a1a; font-weight: 600; }
         .step-sep { color: #e0e0e0; }
+
+        /* Step 1: tile grid */
+        .tile-page {
+            max-width: 800px;
+            margin: 0 auto 80px;
+        }
+        .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+        .tile-page .subtitle { color: #9b9b9b; margin-bottom: 28px; }
+        .tiles {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .tile {
+            display: block;
+            background: #fff;
+            border: 1px solid #e5e5e5;
+            border-radius: 8px;
+            padding: 14px;
+            text-decoration: none;
+            color: #1a1a1a;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .tile:hover {
+            border-color: #1a1a1a;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            color: #1a1a1a;
+        }
+        .tile-icon { font-size: 16px; margin-bottom: 7px; line-height: 1; }
+        .tile-label { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+        .tile-example { font-size: 11px; color: #aaa; line-height: 1.4; }
+        .tile-custom {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #f7f7f8;
+        }
+        .tile-custom .tile-label { margin-bottom: 0; }
+        .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
+
+        /* Step 2: describe form */
         .planner-card {
             max-width: 640px;
             margin: 0 auto 80px;
@@ -38,8 +89,8 @@
             border-radius: 8px;
             padding: 40px;
         }
-        h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-        .subtitle { color: #9b9b9b; margin-bottom: 32px; }
+        .planner-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+        .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
         textarea {
             width: 100%;
             border: 1px solid #e5e5e5;
@@ -61,12 +112,88 @@
         }
         .btn-primary:hover { background: #333; }
         .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+
+        @media (max-width: 560px) {
+            .tiles { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
 <body>
+
+{% if show_tiles %}
+    <div class="top-bar-wide">
+        <a href="/" class="wordmark">Planning Hub</a>
+        <div class="steps">
+            <span class="step active">Projekttyp</span>
+            <span class="step-sep">›</span>
+            <span class="step">Beschreiben</span>
+            <span class="step-sep">›</span>
+            <span class="step">Klärung</span>
+            <span class="step-sep">›</span>
+            <span class="step">Review</span>
+        </div>
+    </div>
+    <div class="tile-page" style="max-width: 800px; margin: 0 auto 80px; padding: 0 20px;">
+        <a href="{% url 'index' %}" class="back">← Startseite</a>
+        <h1>Welche Art von Projekt?</h1>
+        <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
+        <div class="tiles">
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Konzert am [Datum], [Besetzung / Ort]&type=konzert">
+                <div class="tile-icon">🎵</div>
+                <div class="tile-label">Konzert / Event</div>
+                <div class="tile-example">Musikveranstaltung, Gottesdienst, Vereinsabend</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Hochzeit am [Datum], [Ort], ca. [Anzahl] Gäste&type=hochzeit">
+                <div class="tile-icon">💍</div>
+                <div class="tile-label">Hochzeit / Feier</div>
+                <div class="tile-example">Hochzeit, Geburtstag, Jubiläum</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle]&type=recruiting">
+                <div class="tile-icon">👤</div>
+                <div class="tile-label">Recruiting</div>
+                <div class="tile-example">Stelle besetzen, Bewerbungsprozess</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Produktlaunch am [Datum]: [Produkt / Feature / Kollektion]&type=launch">
+                <div class="tile-icon">🚀</div>
+                <div class="tile-label">Produktlaunch</div>
+                <div class="tile-example">Software-Release, neue Kollektion</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Workshop am [Datum], Thema: [Thema], ca. [Anzahl] Teilnehmer&type=workshop">
+                <div class="tile-icon">🎓</div>
+                <div class="tile-label">Workshop / Schulung</div>
+                <div class="tile-example">Seminar, Trainingsday, Webinar</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Marketing-Kampagne für [Produkt / Anlass], Start: [Datum]&type=kampagne">
+                <div class="tile-icon">📣</div>
+                <div class="tile-label">Kampagne</div>
+                <div class="tile-example">Launch-Kampagne, Mailing, Social Media</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Konferenz / Tagung am [Datum], [Ort], ca. [Anzahl] Teilnehmer&type=konferenz">
+                <div class="tile-icon">🤝</div>
+                <div class="tile-label">Konferenz / Tagung</div>
+                <div class="tile-example">Fachtagung, Firmenevent, Meetup</div>
+            </a>
+            <a class="tile" href="{% url 'planner_start' %}?prefill=Umzug / Einrichtung am [Datum]: [Büro / Wohnung / Standort]&type=umzug">
+                <div class="tile-icon">🏗️</div>
+                <div class="tile-label">Umzug / Umbau</div>
+                <div class="tile-example">Büroumzug, Renovierung, neue Räume</div>
+            </a>
+            <a class="tile tile-custom" href="{% url 'planner_start' %}?type=eigenes">
+                <div>
+                    <div class="tile-label">Eigenes Projekt</div>
+                    <div class="tile-example">Freie Beschreibung — für alles andere</div>
+                </div>
+                <span class="arrow">→</span>
+            </a>
+        </div>
+    </div>
+
+{% else %}
     <div class="top-bar">
         <a href="/" class="wordmark">Planning Hub</a>
         <div class="steps">
+            <span class="step">Projekttyp</span>
+            <span class="step-sep">›</span>
             <span class="step active">Beschreiben</span>
             <span class="step-sep">›</span>
             <span class="step">Klärung</span>
@@ -75,7 +202,7 @@
         </div>
     </div>
     <div class="planner-card">
-        <a href="{% url 'index' %}" class="back">← Startseite</a>
+        <a href="{% url 'planner_start' %}" class="back">← Projekttyp</a>
         <h1>Neues Projekt planen</h1>
         <p class="subtitle">Beschreibe kurz das Projekt — Typ, Datum, Beteiligte.</p>
         <form method="post">
@@ -90,5 +217,7 @@
             </a>
         </div>
     </div>
+{% endif %}
+
 </body>
 </html>

@@ -79,7 +79,11 @@ def planner_start(request):
     project_type = request.GET.get('type', '')
     if project_type:
         request.session['demo_project_type'] = project_type
-    return render(request, 'projects/planner_start.html', {'prefill': prefill})
+    show_tiles = not bool(project_type)
+    return render(request, 'projects/planner_start.html', {
+        'prefill': prefill,
+        'show_tiles': show_tiles,
+    })
 
 
 def planner_questions(request):
