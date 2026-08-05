@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+mkdir -p /app/data
+
 echo "Running migrations..."
 python manage.py migrate --noinput
 

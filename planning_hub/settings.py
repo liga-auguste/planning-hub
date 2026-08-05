@@ -79,7 +79,7 @@ if DEMO_MODE:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'demo.sqlite3',
+            'NAME': BASE_DIR / 'data' / 'demo.sqlite3',
         }
     }
 else:

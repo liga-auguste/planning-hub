@@ -5,6 +5,7 @@ services:
     env_file: .env
     volumes:
       - static_files:/app/staticfiles
+      - demo_db:/app/data
 
   nginx:
     image: nginx:alpine
@@ -22,3 +23,4 @@ services:
 
 volumes:
   static_files:
+  demo_db:
