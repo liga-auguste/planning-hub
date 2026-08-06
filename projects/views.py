@@ -136,6 +136,7 @@ def _build_session_project(session_plan):
 def dashboard(request):
     today = date.today()
     has_session_plan = False
+    force_multi = request.GET.get('mode') == 'multi'
 
     if settings.DEMO_MODE:
         sim_date_str = request.session.get('demo_sim_date')
@@ -143,7 +144,7 @@ def dashboard(request):
         effective_today = sim_date or today
 
         session_plan = request.session.get('demo_plan')
-        if session_plan:
+        if session_plan and not force_multi:
             has_session_plan = True
             project = copy.deepcopy(_build_session_project(session_plan))
             if sim_date:
@@ -202,6 +203,7 @@ def dashboard(request):
         'today_iso': today.isoformat(),
         'project_map': json.dumps(project_map),
         'has_session_plan': has_session_plan,
+        'force_multi': force_multi,
         'demo_mode': settings.DEMO_MODE,
         'timelapse_moments': json.dumps(timelapse_moments),
         'sim_date': sim_date_str,

@@ -22,7 +22,7 @@
             justify-content: space-between;
         }
         .top-bar-wide {
-            max-width: 800px;
+            max-width: 720px;
             margin: 32px auto 0;
             padding-bottom: 20px;
             display: flex;
@@ -30,10 +30,14 @@
             justify-content: space-between;
         }
         .wordmark {
-            font-size: 11px; font-weight: 600; color: #c0c0c0;
-            letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none;
+            display: flex; align-items: center; gap: 8px; text-decoration: none;
         }
-        .wordmark:hover { color: #9b9b9b; }
+        .wordmark img { height: 40px; width: auto; display: block; }
+        .wordmark span {
+            font-size: 11px; font-weight: 700; color: #1a1a1a;
+            letter-spacing: 0.08em; text-transform: uppercase;
+        }
+        .wordmark:hover span { color: #555; }
         .steps { display: flex; align-items: center; gap: 6px; font-size: 11px; }
         .step { color: #d0d0d0; }
         .step.active { color: #1a1a1a; font-weight: 600; }
@@ -41,7 +45,7 @@
 
         /* Step 1: tile grid */
         .tile-page {
-            max-width: 800px;
+            max-width: 720px;
             margin: 0 auto 80px;
         }
         .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
@@ -122,7 +126,7 @@
 
 {% if show_tiles %}
     <div class="top-bar-wide">
-        <a href="/" class="wordmark">Planning Hub</a>
+        <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
         <div class="steps">
             <span class="step active">Projekttyp</span>
             <span class="step-sep">›</span>
@@ -133,7 +137,7 @@
             <span class="step">Review</span>
         </div>
     </div>
-    <div class="tile-page" style="max-width: 800px; margin: 0 auto 80px; padding: 0 20px;">
+    <div class="tile-page" style="max-width: 720px; margin: 0 auto 80px; padding: 0 20px;">
         <a href="{% url 'index' %}" class="back">← Startseite</a>
         <h1>Welche Art von Projekt?</h1>
         <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
@@ -190,7 +194,7 @@
 
 {% else %}
     <div class="top-bar">
-        <a href="/" class="wordmark">Planning Hub</a>
+        <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
         <div class="steps">
             <span class="step">Projekttyp</span>
             <span class="step-sep">›</span>

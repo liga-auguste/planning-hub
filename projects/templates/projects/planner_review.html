@@ -14,8 +14,8 @@
             font-size: 14px;
         }
         .planner-card {
-            max-width: 800px;
-            margin: 60px auto;
+            max-width: 720px;
+            margin: 0 auto 80px;
             background: #fff;
             border: 1px solid #e5e5e5;
             border-radius: 8px;
@@ -24,11 +24,13 @@
         h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
         .subtitle { color: #9b9b9b; margin-bottom: 28px; }
         .top-bar {
-            max-width: 800px; margin: 32px auto 0; padding-bottom: 20px;
+            max-width: 720px; margin: 32px auto 0; padding-bottom: 20px;
             display: flex; align-items: center; justify-content: space-between;
         }
-        .wordmark { font-size: 11px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.1em; text-transform: uppercase; text-decoration: none; }
-        .wordmark:hover { color: #9b9b9b; }
+        .wordmark { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .wordmark img { height: 40px; width: auto; display: block; }
+        .wordmark span { font-size: 11px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.08em; text-transform: uppercase; }
+        .wordmark:hover span { color: #555; }
         .steps { display: flex; align-items: center; gap: 6px; font-size: 11px; }
         .step { color: #d0d0d0; }
         .step.active { color: #1a1a1a; font-weight: 600; }
@@ -65,7 +67,7 @@
 </head>
 <body>
     <div class="top-bar">
-        <a href="/" class="wordmark">Planning Hub</a>
+        <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
         <div class="steps">
             <span class="step">Beschreiben</span>
             <span class="step-sep">›</span>

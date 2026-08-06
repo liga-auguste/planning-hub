@@ -15,9 +15,9 @@
         }
 
         .page {
-            max-width: 760px;
+            max-width: 720px;
             margin: 0 auto;
-            padding: 48px 24px 80px;
+            padding: 32px 24px 80px;
         }
 
         /* Header */
@@ -27,14 +27,10 @@
             justify-content: space-between;
             margin-bottom: 40px;
         }
-        .logo {
-            font-size: 12px;
-            font-weight: 600;
-            color: #9b9b9b;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            text-decoration: none;
-        }
+        .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+        .logo img { height: 40px; width: auto; display: block; }
+        .logo span { font-size: 11px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.08em; text-transform: uppercase; }
+        .logo:hover span { color: #555; }
         .btn-new {
             background: #1a1a1a;
             color: #fff;
@@ -156,7 +152,7 @@
 <div class="page">
 
     <div class="top-nav">
-        <a href="{% url 'index' %}" class="logo">Planning Hub</a>
+        <a href="{% url 'index' %}" class="logo"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
         <div style="display:flex; gap:8px; align-items:center;">
             <a href="{% url 'download_plan' %}"
                style="font-size:13px; color:#9b9b9b; text-decoration:none; padding:7px 12px; border:1px solid #e5e5e5; border-radius:6px;"

@@ -494,26 +494,46 @@
     <div class="sidebar-resize" id="sidebar-resize"></div>
     <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
     <div class="sidebar-content">
-        <div class="sidebar-title" style="margin-bottom: 4px; padding-top: 4px;">Planning Hub</div>
         {% if demo_mode %}
-        <div style="font-size: 10px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 16px; margin-bottom: 14px;">Demo · Mehrprojekt-Ansicht</div>
+        <div style="font-size: 10px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.08em; text-transform: uppercase; padding: 0 16px; margin-bottom: 14px;">Demo</div>
         {% endif %}
         <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
             <span class="dot" style="background: #1a1a1a;"></span>
             Übersicht
         </a>
         {% if demo_mode %}
-        <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: #6b6b6b;">
-            <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
-            Projekt selbst planen
-        </a>
-        <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
-            <span style="margin-right: 8px;">←</span>Zurück zur Startseite
-        </a>
+            {% if has_session_plan %}
+            <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: #6b6b6b;">
+                <span style="margin-right: 8px;">⊞</span>Mehrprojekt-Ansicht
+            </a>
+            <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
+                <span style="margin-right: 8px;">←</span>Zurück zur Startseite
+            </a>
+            {% elif force_multi %}
+            <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: #6b6b6b;">
+                <span style="margin-right: 8px;">←</span>Mein Plan
+            </a>
+            <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
+                <span style="margin-right: 8px;">←</span>Zurück zur Startseite
+            </a>
+            {% else %}
+            <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: #6b6b6b;">
+                <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
+                Projekt selbst planen
+            </a>
+            <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
+                <span style="margin-right: 8px;">←</span>Zurück zur Startseite
+            </a>
+            {% endif %}
         {% else %}
         <a class="sidebar-item" href="/planner/" style="color: #6b6b6b;">
             <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
             Neue Veranstaltung
+        </a>
+        {% endif %}
+        {% if demo_mode %}
+        <a class="sidebar-item" onclick="document.getElementById('about-overlay').style.display='flex'" style="cursor:pointer; color:#6b6b6b;">
+            <span style="margin-right: 8px;">ℹ</span>Über dieses Projekt
         </a>
         {% endif %}
         <div class="sidebar-title" style="margin-top: 16px;">Projekte {% for year in years %}{{ year }}{% if not forloop.last %}/{% endif %}{% endfor %}</div>
@@ -529,9 +549,48 @@
     </div>
 </div>
 
+<!-- About Overlay -->
+<div id="about-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:#fff; border-radius:12px; padding:36px; max-width:480px; width:90%; position:relative;">
+        <button onclick="document.getElementById('about-overlay').style.display='none'"
+            style="position:absolute; top:16px; right:16px; background:none; border:none; font-size:18px; color:#aaa; cursor:pointer; line-height:1;">×</button>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" style="height:36px;">
+            <span style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;">Planning Hub</span>
+        </div>
+        <p style="font-size:14px; line-height:1.7; color:#3a3a3a; margin-bottom:14px;">
+            Was du hier siehst ist eine <strong>Demo mit simulierten Daten</strong>. Im echten Betrieb
+            liest und schreibt die App direkt in <strong>Notion</strong> — Projekte, Tasks und Deadlines
+            werden dort gepflegt und hier live angezeigt.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:#3a3a3a; margin-bottom:14px;">
+            Der Stack: <strong>Django 6</strong> · <strong>PostgreSQL</strong> · <strong>Claude API</strong>
+            (Anthropic) für KI-Zusammenfassungen und Planerstellung · <strong>Notion API</strong> als
+            Datenquelle · <strong>Nginx + Docker</strong> auf Hetzner VPS.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:#3a3a3a; margin-bottom:14px;">
+            Die KI analysiert beim Planen historische Projekte als Kontext (RAG ohne Vektordatenbank),
+            stellt gezielte Rückfragen und generiert daraus einen vollständigen Aufgabenplan mit
+            realistischen Deadlines.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:#3a3a3a; margin-bottom:24px;">
+            Den generierten Plan kannst du als <strong>Markdown-Datei herunterladen</strong> —
+            direkt nutzbar in Notion, Obsidian oder als Eingabe für weitere KI-Tools.
+        </p>
+        <a href="https://github.com/liga-auguste/planning-hub" target="_blank"
+            style="font-size:13px; font-weight:600; color:#1a1a1a; text-decoration:none; border:1px solid #e5e5e5; border-radius:6px; padding:8px 16px; display:inline-block;">
+            GitHub → README
+        </a>
+    </div>
+</div>
+
 <div class="main" id="main">
     <div class="content-body">
     <div id="view-overview">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" style="height:40px;width:auto;">
+            <span style="font-size:11px;font-weight:700;color:#1a1a1a;letter-spacing:0.08em;text-transform:uppercase;">Planning Hub</span>
+        </div>
         <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:4px;">
             <div style="font-size: 22px; font-weight: 700;">Übersicht</div>
             {% if demo_project_name %}
@@ -767,9 +826,9 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 const preloaded = new Set();
 
 async function setSimDate(dateStr, clickedBtn) {
-    // Show loading animation immediately
+    // Show loading animation only on clicked button
     document.querySelectorAll('.moment-btn, .moment-btn-heute').forEach(b => {
-        b.classList.add('loading');
+        b.classList.remove('loading');
     });
     if (clickedBtn) {
         clickedBtn.classList.remove('loading');

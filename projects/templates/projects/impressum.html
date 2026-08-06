@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -15,10 +16,12 @@
         }
         .wrapper { max-width: 640px; margin: 0 auto; }
         .logo {
-            font-size: 11px; font-weight: 600; color: #c0c0c0;
-            letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 36px;
-            text-decoration: none; display: block;
+            display: flex; align-items: center; gap: 8px;
+            text-decoration: none; margin-bottom: 36px;
         }
+        .logo img { height: 40px; width: auto; display: block; }
+        .logo span { font-size: 11px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.08em; text-transform: uppercase; }
+        .logo:hover span { color: #555; }
         h1 { font-size: 22px; font-weight: 600; margin-bottom: 28px; }
         h2 { font-size: 13px; font-weight: 600; text-transform: uppercase;
              letter-spacing: 0.06em; color: #888; margin: 28px 0 8px; }
@@ -33,7 +36,7 @@
 </head>
 <body>
 <div class="wrapper">
-    <a class="logo" href="/">Planning Hub</a>
+    <a class="logo" href="/"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
     <h1>Impressum</h1>
 
     <p style="font-size:13px;color:#888;margin-bottom:24px;">
