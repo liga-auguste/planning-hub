@@ -1,0 +1,17 @@
+<div id="cookie-banner" style="display:none;">
+    <p>
+        Diese Seite setzt ein technisch notwendiges Session-Cookie und nutzt die
+        Claude API (Anthropic) zur Planungsgenerierung.
+        <a href="{% url 'datenschutz' %}">Mehr erfahren</a>
+    </p>
+    <button onclick="acceptCookies()">Verstanden</button>
+</div>
+<script>
+function acceptCookies() {
+    localStorage.setItem('cookieAccepted', '1');
+    document.getElementById('cookie-banner').style.display = 'none';
+}
+if (!localStorage.getItem('cookieAccepted')) {
+    document.getElementById('cookie-banner').style.display = 'flex';
+}
+</script>

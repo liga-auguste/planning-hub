@@ -1,0 +1,15 @@
+{# Usage: {% include 'projects/_progress.html' with active_step=2 %} #}
+<div class="ps-track">
+    <div class="ps-step {% if active_step > 1 %}done{% elif active_step == 1 %}active{% endif %}">
+        <div class="ps-dot"></div><span class="ps-label">Projekttyp</span>
+    </div>
+    <div class="ps-step {% if active_step > 2 %}done{% elif active_step == 2 %}active{% endif %}">
+        <div class="ps-dot"></div><span class="ps-label">Beschreiben</span>
+    </div>
+    <div class="ps-step {% if active_step > 3 %}done{% elif active_step == 3 %}active{% endif %}">
+        <div class="ps-dot"></div><span class="ps-label">Klärung</span>
+    </div>
+    <div class="ps-step {% if active_step == 4 %}active{% endif %}">
+        <div class="ps-dot"></div><span class="ps-label">Review</span>
+    </div>
+</div>
