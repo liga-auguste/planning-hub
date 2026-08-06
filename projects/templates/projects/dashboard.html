@@ -104,7 +104,9 @@
         .kanban-card.overdue { border-left: 3px solid #ef4444; }
         .kanban-card-name { font-weight: 500; color: #1a1a1a; margin-bottom: 4px; }
         .kanban-card.done .kanban-card-name { color: #c0c0c0; text-decoration: line-through; font-weight: 400; }
-        .kanban-card-meta { font-size: 11px; color: #c0c0c0; display: flex; justify-content: space-between; }
+        .kanban-card-meta { font-size: 11px; color: #c0c0c0; display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+        .kanban-card-meta span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+        .kanban-card-meta span:last-child { white-space: nowrap; flex-shrink: 0; }
         .kanban-card.urgent .kanban-card-meta { color: #f97316; }
         .kanban-card.overdue .kanban-card-meta { color: #ef4444; }
         .kanban-card.done .kanban-card-meta { color: #d8d8d8; }
