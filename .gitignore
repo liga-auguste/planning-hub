@@ -1,4 +1,5 @@
 CHANGELOG.md
+SESSIONLOG.md
 staticfiles/
 .env
 demo.sqlite3
