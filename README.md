@@ -1,6 +1,6 @@
 # Planning Hub
 
-An AI-powered project planning assistant. Describe an event or project in plain language, get clarifying questions from Claude, review and edit a generated task plan with realistic deadlines — then track everything on a live dashboard with AI-generated weekly summaries.
+An AI-powered project planning assistant. Describe an event or project in plain language, get clarifying questions from Claude, review and edit a generated task plan with realistic deadlines — then write it directly to Notion and track everything on a live dashboard with AI-generated weekly summaries.
 
 > **Live demo:** [planninghub.ligaauguste.de](https://planninghub.ligaauguste.de) — no login required
 
