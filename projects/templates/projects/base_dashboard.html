@@ -1,0 +1,157 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Planning Hub{% endblock %}</title>
+    <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
+    <style>
+        body {
+            background: #f7f7f8;
+            color: #1a1a1a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 14px;
+        }
+        .sidebar {
+            width: 320px;
+            min-height: 100vh;
+            background: #ffffff;
+            border-right: 1px solid #e5e5e5;
+            padding: 24px 0;
+            position: fixed;
+            top: 0; left: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width 0.2s ease;
+        }
+        .sidebar.collapsed { width: 48px; }
+        .sidebar.collapsed .sidebar-content { display: none; }
+        .sidebar-resize {
+            position: absolute;
+            top: 0; right: 0;
+            width: 4px;
+            height: 100%;
+            cursor: col-resize;
+        }
+        .sidebar.collapsed .sidebar-resize { display: none; }
+        .sidebar-toggle {
+            position: absolute;
+            top: 16px; right: 12px;
+            background: none; border: none;
+            cursor: pointer; color: #c0c0c0;
+            font-size: 16px; padding: 2px 4px;
+            line-height: 1; z-index: 10;
+        }
+        .sidebar-toggle:hover { color: #1a1a1a; }
+        .sidebar.collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
+        .main {
+            margin-left: 320px;
+            max-width: 920px;
+            transition: margin-left 0.2s ease;
+        }
+        .main.sidebar-collapsed { margin-left: 48px; }
+        .content-body { padding: 40px 48px; }
+        #cookie-banner {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            font-size: 13px;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            z-index: 9999;
+        }
+        #cookie-banner p { margin: 0; flex: 1; line-height: 1.5; }
+        #cookie-banner a { color: #aaa; text-underline-offset: 2px; }
+        #cookie-banner button {
+            background: #fff; color: #1a1a1a;
+            border: none; border-radius: 6px;
+            padding: 6px 16px; font-size: 13px;
+            font-weight: 600; cursor: pointer; white-space: nowrap;
+        }
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+{% block body %}
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-resize" id="sidebar-resize"></div>
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
+    <div class="sidebar-content">
+        {% block sidebar_content %}{% endblock %}
+    </div>
+</div>
+{% block body_extras %}{% endblock %}
+<div class="main" id="main">
+    <div class="content-body">
+        {% block content %}{% endblock %}
+    </div>
+</div>
+{% block body_fixed %}{% endblock %}
+{% endblock body %}
+
+{% include 'projects/_cookie_banner.html' %}
+<script src="{% static 'projects/js/bootstrap.bundle.min.js' %}"></script>
+<script>
+const sidebar = document.getElementById('sidebar');
+const main = document.querySelector('.main');
+const toggleBtn = document.getElementById('sidebar-toggle');
+const handle = document.getElementById('sidebar-resize');
+
+if (sidebar && main && toggleBtn) {
+    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+        sidebar.classList.add('collapsed');
+        main.classList.add('sidebar-collapsed');
+        toggleBtn.textContent = '›';
+    } else {
+        const savedWidth = localStorage.getItem('sidebarWidth');
+        if (savedWidth) {
+            sidebar.style.width = savedWidth + 'px';
+            main.style.marginLeft = savedWidth + 'px';
+        }
+    }
+
+    toggleBtn.addEventListener('click', () => {
+        const collapsed = sidebar.classList.toggle('collapsed');
+        main.classList.toggle('sidebar-collapsed', collapsed);
+        toggleBtn.textContent = collapsed ? '›' : '‹';
+        localStorage.setItem('sidebarCollapsed', collapsed);
+        if (!collapsed) {
+            const savedWidth = localStorage.getItem('sidebarWidth');
+            if (savedWidth) {
+                sidebar.style.width = savedWidth + 'px';
+                main.style.marginLeft = savedWidth + 'px';
+            }
+        }
+    });
+
+    if (handle) {
+        handle.addEventListener('mousedown', (e) => {
+            if (sidebar.classList.contains('collapsed')) return;
+            handle.classList.add('dragging');
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+        });
+    }
+}
+
+function onMouseMove(e) {
+    const width = Math.max(180, Math.min(500, e.clientX));
+    sidebar.style.width = width + 'px';
+    main.style.marginLeft = width + 'px';
+}
+function onMouseUp() {
+    handle.classList.remove('dragging');
+    localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width));
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+}
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

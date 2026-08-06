@@ -1,148 +1,44 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Neue Veranstaltung planen</title>
-    <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
-    <style>
-        body {
-            background: #f7f7f8;
-            color: #1a1a1a;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 14px;
-        }
-        .top-bar {
-            max-width: 720px;
-            margin: 32px auto 0;
-            padding-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .top-bar-wide {
-            max-width: 720px;
-            margin: 32px auto 0;
-            padding-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .wordmark {
-            display: flex; align-items: center; gap: 8px; text-decoration: none;
-        }
-        .wordmark img { height: 40px; width: auto; display: block; }
-        .wordmark span {
-            font-size: 11px; font-weight: 700; color: #1a1a1a;
-            letter-spacing: 0.08em; text-transform: uppercase;
-        }
-        .wordmark:hover span { color: #555; }
-        .ps-track { display: flex; align-items: flex-start; width: 300px; }
-        .ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
-        .ps-step + .ps-step::before {
-            content: ''; position: absolute; top: 4px;
-            left: -50%; right: 50%; height: 2px; background: #e0e0e0;
-        }
-        .ps-step.done + .ps-step::before { background: #1a1a1a; }
-        .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: #e0e0e0; margin-bottom: 6px; position: relative; z-index: 1; }
-        .ps-step.done .ps-dot, .ps-step.active .ps-dot { background: #1a1a1a; }
-        .ps-label { font-size: 10px; color: #ccc; text-align: center; white-space: nowrap; }
-        .ps-step.done .ps-label { color: #aaa; }
-        .ps-step.active .ps-label { color: #1a1a1a; font-weight: 600; }
+{% extends 'projects/base_public.html' %}
 
-        /* Step 1: tile grid */
-        .tile-page {
-            max-width: 720px;
-            margin: 0 auto 80px;
-        }
-        .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
-        .tile-page .subtitle { color: #9b9b9b; margin-bottom: 28px; }
-        .tiles {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 8px;
-        }
-        .tile {
-            display: block;
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 14px;
-            text-decoration: none;
-            color: #1a1a1a;
-            transition: border-color 0.15s, box-shadow 0.15s;
-        }
-        .tile:hover {
-            border-color: #1a1a1a;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            color: #1a1a1a;
-        }
-        .tile-icon { font-size: 16px; margin-bottom: 7px; line-height: 1; }
-        .tile-label { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-        .tile-example { font-size: 11px; color: #aaa; line-height: 1.4; }
-        .tile-custom {
-            grid-column: 1 / -1;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 14px;
-            background: #f7f7f8;
-        }
-        .tile-custom .tile-label { margin-bottom: 0; }
-        .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
+{% block title %}Neue Veranstaltung planen – Planning Hub{% endblock %}
 
-        /* Step 2: describe form */
-        .planner-card {
-            max-width: 720px;
-            margin: 0 auto 80px;
-            background: #fff;
-            border: 1px solid #e5e5e5;
-            border-radius: 8px;
-            padding: 40px;
-        }
-        .planner-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-        .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
-        textarea {
-            width: 100%;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            padding: 12px;
-            font-size: 14px;
-            resize: vertical;
-        }
-        textarea:focus { outline: none; border-color: #1a1a1a; }
-        .btn-primary {
-            background: #1a1a1a;
-            border: none;
-            border-radius: 6px;
-            padding: 10px 24px;
-            color: #fff;
-            font-size: 14px;
-            margin-top: 16px;
-            cursor: pointer;
-        }
-        .btn-primary:hover { background: #333; }
-        .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+{% block topbar_right %}
+    {% if show_tiles %}
+        {% include 'projects/_progress.html' with active_step=1 %}
+    {% else %}
+        {% include 'projects/_progress.html' with active_step=2 %}
+    {% endif %}
+{% endblock %}
 
-        @media (max-width: 560px) {
-            .tiles { grid-template-columns: repeat(2, 1fr); }
-        }
-    </style>
-</head>
-<body>
+{% block extra_css %}
+    .wrapper { padding-bottom: 80px; }
+    /* Step 1: tile grid */
+    .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+    .tile-page .subtitle { color: #9b9b9b; margin-bottom: 28px; }
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .tile { display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; text-decoration: none; color: #1a1a1a; transition: border-color 0.15s, box-shadow 0.15s; }
+    .tile:hover { border-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,0,0,0.06); color: #1a1a1a; }
+    .tile-icon { font-size: 16px; margin-bottom: 7px; line-height: 1; }
+    .tile-label { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+    .tile-example { font-size: 11px; color: #aaa; line-height: 1.4; }
+    .tile-custom { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #f7f7f8; }
+    .tile-custom .tile-label { margin-bottom: 0; }
+    .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
+    /* Step 2: describe form */
+    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 40px; }
+    .planner-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
+    textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
+    textarea:focus { outline: none; border-color: #1a1a1a; }
+    .btn-primary { background: #1a1a1a; border: none; border-radius: 6px; padding: 10px 24px; color: #fff; font-size: 14px; margin-top: 16px; cursor: pointer; }
+    .btn-primary:hover { background: #333; }
+    .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+{% endblock %}
 
+{% block content %}
 {% if show_tiles %}
-    <div class="top-bar-wide">
-        <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
-        <div class="ps-track">
-            <div class="ps-step active"><div class="ps-dot"></div><span class="ps-label">Projekttyp</span></div>
-            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Beschreiben</span></div>
-            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Klärung</span></div>
-            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Review</span></div>
-        </div>
-    </div>
-    <div class="tile-page" style="max-width: 720px; margin: 0 auto 80px; padding: 0 20px;">
+    <div class="tile-page" style="padding: 0 0 80px;">
         <a href="{% url 'index' %}" class="back">← Startseite</a>
         <h1>Welche Art von Projekt?</h1>
         <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
@@ -198,15 +94,6 @@
     </div>
 
 {% else %}
-    <div class="top-bar">
-        <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
-        <div class="ps-track">
-            <div class="ps-step done"><div class="ps-dot"></div><span class="ps-label">Projekttyp</span></div>
-            <div class="ps-step active"><div class="ps-dot"></div><span class="ps-label">Beschreiben</span></div>
-            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Klärung</span></div>
-            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Review</span></div>
-        </div>
-    </div>
     <div class="planner-card">
         <a href="{% url 'planner_start' %}" class="back">← Projekttyp</a>
         <h1>Neues Projekt planen</h1>
@@ -224,6 +111,4 @@
         </div>
     </div>
 {% endif %}
-
-</body>
-</html>
+{% endblock %}

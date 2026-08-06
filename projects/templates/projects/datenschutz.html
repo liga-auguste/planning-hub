@@ -1,52 +1,20 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Datenschutz – Planning Hub</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: #f7f7f8;
-            color: #1a1a1a;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            min-height: 100vh;
-            padding: 32px 20px 80px;
-        }
-        .wrapper { max-width: 720px; margin: 0 auto; }
-        .wordmark {
-            display: flex; align-items: center; gap: 8px;
-            text-decoration: none; margin-bottom: 36px;
-        }
-        .wordmark img { height: 40px; width: auto; display: block; }
-        .wordmark span { font-size: 11px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.08em; text-transform: uppercase; }
-        .wordmark:hover span { color: #555; }
-        .page-footer {
-            margin-top: 48px; padding-top: 20px; padding-bottom: 32px;
-            border-top: 1px solid #e5e5e5;
-            display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
-        }
-        .page-footer a { font-size: 12px; color: #bbb; text-decoration: none; }
-        .page-footer a:hover { color: #555; }
-        .page-footer .footer-copy { font-size: 12px; color: #d0d0d0; margin-left: auto; }
-        h1 { font-size: 22px; font-weight: 600; margin-bottom: 28px; }
-        h2 { font-size: 13px; font-weight: 600; text-transform: uppercase;
-             letter-spacing: 0.06em; color: #888; margin: 28px 0 8px; }
-        p { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 8px; }
-        ul { margin: 6px 0 8px 18px; }
-        li { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 2px; }
-        a { color: #1a1a1a; }
-        .back {
-            display: inline-block; margin-top: 36px; font-size: 13px;
-            color: #888; text-decoration: none;
-        }
-        .back:hover { color: #1a1a1a; }
-    </style>
-</head>
-<body>
-<div class="wrapper">
-    <a class="wordmark" href="/"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
+{% extends 'projects/base_public.html' %}
+
+{% block title %}Datenschutz – Planning Hub{% endblock %}
+
+{% block extra_css %}
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 28px; }
+    h2 { font-size: 13px; font-weight: 600; text-transform: uppercase;
+         letter-spacing: 0.06em; color: #888; margin: 28px 0 8px; }
+    p { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 8px; }
+    ul { margin: 6px 0 8px 18px; }
+    li { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 2px; }
+    a { color: #1a1a1a; }
+    .back { display: inline-block; margin-top: 36px; font-size: 13px; color: #888; text-decoration: none; }
+    .back:hover { color: #1a1a1a; }
+{% endblock %}
+
+{% block content %}
     <h1>Datenschutzerklärung</h1>
 
     <h2>Verantwortliche Person</h2>
@@ -99,12 +67,4 @@
     <p style="margin-top:24px; font-size:12px; color:#aaa;">Stand: August 2026</p>
 
     <a class="back" href="/">← Zurück zur Startseite</a>
-
-    <footer class="page-footer">
-        <a href="{% url 'impressum' %}">Impressum</a>
-        <a href="{% url 'datenschutz' %}">Datenschutz</a>
-        <span class="footer-copy">© 2026 Liga Auguste</span>
-    </footer>
-</div>
-</body>
-</html>
+{% endblock %}
