@@ -21,10 +21,18 @@
         .wordmark img { height: 40px; width: auto; display: block; }
         .wordmark span { font-size: 11px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.08em; text-transform: uppercase; }
         .wordmark:hover span { color: #555; }
-        .steps { display: flex; align-items: center; gap: 6px; font-size: 11px; }
-        .step { color: #d0d0d0; }
-        .step.active { color: #1a1a1a; font-weight: 600; }
-        .step-sep { color: #e0e0e0; }
+        .ps-track { display: flex; align-items: flex-start; width: 300px; }
+        .ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+        .ps-step + .ps-step::before {
+            content: ''; position: absolute; top: 4px;
+            left: -50%; right: 50%; height: 2px; background: #e0e0e0;
+        }
+        .ps-step.done + .ps-step::before { background: #1a1a1a; }
+        .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: #e0e0e0; margin-bottom: 6px; position: relative; z-index: 1; }
+        .ps-step.done .ps-dot, .ps-step.active .ps-dot { background: #1a1a1a; }
+        .ps-label { font-size: 10px; color: #ccc; text-align: center; white-space: nowrap; }
+        .ps-step.done .ps-label { color: #aaa; }
+        .ps-step.active .ps-label { color: #1a1a1a; font-weight: 600; }
         .planner-card {
             max-width: 720px;
             margin: 0 auto 80px;
@@ -70,12 +78,11 @@
 <body>
     <div class="top-bar">
         <a href="/" class="wordmark"><img src="{% static 'projects/logo_schwarz.png' %}" alt=""><span>Planning Hub</span></a>
-        <div class="steps">
-            <span class="step">Beschreiben</span>
-            <span class="step-sep">›</span>
-            <span class="step active">Klärung</span>
-            <span class="step-sep">›</span>
-            <span class="step">Review</span>
+        <div class="ps-track">
+            <div class="ps-step done"><div class="ps-dot"></div><span class="ps-label">Projekttyp</span></div>
+            <div class="ps-step done"><div class="ps-dot"></div><span class="ps-label">Beschreiben</span></div>
+            <div class="ps-step active"><div class="ps-dot"></div><span class="ps-label">Klärung</span></div>
+            <div class="ps-step"><div class="ps-dot"></div><span class="ps-label">Review</span></div>
         </div>
     </div>
     <div class="planner-card">
