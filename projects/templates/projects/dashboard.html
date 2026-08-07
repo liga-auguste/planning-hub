@@ -45,8 +45,8 @@
         .task-due.urgent { color: #f97316; font-weight: 500; }
         .task-due.overdue { color: #ef4444; font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid #e5e5e5; border-radius: 4px; padding: 1px 4px; }
-        .heute-btn { font-size: 11px; color: #9b9b9b; background: none; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
-        .heute-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+        .today-btn { font-size: 11px; color: #9b9b9b; background: none; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
+        .today-btn:hover { border-color: #3b82f6; color: #3b82f6; }
         .task-kontext { font-size: 11px; color: #9b9b9b; background: #f3f3f3; border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
         .timelapse-bar { margin-bottom: 32px; }
         .timelapse-label { font-size: 11px; font-weight: 600; color: #c0c0c0; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
@@ -57,9 +57,9 @@
         .moment-btn.active .moment-date { color: #aaa; }
         .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; }
         .moment-date { font-size: 11px; color: #9b9b9b; margin-top: 2px; white-space: nowrap; }
-        .moment-btn-heute { background: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: #9b9b9b; }
-        .moment-btn-heute:hover { border-color: #999; color: #1a1a1a; }
-        .moment-btn.loading, .moment-btn-heute.loading { opacity: 0.6; pointer-events: none; }
+        .moment-btn-today { background: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: #9b9b9b; }
+        .moment-btn-today:hover { border-color: #999; color: #1a1a1a; }
+        .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
         .moment-btn .spinner { display: none; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-top: 4px; }
         .moment-btn.active.loading .spinner { display: block; }
         .moment-btn:not(.active) .spinner { border-top-color: #1a1a1a; border-color: rgba(0,0,0,0.15); border-top-color: #1a1a1a; }
@@ -236,7 +236,7 @@
         <div class="timelapse-bar" id="timelapse-bar" style="display:none;">
             <div class="timelapse-label">Zeitreise</div>
             <div class="timelapse-moments" id="timelapse-moments">
-                <button class="moment-btn-heute" id="btn-heute" onclick="setSimDate(null)">Heute</button>
+                <button class="moment-btn-today" id="btn-today" onclick="setSimDate(null)">Heute</button>
             </div>
         </div>
         {% if sim_date %}
@@ -346,7 +346,7 @@
                     {{ task.due_display }}
                 </span>
                 {% if task.urgency == 'overdue' %}
-                <button class="heute-btn" data-task-id="{{ task.id }}">→ heute</button>
+                <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
                 {% endif %}
             </span>
         </div>
@@ -434,7 +434,7 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 const preloaded = new Set();
 
 async function setSimDate(dateStr, clickedBtn) {
-    document.querySelectorAll('.moment-btn, .moment-btn-heute').forEach(b => b.classList.remove('loading'));
+    document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
     if (clickedBtn) {
         clickedBtn.classList.remove('loading');
         clickedBtn.classList.add('active', 'loading');
@@ -482,9 +482,9 @@ if (TIMELAPSE_MOMENTS.length > 0) {
             btn.addEventListener('click', () => setSimDate(m.date, btn));
             container.appendChild(btn);
         });
-        const heuteBtn = document.getElementById('btn-heute');
-        if (!SIM_DATE) { heuteBtn.style.fontWeight = '600'; heuteBtn.style.color = '#1a1a1a'; }
-        heuteBtn.addEventListener('click', () => setSimDate(null, heuteBtn));
+        const todayBtn = document.getElementById('btn-today');
+        if (!SIM_DATE) { todayBtn.style.fontWeight = '600'; todayBtn.style.color = '#1a1a1a'; }
+        todayBtn.addEventListener('click', () => setSimDate(null, todayBtn));
         setTimeout(preloadAll, 800);
     }
 }
@@ -514,8 +514,8 @@ async function reschedule(taskId, newDate, dueSpan) {
     });
     dueSpan.dataset.rawDate = newDate;
     dueSpan.textContent = newDate;
-    const heuteBtn = dueSpan.closest('.task-right')?.querySelector('.heute-btn');
-    if (heuteBtn) heuteBtn.remove();
+    const todayBtn = dueSpan.closest('.task-right')?.querySelector('.today-btn');
+    if (todayBtn) todayBtn.remove();
     dueSpan.classList.remove('overdue', 'urgent');
 }
 
@@ -537,7 +537,7 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
     });
 });
 
-document.querySelectorAll('.heute-btn').forEach(btn => {
+document.querySelectorAll('.today-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const taskId = btn.dataset.taskId;

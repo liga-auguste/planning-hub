@@ -19,7 +19,7 @@ MONTHS_DE_REV = {
 }
 
 HISTORY_CACHE_KEY = "historical_projects"
-HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 Stunden
+HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 hours
 
 
 def _get_history():
@@ -38,7 +38,7 @@ def _get_active_rules():
 
 def _parse_event_date(description: str):
     today = date.today()
-    # Mit Jahr
+    # With a year
     m = re.search(r'(\d{1,2})\.\s+(\w+)\s+(\d{4})', description, re.IGNORECASE)
     if m:
         month = MONTHS_DE_REV.get(m.group(2).lower())
@@ -47,7 +47,7 @@ def _parse_event_date(description: str):
                 return date(int(m.group(3)), month, int(m.group(1)))
             except ValueError:
                 pass
-    # Ohne Jahr — nächstes Vorkommen innerhalb ~12 Monate
+    # Without a year — next occurrence within roughly 12 months
     m = re.search(r'(\d{1,2})\.\s+([A-Za-zÄäÖöÜüß]+)', description, re.IGNORECASE)
     if m:
         month = MONTHS_DE_REV.get(m.group(2).lower())
@@ -101,9 +101,9 @@ def planner_review(request):
         try:
             plan = json.loads(plan_json)
         except json.JSONDecodeError as e:
-            print("=== JSON FEHLER ===")
-            print(f"Fehler: {e}")
-            print(f"Stelle: {plan_json[max(0,e.pos-100):e.pos+100]}")
+            print("=== JSON ERROR ===")
+            print(f"Error: {e}")
+            print(f"Position: {plan_json[max(0,e.pos-100):e.pos+100]}")
             raise
 
         KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
@@ -167,7 +167,7 @@ def planner_create(request):
         return redirect('dashboard')
 
 
-# --- Regeln-Verwaltung ---
+# --- Rule management ---
 
 def rules_list(request):
     rules = PlannerRule.objects.all()

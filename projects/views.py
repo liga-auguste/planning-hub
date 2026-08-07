@@ -32,7 +32,7 @@ def _format_date(d):
     return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
 
 CACHE_KEY = "dashboard_data"
-CACHE_TTL = 60 * 60 * 8  # 8 Stunden
+CACHE_TTL = 60 * 60 * 8  # 8 hours
 
 
 def _annotate_tasks(projects, today):
@@ -69,7 +69,7 @@ def _fix_ai_markdown(text: str) -> str:
             in_project = False
             result.append(line)
         elif in_project and not line.strip():
-            pass  # Leerzeilen innerhalb eines Projekts überspringen
+            pass  # skip blank lines inside a project block
         elif in_project and not line.strip().startswith(('-', '#', '>')):
             result.append(f'    - {line.strip()}')
         else:
@@ -232,11 +232,11 @@ def set_timelapse_date(request):
 
 
 def preload_timelapse_summary(request):
-    """Pre-generates and caches KI summary for a given sim date (called from JS background)."""
+    """Pre-generates and caches the AI summary for a given sim date (called from JS background)."""
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
     data = json.loads(request.body)
-    sim_date_str = data.get('date')  # None = heute
+    sim_date_str = data.get('date')  # None = today
 
     today = date.today()
     sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None

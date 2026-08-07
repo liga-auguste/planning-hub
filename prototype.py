@@ -3,7 +3,7 @@ from datetime import date
 
 TODAY = date(2026, 8, 3)
 
-# Beschreibungen gelten für alle MzM-Events (Template-Ebene)
+# Descriptions apply to every MzM event (template level)
 MZM_TASK_DESCRIPTIONS = {
     "Eintrag in die Veranstaltungsdatenbank": "Event in die offizielle Veranstaltungsdatenbank eintragen — wird gebündelt für mehrere Events gemacht.",
     "Eintrag Papierkalender": "Event in den Papierkalender eintragen — wird gebündelt für mehrere Events gemacht.",
@@ -22,7 +22,7 @@ MZM_TASK_DESCRIPTIONS = {
 }
 
 def make_tasks(overrides: dict) -> list:
-    """Erzeugt die Task-Liste für ein MzM-Event mit projektspezifischen Daten."""
+    """Builds the task list for an MzM event, applying project-specific overrides."""
     base = [
         {"name": "Eintrag in die Veranstaltungsdatenbank", "done": True},
         {"name": "Eintrag Papierkalender",                  "done": True},
@@ -56,9 +56,9 @@ projects = [
             "Eintrag Papierkalender":                  date(2025, 12, 10),
             "Eintrag iCal":                            date(2025, 12, 10),
             "Plakate machen":                          date(2026,  8, 22),
-            "Plakate aushängen":                       date(2026,  8, 26),  # 10 Tage vorher
+            "Plakate aushängen":                       date(2026,  8, 26),  # 10 days before
             "Veranstaltung in den Facebook-Kalender":  date(2026,  8, 22),
-            "Pressetext an die Vlothoer Zeitung":      date(2026,  9,  2),  # Mittwoch vorher
+            "Pressetext an die Vlothoer Zeitung":      date(2026,  9,  2),  # Wednesday before
             "Programm machen":                         date(2026,  9,  2),
             "Programme bereitlegen":                   date(2026,  9,  5),
             "Blumen":                                  date(2026,  9,  4),
@@ -78,9 +78,9 @@ projects = [
             "Eintrag Papierkalender":                  date(2025, 12, 10),
             "Eintrag iCal":                            date(2025, 12, 10),
             "Plakate machen":                          date(2026,  9, 19),
-            "Plakate aushängen":                       date(2026,  9, 23),  # 10 Tage vorher
+            "Plakate aushängen":                       date(2026,  9, 23),  # 10 days before
             "Veranstaltung in den Facebook-Kalender":  date(2026,  9, 19),
-            "Pressetext an die Vlothoer Zeitung":      date(2026,  9, 30),  # Mittwoch vorher
+            "Pressetext an die Vlothoer Zeitung":      date(2026,  9, 30),  # Wednesday before
             "Programm machen":                         date(2026,  9, 30),
             "Programme bereitlegen":                   date(2026, 10,  3),
             "Blumen":                                  date(2026, 10,  2),
@@ -100,9 +100,9 @@ projects = [
             "Eintrag Papierkalender":                  date(2025, 12, 10),
             "Eintrag iCal":                            date(2025, 12, 10),
             "Plakate machen":                          date(2026, 10, 24),
-            "Plakate aushängen":                       date(2026, 10, 28),  # 10 Tage vorher
+            "Plakate aushängen":                       date(2026, 10, 28),  # 10 days before
             "Veranstaltung in den Facebook-Kalender":  date(2026, 10, 24),
-            "Pressetext an die Vlothoer Zeitung":      date(2026, 11,  4),  # Mittwoch vorher
+            "Pressetext an die Vlothoer Zeitung":      date(2026, 11,  4),  # Wednesday before
             "Programm machen":                         date(2026, 11,  4),
             "Programme bereitlegen":                   date(2026, 11,  7),
             "Blumen":                                  date(2026, 11,  6),
@@ -122,9 +122,9 @@ projects = [
             "Eintrag Papierkalender":                  date(2025, 12, 10),
             "Eintrag iCal":                            date(2025, 12, 10),
             "Plakate machen":                          date(2026, 11, 21),
-            "Plakate aushängen":                       date(2026, 11, 25),  # 10 Tage vorher
+            "Plakate aushängen":                       date(2026, 11, 25),  # 10 days before
             "Veranstaltung in den Facebook-Kalender":  date(2026, 11, 21),
-            "Pressetext an die Vlothoer Zeitung":      date(2026, 12,  2),  # Mittwoch vorher
+            "Pressetext an die Vlothoer Zeitung":      date(2026, 12,  2),  # Wednesday before
             "Programm machen":                         date(2026, 12,  2),
             "Programme bereitlegen":                   date(2026, 12,  5),
             "Blumen":                                  date(2026, 12,  4),

@@ -41,5 +41,5 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(self.style.SUCCESS(
-            f'ProjectType "{mzm.name}" mit {len(templates)} TaskTemplates angelegt.'
+            f'Created ProjectType "{mzm.name}" with {len(templates)} task templates.'
         ))

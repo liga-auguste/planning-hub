@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Kein .pyc-Bytecode, kein gepuffertes stdout (Logs erscheinen sofort)
+# No .pyc bytecode, no buffered stdout (logs appear immediately)
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Startskript ausführbar machen
+# Make the entrypoint script executable
 RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
