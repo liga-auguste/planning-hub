@@ -6,7 +6,7 @@ from datetime import date
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
 
 TASK_KONTEXT = {
-    # Planung — gebündelt in Planungs-Sessions
+    # Planung — batched into planning sessions
     "Eintrag in die Veranstaltungsdatenbank": "Planung",
     "Eintrag iCal": "Planung",
     "Eintrag Papierkalender": "Planung",
@@ -15,7 +15,7 @@ TASK_KONTEXT = {
     "Verbindliche Vereinbarung": "Planung",
     "Eintrittspreis festlegen": "Planung",
     "Programm festlegen": "Planung",
-    # Büro — am Computer
+    # Büro — desk work
     "Pressetext": "Büro",
     "GEMA-Meldung": "Büro",
     "Musikervertrag": "Büro",
@@ -33,13 +33,13 @@ TASK_KONTEXT = {
     "Info auf": "Büro",
     "Website": "Büro",
     "Antrag": "Büro",
-    # Graphiker — externer Auftrag
+    # Graphiker — commissioned externally
     "Plakat": "Graphiker",
     "Lesezeichen": "Graphiker",
     "Banner": "Graphiker",
     "Eintrittskarten": "Graphiker",
     "Graphik": "Graphiker",
-    # Kommunikation — Nachrichten, Anfragen
+    # Kommunikation — messages and enquiries
     "Nachricht": "Kommunikation",
     "Mail": "Kommunikation",
     "fragen": "Kommunikation",
@@ -47,13 +47,13 @@ TASK_KONTEXT = {
     "vereinbaren": "Kommunikation",
     "schicken": "Kommunikation",
     "Aushilfen": "Kommunikation",
-    # Unterwegs — physisch außer Haus
+    # Unterwegs — requires leaving the house
     "Plakate aushängen": "Unterwegs",
     "Plakate verteilen": "Unterwegs",
     "Plakatverteilung": "Unterwegs",
     "Blumen": "Unterwegs",
     "Vorverkauf hinbringen": "Unterwegs",
-    # Vor Ort — nur am Veranstaltungstag
+    # Vor Ort — on the event day only
     "Kasse": "Vor Ort",
     "Körbchen": "Vor Ort",
     "Aufbau": "Vor Ort",
@@ -102,7 +102,7 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
 
         lines.append("")
 
-    # Kontext-Übersicht projektübergreifend
+    # Context overview across all projects
     lines += ["---", "", "## Kontext-Übersicht (projektübergreifend)", ""]
     all_open = [t for p in projects for t in p["tasks"] if not t["done"]]
     for kontext in KONTEXTE:

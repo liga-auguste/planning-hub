@@ -105,4 +105,4 @@ class Command(BaseCommand):
                         order=order,
                     )
 
-        self.stdout.write(self.style.SUCCESS('4 Projekte mit Tasks angelegt.'))
+        self.stdout.write(self.style.SUCCESS('Created 4 projects with tasks.'))

@@ -15,8 +15,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         if PlannerRule.objects.exists():
-            self.stdout.write("Regeln vorhanden, übersprungen.")
+            self.stdout.write("Rules already present, skipped.")
             return
         for i, text in enumerate(INITIAL_RULES):
             PlannerRule.objects.create(text=text, active=True, order=i)
-        self.stdout.write(f"{len(INITIAL_RULES)} Regeln angelegt.")
+        self.stdout.write(f"Created {len(INITIAL_RULES)} rules.")
