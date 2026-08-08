@@ -145,6 +145,26 @@ def get_historical_projects() -> list:
 
         return projects
 
+def find_project(name: str, event_date: date) -> str | None:
+    """Returns the page id of the project with exactly this name and date,
+    or None. planner_create checks this before create_project so that
+    retrying a save that died halfway reuses the page the first attempt
+    already created instead of creating a twin.
+    """
+    with translate_notion_errors():
+        response = _client().databases.query(
+            database_id=PROJECTS_DB,
+            filter={
+                "and": [
+                    {"property": "Name der Veranstaltung", "title": {"equals": name}},
+                    {"property": "Termin", "date": {"equals": event_date.isoformat()}},
+                ]
+            },
+        )
+        results = response["results"]
+        return results[0]["id"] if results else None
+
+
 def create_project(name: str, event_date: date) -> str:
     with translate_notion_errors():
         response = _client().pages.create(
@@ -167,7 +187,16 @@ def create_project(name: str, event_date: date) -> str:
 def create_tasks(project_id: str, tasks: list) -> None:
     client = _client()
     with translate_notion_errors():
+        # A failed attempt may have written part of this list already (the
+        # loop below is one API call per task) — skip what already exists so
+        # a retry from planner_create is idempotent instead of duplicating.
+        existing = {
+            (t["name"], t["due"].isoformat() if t["due"] else None)
+            for t in _get_tasks(project_id)
+        }
         for task in tasks:
+            if (task["name"], task["date"]) in existing:
+                continue
             client.pages.create(
                 parent={"database_id": TASKS_DB},
                 properties={

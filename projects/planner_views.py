@@ -3,7 +3,7 @@ from django.core.cache import cache
 from django.conf import settings
 from django.http import JsonResponse
 from .models import PlannerRule, DemoEvent
-from .notion import NotionUnavailableError, get_historical_projects, create_project, create_tasks
+from .notion import NotionUnavailableError, get_historical_projects, find_project, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
 from .ai import AIUnavailableError, generate_timelapse_moments
@@ -178,7 +178,11 @@ def planner_create(request):
             return redirect('dashboard')
 
         try:
-            project_id = create_project(project_name, event_date)
+            # A retry after the NotionUnavailableError below re-POSTs the
+            # same plan — reuse the project page a failed attempt already
+            # created (create_tasks likewise skips already-written tasks),
+            # so retrying can't duplicate anything in Notion.
+            project_id = find_project(project_name, event_date) or create_project(project_name, event_date)
             tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
             create_tasks(project_id, tasks)
         except NotionUnavailableError:

@@ -13,8 +13,8 @@ from unittest.mock import Mock
 
 from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
 from .notion import (
-    NotionUnavailableError, create_project, create_tasks, get_historical_projects,
-    get_upcoming_projects, toggle_task, update_task_date,
+    NotionUnavailableError, create_project, create_tasks, find_project,
+    get_historical_projects, get_upcoming_projects, toggle_task, update_task_date,
 )
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
@@ -777,6 +777,99 @@ class NotionFailureTranslationTest(SimpleTestCase):
                 create_tasks('project-id', [{'name': 'x', 'date': '2026-09-05'}])
 
 
+class FindProjectTest(SimpleTestCase):
+    """find_project makes retrying planner_create idempotent at the project
+    level: an attempt that died in create_tasks left a project page behind,
+    and the retry must find and reuse it instead of creating a twin."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_returns_the_id_of_an_exact_match(self):
+        with patch('projects.notion.Client') as MockClient:
+            MockClient.return_value.databases.query.return_value = {'results': [{'id': 'page-1'}]}
+            self.assertEqual(find_project('Sommerkonzert', date(2026, 9, 5)), 'page-1')
+
+    def test_queries_by_exact_name_and_date(self):
+        with patch('projects.notion.Client') as MockClient:
+            query = MockClient.return_value.databases.query
+            query.return_value = {'results': []}
+            find_project('Sommerkonzert', date(2026, 9, 5))
+        conditions = query.call_args.kwargs['filter']['and']
+        self.assertIn({'property': 'Name der Veranstaltung', 'title': {'equals': 'Sommerkonzert'}}, conditions)
+        self.assertIn({'property': 'Termin', 'date': {'equals': '2026-09-05'}}, conditions)
+
+    def test_returns_none_when_nothing_matches(self):
+        with patch('projects.notion.Client') as MockClient:
+            MockClient.return_value.databases.query.return_value = {'results': []}
+            self.assertIsNone(find_project('Sommerkonzert', date(2026, 9, 5)))
+
+    def test_translates_a_failure(self):
+        with patch('projects.notion.Client') as MockClient:
+            MockClient.return_value.databases.query.side_effect = RequestTimeoutError()
+            with self.assertRaises(NotionUnavailableError):
+                find_project('Sommerkonzert', date(2026, 9, 5))
+
+
+def _fake_task_page(name, iso_date):
+    # Shaped the way _get_tasks parses a Notion task page.
+    return {
+        'id': 'task-1',
+        'properties': {
+            'Aufgabe': {'title': [{'plain_text': name}]},
+            'Wann?': {'date': {'start': iso_date}},
+            'Done': {'checkbox': False},
+            'Kontext': {'multi_select': []},
+        },
+    }
+
+
+class CreateTasksIdempotencyTest(SimpleTestCase):
+    """A retried save reaches create_tasks with the same list a failed
+    attempt may have partially written (one API call per task) — what
+    already made it to Notion must be skipped, not created again."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_already_written_tasks_are_skipped(self):
+        with patch('projects.notion.Client') as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {
+                'results': [_fake_task_page('Programm festlegen', '2026-08-20')]
+            }
+            create_tasks('project-id', [
+                {'name': 'Programm festlegen', 'date': '2026-08-20'},
+                {'name': 'Plakate aushängen', 'date': '2026-08-27'},
+            ])
+        self.assertEqual(instance.pages.create.call_count, 1)
+        created = instance.pages.create.call_args.kwargs['properties']
+        self.assertEqual(created['Aufgabe']['title'][0]['text']['content'], 'Plakate aushängen')
+
+    def test_a_fresh_project_writes_the_whole_list(self):
+        with patch('projects.notion.Client') as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {'results': []}
+            create_tasks('project-id', [
+                {'name': 'Programm festlegen', 'date': '2026-08-20'},
+                {'name': 'Plakate aushängen', 'date': '2026-08-27'},
+            ])
+        self.assertEqual(instance.pages.create.call_count, 2)
+
+    def test_same_name_on_a_different_date_is_not_skipped(self):
+        with patch('projects.notion.Client') as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {
+                'results': [_fake_task_page('Programm festlegen', '2026-08-20')]
+            }
+            create_tasks('project-id', [{'name': 'Programm festlegen', 'date': '2026-08-27'}])
+        self.assertEqual(instance.pages.create.call_count, 1)
+
+
 def _fake_upcoming_project(name='Testkonzert'):
     return {
         'id': 'p1', 'name': name, 'event_date': date.today() + timedelta(days=10),
@@ -908,7 +1001,8 @@ class PlannerCreateNotionFailureTest(TestCase):
         })
 
     def test_notion_failure_redisplays_the_plan_instead_of_losing_it(self):
-        with patch('projects.planner_views.create_project', side_effect=NotionUnavailableError('boom')):
+        with patch('projects.planner_views.find_project', return_value=None), \
+             patch('projects.planner_views.create_project', side_effect=NotionUnavailableError('boom')):
             response = self.post_plan()
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'projects/planner_review.html')
@@ -917,14 +1011,40 @@ class PlannerCreateNotionFailureTest(TestCase):
         self.assertContains(response, 'nicht gespeichert')
 
     def test_a_failure_in_create_tasks_also_redisplays_the_plan(self):
-        with patch('projects.planner_views.create_project', return_value='page-id'), \
+        with patch('projects.planner_views.find_project', return_value=None), \
+             patch('projects.planner_views.create_project', return_value='page-id'), \
              patch('projects.planner_views.create_tasks', side_effect=NotionUnavailableError('boom')):
             response = self.post_plan()
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Programm festlegen')
 
+    def test_a_failure_in_the_lookup_itself_also_redisplays_the_plan(self):
+        with patch('projects.planner_views.find_project', side_effect=NotionUnavailableError('boom')):
+            response = self.post_plan()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Programm festlegen')
+        self.assertContains(response, 'nicht gespeichert')
+
+    def test_a_retry_reuses_the_project_the_failed_attempt_created(self):
+        """The error page invites the visitor to re-POST the same plan. If
+        the first attempt died between create_project and create_tasks, the
+        retry must attach the tasks to the existing page, not create a twin
+        project — the duplicate-data finding from PR #34's review."""
+        with patch('projects.planner_views.find_project', return_value='page-id') as mock_find, \
+             patch('projects.planner_views.create_project') as mock_create_project, \
+             patch('projects.planner_views.create_tasks') as mock_create_tasks:
+            response = self.post_plan()
+        self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
+        mock_find.assert_called_once()
+        mock_create_project.assert_not_called()
+        mock_create_tasks.assert_called_once()
+        called_project_id, called_tasks = mock_create_tasks.call_args.args
+        self.assertEqual(called_project_id, 'page-id')
+        self.assertEqual([t['name'] for t in called_tasks], ['Programm festlegen'])
+
     def test_success_still_redirects_to_the_dashboard(self):
-        with patch('projects.planner_views.create_project', return_value='page-id'), \
+        with patch('projects.planner_views.find_project', return_value=None), \
+             patch('projects.planner_views.create_project', return_value='page-id'), \
              patch('projects.planner_views.create_tasks') as mock_create_tasks:
             response = self.post_plan()
         # fetch_redirect_response=False: dashboard()'s own behavior has its
