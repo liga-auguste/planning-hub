@@ -1,8 +1,13 @@
+import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+
+from .ai import derive_kontext
+from .planner_views import _parse_event_date
+from .views import _annotate_tasks, _fix_ai_markdown
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
@@ -153,3 +158,130 @@ class PoisonedSessionHealingTest(DemoModeTestCase):
     def test_dashboard_renders_without_a_session_plan(self):
         self.poison()
         self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
+
+
+# --- Unit tests for the logic that is not a view ---
+
+class DeriveKontextTest(SimpleTestCase):
+    def test_keyword_match_returns_its_kontext(self):
+        self.assertEqual(derive_kontext('GEMA-Meldung'), ['Büro'])
+
+    def test_match_is_case_insensitive_and_partial(self):
+        self.assertEqual(derive_kontext('Heute noch das Programm festlegen'), ['Planung'])
+
+    def test_no_match_returns_empty(self):
+        self.assertEqual(derive_kontext('Irgendetwas Unbekanntes'), [])
+
+    def test_returns_a_list_not_a_string(self):
+        """_annotate_tasks writes this into a field that otherwise holds a string. See #9."""
+        self.assertIsInstance(derive_kontext('GEMA-Meldung'), list)
+
+
+class ParseEventDateTest(SimpleTestCase):
+    def test_explicit_year_is_used(self):
+        self.assertEqual(
+            _parse_event_date('Konzert am 5. September 2026'), date(2026, 9, 5)
+        )
+
+    def test_without_year_returns_the_next_occurrence(self):
+        result = _parse_event_date('Konzert am 5. September')
+        self.assertEqual((result.month, result.day), (9, 5))
+        self.assertGreater(result, date.today())
+        self.assertLessEqual((result - date.today()).days, 366)
+
+    def test_impossible_day_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert am 31. Februar 2026'))
+
+    def test_unknown_month_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert am 5. Smarch 2026'))
+
+    def test_no_date_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert irgendwann im Herbst'))
+
+
+class AnnotateTasksTest(SimpleTestCase):
+    TODAY = date(2026, 6, 15)
+
+    def annotate(self, *tasks):
+        project = {'tasks': [
+            {'name': 'Aufgabe', 'kontext': 'Büro', 'done': False, 'due': None, **t}
+            for t in tasks
+        ]}
+        return _annotate_tasks([project], self.TODAY)[0]
+
+    def urgency_for(self, **task):
+        return self.annotate(task)['tasks'][0]['urgency']
+
+    def test_done_task_is_done(self):
+        self.assertEqual(self.urgency_for(done=True, due=self.TODAY - timedelta(days=1)), 'done')
+
+    def test_task_without_due_date_is_done(self):
+        self.assertEqual(self.urgency_for(due=None), 'done')
+
+    def test_past_due_is_overdue(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY - timedelta(days=1)), 'overdue')
+
+    def test_today_is_urgent(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY), 'urgent')
+
+    def test_seven_days_out_is_still_urgent(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), 'urgent')
+
+    def test_eight_days_out_is_ok(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=8)), 'ok')
+
+    def test_overdue_beats_urgent_on_the_project(self):
+        project = self.annotate(
+            {'due': self.TODAY + timedelta(days=2)},
+            {'due': self.TODAY - timedelta(days=2)},
+        )
+        self.assertEqual(project['urgency'], 'overdue')
+
+    def test_project_without_open_work_stays_ok(self):
+        project = self.annotate({'due': self.TODAY + timedelta(days=30)})
+        self.assertEqual(project['urgency'], 'ok')
+
+    def test_due_display_is_formatted_german(self):
+        task = self.annotate({'due': date(2026, 6, 15)})['tasks'][0]
+        self.assertEqual(task['due_display'], 'Mo, 15. Juni')
+
+    def test_empty_kontext_is_derived_from_the_name(self):
+        task = self.annotate({'name': 'GEMA-Meldung', 'kontext': ''})['tasks'][0]
+        self.assertEqual(task['kontext'], ['Büro'])
+
+
+class FixAiMarkdownTest(SimpleTestCase):
+    """Claude returns task lines under a project bullet without list markers."""
+
+    def test_continuation_lines_become_sub_bullets(self):
+        result = _fix_ai_markdown('- **Konzert**\nPlakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_blank_lines_inside_a_block_are_dropped(self):
+        result = _fix_ai_markdown('- **Konzert**\n\nPlakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_existing_list_markers_are_left_alone(self):
+        result = _fix_ai_markdown('- **Konzert**\n- Plakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n- Plakate aushängen')
+
+    def test_horizontal_rule_ends_the_block(self):
+        result = _fix_ai_markdown('- **Konzert**\n---\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n---\nFreier Text')
+
+    def test_bold_line_ends_the_block(self):
+        result = _fix_ai_markdown('- **Konzert**\n**Hinweis**\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n**Hinweis**\nFreier Text')
+
+    def test_text_outside_a_block_is_untouched(self):
+        self.assertEqual(_fix_ai_markdown('Nur ein Satz.'), 'Nur ein Satz.')
+
+    @unittest.expectedFailure
+    def test_section_header_keeps_its_blank_line(self):
+        """A '##' header after a project block loses the blank line that makes it a
+        header, so Markdown renders it as list content and the summary shows an
+        unexplained gap. '#' also fails to reset in_project, so anything following
+        the header is indented as a sub-bullet. See #20.
+        """
+        result = _fix_ai_markdown('- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen')
+        self.assertIn('\n\n## Jetzt fällig', result)
