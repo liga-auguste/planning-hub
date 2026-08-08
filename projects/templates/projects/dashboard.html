@@ -47,6 +47,9 @@
         .task-due.urgent { color: #f97316; font-weight: 500; }
         .task-due.overdue { color: #ef4444; font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid #e5e5e5; border-radius: 4px; padding: 1px 4px; }
+        /* Toggle/reschedule failed on the Notion side — the click had no effect. */
+        .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
+        @keyframes flash-failed { 50% { color: #b3261e; } }
         .today-btn { font-size: 11px; color: #9b9b9b; background: none; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
         .today-btn:hover { border-color: #3b82f6; color: #3b82f6; }
         .task-kontext { font-size: 11px; color: #9b9b9b; background: #f3f3f3; border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
@@ -400,11 +403,17 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
-        await fetch(`/task/${taskId}/toggle/`, {
+        const response = await fetch(`/task/${taskId}/toggle/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({done})
         });
+        if (!response.ok) {
+            // Notion disagreed — leave the checkbox exactly as it was rather
+            // than claim a change that didn't happen.
+            flashActionFailed(form.querySelector('button'));
+            return;
+        }
         form.dataset.done = done ? 'true' : 'false';
         const btn = form.querySelector('button');
         btn.classList.toggle('done', done);
@@ -412,6 +421,11 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         nameSpan.classList.toggle('done', done);
     });
 });
+
+function flashActionFailed(el) {
+    el.classList.add('action-failed');
+    setTimeout(() => el.classList.remove('action-failed'), 1500);
+}
 </script>
 <script>
 const TODAY = '{{ today_iso }}';
@@ -519,16 +533,21 @@ document.querySelectorAll('.ai-card li').forEach(li => {
 
 async function reschedule(taskId, newDate, dueSpan) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    await fetch(`/task/${taskId}/reschedule/`, {
+    const response = await fetch(`/task/${taskId}/reschedule/`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
         body: JSON.stringify({date: newDate})
     });
+    if (!response.ok) {
+        flashActionFailed(dueSpan);
+        return false;
+    }
     dueSpan.dataset.rawDate = newDate;
     dueSpan.textContent = newDate;
     const todayBtn = dueSpan.closest('.task-right')?.querySelector('.today-btn');
     if (todayBtn) todayBtn.remove();
     dueSpan.classList.remove('overdue', 'urgent');
+    return true;
 }
 
 document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
@@ -541,8 +560,11 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
         input.focus();
         input.showPicker();
         input.addEventListener('change', async () => {
-            await reschedule(span.dataset.taskId, input.value, span);
-            span.textContent = input.value;
+            // span.textContent only follows the new date if Notion accepted
+            // it — on failure reschedule() leaves the span untouched, so
+            // swapping back in shows the old value, not the rejected one.
+            const ok = await reschedule(span.dataset.taskId, input.value, span);
+            if (ok) span.textContent = input.value;
             input.replaceWith(span);
         });
         input.addEventListener('blur', () => input.replaceWith(span));

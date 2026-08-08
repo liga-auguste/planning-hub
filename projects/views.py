@@ -376,7 +376,12 @@ def toggle_task_view(request, task_id):
                     break
             request.session['demo_plan'] = plan
     else:
-        toggle_task(task_id, done)
+        try:
+            toggle_task(task_id, done)
+        except NotionUnavailableError:
+            # A non-200 so the caller knows not to apply its optimistic
+            # update — see the dashboard.html JS changes in the same commit.
+            return JsonResponse({"error": "notion unavailable"}, status=502)
     return JsonResponse({"ok": True})
 
 
@@ -385,7 +390,10 @@ def reschedule_task_view(request, task_id):
         return JsonResponse({"error": "method not allowed"}, status=405)
     data = json.loads(request.body)
     if not settings.DEMO_MODE:
-        update_task_date(task_id, data["date"])
+        try:
+            update_task_date(task_id, data["date"])
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
     return JsonResponse({"ok": True})
 
 

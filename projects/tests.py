@@ -834,3 +834,55 @@ class HistoryFallbackTest(TestCase):
         cache.clear()
         with patch('projects.planner_views.get_historical_projects', side_effect=NotionUnavailableError('boom')):
             self.assertEqual(_get_history(), [])
+
+
+@override_settings(DEMO_MODE=False)
+class ToggleTaskNotionFailureTest(TestCase):
+    """toggle_task_view always returned {"ok": True} regardless of what
+    toggle_task() actually did — a Notion failure here used to either 500 or
+    (before #29) go unnoticed entirely, leaving the checkbox and Notion
+    silently disagreeing. A non-200 is what lets the frontend refuse to
+    apply the change it was hoping for."""
+
+    def test_notion_failure_is_a_502_not_a_500(self):
+        with patch('projects.views.toggle_task', side_effect=NotionUnavailableError('boom')):
+            response = self.client.post(
+                reverse('toggle_task', args=['task-1']),
+                data='{"done": true}',
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {'error': 'notion unavailable'})
+
+    def test_success_still_reports_ok(self):
+        with patch('projects.views.toggle_task') as mock_toggle:
+            response = self.client.post(
+                reverse('toggle_task', args=['task-1']),
+                data='{"done": true}',
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 200)
+        mock_toggle.assert_called_once_with('task-1', True)
+
+
+@override_settings(DEMO_MODE=False)
+class RescheduleTaskNotionFailureTest(TestCase):
+    def test_notion_failure_is_a_502_not_a_500(self):
+        with patch('projects.views.update_task_date', side_effect=NotionUnavailableError('boom')):
+            response = self.client.post(
+                reverse('reschedule_task', args=['task-1']),
+                data='{"date": "2026-09-05"}',
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {'error': 'notion unavailable'})
+
+    def test_success_still_reports_ok(self):
+        with patch('projects.views.update_task_date') as mock_update:
+            response = self.client.post(
+                reverse('reschedule_task', args=['task-1']),
+                data='{"date": "2026-09-05"}',
+                content_type='application/json',
+            )
+        self.assertEqual(response.status_code, 200)
+        mock_update.assert_called_once_with('task-1', '2026-09-05')
