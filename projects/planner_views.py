@@ -86,10 +86,6 @@ def planner_start(request):
     })
 
 
-def planner_questions(request):
-    pass
-
-
 def planner_review(request):
     if request.method == 'POST':
         description = request.POST.get('description', '').strip()
@@ -117,6 +113,7 @@ def planner_review(request):
             'event_date_iso': event_date.isoformat() if event_date else '',
             'demo_mode': settings.DEMO_MODE,
         })
+    return redirect('planner_start')
 
 
 def planner_create(request):
@@ -165,6 +162,7 @@ def planner_create(request):
         create_tasks(project_id, tasks)
         cache.delete('dashboard_data')
         return redirect('dashboard')
+    return redirect('planner_start')
 
 
 # --- Rule management ---
