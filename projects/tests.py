@@ -89,6 +89,56 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, '.kanban-card-meta span:last-child')
 
 
+class FooterPinningTest(DemoModeTestCase):
+    """Part A of #21: the footer pinning rules used to live only in
+    landing.html's extra_css override, so every other public page had the
+    footer floating mid-viewport. They belong in base_public.html."""
+
+    def test_base_template_makes_body_a_flex_column(self):
+        response = self.client.get('/impressum/')
+        self.assertContains(response, 'min-height: 100vh; display: flex; flex-direction: column;')
+
+    def test_base_template_pins_the_footer(self):
+        response = self.client.get('/impressum/')
+        self.assertContains(response, 'margin-top: auto; padding-top: 20px;')
+
+    def test_landing_page_no_longer_duplicates_the_override(self):
+        # Exactly one occurrence: the base rule, not a second copy in extra_css.
+        response = self.client.get('/')
+        self.assertContains(response, 'margin-top: auto', count=1)
+
+    def test_wrapper_padding_for_the_floating_footer_is_gone(self):
+        # The 80px bottom padding only existed to keep content clear of the
+        # floating footer; once pinned it would double the spacing.
+        response = self.client.get('/impressum/')
+        self.assertNotContains(response, 'padding: 32px 20px 80px')
+
+
+class FooterOnDashboardPagesTest(DemoModeTestCase):
+    """Part B of #21: dashboard pages rendered no footer at all, so the
+    legally required Impressum/Datenschutz links were missing there. The
+    cookie banner also links to Datenschutz, hence the full-markup asserts."""
+
+    def assert_has_footer(self, response):
+        self.assertContains(response, 'page-footer')
+        self.assertContains(response, '<a href="/impressum/">Impressum</a>')
+        self.assertContains(response, '<a href="/datenschutz/">Datenschutz</a>')
+        self.assertContains(response, '© 2026 Liga Auguste')
+
+    def test_dashboard_has_the_footer(self):
+        self.assert_has_footer(self.client.get('/dashboard/'))
+
+    def test_my_plan_has_the_footer(self):
+        self.given_session_plan()
+        self.assert_has_footer(self.client.get('/mein-plan/'))
+
+    def test_stats_has_the_footer(self):
+        self.assert_has_footer(self.client.get('/stats/'))
+
+    def test_planner_start_keeps_its_footer(self):
+        self.assert_has_footer(self.client.get(reverse('planner_start')))
+
+
 class AiStubTest(DemoModeTestCase):
     """Guards the guard: proves the stubs are actually in the request path."""
 
