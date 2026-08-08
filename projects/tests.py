@@ -114,6 +114,31 @@ class FooterPinningTest(DemoModeTestCase):
         self.assertNotContains(response, 'padding: 32px 20px 80px')
 
 
+class FooterOnDashboardPagesTest(DemoModeTestCase):
+    """Part B of #21: dashboard pages rendered no footer at all, so the
+    legally required Impressum/Datenschutz links were missing there. The
+    cookie banner also links to Datenschutz, hence the full-markup asserts."""
+
+    def assert_has_footer(self, response):
+        self.assertContains(response, 'page-footer')
+        self.assertContains(response, '<a href="/impressum/">Impressum</a>')
+        self.assertContains(response, '<a href="/datenschutz/">Datenschutz</a>')
+        self.assertContains(response, '© 2026 Liga Auguste')
+
+    def test_dashboard_has_the_footer(self):
+        self.assert_has_footer(self.client.get('/dashboard/'))
+
+    def test_my_plan_has_the_footer(self):
+        self.given_session_plan()
+        self.assert_has_footer(self.client.get('/mein-plan/'))
+
+    def test_stats_has_the_footer(self):
+        self.assert_has_footer(self.client.get('/stats/'))
+
+    def test_planner_start_keeps_its_footer(self):
+        self.assert_has_footer(self.client.get(reverse('planner_start')))
+
+
 class AiStubTest(DemoModeTestCase):
     """Guards the guard: proves the stubs are actually in the request path."""
 
