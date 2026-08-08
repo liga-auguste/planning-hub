@@ -34,12 +34,18 @@ def _format_date(d):
     weekday = WEEKDAYS_SHORT[d.weekday()]
     return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
 
-CACHE_KEY = "dashboard_data"
+# Both cache keys and SUMMARY_KEY store rendered summary HTML, so they carry a
+# version that is bumped on every format change (#20: v2/v4) — otherwise
+# old-shape HTML from before a deploy renders unstyled under the new CSS.
+CACHE_KEY = "dashboard_data_v2"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale"
+STALE_CACHE_KEY = "dashboard_data_stale_v2"
+# Session key prefix for demo summaries; planner_create clears every version
+# by the unversioned "demo_plan_summary" prefix when a new plan is generated.
+SUMMARY_KEY = "demo_plan_summary_v4"
 
 
 def _annotate_tasks(projects, today):
@@ -64,6 +70,11 @@ def _annotate_tasks(projects, today):
     return projects
 
 
+# A sub-task bullet the model indented too shallowly: python-markdown only
+# nests a list at four spaces, anything less renders as a flat sibling li.
+_SHALLOW_BULLET = re.compile(r'^ {1,3}- ')
+
+
 def _fix_ai_markdown(text: str) -> str:
     lines = text.split('\n')
     result = []
@@ -72,11 +83,19 @@ def _fix_ai_markdown(text: str) -> str:
         if line.startswith('- **'):
             in_project = True
             result.append(line)
-        elif line.startswith(('---', '**')):
-            in_project = False
+        elif line.startswith(('---', '**', '#')):
+            # The blank line before a boundary is what makes the next block a
+            # block — the blank-skipping below would otherwise glue it to the
+            # last task line, and Markdown lazily continues the list over it
+            # (the vanished section header of #20).
+            if in_project:
+                result.append('')
+                in_project = False
             result.append(line)
         elif in_project and not line.strip():
             pass  # skip blank lines inside a project block
+        elif in_project and _SHALLOW_BULLET.match(line):
+            result.append(f'    {line.strip()}')
         elif in_project and not line.strip().startswith(('-', '#', '>')):
             result.append(f'    - {line.strip()}')
         else:
@@ -225,7 +244,7 @@ def dashboard(request):
                     if task.get('due') and task['due'] <= sim_date:
                         task['done'] = True
             projects = _annotate_tasks([project], effective_today)
-            summary_key = f'demo_plan_summary_v3_{sim_date_str or "today"}'
+            summary_key = f'{SUMMARY_KEY}_{sim_date_str or "today"}'
             summary = request.session.get(summary_key)
             if not summary:
                 try:
@@ -343,7 +362,7 @@ def preload_timelapse_summary(request):
     today = date.today()
     sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
     effective_today = sim_date or today
-    summary_key = f'demo_plan_summary_v3_{sim_date_str or "today"}'
+    summary_key = f'{SUMMARY_KEY}_{sim_date_str or "today"}'
 
     if request.session.get(summary_key):
         return JsonResponse({'ok': True, 'cached': True})
@@ -476,7 +495,7 @@ def my_plan(request):
     done_count = sum(1 for t in tasks if t['done'])
     total = len(tasks)
 
-    summary = request.session.get('demo_plan_summary_v3_today')
+    summary = request.session.get(f'{SUMMARY_KEY}_today')
     summary_error = False
     if not summary:
         try:
@@ -485,7 +504,7 @@ def my_plan(request):
             summary_error = True
         else:
             summary = markdown.markdown(_fix_ai_markdown(summary_md))
-            request.session['demo_plan_summary_v3_today'] = summary
+            request.session[f'{SUMMARY_KEY}_today'] = summary
 
     return render(request, 'projects/my_plan.html', {
         'project': project,

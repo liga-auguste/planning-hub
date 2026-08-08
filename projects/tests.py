@@ -1,10 +1,10 @@
 import os
-import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
 import anthropic
 import httpx
+import markdown
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
@@ -19,7 +19,7 @@ from .notion import (
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
-from .views import CACHE_KEY, _annotate_tasks, _fix_ai_markdown
+from .views import CACHE_KEY, SUMMARY_KEY, _annotate_tasks, _fix_ai_markdown
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
@@ -127,6 +127,28 @@ class PlannerReviewHappyPathTest(DemoModeTestCase):
         self.assertContains(response, 'Testkonzert')
 
 
+class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
+    """Replanning clears cached summaries by the unversioned prefix, so
+    summaries written under any older key version go too — a session can
+    outlive several format changes."""
+
+    def test_all_summary_versions_are_cleared(self):
+        session = self.client.session
+        session['demo_plan_summary_v3_today'] = '<p>alt</p>'
+        session[f'{SUMMARY_KEY}_today'] = '<p>aktuell</p>'
+        session.save()
+        self.client.post(reverse('planner_create'), data={
+            'description': 'Konzert am 5. September',
+            'project_name': 'Sommerkonzert',
+            'event_date': (date.today() + timedelta(days=30)).isoformat(),
+            'task_name': ['Programm festlegen'],
+            'task_date': [(date.today() + timedelta(days=7)).isoformat()],
+            'task_kontext': ['Planung'],
+        })
+        self.assertNotIn('demo_plan_summary_v3_today', self.client.session)
+        self.assertNotIn(f'{SUMMARY_KEY}_today', self.client.session)
+
+
 class PlannerStartAiFailureTest(DemoModeTestCase):
     """get_clarifying_questions used to be entirely unguarded — a Claude
     failure here 500'd before the visitor ever saw the questions step."""
@@ -185,7 +207,23 @@ class DashboardAiFailureTest(DemoModeTestCase):
         self.given_session_plan()
         self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
         self.client.get(reverse('dashboard'))
-        self.assertNotIn('demo_plan_summary_v3_today', self.client.session)
+        self.assertNotIn(f'{SUMMARY_KEY}_today', self.client.session)
+
+
+class SummarySessionCacheTest(DemoModeTestCase):
+    """Proves the views actually write the current versioned key — without
+    this, a key bump could leave every view writing a dead key and the
+    assertNotIn tests above would pass vacuously."""
+
+    def test_a_successful_summary_is_cached_under_the_current_key(self):
+        self.given_session_plan()
+        self.client.get(reverse('dashboard'))
+        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
+
+    def test_my_plan_reads_and_writes_the_same_key(self):
+        self.given_session_plan()
+        self.client.get(reverse('my_plan'))
+        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
 
 
 class MyPlanAiFailureTest(DemoModeTestCase):
@@ -210,7 +248,7 @@ class PreloadAiFailureTest(DemoModeTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'ok': False})
-        self.assertNotIn(f'demo_plan_summary_v3_{moment}', self.client.session)
+        self.assertNotIn(f'{SUMMARY_KEY}_{moment}', self.client.session)
 
 
 class TimelapseValidationTest(DemoModeTestCase):
@@ -534,25 +572,70 @@ class FixAiMarkdownTest(SimpleTestCase):
         self.assertEqual(result, '- **Konzert**\n- Plakate aushängen')
 
     def test_horizontal_rule_ends_the_block(self):
+        """A boundary glued to the last task line would be lazily continued
+        into the list by Markdown — a blank line is restored before it."""
         result = _fix_ai_markdown('- **Konzert**\n---\nFreier Text')
-        self.assertEqual(result, '- **Konzert**\n---\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n\n---\nFreier Text')
 
     def test_bold_line_ends_the_block(self):
         result = _fix_ai_markdown('- **Konzert**\n**Hinweis**\nFreier Text')
-        self.assertEqual(result, '- **Konzert**\n**Hinweis**\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n\n**Hinweis**\nFreier Text')
 
     def test_text_outside_a_block_is_untouched(self):
         self.assertEqual(_fix_ai_markdown('Nur ein Satz.'), 'Nur ein Satz.')
 
-    @unittest.expectedFailure
     def test_section_header_keeps_its_blank_line(self):
-        """A '##' header after a project block loses the blank line that makes it a
-        header, so Markdown renders it as list content and the summary shows an
-        unexplained gap. '#' also fails to reset in_project, so anything following
-        the header is indented as a sub-bullet. See #20.
+        """A '##' header after a project block used to lose the blank line that
+        makes it a header, so Markdown rendered it as list content and the
+        summary showed an unexplained gap. See #20.
         """
-        result = _fix_ai_markdown('- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen')
-        self.assertIn('\n\n## Jetzt fällig', result)
+        text = '- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen'
+        self.assertEqual(_fix_ai_markdown(text), text)
+
+    def test_section_header_ends_the_block(self):
+        """'#' must reset in_project — text after the header is not a sub-task."""
+        result = _fix_ai_markdown('- **Konzert**\nPlakate aushängen\n## Nächste Woche\nFreier Text')
+        self.assertEqual(
+            result, '- **Konzert**\n    - Plakate aushängen\n\n## Nächste Woche\nFreier Text'
+        )
+
+    def test_shallow_sub_task_indent_is_deepened_to_nest(self):
+        """python-markdown nests a sub-list at four spaces of indent; the two
+        the model tends to emit leave every sub-task a flat sibling li."""
+        result = _fix_ai_markdown('- **Konzert**\n  - Plakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_four_space_indent_is_left_alone(self):
+        result = _fix_ai_markdown('- **Konzert**\n    - Plakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_shallow_indent_outside_a_block_is_untouched(self):
+        self.assertEqual(_fix_ai_markdown('  - Notiz'), '  - Notiz')
+
+    def test_new_format_reply_renders_headers_and_nested_lists(self):
+        """The whole pipeline: a reply in the ## format (see build_prompt)
+        through markdown() ends up with real h2 headers and nested sub-task
+        lists — not a <p><strong> next to an invisible <hr>. See #20."""
+        reply = '\n'.join([
+            '## Jetzt fällig',
+            '',
+            '- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:',
+            '  - Plakate aushängen',
+            '  - GEMA-Meldung',
+            '',
+            '## Nächste Woche',
+            '',
+            '- **Herbstkonzert** — noch gut im Zeitplan:',
+            '  - Programm festlegen',
+        ])
+        html = markdown.markdown(_fix_ai_markdown(reply))
+        self.assertIn('<h2>Jetzt fällig</h2>', html)
+        self.assertIn('<h2>Nächste Woche</h2>', html)
+        self.assertNotIn('<hr', html)
+        self.assertNotIn('<p><strong>', html)
+        # Two blocks, each an outer project list with a nested sub-task list.
+        self.assertEqual(html.count('<ul>'), 4)
+        self.assertIn('<li>Plakate aushängen</li>', html)
 
 
 # --- #29: fail at startup, not at first request ---
@@ -1128,3 +1211,15 @@ class PlannerCreateNotionFailureTest(TestCase):
         # redirect target, not a live render of it.
         self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
         mock_create_tasks.assert_called_once()
+
+    def test_a_saved_plan_busts_the_dashboard_cache(self):
+        """planner_create used to delete the cache by a hardcoded string —
+        a key bump in views.py would silently turn that into a no-op and a
+        freshly saved project would hide behind the 8h TTL."""
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], '<p>alt</p>'), 60)
+        with patch('projects.planner_views.find_project', return_value=None), \
+             patch('projects.planner_views.create_project', return_value='page-id'), \
+             patch('projects.planner_views.create_tasks'):
+            self.post_plan()
+        self.assertIsNone(cache.get(CACHE_KEY))
