@@ -7,8 +7,10 @@ import anthropic
 import httpx
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from unittest.mock import Mock
 
 from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
+from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
 from .views import _annotate_tasks, _fix_ai_markdown
@@ -18,7 +20,10 @@ from .views import _annotate_tasks, _fix_ai_markdown
 AI_STUBS = {
     'projects.views.generate_weekly_summary': '**Test summary**',
     'projects.planner_views.get_clarifying_questions': '**Wie viele Mitwirkende?**',
-    'projects.planner_views.generate_plan': '{"project_name": "Testkonzert", "tasks": []}',
+    # generate_plan now parses its own response and returns a dict (see #29 /
+    # GeneratePlanRetryTest) — this stub has to match that shape, not the raw
+    # JSON string Claude used to hand back.
+    'projects.planner_views.generate_plan': {"project_name": "Testkonzert", "tasks": []},
     'projects.planner_views.generate_timelapse_moments': [],
 }
 
@@ -100,6 +105,20 @@ class PlannerGetFallthroughTest(DemoModeTestCase):
     def test_questions_route_is_gone(self):
         # Literal path: the URL name no longer exists, so reverse() cannot be used.
         self.assertEqual(self.client.get('/planner/questions/').status_code, 404)
+
+
+class PlannerReviewHappyPathTest(DemoModeTestCase):
+    """First test to exercise planner_review's POST path at all. generate_plan
+    now returns a dict directly (see GeneratePlanRetryTest in planner.py) —
+    this guards against a stub/view mismatch regressing that silently."""
+
+    def test_post_renders_the_generated_plan(self):
+        response = self.client.post(reverse('planner_review'), data={
+            'description': 'Konzert am 5. September 2026',
+            'answers': 'keine weiteren Angaben',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Testkonzert')
 
 
 class TimelapseValidationTest(DemoModeTestCase):
@@ -532,3 +551,74 @@ class AnthropicFailureTranslationTest(SimpleTestCase):
             with self.assertRaises(AIUnavailableError) as ctx:
                 generate_weekly_summary([], date.today())
         self.assertIs(ctx.exception.__cause__, timeout)
+
+
+def _fake_response(text):
+    return Mock(content=[Mock(text=text)])
+
+
+class GeneratePlanRetryTest(SimpleTestCase):
+    """planner_review used to `raise` a json.JSONDecodeError straight at the
+    visitor (planner_views.py, pre-#29) — the only place in the app that had
+    even looked at a Claude failure, and it still produced a 500. generate_plan
+    now retries a bad response once and never raises JSONDecodeError itself."""
+
+    VALID = '{"project_name": "Testkonzert", "tasks": []}'
+
+    def generate(self):
+        return generate_plan('Konzert am 5. September', 'keine weiteren Angaben', [])
+
+    def test_returns_parsed_dict_on_first_valid_response(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(self.VALID)
+            result = self.generate()
+        self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
+        self.assertEqual(create.call_count, 1)
+
+    def test_retries_once_on_invalid_json_then_succeeds(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [_fake_response('not json'), _fake_response(self.VALID)]
+            result = self.generate()
+        self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
+        self.assertEqual(create.call_count, 2)
+
+    def test_raises_ai_unavailable_after_a_second_invalid_response(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [_fake_response('not json'), _fake_response('still not json')]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(create.call_count, 2)
+
+    def test_an_sdk_failure_is_not_retried_as_a_json_error(self):
+        """The SDK already retried transport failures internally (see
+        AnthropicFailureTranslationTest); a second attempt here would silently
+        double that budget instead of surfacing the failure."""
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(create.call_count, 1)
+
+    def test_fenced_response_is_still_parsed(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(f'```json\n{self.VALID}\n```')
+            result = self.generate()
+        self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
+
+
+class GetClarifyingQuestionsTest(SimpleTestCase):
+    def test_translates_an_sdk_failure(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            MockAnthropic.return_value.messages.create.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                get_clarifying_questions('Konzert am 5. September', [])
+
+    def test_returns_the_response_text_on_success(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response('Wie viele Gäste?')
+            self.assertEqual(get_clarifying_questions('Konzert', []), 'Wie viele Gäste?')

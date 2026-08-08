@@ -93,14 +93,7 @@ def planner_review(request):
 
         history = _get_history()
         rules = _get_active_rules()
-        plan_json = generate_plan(description, full_answers, history, rules)
-        try:
-            plan = json.loads(plan_json)
-        except json.JSONDecodeError as e:
-            print("=== JSON ERROR ===")
-            print(f"Error: {e}")
-            print(f"Position: {plan_json[max(0,e.pos-100):e.pos+100]}")
-            raise
+        plan = generate_plan(description, full_answers, history, rules)
 
         KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)
