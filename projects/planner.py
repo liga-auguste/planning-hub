@@ -80,8 +80,9 @@ def _generate_plan_text(client, prompt: str) -> str:
 
 def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list = None) -> dict:
     """Returns the parsed task plan. Retries once if Claude's answer isn't
-    valid JSON — a plain re-ask, since the same prompt often self-corrects —
-    and only gives up with AIUnavailableError after the second attempt.
+    a valid JSON object — a plain re-ask, since the same prompt often
+    self-corrects — and only gives up with AIUnavailableError after the
+    second attempt.
     """
     history = _format_history(historical_projects)
     rules_block = _format_rules(rules or [])
@@ -118,8 +119,17 @@ Mögliche Kontexte: Planung, Büro, Extern, Kommunikation, Unterwegs, Vor Ort"""
     for attempt in (1, 2):
         raw = _generate_plan_text(client, prompt)
         try:
-            return json.loads(raw)
+            plan = json.loads(raw)
         except json.JSONDecodeError as exc:
             last_error = exc
             logger.warning("Claude returned unparseable JSON (attempt %d/2): %s", attempt, exc)
-    raise AIUnavailableError("Claude returned unparseable JSON twice") from last_error
+            continue
+        if not isinstance(plan, dict):
+            # Valid JSON in the wrong shape (say, a bare task array) would
+            # pass json.loads only to crash planner_review on plan.get() —
+            # one more bad response, worth the same retry.
+            last_error = None
+            logger.warning("Claude returned JSON that is not an object (attempt %d/2)", attempt)
+            continue
+        return plan
+    raise AIUnavailableError("Claude returned an unusable plan twice") from last_error

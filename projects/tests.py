@@ -684,6 +684,28 @@ class GeneratePlanRetryTest(SimpleTestCase):
                 self.generate()
         self.assertEqual(create.call_count, 2)
 
+    def test_valid_json_that_is_not_an_object_is_retried(self):
+        """A bare task array passes json.loads but would crash
+        planner_review on plan.get() — it has to count as a bad response,
+        not as a success (the third finding from PR #34's review)."""
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [
+                _fake_response('[{"name": "Programm festlegen", "days_before": 30}]'),
+                _fake_response(self.VALID),
+            ]
+            result = self.generate()
+        self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
+        self.assertEqual(create.call_count, 2)
+
+    def test_raises_ai_unavailable_after_a_second_non_object_response(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [_fake_response('[]'), _fake_response('"nur ein String"')]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(create.call_count, 2)
+
     def test_an_sdk_failure_is_not_retried_as_a_json_error(self):
         """The SDK already retried transport failures internally (see
         AnthropicFailureTranslationTest); a second attempt here would silently
