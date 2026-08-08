@@ -6,7 +6,7 @@ from .models import PlannerRule, DemoEvent
 from .notion import get_historical_projects, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
-from .ai import generate_timelapse_moments
+from .ai import AIUnavailableError, generate_timelapse_moments
 import markdown as md
 import json
 import re
@@ -69,7 +69,14 @@ def planner_start(request):
         if description:
             history = _get_history()
             rules = _get_active_rules()
-            questions = get_clarifying_questions(description, history, rules)
+            try:
+                questions = get_clarifying_questions(description, history, rules)
+            except AIUnavailableError:
+                return render(request, 'projects/planner_start.html', {
+                    'prefill': description,
+                    'show_tiles': False,
+                    'error': True,
+                })
             questions_html = md.markdown(questions)
             return render(request, 'projects/planner_questions.html', {
                 'description': description,
@@ -93,7 +100,14 @@ def planner_review(request):
 
         history = _get_history()
         rules = _get_active_rules()
-        plan = generate_plan(description, full_answers, history, rules)
+        try:
+            plan = generate_plan(description, full_answers, history, rules)
+        except AIUnavailableError:
+            return render(request, 'projects/planner_questions.html', {
+                'description': description,
+                'answers': full_answers,
+                'error': True,
+            })
 
         KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)

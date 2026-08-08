@@ -33,6 +33,7 @@
     .btn-primary { background: #1a1a1a; border: none; border-radius: 6px; padding: 10px 24px; color: #fff; font-size: 14px; margin-top: 16px; cursor: pointer; }
     .btn-primary:hover { background: #333; }
     .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
     @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 {% endblock %}
 
@@ -98,6 +99,9 @@
         <a href="{% url 'planner_start' %}" class="back">← Projekttyp</a>
         <h1>Neues Projekt planen</h1>
         <p class="subtitle">Beschreibe kurz das Projekt — Typ, Datum, Beteiligte.</p>
+        {% if error %}
+        <p class="error-notice">Die Klärungsfragen konnten gerade nicht erstellt werden. Deine Beschreibung ist erhalten geblieben — bitte versuche es gleich noch einmal.</p>
+        {% endif %}
         <form method="post">
             {% csrf_token %}
             <textarea name="description" rows="4"

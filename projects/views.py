@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.http import JsonResponse, HttpResponse
 from django.conf import settings
 from .notion import get_upcoming_projects, toggle_task, update_task_date
-from .ai import generate_weekly_summary, derive_kontext
+from .ai import AIUnavailableError, generate_weekly_summary, derive_kontext
 import copy
 from .demo_data import get_demo_projects
 from .models import DemoEvent
@@ -80,8 +80,12 @@ def _fix_ai_markdown(text: str) -> str:
 def _fetch_fresh_data(today):
     projects = get_upcoming_projects(today)
     projects = _annotate_tasks(projects, today)
-    summary_md = generate_weekly_summary(projects, today)
-    summary = markdown.markdown(_fix_ai_markdown(summary_md))
+    try:
+        summary_md = generate_weekly_summary(projects, today)
+    except AIUnavailableError:
+        summary = None
+    else:
+        summary = markdown.markdown(_fix_ai_markdown(summary_md))
     return projects, summary
 
 
@@ -213,14 +217,23 @@ def dashboard(request):
                         task['done'] = True
             projects = _annotate_tasks([project], effective_today)
             summary_key = f'demo_plan_summary_v3_{sim_date_str or "today"}'
-            summary_html = request.session.get(summary_key)
-            if not summary_html:
-                summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today, single_project_demo=True)))
-                request.session[summary_key] = summary_html
-            summary = summary_html
+            summary = request.session.get(summary_key)
+            if not summary:
+                try:
+                    summary_md = generate_weekly_summary(projects, effective_today, single_project_demo=True)
+                except AIUnavailableError:
+                    summary = None
+                else:
+                    summary = markdown.markdown(_fix_ai_markdown(summary_md))
+                    request.session[summary_key] = summary
         else:
             projects = _annotate_tasks(get_demo_projects(), effective_today)
-            summary = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today)))
+            try:
+                summary_md = generate_weekly_summary(projects, effective_today)
+            except AIUnavailableError:
+                summary = None
+            else:
+                summary = markdown.markdown(_fix_ai_markdown(summary_md))
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
@@ -317,8 +330,13 @@ def preload_timelapse_summary(request):
             if task.get('due') and task['due'] <= sim_date:
                 task['done'] = True
     projects = _annotate_tasks([project], effective_today)
-    summary_html = markdown.markdown(_fix_ai_markdown(generate_weekly_summary(projects, effective_today, single_project_demo=True)))
-    request.session[summary_key] = summary_html
+    try:
+        summary_md = generate_weekly_summary(projects, effective_today, single_project_demo=True)
+    except AIUnavailableError:
+        # Nothing written to the session — the next real visit to this date
+        # just tries again instead of replaying a cached failure.
+        return JsonResponse({'ok': False})
+    request.session[summary_key] = markdown.markdown(_fix_ai_markdown(summary_md))
     return JsonResponse({'ok': True})
 
 def toggle_task_view(request, task_id):
@@ -422,11 +440,16 @@ def my_plan(request):
     done_count = sum(1 for t in tasks if t['done'])
     total = len(tasks)
 
-    summary_html = request.session.get('demo_plan_summary_v3_today')
-    if not summary_html:
-        summary_md = generate_weekly_summary([project], today, single_project_demo=True)
-        summary_html = markdown.markdown(_fix_ai_markdown(summary_md))
-        request.session['demo_plan_summary_v3_today'] = summary_html
+    summary = request.session.get('demo_plan_summary_v3_today')
+    summary_error = False
+    if not summary:
+        try:
+            summary_md = generate_weekly_summary([project], today, single_project_demo=True)
+        except AIUnavailableError:
+            summary_error = True
+        else:
+            summary = markdown.markdown(_fix_ai_markdown(summary_md))
+            request.session['demo_plan_summary_v3_today'] = summary
 
     return render(request, 'projects/my_plan.html', {
         'project': project,
@@ -434,7 +457,8 @@ def my_plan(request):
         'total': total,
         'today': today,
         'today_display': _format_date(today),
-        'summary': summary_html,
+        'summary': summary,
+        'summary_error': summary_error,
     })
 
 

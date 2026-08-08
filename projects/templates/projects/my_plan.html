@@ -38,6 +38,7 @@
     .summary-box li { margin-bottom: 4px; }
     .summary-label { font-size: 11px; font-weight: 600; color: #9b9b9b; letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     .summary-box hr { border: none; border-top: 1px solid #f0f0f0; margin: 16px 0; }
+    .summary-box.ai-error { color: #9b9b9b; font-style: italic; }
 {% endblock %}
 
 {% block body %}
@@ -70,6 +71,9 @@
     {% if summary %}
     <div class="summary-label">KI-Übersicht</div>
     <div class="summary-box">{{ summary|safe }}</div>
+    {% elif summary_error %}
+    <div class="summary-label">KI-Übersicht</div>
+    <div class="summary-box ai-error">Die KI-Übersicht ist gerade nicht verfügbar.</div>
     {% endif %}
 
     <div class="task-list">

@@ -121,6 +121,92 @@ class PlannerReviewHappyPathTest(DemoModeTestCase):
         self.assertContains(response, 'Testkonzert')
 
 
+class PlannerStartAiFailureTest(DemoModeTestCase):
+    """get_clarifying_questions used to be entirely unguarded — a Claude
+    failure here 500'd before the visitor ever saw the questions step."""
+
+    def test_shows_a_german_error_and_keeps_the_description(self):
+        self.ai_mocks['projects.planner_views.get_clarifying_questions'].side_effect = AIUnavailableError('boom')
+        response = self.client.post(reverse('planner_start'), data={
+            'description': 'Konzert am 5. September',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'projects/planner_start.html')
+        self.assertContains(response, 'Konzert am 5. September')
+        self.assertContains(response, 'nicht erstellt werden')
+
+
+class PlannerReviewAiFailureTest(DemoModeTestCase):
+    """generate_plan's retry-once-then-raise (see GeneratePlanRetryTest in
+    planner.py) still has to land somewhere other than a 500 — this is that
+    landing, and it's the one case in the whole table where the visitor has
+    already typed two rounds of input (description, then answers)."""
+
+    def test_shows_a_german_error_and_keeps_description_and_answers(self):
+        self.ai_mocks['projects.planner_views.generate_plan'].side_effect = AIUnavailableError('boom')
+        response = self.client.post(reverse('planner_review'), data={
+            'description': 'Konzert am 5. September',
+            'answers': '20 Gäste, in der Kirche',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'projects/planner_questions.html')
+        self.assertContains(response, 'Konzert am 5. September')
+        self.assertContains(response, '20 Gäste, in der Kirche')
+        self.assertContains(response, 'nicht erstellt werden')
+
+
+class DashboardAiFailureTest(DemoModeTestCase):
+    """generate_weekly_summary is called from four different places in
+    views.py (dashboard x2, my_plan, preload) — none of them guarded before
+    #29. The dashboard must still show projects/tasks even when the AI card
+    can't."""
+
+    def test_multi_project_dashboard_degrades_without_a_summary(self):
+        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'nicht verfügbar')
+
+    def test_session_plan_dashboard_degrades_without_a_summary(self):
+        self.given_session_plan()
+        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'nicht verfügbar')
+
+    def test_a_failure_is_not_cached_as_a_summary(self):
+        """A later, healthy request must retry rather than replay a blank."""
+        self.given_session_plan()
+        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        self.client.get(reverse('dashboard'))
+        self.assertNotIn('demo_plan_summary_v3_today', self.client.session)
+
+
+class MyPlanAiFailureTest(DemoModeTestCase):
+    def test_my_plan_degrades_without_a_summary(self):
+        self.given_session_plan()
+        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        response = self.client.get(reverse('my_plan'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'nicht verfügbar')
+
+
+class PreloadAiFailureTest(DemoModeTestCase):
+    def test_preload_reports_ok_false_and_writes_nothing_to_the_session(self):
+        self.given_session_plan()
+        moment = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(moment)
+        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        response = self.client.post(
+            reverse('preload_timelapse_summary'),
+            data=f'{{"date": "{moment}"}}',
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'ok': False})
+        self.assertNotIn(f'demo_plan_summary_v3_{moment}', self.client.session)
+
+
 class TimelapseValidationTest(DemoModeTestCase):
     """An unvalidated string in demo_sim_date used to break every later request."""
 
