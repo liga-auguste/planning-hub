@@ -7,6 +7,7 @@ from .notion import NotionUnavailableError, get_historical_projects, find_projec
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
 from .ai import AIUnavailableError, generate_timelapse_moments
+from .views import CACHE_KEY
 import logging
 import markdown as md
 import json
@@ -158,9 +159,11 @@ def planner_create(request):
                 'event_date': event_date_str,
                 'tasks': tasks,
             }
-            # Clear cached summaries and old timelapse state
+            # Clear cached summaries and old timelapse state. Matching the
+            # unversioned prefix clears every summary version a long-lived
+            # session may still carry (see SUMMARY_KEY in views.py).
             for key in list(request.session.keys()):
-                if key.startswith('demo_plan_summary_v3'):
+                if key.startswith('demo_plan_summary'):
                     del request.session[key]
             request.session.pop('demo_sim_date', None)
             # Generate narrative timelapse moments
@@ -203,7 +206,7 @@ def planner_create(request):
                 'demo_mode': settings.DEMO_MODE,
                 'error': True,
             })
-        cache.delete('dashboard_data')
+        cache.delete(CACHE_KEY)
         return redirect('dashboard')
     return redirect('planner_start')
 
