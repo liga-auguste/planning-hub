@@ -26,11 +26,15 @@
         .ai-card ul > li { font-size: 13px; font-weight: 600; padding: 10px 0 2px; color: #1a1a1a; border-top: 1px solid #f3f3f3; }
         .ai-card ul > li:first-child { border-top: none; }
         .ai-card ul ul { padding-left: 0; margin: 4px 0 6px; }
-        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: #6b6b6b; padding: 2px 0 2px 16px; }
+        /* border-top: none — nested lis also match .ai-card ul > li above and
+           would inherit its separator line. */
+        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: #6b6b6b; padding: 2px 0 2px 16px; border-top: none; }
+        /* Guard against a stray paragraph in the summary — base_dashboard has
+           no margin reset, so Bootstrap's 1rem would gape here (#20). */
+        .ai-card p { margin: 0 0 8px; }
         .ai-project-link { cursor: pointer; }
         .ai-project-link:hover { text-decoration: underline; }
         .ai-card ul > li > strong::after { content: " ›"; color: #c8c8c8; font-weight: 400; font-size: 11px; }
-        .ai-card ul > li.ai-task-item { font-size: 12px; font-weight: 400; color: #6b6b6b; padding: 2px 0 2px 16px; border-top: none; }
         .ai-error { color: #9b9b9b; font-style: italic; }
         .stale-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
         .project-section { margin-bottom: 8px; background: #ffffff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 16px 20px; }
@@ -516,18 +520,15 @@ if (TIMELAPSE_MOMENTS.length > 0) {
 }
 
 document.querySelectorAll('.ai-card li').forEach(li => {
-    if (li.querySelector('strong')) {
-        const strong = li.querySelector('strong');
-        const text = strong.textContent.trim();
-        for (const [name, id] of Object.entries(PROJECT_MAP)) {
-            if (text.includes(name) || text.split(',')[0].includes(name.split(',')[0])) {
-                strong.classList.add('ai-project-link');
-                strong.addEventListener('click', () => showProject(id));
-                break;
-            }
+    const strong = li.querySelector('strong');
+    if (!strong) return;
+    const text = strong.textContent.trim();
+    for (const [name, id] of Object.entries(PROJECT_MAP)) {
+        if (text.includes(name) || text.split(',')[0].includes(name.split(',')[0])) {
+            strong.classList.add('ai-project-link');
+            strong.addEventListener('click', () => showProject(id));
+            break;
         }
-    } else {
-        li.classList.add('ai-task-item');
     }
 });
 
