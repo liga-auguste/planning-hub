@@ -1,3 +1,4 @@
+import os
 import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from django.urls import reverse
 
 from .ai import derive_kontext, _valid_moments
 from .planner_views import _parse_event_date
+from .startup import require_api_keys, MissingAPIKeyError
 from .views import _annotate_tasks, _fix_ai_markdown
 
 # The view modules import the AI functions with `from .ai import ...`, so the
@@ -438,3 +440,49 @@ class FixAiMarkdownTest(SimpleTestCase):
         """
         result = _fix_ai_markdown('- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen')
         self.assertIn('\n\n## Jetzt fällig', result)
+
+
+# --- #29: fail at startup, not at first request ---
+
+class RequiredApiKeysTest(SimpleTestCase):
+    """wsgi.py calls require_api_keys() before serving a single request. This is
+    deliberately not a Django system check: `manage.py test` runs the full check
+    registry with no tag filtering (DiscoverRunner.run_checks -> call_command
+    ("check", ...)), which would break the offline proof in README.md ("env -u
+    ANTHROPIC_API_KEY python manage.py test projects"). wsgi.py is only imported
+    by runserver and gunicorn — the processes that actually serve traffic.
+    """
+
+    def test_missing_anthropic_key_raises(self):
+        with patch.dict(os.environ, {'NOTION_API_KEY': 'x'}, clear=True):
+            with self.assertRaises(MissingAPIKeyError) as ctx:
+                require_api_keys()
+        self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
+
+    @override_settings(DEMO_MODE=False)
+    def test_missing_notion_key_raises_outside_demo_mode(self):
+        with patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True):
+            with self.assertRaises(MissingAPIKeyError) as ctx:
+                require_api_keys()
+        self.assertIn('NOTION_API_KEY', str(ctx.exception))
+
+    @override_settings(DEMO_MODE=True)
+    def test_missing_notion_key_is_fine_in_demo_mode(self):
+        # Demo mode never calls notion.py — get_upcoming_projects etc. are only
+        # reached from the non-demo branch of every view that touches Notion.
+        with patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True):
+            require_api_keys()
+
+    @override_settings(DEMO_MODE=False)
+    def test_all_keys_present_is_fine(self):
+        env = {'ANTHROPIC_API_KEY': 'x', 'NOTION_API_KEY': 'y'}
+        with patch.dict(os.environ, env, clear=True):
+            require_api_keys()
+
+    @override_settings(DEMO_MODE=False)
+    def test_both_missing_names_both_variables(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(MissingAPIKeyError) as ctx:
+                require_api_keys()
+        self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
+        self.assertIn('NOTION_API_KEY', str(ctx.exception))
