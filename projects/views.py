@@ -260,8 +260,13 @@ def dashboard(request):
                     projects, summary = last_known_good
                     stale = True
             else:
-                cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
-                cache.set(STALE_CACHE_KEY, (projects, summary), None)
+                # A fetch whose summary failed (None) is not a success worth
+                # remembering: caching it would blank the AI card for the
+                # whole TTL and overwrite the stale copy's last good summary.
+                # Leaving the cache empty makes the next request retry Claude.
+                if summary is not None:
+                    cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
+                    cache.set(STALE_CACHE_KEY, (projects, summary), None)
 
     for project in projects:
         project["display_name"] = _strip_year(project["name"])

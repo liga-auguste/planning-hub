@@ -916,6 +916,46 @@ class DashboardNotionFailureTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
+class DashboardAiFailureCacheTest(TestCase):
+    """A Claude failure while Notion is fine must not be remembered as a
+    success: (projects, None) used to land in CACHE_KEY (blanking the AI
+    card for the whole 8h TTL) and in STALE_CACHE_KEY (clobbering the last
+    good summary) — the second finding from PR #34's review."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_a_failed_summary_is_retried_on_the_next_request(self):
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', side_effect=AIUnavailableError('boom')):
+            first = self.client.get(reverse('dashboard'))
+        self.assertContains(first, 'nicht verfügbar')
+        # Claude recovers. Without any cache-busting in between, the very
+        # next request must pick the summary up again.
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', return_value='**Wieder da**'):
+            second = self.client.get(reverse('dashboard'))
+        self.assertContains(second, 'Wieder da')
+
+    def test_a_failed_summary_does_not_clobber_the_last_good_one(self):
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', return_value='**Letzte gute Übersicht**'):
+            self.client.get(reverse('dashboard'))
+
+        cache.delete(CACHE_KEY)  # the 8h primary cache expiring; the stale copy stays
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', side_effect=AIUnavailableError('boom')):
+            self.client.get(reverse('dashboard'))
+
+        cache.delete(CACHE_KEY)  # must be a no-op — a failed fetch may not have cached
+        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
+            third = self.client.get(reverse('dashboard'))
+        self.assertContains(third, 'Letzte gute Übersicht')
+        self.assertContains(third, 'evtl. nicht')
+
+
+@override_settings(DEMO_MODE=False)
 class HistoryFallbackTest(TestCase):
     """_get_history() feeds straight into the planner prompt — a Notion
     failure here used to 500 before the visitor's description even reached
