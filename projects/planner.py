@@ -1,4 +1,10 @@
 import anthropic
+import json
+import logging
+
+from .ai import AIUnavailableError, translate_anthropic_errors
+
+logger = logging.getLogger(__name__)
 
 
 def _format_history(projects: list) -> str:
@@ -50,15 +56,34 @@ Stelle maximal 4 gezielte Fragen. Nur Fragen, deren Antwort die Aufgabenliste
 wirklich verändert. Keine Fragen, die du aus dem Kontext schon beantworten kannst.
 Auf Deutsch, kurz und direkt."""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    with translate_anthropic_errors():
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
     return response.content[0].text
 
 
-def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list = None) -> str:
+def _generate_plan_text(client, prompt: str) -> str:
+    with translate_anthropic_errors():
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    raw = response.content[0].text.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    return raw
+
+
+def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list = None) -> dict:
+    """Returns the parsed task plan. Retries once if Claude's answer isn't
+    a valid JSON object — a plain re-ask, since the same prompt often
+    self-corrects — and only gives up with AIUnavailableError after the
+    second attempt.
+    """
     history = _format_history(historical_projects)
     rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
@@ -90,12 +115,22 @@ Format:
 
 Mögliche Kontexte: Planung, Büro, Extern, Kommunikation, Unterwegs, Vor Ort"""
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return raw
+    last_error = None
+    for attempt in (1, 2):
+        raw = _generate_plan_text(client, prompt)
+        try:
+            plan = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            logger.warning("Claude returned unparseable JSON (attempt %d/2): %s", attempt, exc)
+            continue
+        if not isinstance(plan, dict) or not isinstance(plan.get("tasks"), list):
+            # Valid JSON in the wrong shape (a bare task array, or an object
+            # without a task list) would pass json.loads only to crash
+            # planner_review on plan['tasks'] — one more bad response, worth
+            # the same retry.
+            last_error = None
+            logger.warning("Claude returned JSON that is not a plan object with a task list (attempt %d/2)", attempt)
+            continue
+        return plan
+    raise AIUnavailableError("Claude returned an unusable plan twice") from last_error

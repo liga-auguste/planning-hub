@@ -3,14 +3,17 @@ from django.core.cache import cache
 from django.conf import settings
 from django.http import JsonResponse
 from .models import PlannerRule, DemoEvent
-from .notion import get_historical_projects, create_project, create_tasks
+from .notion import NotionUnavailableError, get_historical_projects, find_project, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
-from .ai import generate_timelapse_moments
+from .ai import AIUnavailableError, generate_timelapse_moments
+import logging
 import markdown as md
 import json
 import re
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 MONTHS_DE_REV = {
     'januar': 1, 'februar': 2, 'märz': 3, 'april': 4,
@@ -21,13 +24,24 @@ MONTHS_DE_REV = {
 HISTORY_CACHE_KEY = "historical_projects"
 HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 hours
 
+# Also defined, disagreeing, in ai.py's KONTEXTE ("Graphiker" vs. "Extern")
+# — a known inconsistency (#17), not touched here.
+KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
+
 
 def _get_history():
     if settings.DEMO_MODE:
         return get_demo_history()
     history = cache.get(HISTORY_CACHE_KEY)
     if not history:
-        history = get_historical_projects()
+        try:
+            history = get_historical_projects()
+        except NotionUnavailableError:
+            # No stale-cache fallback here (contrast views.dashboard): the
+            # planner still works without calibration data, just less
+            # precisely, so failing open to [] is enough.
+            logger.warning("Historical projects unavailable; planning without calibration data")
+            return []
         cache.set(HISTORY_CACHE_KEY, history, HISTORY_CACHE_TTL)
     return history
 
@@ -69,7 +83,14 @@ def planner_start(request):
         if description:
             history = _get_history()
             rules = _get_active_rules()
-            questions = get_clarifying_questions(description, history, rules)
+            try:
+                questions = get_clarifying_questions(description, history, rules)
+            except AIUnavailableError:
+                return render(request, 'projects/planner_start.html', {
+                    'prefill': description,
+                    'show_tiles': False,
+                    'error': True,
+                })
             questions_html = md.markdown(questions)
             return render(request, 'projects/planner_questions.html', {
                 'description': description,
@@ -93,16 +114,15 @@ def planner_review(request):
 
         history = _get_history()
         rules = _get_active_rules()
-        plan_json = generate_plan(description, full_answers, history, rules)
         try:
-            plan = json.loads(plan_json)
-        except json.JSONDecodeError as e:
-            print("=== JSON ERROR ===")
-            print(f"Error: {e}")
-            print(f"Position: {plan_json[max(0,e.pos-100):e.pos+100]}")
-            raise
+            plan = generate_plan(description, full_answers, history, rules)
+        except AIUnavailableError:
+            return render(request, 'projects/planner_questions.html', {
+                'description': description,
+                'answers': full_answers,
+                'error': True,
+            })
 
-        KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)
         project_name = plan.get('project_name') or description.split(',')[0].strip()
         return render(request, 'projects/planner_review.html', {
@@ -157,9 +177,32 @@ def planner_create(request):
             )
             return redirect('dashboard')
 
-        project_id = create_project(project_name, event_date)
-        tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
-        create_tasks(project_id, tasks)
+        try:
+            # A retry after the NotionUnavailableError below re-POSTs the
+            # same plan — reuse the project page a failed attempt already
+            # created (create_tasks likewise skips already-written tasks),
+            # so retrying can't duplicate anything in Notion.
+            project_id = find_project(project_name, event_date) or create_project(project_name, event_date)
+            tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
+            create_tasks(project_id, tasks)
+        except NotionUnavailableError:
+            # The visitor already reviewed and adjusted this exact task list —
+            # losing it to a Notion hiccup would mean redoing the whole
+            # planner flow. Reconstruct days_before from the dates they had
+            # so planner_review.html's own JS recomputes the same dates.
+            return render(request, 'projects/planner_review.html', {
+                'description': description,
+                'project_name': project_name,
+                'tasks': [
+                    {'name': n, 'days_before': (event_date - date.fromisoformat(d)).days, 'kontext': k}
+                    for n, d, k in zip(names, dates, kontexte)
+                    if n and d
+                ],
+                'kontexte': KONTEXTE,
+                'event_date_iso': event_date_str,
+                'demo_mode': settings.DEMO_MODE,
+                'error': True,
+            })
         cache.delete('dashboard_data')
         return redirect('dashboard')
     return redirect('planner_start')

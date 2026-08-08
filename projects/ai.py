@@ -1,6 +1,33 @@
 import anthropic
 import json as _json
+import logging
+from contextlib import contextmanager
 from datetime import date
+
+logger = logging.getLogger(__name__)
+
+
+class AIUnavailableError(Exception):
+    """Raised when Claude can't be reached, after the SDK's own retries are
+    exhausted. Callers show one German "not available right now" state for
+    this instead of a stack trace — see the failure table in issue #29.
+    """
+
+
+@contextmanager
+def translate_anthropic_errors():
+    """Wraps a Claude call site.
+
+    anthropic.Anthropic already retries connection errors, timeouts, 429s and
+    5xxs internally (max_retries=2 by default) before raising, so this only
+    has to catch what survives that and turn it into the one exception the
+    views know how to show.
+    """
+    try:
+        yield
+    except anthropic.APIError as exc:
+        logger.warning("Anthropic call failed: %s", exc)
+        raise AIUnavailableError("Claude request failed") from exc
 
 
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
@@ -214,11 +241,12 @@ Antworte NUR mit einem JSON-Array, kein anderer Text:
 
 Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortiert."""
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    with translate_anthropic_errors():
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
     text = response.content[0].text.strip()
     if "```" in text:
         text = text.split("```")[1]
@@ -232,9 +260,10 @@ def generate_weekly_summary(projects: list, today: date, single_project_demo: bo
     client = anthropic.Anthropic()
     prompt = build_prompt(projects, today, single_project_demo=single_project_demo)
 
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        return stream.get_final_text()
+    with translate_anthropic_errors():
+        with client.messages.stream(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        ) as stream:
+            return stream.get_final_text()

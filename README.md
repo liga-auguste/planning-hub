@@ -100,6 +100,10 @@ DEMO_MODE=true
 SECRET_KEY=any-local-secret
 ```
 
+A missing `ANTHROPIC_API_KEY` (or `NOTION_API_KEY` outside `DEMO_MODE`) fails
+immediately with a clear message when the server starts, not on the first
+request.
+
 Run:
 
 ```bash
