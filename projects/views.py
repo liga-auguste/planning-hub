@@ -145,8 +145,20 @@ def _get_sim_date(request):
         return None, None
 
 
+def _allowed_sim_dates(request):
+    """The moment dates planner_create generated for the plan now in the session."""
+    moments = request.session.get('demo_timelapse_moments') or []
+    return {m['date'] for m in moments if isinstance(m, dict) and m.get('date')}
+
+
 def _parse_posted_date(request):
-    """Returns (date_string, error_response). An absent date is valid — it clears the state."""
+    """Returns (date_string, error_response). An absent date is valid — it clears the state.
+
+    Only the moment dates this session generated are accepted. The timelapse bar
+    posts nothing else, and preload_timelapse_summary spends a Claude call on every
+    date it has not seen before, so accepting any parseable date would let one
+    session run up an unbounded bill.
+    """
     if not settings.DEMO_MODE:
         return None, JsonResponse({'error': 'not available'}, status=404)
     try:
@@ -156,9 +168,7 @@ def _parse_posted_date(request):
     raw = data.get('date')
     if not raw:
         return None, None
-    try:
-        date.fromisoformat(raw)
-    except (ValueError, TypeError):
+    if raw not in _allowed_sim_dates(request):
         return None, JsonResponse({'error': 'invalid date'}, status=400)
     return raw, None
 

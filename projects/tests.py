@@ -51,6 +51,14 @@ class DemoModeTestCase(TestCase):
         session.save()
         return plan
 
+    def given_timelapse_moments(self, *dates):
+        """Stores moments the way planner_create does. Only these dates are postable."""
+        session = self.client.session
+        session['demo_timelapse_moments'] = [
+            {'date': d, 'label': 'Moment', 'description': 'Beschreibung'} for d in dates
+        ]
+        session.save()
+
 
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
@@ -109,12 +117,15 @@ class TimelapseValidationTest(DemoModeTestCase):
 
     def test_valid_date_is_stored(self):
         sim_date = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(sim_date)
         response = self.post_date(f'{{"date": "{sim_date}"}}')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.session['demo_sim_date'], sim_date)
 
     def test_empty_date_clears_the_session(self):
-        self.post_date(f'{{"date": "{date.today().isoformat()}"}}')
+        today = date.today().isoformat()
+        self.given_timelapse_moments(today)
+        self.post_date(f'{{"date": "{today}"}}')
         response = self.post_date('{"date": null}')
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('demo_sim_date', self.client.session)
@@ -138,6 +149,52 @@ class TimelapseValidationTest(DemoModeTestCase):
             content_type='application/json',
         )
         self.assertEqual(response.status_code, 400)
+
+
+class SimDateIsRestrictedToGeneratedMomentsTest(DemoModeTestCase):
+    """A parseable date is not enough. Every accepted date costs a Claude call, so
+    only the moments planner_create generated for this session may be posted."""
+
+    def post_date(self, url_name, raw):
+        return self.client.post(
+            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+        )
+
+    def test_well_formed_date_outside_the_moments_is_rejected(self):
+        self.given_timelapse_moments((date.today() + timedelta(days=5)).isoformat())
+        other = (date.today() + timedelta(days=6)).isoformat()
+        self.assertEqual(self.post_date('set_timelapse_date', other).status_code, 400)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_far_future_date_is_rejected(self):
+        self.given_timelapse_moments(date.today().isoformat())
+        self.assertEqual(self.post_date('set_timelapse_date', '9999-12-31').status_code, 400)
+
+    def test_no_moments_means_no_date_is_accepted(self):
+        sim_date = (date.today() + timedelta(days=5)).isoformat()
+        self.assertEqual(self.post_date('set_timelapse_date', sim_date).status_code, 400)
+
+    def test_preload_spends_no_api_call_on_an_unlisted_date(self):
+        self.given_session_plan()
+        self.given_timelapse_moments(date.today().isoformat())
+        unlisted = (date.today() + timedelta(days=99)).isoformat()
+        response = self.post_date('preload_timelapse_summary', unlisted)
+        self.assertEqual(response.status_code, 400)
+        self.ai_mocks['projects.views.generate_weekly_summary'].assert_not_called()
+
+    def test_preload_accepts_a_listed_date(self):
+        moment = (date.today() + timedelta(days=5)).isoformat()
+        self.given_session_plan()
+        self.given_timelapse_moments(moment)
+        response = self.post_date('preload_timelapse_summary', moment)
+        self.assertEqual(response.status_code, 200)
+        self.ai_mocks['projects.views.generate_weekly_summary'].assert_called()
+
+    def test_replanning_invalidates_the_old_moments(self):
+        old = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(old)
+        self.given_timelapse_moments((date.today() + timedelta(days=9)).isoformat())
+        self.assertEqual(self.post_date('set_timelapse_date', old).status_code, 400)
 
 
 class PoisonedSessionHealingTest(DemoModeTestCase):
