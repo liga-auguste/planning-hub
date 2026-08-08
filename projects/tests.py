@@ -7,9 +7,14 @@ import anthropic
 import httpx
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from notion_client.errors import HTTPResponseError, RequestTimeoutError
 from unittest.mock import Mock
 
 from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
+from .notion import (
+    NotionUnavailableError, create_project, create_tasks, get_historical_projects,
+    get_upcoming_projects, toggle_task, update_task_date,
+)
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
@@ -708,3 +713,64 @@ class GetClarifyingQuestionsTest(SimpleTestCase):
         with patch('anthropic.Anthropic') as MockAnthropic:
             MockAnthropic.return_value.messages.create.return_value = _fake_response('Wie viele Gäste?')
             self.assertEqual(get_clarifying_questions('Konzert', []), 'Wie viele Gäste?')
+
+
+class NotionFailureTranslationTest(SimpleTestCase):
+    """notion.py's six public functions each build a fresh client per call
+    (_client()) and were entirely unguarded. translate_notion_errors() covers
+    notion_client's own exception types (HTTPResponseError, RequestTimeoutError)
+    plus httpx.HTTPError as a safety net — notion_client only wraps a timeout,
+    not a raw connection failure like httpx.ConnectError."""
+
+    def setUp(self):
+        # _client() reads os.environ["NOTION_API_KEY"] directly (a KeyError,
+        # not a graceful failure, if unset) — irrelevant to what's under test
+        # here, so pin it rather than depend on the ambient environment.
+        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _stub_every_call(self, MockClient, exc):
+        instance = MockClient.return_value
+        instance.databases.query.side_effect = exc
+        instance.pages.update.side_effect = exc
+        instance.pages.create.side_effect = exc
+        return instance
+
+    def test_get_upcoming_projects_translates_a_timeout(self):
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                get_upcoming_projects(date.today())
+
+    def test_get_historical_projects_translates_an_http_error(self):
+        request = httpx.Request('POST', 'https://api.notion.com/v1/databases/x/query')
+        response = httpx.Response(500, request=request)
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, HTTPResponseError(response))
+            with self.assertRaises(NotionUnavailableError):
+                get_historical_projects()
+
+    def test_toggle_task_translates_a_raw_connection_error(self):
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, httpx.ConnectError('boom'))
+            with self.assertRaises(NotionUnavailableError):
+                toggle_task('task-id', True)
+
+    def test_update_task_date_translates_a_failure(self):
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                update_task_date('task-id', '2026-09-05')
+
+    def test_create_project_translates_a_failure(self):
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                create_project('Test', date.today())
+
+    def test_create_tasks_translates_a_failure(self):
+        with patch('projects.notion.Client') as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                create_tasks('project-id', [{'name': 'x', 'date': '2026-09-05'}])
