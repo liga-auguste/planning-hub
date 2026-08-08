@@ -146,9 +146,19 @@ def _get_sim_date(request):
 
 
 def _allowed_sim_dates(request):
-    """The moment dates planner_create generated for the plan now in the session."""
+    """The moment dates planner_create generated for the plan now in the session.
+
+    Only strings are collected: a session written before the moments were validated
+    can hold anything the model returned, and an unhashable value would otherwise
+    blow up the set itself.
+    """
     moments = request.session.get('demo_timelapse_moments') or []
-    return {m['date'] for m in moments if isinstance(m, dict) and m.get('date')}
+    if not isinstance(moments, list):
+        return set()
+    return {
+        m['date'] for m in moments
+        if isinstance(m, dict) and isinstance(m.get('date'), str)
+    }
 
 
 def _parse_posted_date(request):
@@ -158,6 +168,10 @@ def _parse_posted_date(request):
     posts nothing else, and preload_timelapse_summary spends a Claude call on every
     date it has not seen before, so accepting any parseable date would let one
     session run up an unbounded bill.
+
+    Being on the allowlist is necessary but not sufficient: the moments come from
+    Claude, so a session predating their validation can list a date that no caller
+    can parse. Callers get a value date.fromisoformat() accepts or an error.
     """
     if not settings.DEMO_MODE:
         return None, JsonResponse({'error': 'not available'}, status=404)
@@ -165,10 +179,16 @@ def _parse_posted_date(request):
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return None, JsonResponse({'error': 'invalid json'}, status=400)
+    if not isinstance(data, dict):
+        return None, JsonResponse({'error': 'invalid json'}, status=400)
     raw = data.get('date')
     if not raw:
         return None, None
-    if raw not in _allowed_sim_dates(request):
+    if not isinstance(raw, str) or raw not in _allowed_sim_dates(request):
+        return None, JsonResponse({'error': 'invalid date'}, status=400)
+    try:
+        date.fromisoformat(raw)
+    except ValueError:
         return None, JsonResponse({'error': 'invalid date'}, status=400)
     return raw, None
 

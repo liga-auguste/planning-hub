@@ -5,7 +5,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
-from .ai import derive_kontext
+from .ai import derive_kontext, _valid_moments
 from .planner_views import _parse_event_date
 from .views import _annotate_tasks, _fix_ai_markdown
 
@@ -197,6 +197,61 @@ class SimDateIsRestrictedToGeneratedMomentsTest(DemoModeTestCase):
         self.assertEqual(self.post_date('set_timelapse_date', old).status_code, 400)
 
 
+class UnparseableMomentDateTest(DemoModeTestCase):
+    """Being on the allowlist is not enough — the moments come from Claude, so a
+    session written before they were validated can list a date nothing can parse."""
+
+    def post_date(self, url_name, raw):
+        return self.client.post(
+            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+        )
+
+    def test_wrong_format_is_not_written_to_the_session(self):
+        self.given_timelapse_moments('05.09.2026')
+        self.assertEqual(self.post_date('set_timelapse_date', '05.09.2026').status_code, 400)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_impossible_day_does_not_reach_fromisoformat(self):
+        self.given_session_plan()
+        self.given_timelapse_moments('2026-02-30')
+        self.assertEqual(self.post_date('preload_timelapse_summary', '2026-02-30').status_code, 400)
+
+
+class MalformedPayloadTest(DemoModeTestCase):
+    """Valid JSON of the wrong shape must be a 400, not an unhandled exception.
+    Both endpoints are unauthenticated on the public demo."""
+
+    URL_NAMES = ('set_timelapse_date', 'preload_timelapse_summary')
+
+    def post_body(self, url_name, body):
+        return self.client.post(
+            reverse(url_name), data=body, content_type='application/json'
+        )
+
+    def assert_rejects(self, body):
+        for url_name in self.URL_NAMES:
+            with self.subTest(url=url_name, body=body):
+                self.assertEqual(self.post_body(url_name, body).status_code, 400)
+
+    def test_unhashable_date_is_rejected(self):
+        # `raw not in <set>` hashes the value first, so a list used to raise TypeError.
+        self.assert_rejects('{"date": ["2026-09-05"]}')
+        self.assert_rejects('{"date": {"a": 1}}')
+
+    def test_non_string_date_is_rejected(self):
+        self.assert_rejects('{"date": 20260905}')
+
+    def test_body_that_is_not_an_object_is_rejected(self):
+        for body in ('null', '[]', '"2026-09-05"', '5'):
+            self.assert_rejects(body)
+
+    def test_unhashable_moment_in_the_session_does_not_break_the_allowlist(self):
+        session = self.client.session
+        session['demo_timelapse_moments'] = [{'date': ['2026-09-05']}, {'date': None}]
+        session.save()
+        self.assert_rejects('{"date": "2026-09-05"}')
+
+
 class PoisonedSessionHealingTest(DemoModeTestCase):
     """Sessions poisoned before the validation landed must recover on their own."""
 
@@ -232,6 +287,47 @@ class DeriveKontextTest(SimpleTestCase):
     def test_returns_a_list_not_a_string(self):
         """_annotate_tasks writes this into a field that otherwise holds a string. See #9."""
         self.assertIsInstance(derive_kontext('GEMA-Meldung'), list)
+
+
+class ValidMomentsTest(SimpleTestCase):
+    """generate_timelapse_moments returns raw model JSON. These dates become an
+    allowlist and are parsed back later, so they cannot be taken on trust."""
+
+    def test_well_formed_moments_survive_untouched(self):
+        moments = [{'date': '2026-09-05', 'label': 'Probe', 'description': 'Text'}]
+        self.assertEqual(_valid_moments(moments), moments)
+
+    def test_unparseable_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '05.09.2026', 'label': 'Probe'}]), [])
+
+    def test_impossible_day_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '2026-02-30'}]), [])
+
+    def test_non_string_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': None}, {'date': ['2026-09-05']}]), [])
+
+    def test_moment_without_a_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'label': 'Probe'}, 'nonsense']), [])
+
+    def test_parseable_date_is_normalised(self):
+        """date.fromisoformat also takes the basic and week forms, which the dashboard
+        JS cannot — it builds `date + 'T12:00:00'`. Rewrite them rather than drop them."""
+        self.assertEqual(
+            _valid_moments([{'date': '20260905', 'label': 'Probe'}]),
+            [{'date': '2026-09-05', 'label': 'Probe'}],
+        )
+        self.assertEqual(_valid_moments([{'date': '2026-W36-6'}]), [{'date': '2026-09-05'}])
+
+    def test_datetime_string_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '2026-09-05T10:00:00'}]), [])
+
+    def test_good_moments_are_kept_when_a_sibling_is_dropped(self):
+        result = _valid_moments([{'date': 'kaputt'}, {'date': '2026-09-05'}])
+        self.assertEqual(result, [{'date': '2026-09-05'}])
+
+    def test_a_non_list_response_yields_no_moments(self):
+        self.assertEqual(_valid_moments({'date': '2026-09-05'}), [])
+        self.assertEqual(_valid_moments(None), [])
 
 
 class ParseEventDateTest(SimpleTestCase):
