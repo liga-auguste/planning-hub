@@ -1,4 +1,5 @@
 from datetime import date
+import logging
 import re
 import markdown
 import json
@@ -6,11 +7,13 @@ from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.http import JsonResponse, HttpResponse
 from django.conf import settings
-from .notion import get_upcoming_projects, toggle_task, update_task_date
+from .notion import NotionUnavailableError, get_upcoming_projects, toggle_task, update_task_date
 from .ai import AIUnavailableError, generate_weekly_summary, derive_kontext
 import copy
 from .demo_data import get_demo_projects
 from .models import DemoEvent
+
+logger = logging.getLogger(__name__)
 
 MONTHS_DE = {
     1: "Januar", 2: "Februar", 3: "März", 4: "April",
@@ -33,6 +36,10 @@ def _format_date(d):
 
 CACHE_KEY = "dashboard_data"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
+# Written alongside CACHE_KEY on every successful fetch, never expired — the
+# fallback dashboard() serves when a fresh Notion read fails and the primary
+# entry has already expired. See DashboardNotionFailureTest.
+STALE_CACHE_KEY = "dashboard_data_stale"
 
 
 def _annotate_tasks(projects, today):
@@ -202,6 +209,8 @@ def dashboard(request):
     has_session_plan = False
     force_multi = request.GET.get('mode') == 'multi'
     sim_date, sim_date_str = None, None
+    stale = False
+    data_unavailable = False
 
     if settings.DEMO_MODE:
         sim_date, sim_date_str = _get_sim_date(request)
@@ -239,8 +248,20 @@ def dashboard(request):
         if cached:
             projects, summary = cached
         else:
-            projects, summary = _fetch_fresh_data(today)
-            cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
+            try:
+                projects, summary = _fetch_fresh_data(today)
+            except NotionUnavailableError:
+                logger.warning("Notion read failed; falling back to the last known-good dashboard data")
+                last_known_good = cache.get(STALE_CACHE_KEY)
+                if last_known_good is None:
+                    projects, summary = [], None
+                    data_unavailable = True
+                else:
+                    projects, summary = last_known_good
+                    stale = True
+            else:
+                cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
+                cache.set(STALE_CACHE_KEY, (projects, summary), None)
 
     for project in projects:
         project["display_name"] = _strip_year(project["name"])
@@ -282,6 +303,8 @@ def dashboard(request):
         'sim_date_display': _format_date(sim_date) if sim_date else '',
         'demo_project_name': demo_project_name,
         'demo_project_date': demo_project_date,
+        'stale': stale,
+        'data_unavailable': data_unavailable,
     })
 
 

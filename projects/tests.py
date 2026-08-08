@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import anthropic
 import httpx
+from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from notion_client.errors import HTTPResponseError, RequestTimeoutError
@@ -16,9 +17,9 @@ from .notion import (
     get_upcoming_projects, toggle_task, update_task_date,
 )
 from .planner import generate_plan, get_clarifying_questions
-from .planner_views import _parse_event_date
+from .planner_views import _get_history, _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
-from .views import _annotate_tasks, _fix_ai_markdown
+from .views import CACHE_KEY, _annotate_tasks, _fix_ai_markdown
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
@@ -774,3 +775,62 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 create_tasks('project-id', [{'name': 'x', 'date': '2026-09-05'}])
+
+
+def _fake_upcoming_project(name='Testkonzert'):
+    return {
+        'id': 'p1', 'name': name, 'event_date': date.today() + timedelta(days=10),
+        'performers': '', 'status': None, 'status_color': 'gray', 'tasks': [],
+    }
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardNotionFailureTest(TestCase):
+    """dashboard()'s production branch used to have nothing between it and
+    Notion — a single failed read 500'd the whole page. It now either serves
+    the last successful read (flagged stale) or, the very first time ever,
+    an honest empty state — never a stack trace."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_cold_cache_and_a_failure_is_an_honest_empty_state_not_a_500(self):
+        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
+            response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'nicht verfügbar')
+
+    def test_falls_back_to_the_last_successful_read_when_notion_then_fails(self):
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
+            first = self.client.get(reverse('dashboard'))
+        self.assertEqual(first.status_code, 200)
+        self.assertContains(first, 'Testkonzert')
+
+        cache.delete(CACHE_KEY)  # the 8h primary cache expiring; the stale copy outlives it
+        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
+            second = self.client.get(reverse('dashboard'))
+        self.assertEqual(second.status_code, 200)
+        self.assertContains(second, 'Testkonzert')
+        self.assertContains(second, 'evtl. nicht')
+
+    def test_no_stale_banner_on_a_normal_successful_request(self):
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
+             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
+            response = self.client.get(reverse('dashboard'))
+        self.assertNotContains(response, 'evtl. nicht')
+
+
+@override_settings(DEMO_MODE=False)
+class HistoryFallbackTest(TestCase):
+    """_get_history() feeds straight into the planner prompt — a Notion
+    failure here used to 500 before the visitor's description even reached
+    Claude. Falling back to no calibration data is a worse plan, not a
+    broken one, so this degrades to [] rather than serving anything stale.
+    """
+
+    def test_notion_failure_falls_back_to_an_empty_history(self):
+        cache.clear()
+        with patch('projects.planner_views.get_historical_projects', side_effect=NotionUnavailableError('boom')):
+            self.assertEqual(_get_history(), [])

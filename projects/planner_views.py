@@ -3,14 +3,17 @@ from django.core.cache import cache
 from django.conf import settings
 from django.http import JsonResponse
 from .models import PlannerRule, DemoEvent
-from .notion import get_historical_projects, create_project, create_tasks
+from .notion import NotionUnavailableError, get_historical_projects, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
 from .ai import AIUnavailableError, generate_timelapse_moments
+import logging
 import markdown as md
 import json
 import re
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 MONTHS_DE_REV = {
     'januar': 1, 'februar': 2, 'märz': 3, 'april': 4,
@@ -27,7 +30,14 @@ def _get_history():
         return get_demo_history()
     history = cache.get(HISTORY_CACHE_KEY)
     if not history:
-        history = get_historical_projects()
+        try:
+            history = get_historical_projects()
+        except NotionUnavailableError:
+            # No stale-cache fallback here (contrast views.dashboard): the
+            # planner still works without calibration data, just less
+            # precisely, so failing open to [] is enough.
+            logger.warning("Historical projects unavailable; planning without calibration data")
+            return []
         cache.set(HISTORY_CACHE_KEY, history, HISTORY_CACHE_TTL)
     return history
 
