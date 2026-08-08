@@ -24,6 +24,10 @@ MONTHS_DE_REV = {
 HISTORY_CACHE_KEY = "historical_projects"
 HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 hours
 
+# Also defined, disagreeing, in ai.py's KONTEXTE ("Graphiker" vs. "Extern")
+# — a known inconsistency (#17), not touched here.
+KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
+
 
 def _get_history():
     if settings.DEMO_MODE:
@@ -119,7 +123,6 @@ def planner_review(request):
                 'error': True,
             })
 
-        KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
         event_date = _parse_event_date(description)
         project_name = plan.get('project_name') or description.split(',')[0].strip()
         return render(request, 'projects/planner_review.html', {
@@ -174,9 +177,28 @@ def planner_create(request):
             )
             return redirect('dashboard')
 
-        project_id = create_project(project_name, event_date)
-        tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
-        create_tasks(project_id, tasks)
+        try:
+            project_id = create_project(project_name, event_date)
+            tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
+            create_tasks(project_id, tasks)
+        except NotionUnavailableError:
+            # The visitor already reviewed and adjusted this exact task list —
+            # losing it to a Notion hiccup would mean redoing the whole
+            # planner flow. Reconstruct days_before from the dates they had
+            # so planner_review.html's own JS recomputes the same dates.
+            return render(request, 'projects/planner_review.html', {
+                'description': description,
+                'project_name': project_name,
+                'tasks': [
+                    {'name': n, 'days_before': (event_date - date.fromisoformat(d)).days, 'kontext': k}
+                    for n, d, k in zip(names, dates, kontexte)
+                    if n and d
+                ],
+                'kontexte': KONTEXTE,
+                'event_date_iso': event_date_str,
+                'demo_mode': settings.DEMO_MODE,
+                'error': True,
+            })
         cache.delete('dashboard_data')
         return redirect('dashboard')
     return redirect('planner_start')

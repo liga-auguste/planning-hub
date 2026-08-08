@@ -886,3 +886,49 @@ class RescheduleTaskNotionFailureTest(TestCase):
             )
         self.assertEqual(response.status_code, 200)
         mock_update.assert_called_once_with('task-1', '2026-09-05')
+
+
+@override_settings(DEMO_MODE=False)
+class PlannerCreateNotionFailureTest(TestCase):
+    """create_project/create_tasks were unguarded — a Notion failure here
+    used to 500 after the visitor had already reviewed and adjusted a full
+    task list, losing all of it. It's now redisplayed with the same tasks
+    and dates instead of vanishing."""
+
+    def post_plan(self):
+        event_date = date.today() + timedelta(days=30)
+        task_date = date.today() + timedelta(days=7)
+        return self.client.post(reverse('planner_create'), data={
+            'description': 'Konzert am 5. September',
+            'project_name': 'Sommerkonzert',
+            'event_date': event_date.isoformat(),
+            'task_name': ['Programm festlegen'],
+            'task_date': [task_date.isoformat()],
+            'task_kontext': ['Planung'],
+        })
+
+    def test_notion_failure_redisplays_the_plan_instead_of_losing_it(self):
+        with patch('projects.planner_views.create_project', side_effect=NotionUnavailableError('boom')):
+            response = self.post_plan()
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'projects/planner_review.html')
+        self.assertContains(response, 'Sommerkonzert')
+        self.assertContains(response, 'Programm festlegen')
+        self.assertContains(response, 'nicht gespeichert')
+
+    def test_a_failure_in_create_tasks_also_redisplays_the_plan(self):
+        with patch('projects.planner_views.create_project', return_value='page-id'), \
+             patch('projects.planner_views.create_tasks', side_effect=NotionUnavailableError('boom')):
+            response = self.post_plan()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Programm festlegen')
+
+    def test_success_still_redirects_to_the_dashboard(self):
+        with patch('projects.planner_views.create_project', return_value='page-id'), \
+             patch('projects.planner_views.create_tasks') as mock_create_tasks:
+            response = self.post_plan()
+        # fetch_redirect_response=False: dashboard()'s own behavior has its
+        # own tests (DashboardNotionFailureTest); this only checks the
+        # redirect target, not a live render of it.
+        self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
+        mock_create_tasks.assert_called_once()
