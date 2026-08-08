@@ -15,7 +15,7 @@ Django app that turns a plain-language project description into a task plan via 
 | Markdown export, seed *data* | GitHub issues, pull requests, PR comments |
 | Local session notes, planning documents | `README.md`, `docs/*.md`, this file |
 
-The dividing line is the audience, not the file type. `seed_data.py` holds both: the command's `help=` and `stdout.write` are English because a developer reads them, while the task names it seeds ("Plakate aushängen", "GEMA-Meldung") are German because they end up in the UI.
+The dividing line is the audience, not the file type. `seed_rules.py` holds both: the command's `help=` ("Seed initial planner rules") and its `stdout.write` ("Rules already present, skipped.") are English because a developer reads them, while the rules it seeds ("Bei Konzertveranstaltungen GEMA-Meldung einplanen — nicht bei Gottesdiensten") are German because they go into the Claude prompt and are shown in the UI.
 
 Claude prompts are German on purpose — they carry explicit instructions such as "Auf Deutsch, Du-Form", and their output is rendered straight into the interface. Their JSON *keys* stay English (`date`, `label`, `days_before`); only the values are German.
 

@@ -1,7 +1,5 @@
 from django.contrib import admin
-from .models import ProjectType, TaskTemplate, Project, Task
+from .models import DemoEvent, PlannerRule
 
-admin.site.register(ProjectType)
-admin.site.register(TaskTemplate)
-admin.site.register(Project)
-admin.site.register(Task)
+admin.site.register(DemoEvent)
+admin.site.register(PlannerRule)

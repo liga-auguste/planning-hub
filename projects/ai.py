@@ -168,6 +168,27 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
     return "\n".join(lines)
 
 
+def _valid_moments(raw) -> list:
+    """Keeps the moments whose date the rest of the app can actually use.
+
+    The dates travel into the session, become the allowlist of postable sim dates
+    and are parsed back with date.fromisoformat(), while the dashboard JS builds a
+    timestamp from them as `date + 'T12:00:00'`. Neither can be given whatever the
+    model happened to emit, so a moment with an unparseable date is dropped and a
+    parseable one is normalised to YYYY-MM-DD.
+    """
+    moments = []
+    for moment in raw if isinstance(raw, list) else []:
+        if not isinstance(moment, dict) or not isinstance(moment.get('date'), str):
+            continue
+        try:
+            parsed = date.fromisoformat(moment['date'])
+        except ValueError:
+            continue
+        moments.append({**moment, 'date': parsed.isoformat()})
+    return moments
+
+
 def generate_timelapse_moments(project_name: str, event_date: date, tasks: list) -> list:
     """Returns 4 narrative key moments as [{date_iso, label, description}]."""
     today = date.today()
@@ -204,7 +225,7 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
-    return _json.loads(text)
+    return _valid_moments(_json.loads(text))
 
 
 def generate_weekly_summary(projects: list, today: date, single_project_demo: bool = False) -> str:

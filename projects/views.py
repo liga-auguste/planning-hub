@@ -133,14 +133,74 @@ def _build_session_project(session_plan):
     }
 
 
+def _get_sim_date(request):
+    """Reads demo_sim_date, discarding a value that predates its validation."""
+    raw = request.session.get('demo_sim_date')
+    if not raw:
+        return None, None
+    try:
+        return date.fromisoformat(raw), raw
+    except (ValueError, TypeError):
+        request.session.pop('demo_sim_date', None)
+        return None, None
+
+
+def _allowed_sim_dates(request):
+    """The moment dates planner_create generated for the plan now in the session.
+
+    Only strings are collected: a session written before the moments were validated
+    can hold anything the model returned, and an unhashable value would otherwise
+    blow up the set itself.
+    """
+    moments = request.session.get('demo_timelapse_moments') or []
+    if not isinstance(moments, list):
+        return set()
+    return {
+        m['date'] for m in moments
+        if isinstance(m, dict) and isinstance(m.get('date'), str)
+    }
+
+
+def _parse_posted_date(request):
+    """Returns (date_string, error_response). An absent date is valid — it clears the state.
+
+    Only the moment dates this session generated are accepted. The timelapse bar
+    posts nothing else, and preload_timelapse_summary spends a Claude call on every
+    date it has not seen before, so accepting any parseable date would let one
+    session run up an unbounded bill.
+
+    Being on the allowlist is necessary but not sufficient: the moments come from
+    Claude, so a session predating their validation can list a date that no caller
+    can parse. Callers get a value date.fromisoformat() accepts or an error.
+    """
+    if not settings.DEMO_MODE:
+        return None, JsonResponse({'error': 'not available'}, status=404)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return None, JsonResponse({'error': 'invalid json'}, status=400)
+    if not isinstance(data, dict):
+        return None, JsonResponse({'error': 'invalid json'}, status=400)
+    raw = data.get('date')
+    if not raw:
+        return None, None
+    if not isinstance(raw, str) or raw not in _allowed_sim_dates(request):
+        return None, JsonResponse({'error': 'invalid date'}, status=400)
+    try:
+        date.fromisoformat(raw)
+    except ValueError:
+        return None, JsonResponse({'error': 'invalid date'}, status=400)
+    return raw, None
+
+
 def dashboard(request):
     today = date.today()
     has_session_plan = False
     force_multi = request.GET.get('mode') == 'multi'
+    sim_date, sim_date_str = None, None
 
     if settings.DEMO_MODE:
-        sim_date_str = request.session.get('demo_sim_date')
-        sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
+        sim_date, sim_date_str = _get_sim_date(request)
         effective_today = sim_date or today
 
         session_plan = request.session.get('demo_plan')
@@ -183,7 +243,6 @@ def dashboard(request):
     }
 
     timelapse_moments = request.session.get('demo_timelapse_moments', []) if settings.DEMO_MODE else []
-    sim_date_str = request.session.get('demo_sim_date') if settings.DEMO_MODE else None
 
     # Project name for demo single-project header
     demo_project_name = ''
@@ -207,7 +266,7 @@ def dashboard(request):
         'demo_mode': settings.DEMO_MODE,
         'timelapse_moments': json.dumps(timelapse_moments),
         'sim_date': sim_date_str,
-        'sim_date_display': _format_date(date.fromisoformat(sim_date_str)) if sim_date_str else '',
+        'sim_date_display': _format_date(sim_date) if sim_date else '',
         'demo_project_name': demo_project_name,
         'demo_project_date': demo_project_date,
     })
@@ -222,8 +281,9 @@ def refresh(request):
 def set_timelapse_date(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
-    data = json.loads(request.body)
-    sim_date = data.get('date')
+    sim_date, error = _parse_posted_date(request)
+    if error:
+        return error
     if sim_date:
         request.session['demo_sim_date'] = sim_date
     else:
@@ -235,8 +295,9 @@ def preload_timelapse_summary(request):
     """Pre-generates and caches the AI summary for a given sim date (called from JS background)."""
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
-    data = json.loads(request.body)
-    sim_date_str = data.get('date')  # None = today
+    sim_date_str, error = _parse_posted_date(request)  # None = today
+    if error:
+        return error
 
     today = date.today()
     sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None

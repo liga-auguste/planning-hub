@@ -1,8 +1,66 @@
-from django.test import TestCase, override_settings
+import unittest
+from datetime import date, timedelta
+from unittest.mock import patch
+
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
+
+from .ai import derive_kontext, _valid_moments
+from .planner_views import _parse_event_date
+from .views import _annotate_tasks, _fix_ai_markdown
+
+# The view modules import the AI functions with `from .ai import ...`, so the
+# name to patch is the one bound in the view module, not the one in projects.ai.
+AI_STUBS = {
+    'projects.views.generate_weekly_summary': '**Test summary**',
+    'projects.planner_views.get_clarifying_questions': '**Wie viele Mitwirkende?**',
+    'projects.planner_views.generate_plan': '{"project_name": "Testkonzert", "tasks": []}',
+    'projects.planner_views.generate_timelapse_moments': [],
+}
 
 
 @override_settings(DEMO_MODE=True)
-class DashboardKanbanCssTest(TestCase):
+class DemoModeTestCase(TestCase):
+    """Stubs the Claude API — no test may make a real call."""
+
+    def setUp(self):
+        self.ai_mocks = {}
+        for target, return_value in AI_STUBS.items():
+            patcher = patch(target, return_value=return_value)
+            self.ai_mocks[target] = patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def given_session_plan(self, **overrides):
+        """Creates a session plan the way planner_create produces it."""
+        plan = {
+            'name': 'Testkonzert',
+            'event_date': (date.today() + timedelta(days=30)).isoformat(),
+            'tasks': [
+                {
+                    'id': 'demo-session-0',
+                    'name': 'Programm festlegen',
+                    'date': (date.today() + timedelta(days=7)).isoformat(),
+                    'kontext': 'Planung',
+                    'done': False,
+                },
+            ],
+        }
+        plan.update(overrides)
+        session = self.client.session
+        session['demo_plan'] = plan
+        session.save()
+        return plan
+
+    def given_timelapse_moments(self, *dates):
+        """Stores moments the way planner_create does. Only these dates are postable."""
+        session = self.client.session
+        session['demo_timelapse_moments'] = [
+            {'date': d, 'label': 'Moment', 'description': 'Beschreibung'} for d in dates
+        ]
+        session.save()
+
+
+class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get('/dashboard/')
         self.assertContains(response, 'gap: 6px')
@@ -14,3 +72,369 @@ class DashboardKanbanCssTest(TestCase):
     def test_kanban_meta_last_child_selector_exists(self):
         response = self.client.get('/dashboard/')
         self.assertContains(response, '.kanban-card-meta span:last-child')
+
+
+class AiStubTest(DemoModeTestCase):
+    """Guards the guard: proves the stubs are actually in the request path."""
+
+    def test_dashboard_does_not_call_the_real_api(self):
+        self.client.get('/dashboard/')
+        self.ai_mocks['projects.views.generate_weekly_summary'].assert_called()
+
+
+class PlannerGetFallthroughTest(DemoModeTestCase):
+    """Both views used to fall through to an implicit `return None` on GET."""
+
+    def test_review_get_redirects_to_start(self):
+        response = self.client.get(reverse('planner_review'))
+        self.assertRedirects(response, reverse('planner_start'))
+
+    def test_create_get_redirects_to_start(self):
+        response = self.client.get(reverse('planner_create'))
+        self.assertRedirects(response, reverse('planner_start'))
+
+    def test_questions_route_is_gone(self):
+        # Literal path: the URL name no longer exists, so reverse() cannot be used.
+        self.assertEqual(self.client.get('/planner/questions/').status_code, 404)
+
+
+class TimelapseValidationTest(DemoModeTestCase):
+    """An unvalidated string in demo_sim_date used to break every later request."""
+
+    def post_date(self, body):
+        return self.client.post(
+            reverse('set_timelapse_date'), data=body, content_type='application/json'
+        )
+
+    def test_invalid_date_is_rejected(self):
+        response = self.post_date('{"date": "kaputt"}')
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_malformed_json_is_rejected(self):
+        response = self.post_date('{')
+        self.assertEqual(response.status_code, 400)
+
+    def test_valid_date_is_stored(self):
+        sim_date = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(sim_date)
+        response = self.post_date(f'{{"date": "{sim_date}"}}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session['demo_sim_date'], sim_date)
+
+    def test_empty_date_clears_the_session(self):
+        today = date.today().isoformat()
+        self.given_timelapse_moments(today)
+        self.post_date(f'{{"date": "{today}"}}')
+        response = self.post_date('{"date": null}')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    @override_settings(DEMO_MODE=False)
+    def test_unavailable_outside_demo_mode(self):
+        self.assertEqual(self.post_date('{"date": null}').status_code, 404)
+
+    def test_preload_rejects_invalid_date(self):
+        response = self.client.post(
+            reverse('preload_timelapse_summary'),
+            data='{"date": "kaputt"}',
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_preload_rejects_malformed_json(self):
+        response = self.client.post(
+            reverse('preload_timelapse_summary'),
+            data='{',
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class SimDateIsRestrictedToGeneratedMomentsTest(DemoModeTestCase):
+    """A parseable date is not enough. Every accepted date costs a Claude call, so
+    only the moments planner_create generated for this session may be posted."""
+
+    def post_date(self, url_name, raw):
+        return self.client.post(
+            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+        )
+
+    def test_well_formed_date_outside_the_moments_is_rejected(self):
+        self.given_timelapse_moments((date.today() + timedelta(days=5)).isoformat())
+        other = (date.today() + timedelta(days=6)).isoformat()
+        self.assertEqual(self.post_date('set_timelapse_date', other).status_code, 400)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_far_future_date_is_rejected(self):
+        self.given_timelapse_moments(date.today().isoformat())
+        self.assertEqual(self.post_date('set_timelapse_date', '9999-12-31').status_code, 400)
+
+    def test_no_moments_means_no_date_is_accepted(self):
+        sim_date = (date.today() + timedelta(days=5)).isoformat()
+        self.assertEqual(self.post_date('set_timelapse_date', sim_date).status_code, 400)
+
+    def test_preload_spends_no_api_call_on_an_unlisted_date(self):
+        self.given_session_plan()
+        self.given_timelapse_moments(date.today().isoformat())
+        unlisted = (date.today() + timedelta(days=99)).isoformat()
+        response = self.post_date('preload_timelapse_summary', unlisted)
+        self.assertEqual(response.status_code, 400)
+        self.ai_mocks['projects.views.generate_weekly_summary'].assert_not_called()
+
+    def test_preload_accepts_a_listed_date(self):
+        moment = (date.today() + timedelta(days=5)).isoformat()
+        self.given_session_plan()
+        self.given_timelapse_moments(moment)
+        response = self.post_date('preload_timelapse_summary', moment)
+        self.assertEqual(response.status_code, 200)
+        self.ai_mocks['projects.views.generate_weekly_summary'].assert_called()
+
+    def test_replanning_invalidates_the_old_moments(self):
+        old = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(old)
+        self.given_timelapse_moments((date.today() + timedelta(days=9)).isoformat())
+        self.assertEqual(self.post_date('set_timelapse_date', old).status_code, 400)
+
+
+class UnparseableMomentDateTest(DemoModeTestCase):
+    """Being on the allowlist is not enough — the moments come from Claude, so a
+    session written before they were validated can list a date nothing can parse."""
+
+    def post_date(self, url_name, raw):
+        return self.client.post(
+            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+        )
+
+    def test_wrong_format_is_not_written_to_the_session(self):
+        self.given_timelapse_moments('05.09.2026')
+        self.assertEqual(self.post_date('set_timelapse_date', '05.09.2026').status_code, 400)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_impossible_day_does_not_reach_fromisoformat(self):
+        self.given_session_plan()
+        self.given_timelapse_moments('2026-02-30')
+        self.assertEqual(self.post_date('preload_timelapse_summary', '2026-02-30').status_code, 400)
+
+
+class MalformedPayloadTest(DemoModeTestCase):
+    """Valid JSON of the wrong shape must be a 400, not an unhandled exception.
+    Both endpoints are unauthenticated on the public demo."""
+
+    URL_NAMES = ('set_timelapse_date', 'preload_timelapse_summary')
+
+    def post_body(self, url_name, body):
+        return self.client.post(
+            reverse(url_name), data=body, content_type='application/json'
+        )
+
+    def assert_rejects(self, body):
+        for url_name in self.URL_NAMES:
+            with self.subTest(url=url_name, body=body):
+                self.assertEqual(self.post_body(url_name, body).status_code, 400)
+
+    def test_unhashable_date_is_rejected(self):
+        # `raw not in <set>` hashes the value first, so a list used to raise TypeError.
+        self.assert_rejects('{"date": ["2026-09-05"]}')
+        self.assert_rejects('{"date": {"a": 1}}')
+
+    def test_non_string_date_is_rejected(self):
+        self.assert_rejects('{"date": 20260905}')
+
+    def test_body_that_is_not_an_object_is_rejected(self):
+        for body in ('null', '[]', '"2026-09-05"', '5'):
+            self.assert_rejects(body)
+
+    def test_unhashable_moment_in_the_session_does_not_break_the_allowlist(self):
+        session = self.client.session
+        session['demo_timelapse_moments'] = [{'date': ['2026-09-05']}, {'date': None}]
+        session.save()
+        self.assert_rejects('{"date": "2026-09-05"}')
+
+
+class PoisonedSessionHealingTest(DemoModeTestCase):
+    """Sessions poisoned before the validation landed must recover on their own."""
+
+    def poison(self):
+        session = self.client.session
+        session['demo_sim_date'] = 'kaputt'
+        session.save()
+
+    def test_dashboard_renders_and_clears_the_bad_value(self):
+        self.given_session_plan()
+        self.poison()
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('demo_sim_date', self.client.session)
+
+    def test_dashboard_renders_without_a_session_plan(self):
+        self.poison()
+        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
+
+
+# --- Unit tests for the logic that is not a view ---
+
+class DeriveKontextTest(SimpleTestCase):
+    def test_keyword_match_returns_its_kontext(self):
+        self.assertEqual(derive_kontext('GEMA-Meldung'), ['Büro'])
+
+    def test_match_is_case_insensitive_and_partial(self):
+        self.assertEqual(derive_kontext('Heute noch das Programm festlegen'), ['Planung'])
+
+    def test_no_match_returns_empty(self):
+        self.assertEqual(derive_kontext('Irgendetwas Unbekanntes'), [])
+
+    def test_returns_a_list_not_a_string(self):
+        """_annotate_tasks writes this into a field that otherwise holds a string. See #9."""
+        self.assertIsInstance(derive_kontext('GEMA-Meldung'), list)
+
+
+class ValidMomentsTest(SimpleTestCase):
+    """generate_timelapse_moments returns raw model JSON. These dates become an
+    allowlist and are parsed back later, so they cannot be taken on trust."""
+
+    def test_well_formed_moments_survive_untouched(self):
+        moments = [{'date': '2026-09-05', 'label': 'Probe', 'description': 'Text'}]
+        self.assertEqual(_valid_moments(moments), moments)
+
+    def test_unparseable_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '05.09.2026', 'label': 'Probe'}]), [])
+
+    def test_impossible_day_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '2026-02-30'}]), [])
+
+    def test_non_string_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': None}, {'date': ['2026-09-05']}]), [])
+
+    def test_moment_without_a_date_is_dropped(self):
+        self.assertEqual(_valid_moments([{'label': 'Probe'}, 'nonsense']), [])
+
+    def test_parseable_date_is_normalised(self):
+        """date.fromisoformat also takes the basic and week forms, which the dashboard
+        JS cannot — it builds `date + 'T12:00:00'`. Rewrite them rather than drop them."""
+        self.assertEqual(
+            _valid_moments([{'date': '20260905', 'label': 'Probe'}]),
+            [{'date': '2026-09-05', 'label': 'Probe'}],
+        )
+        self.assertEqual(_valid_moments([{'date': '2026-W36-6'}]), [{'date': '2026-09-05'}])
+
+    def test_datetime_string_is_dropped(self):
+        self.assertEqual(_valid_moments([{'date': '2026-09-05T10:00:00'}]), [])
+
+    def test_good_moments_are_kept_when_a_sibling_is_dropped(self):
+        result = _valid_moments([{'date': 'kaputt'}, {'date': '2026-09-05'}])
+        self.assertEqual(result, [{'date': '2026-09-05'}])
+
+    def test_a_non_list_response_yields_no_moments(self):
+        self.assertEqual(_valid_moments({'date': '2026-09-05'}), [])
+        self.assertEqual(_valid_moments(None), [])
+
+
+class ParseEventDateTest(SimpleTestCase):
+    def test_explicit_year_is_used(self):
+        self.assertEqual(
+            _parse_event_date('Konzert am 5. September 2026'), date(2026, 9, 5)
+        )
+
+    def test_without_year_returns_the_next_occurrence(self):
+        result = _parse_event_date('Konzert am 5. September')
+        self.assertEqual((result.month, result.day), (9, 5))
+        self.assertGreater(result, date.today())
+        self.assertLessEqual((result - date.today()).days, 366)
+
+    def test_impossible_day_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert am 31. Februar 2026'))
+
+    def test_unknown_month_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert am 5. Smarch 2026'))
+
+    def test_no_date_returns_none(self):
+        self.assertIsNone(_parse_event_date('Konzert irgendwann im Herbst'))
+
+
+class AnnotateTasksTest(SimpleTestCase):
+    TODAY = date(2026, 6, 15)
+
+    def annotate(self, *tasks):
+        project = {'tasks': [
+            {'name': 'Aufgabe', 'kontext': 'Büro', 'done': False, 'due': None, **t}
+            for t in tasks
+        ]}
+        return _annotate_tasks([project], self.TODAY)[0]
+
+    def urgency_for(self, **task):
+        return self.annotate(task)['tasks'][0]['urgency']
+
+    def test_done_task_is_done(self):
+        self.assertEqual(self.urgency_for(done=True, due=self.TODAY - timedelta(days=1)), 'done')
+
+    def test_task_without_due_date_is_done(self):
+        self.assertEqual(self.urgency_for(due=None), 'done')
+
+    def test_past_due_is_overdue(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY - timedelta(days=1)), 'overdue')
+
+    def test_today_is_urgent(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY), 'urgent')
+
+    def test_seven_days_out_is_still_urgent(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), 'urgent')
+
+    def test_eight_days_out_is_ok(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=8)), 'ok')
+
+    def test_overdue_beats_urgent_on_the_project(self):
+        project = self.annotate(
+            {'due': self.TODAY + timedelta(days=2)},
+            {'due': self.TODAY - timedelta(days=2)},
+        )
+        self.assertEqual(project['urgency'], 'overdue')
+
+    def test_project_without_open_work_stays_ok(self):
+        project = self.annotate({'due': self.TODAY + timedelta(days=30)})
+        self.assertEqual(project['urgency'], 'ok')
+
+    def test_due_display_is_formatted_german(self):
+        task = self.annotate({'due': date(2026, 6, 15)})['tasks'][0]
+        self.assertEqual(task['due_display'], 'Mo, 15. Juni')
+
+    def test_empty_kontext_is_derived_from_the_name(self):
+        task = self.annotate({'name': 'GEMA-Meldung', 'kontext': ''})['tasks'][0]
+        self.assertEqual(task['kontext'], ['Büro'])
+
+
+class FixAiMarkdownTest(SimpleTestCase):
+    """Claude returns task lines under a project bullet without list markers."""
+
+    def test_continuation_lines_become_sub_bullets(self):
+        result = _fix_ai_markdown('- **Konzert**\nPlakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_blank_lines_inside_a_block_are_dropped(self):
+        result = _fix_ai_markdown('- **Konzert**\n\nPlakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+
+    def test_existing_list_markers_are_left_alone(self):
+        result = _fix_ai_markdown('- **Konzert**\n- Plakate aushängen')
+        self.assertEqual(result, '- **Konzert**\n- Plakate aushängen')
+
+    def test_horizontal_rule_ends_the_block(self):
+        result = _fix_ai_markdown('- **Konzert**\n---\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n---\nFreier Text')
+
+    def test_bold_line_ends_the_block(self):
+        result = _fix_ai_markdown('- **Konzert**\n**Hinweis**\nFreier Text')
+        self.assertEqual(result, '- **Konzert**\n**Hinweis**\nFreier Text')
+
+    def test_text_outside_a_block_is_untouched(self):
+        self.assertEqual(_fix_ai_markdown('Nur ein Satz.'), 'Nur ein Satz.')
+
+    @unittest.expectedFailure
+    def test_section_header_keeps_its_blank_line(self):
+        """A '##' header after a project block loses the blank line that makes it a
+        header, so Markdown renders it as list content and the summary shows an
+        unexplained gap. '#' also fails to reset in_project, so anything following
+        the header is indented as a sub-bullet. See #20.
+        """
+        result = _fix_ai_markdown('- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen')
+        self.assertIn('\n\n## Jetzt fällig', result)
