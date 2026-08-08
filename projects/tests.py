@@ -706,6 +706,20 @@ class GeneratePlanRetryTest(SimpleTestCase):
                 self.generate()
         self.assertEqual(create.call_count, 2)
 
+    def test_an_object_without_a_tasks_list_is_retried(self):
+        """A valid object that lacks the "tasks" key passes the dict check
+        but would crash planner_review on plan['tasks'] — it has to count
+        as a bad response too (the finding from PR #34's review)."""
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [
+                _fake_response('{"project_name": "Testkonzert"}'),
+                _fake_response(self.VALID),
+            ]
+            result = self.generate()
+        self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
+        self.assertEqual(create.call_count, 2)
+
     def test_an_sdk_failure_is_not_retried_as_a_json_error(self):
         """The SDK already retried transport failures internally (see
         AnthropicFailureTranslationTest); a second attempt here would silently

@@ -124,12 +124,13 @@ Mögliche Kontexte: Planung, Büro, Extern, Kommunikation, Unterwegs, Vor Ort"""
             last_error = exc
             logger.warning("Claude returned unparseable JSON (attempt %d/2): %s", attempt, exc)
             continue
-        if not isinstance(plan, dict):
-            # Valid JSON in the wrong shape (say, a bare task array) would
-            # pass json.loads only to crash planner_review on plan.get() —
-            # one more bad response, worth the same retry.
+        if not isinstance(plan, dict) or not isinstance(plan.get("tasks"), list):
+            # Valid JSON in the wrong shape (a bare task array, or an object
+            # without a task list) would pass json.loads only to crash
+            # planner_review on plan['tasks'] — one more bad response, worth
+            # the same retry.
             last_error = None
-            logger.warning("Claude returned JSON that is not an object (attempt %d/2)", attempt)
+            logger.warning("Claude returned JSON that is not a plan object with a task list (attempt %d/2)", attempt)
             continue
         return plan
     raise AIUnavailableError("Claude returned an unusable plan twice") from last_error
