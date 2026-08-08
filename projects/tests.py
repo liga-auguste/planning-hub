@@ -3,10 +3,12 @@ import unittest
 from datetime import date, timedelta
 from unittest.mock import patch
 
+import anthropic
+import httpx
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
-from .ai import derive_kontext, _valid_moments
+from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
 from .planner_views import _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
 from .views import _annotate_tasks, _fix_ai_markdown
@@ -486,3 +488,47 @@ class RequiredApiKeysTest(SimpleTestCase):
                 require_api_keys()
         self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
         self.assertIn('NOTION_API_KEY', str(ctx.exception))
+
+
+def _anthropic_timeout_error():
+    request = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    return anthropic.APITimeoutError(request=request)
+
+
+def _anthropic_rate_limit_error():
+    request = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    response = httpx.Response(429, request=request)
+    return anthropic.RateLimitError('rate limited', response=response, body=None)
+
+
+class AnthropicFailureTranslationTest(SimpleTestCase):
+    """ai.py's two Claude calls translate SDK failures into one app-level
+    exception, after the SDK's own retries (max_retries=2 by default) are
+    exhausted. Views only need to catch AIUnavailableError, never an
+    anthropic.* type directly."""
+
+    def test_weekly_summary_translates_a_timeout(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            MockAnthropic.return_value.messages.stream.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                generate_weekly_summary([], date.today())
+
+    def test_weekly_summary_translates_a_rate_limit(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            MockAnthropic.return_value.messages.stream.side_effect = _anthropic_rate_limit_error()
+            with self.assertRaises(AIUnavailableError):
+                generate_weekly_summary([], date.today())
+
+    def test_timelapse_moments_translates_a_failure(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            MockAnthropic.return_value.messages.create.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                generate_timelapse_moments('Test', date.today(), [])
+
+    def test_original_exception_is_preserved_as_the_cause(self):
+        with patch('anthropic.Anthropic') as MockAnthropic:
+            timeout = _anthropic_timeout_error()
+            MockAnthropic.return_value.messages.stream.side_effect = timeout
+            with self.assertRaises(AIUnavailableError) as ctx:
+                generate_weekly_summary([], date.today())
+        self.assertIs(ctx.exception.__cause__, timeout)
