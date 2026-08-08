@@ -109,6 +109,18 @@ python manage.py runserver
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
+### Tests
+
+```bash
+python manage.py test projects
+```
+
+The Claude API is stubbed in `DemoModeTestCase`, so the suite makes no network calls and needs no API key:
+
+```bash
+env -u ANTHROPIC_API_KEY python manage.py test projects
+```
+
 ### With Notion (full mode)
 
 Add to `.env`:
