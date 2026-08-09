@@ -442,6 +442,7 @@ function flashActionFailed(el) {
 const TODAY = '{{ today_iso }}';
 const PROJECT_MAP = {{ project_map|safe }};
 const TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+const PRECACHED_MOMENTS = {{ precached_moments|safe }};
 const SIM_DATE = '{{ sim_date }}';
 
 function formatMomentDate(isoStr) {
@@ -468,7 +469,7 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
     document.getElementById('count-done')   && (document.getElementById('count-done').textContent   = done);
 })();
 
-const preloaded = new Set();
+const preloaded = new Set(PRECACHED_MOMENTS);
 
 async function setSimDate(dateStr, clickedBtn) {
     document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
@@ -490,11 +491,12 @@ async function setSimDate(dateStr, clickedBtn) {
 async function preloadOne(dateStr) {
     if (preloaded.has(dateStr)) return;
     try {
-        await fetch('/timelapse/preload/', {
+        const response = await fetch('/timelapse/preload/', {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
             body: JSON.stringify({date: dateStr})
         });
+        if (!response.ok) return;
         preloaded.add(dateStr);
         const btn = document.querySelector(`[data-moment-date="${dateStr}"]`);
         if (btn) btn.classList.add('moment-preloaded');
@@ -512,7 +514,7 @@ if (TIMELAPSE_MOMENTS.length > 0) {
         bar.style.display = 'block';
         TIMELAPSE_MOMENTS.forEach(m => {
             const btn = document.createElement('button');
-            btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '');
+            btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '') + (PRECACHED_MOMENTS.includes(m.date) ? ' moment-preloaded' : '');
             btn.title = m.description;
             btn.dataset.momentDate = m.date;
             btn.innerHTML = `<div class="moment-title">${m.label}</div><div class="moment-date">${formatMomentDate(m.date)}</div><div class="spinner"></div>`;

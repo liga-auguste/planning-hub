@@ -5,6 +5,7 @@ from unittest.mock import patch
 import anthropic
 import httpx
 import markdown
+from django.conf import settings
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
@@ -1327,3 +1328,62 @@ class PlannerCreateNotionFailureTest(TestCase):
              patch('projects.planner_views.create_tasks'):
             self.post_plan()
         self.assertIsNone(cache.get(CACHE_KEY))
+
+
+class NginxDemoRateLimitTest(SimpleTestCase):
+    """#36: guards the demo rate-limit sizing against config drift. rate=10r/m
+    with burst=5 was fine for one request per page view, but the timelapse
+    preloader alone fires 4 POSTs per dashboard load."""
+
+    def setUp(self):
+        self.conf = (settings.BASE_DIR / 'nginx-demo.conf').read_text()
+
+    def test_rate_and_burst_cover_a_page_load_plus_preloads(self):
+        self.assertIn('rate=30r/m', self.conf)
+        self.assertIn('burst=10 nodelay', self.conf)
+
+    def test_rejections_are_a_429_not_a_bare_503(self):
+        self.assertIn('limit_req_status 429;', self.conf)
+
+
+class TimelapsePrecachedMomentsTest(DemoModeTestCase):
+    """#36: preloadAll() re-fires all 4 preload POSTs on every reload because
+    the in-memory `preloaded` Set is empty again. Moments the session already
+    cached a summary for are now passed to the template so the JS can seed
+    `preloaded` from them instead of re-requesting."""
+
+    def test_a_moment_with_a_cached_summary_is_precached(self):
+        self.given_timelapse_moments('2026-09-05')
+        session = self.client.session
+        session[f'{SUMMARY_KEY}_2026-09-05'] = '<p>cached</p>'
+        session.save()
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'const PRECACHED_MOMENTS = ["2026-09-05"]')
+
+    def test_a_moment_without_a_cached_summary_is_not_precached(self):
+        self.given_timelapse_moments('2026-09-05')
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'const PRECACHED_MOMENTS = []')
+
+    def test_malformed_session_moments_do_not_break_the_dashboard(self):
+        session = self.client.session
+        session['demo_timelapse_moments'] = [{'date': ['2026-09-05']}, {'date': None}, 'not-a-dict']
+        session.save()
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+
+
+class TimelapsePreloadMarkupTest(DemoModeTestCase):
+    """#36: markup-contract tests for the preloader fix — runtime behaviour
+    (a rate-limited fetch really gets skipped) isn't provable by a Django
+    TestCase and gets a manual browser pass, same boundary documented on
+    PlannerLoadingStateTest."""
+
+    def test_preload_one_checks_response_ok_before_marking_preloaded(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'if (!response.ok) return;')
+
+    def test_template_seeds_preloaded_from_precached_moments(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'const PRECACHED_MOMENTS = ')
+        self.assertContains(response, 'const preloaded = new Set(PRECACHED_MOMENTS);')
