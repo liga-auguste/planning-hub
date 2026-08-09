@@ -89,6 +89,38 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, '.kanban-card-meta span:last-child')
 
 
+class PlannerLoadingStateTest(DemoModeTestCase):
+    """#6: markup-contract tests for the shared loading-state CSS/JS in
+    base_public.html, and the per-form data-loading-text attribute. Runtime
+    behaviour (button really disables, double-submit is really swallowed)
+    isn't provable by a Django TestCase and gets a manual browser pass."""
+
+    def test_base_template_defines_the_loading_css(self):
+        response = self.client.get(reverse('impressum'))
+        self.assertContains(response, '.btn-primary.is-loading')
+
+    def test_base_template_ships_the_double_submit_script(self):
+        response = self.client.get(reverse('impressum'))
+        self.assertContains(response, 'loadingText')
+
+    def test_describe_form_button_has_loading_text(self):
+        response = self.client.get(reverse('planner_start') + '?type=eigenes')
+        self.assertContains(response, 'data-loading-text="Fragen werden erstellt..."')
+
+    def test_questions_form_button_has_loading_text(self):
+        response = self.client.post(reverse('planner_start'), data={
+            'description': 'Konzert am 15. September 2026',
+        })
+        self.assertContains(response, 'data-loading-text="Plan wird erstellt..."')
+
+    def test_review_form_button_has_loading_text(self):
+        response = self.client.post(reverse('planner_review'), data={
+            'description': 'Konzert am 5. September 2026',
+            'answers': 'keine weiteren Angaben',
+        })
+        self.assertContains(response, 'data-loading-text="Wird gespeichert..."')
+
+
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the

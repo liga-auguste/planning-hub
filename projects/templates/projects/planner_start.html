@@ -105,7 +105,7 @@
             {% csrf_token %}
             <textarea name="description" rows="4"
                 placeholder="z.B. Konzert am 15. September 2026, Violine und Orgel — oder: Kandidat einstellen bis 1. Oktober">{{ prefill }}</textarea>
-            <button type="submit" class="btn-primary">Weiter →</button>
+            <button type="submit" class="btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
         </form>
         <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0;">
             <a href="{% url 'rules_list' %}" style="color: #9b9b9b; font-size: 13px; text-decoration: none;">
