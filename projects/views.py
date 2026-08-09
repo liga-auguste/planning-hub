@@ -304,6 +304,13 @@ def dashboard(request):
 
     timelapse_moments = request.session.get('demo_timelapse_moments', []) if settings.DEMO_MODE else []
 
+    # Moments whose summary is already cached in the session, so the JS
+    # preloader can skip re-requesting them after a reload (#36).
+    precached_moments = [
+        d for d in _allowed_sim_dates(request)
+        if request.session.get(f'{SUMMARY_KEY}_{d}')
+    ] if settings.DEMO_MODE else []
+
     # Project name for demo single-project header
     demo_project_name = ''
     demo_project_date = ''
@@ -326,6 +333,7 @@ def dashboard(request):
         'force_multi': force_multi,
         'demo_mode': settings.DEMO_MODE,
         'timelapse_moments': json.dumps(timelapse_moments),
+        'precached_moments': json.dumps(precached_moments),
         'sim_date': sim_date_str,
         'sim_date_display': _format_date(sim_date) if sim_date else '',
         'demo_project_name': demo_project_name,

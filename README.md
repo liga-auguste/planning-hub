@@ -40,7 +40,7 @@ Historical events — several dozen completed projects since 2021 (the demo fixt
 
 ### Synchronous AI calls
 
-Every Claude call runs inside the request — no task queue, no background workers. The Sonnet call blocks a gunicorn worker for its duration, and that is a deliberate choice: there is one user, the demo is nginx-rate-limited to 10 requests per minute (burst 5), and gunicorn runs two workers with a 120-second timeout. A task queue would add a broker, a worker process and a result store to solve a concurrency problem that does not exist. The trigger for revisiting: more than one user planning concurrently, i.e. requests regularly occupying both workers. While a call runs, the UI shows a loading state and blocks double submits.
+Every Claude call runs inside the request — no task queue, no background workers. The Sonnet call blocks a gunicorn worker for its duration, and that is a deliberate choice: there is one user, the demo is nginx-rate-limited to 30 requests per minute (burst 10), and gunicorn runs two workers with a 120-second timeout. A task queue would add a broker, a worker process and a result store to solve a concurrency problem that does not exist. The trigger for revisiting: more than one user planning concurrently, i.e. requests regularly occupying both workers. While a call runs, the UI shows a loading state and blocks double submits.
 
 ### Domain rules in the prompt, not in code
 
@@ -186,7 +186,7 @@ projects/
   planner_views.py   # 4-step planner flow
   models.py          # PlannerRule, DemoEvent
   startup.py         # Fail-fast API-key checks at server start
-  tests.py           # 143 tests, fully offline (Claude stubbed)
+  tests.py           # 150 tests, fully offline (Claude stubbed)
   urls.py            # Dashboard, task actions, legal pages
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 15 templates, all JS inline
