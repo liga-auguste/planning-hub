@@ -512,6 +512,23 @@ class PoisonedSessionHealingTest(DemoModeTestCase):
         self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
 
 
+class MultiViewSidebarLinkTest(DemoModeTestCase):
+    """Part C of #39: has_session_plan is unconditionally False under
+    ?mode=multi, so the sidebar used to show a dead-end "Mein Plan" link
+    even when no plan had ever been generated in this session."""
+
+    def test_shows_create_link_without_a_session_plan(self):
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(response, 'Projekt selbst planen')
+        self.assertNotContains(response, 'Mein Plan')
+
+    def test_shows_mein_plan_link_with_a_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(response, 'Mein Plan')
+        self.assertNotContains(response, 'Projekt selbst planen')
+
+
 # --- Unit tests for the logic that is not a view ---
 
 class DeriveKontextTest(SimpleTestCase):
