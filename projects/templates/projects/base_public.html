@@ -82,6 +82,15 @@
             cursor: pointer;
             white-space: nowrap;
         }
+        .btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }
+        .btn-primary .spinner {
+            display: none; width: 10px; height: 10px;
+            border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+            border-radius: 50%; animation: spin 0.7s linear infinite;
+            margin-left: 8px; vertical-align: middle;
+        }
+        .btn-primary.is-loading .spinner { display: inline-block; }
+        @keyframes spin { to { transform: rotate(360deg); } }
         {% block extra_css %}{% endblock %}
     </style>
 </head>
@@ -101,6 +110,40 @@
 </div>
 
 {% include 'projects/_cookie_banner.html' %}
+<script>
+(function () {
+    const loadingButtons = [];
+    document.querySelectorAll('form').forEach(function (form) {
+        const btn = form.querySelector('button[type="submit"].btn-primary');
+        if (!btn) return;
+        loadingButtons.push({ btn: btn, originalText: btn.textContent });
+        form.addEventListener('submit', function (e) {
+            if (btn.classList.contains('is-loading')) {
+                e.preventDefault();
+                return;
+            }
+            const loadingText = btn.dataset.loadingText;
+            if (loadingText) {
+                btn.classList.add('is-loading');
+                btn.textContent = loadingText;
+                const spinner = document.createElement('span');
+                spinner.className = 'spinner';
+                btn.appendChild(spinner);
+            }
+        });
+    });
+    // Pages restored from the back/forward cache keep whatever DOM state
+    // they had at unload time, so a button left mid-submit would otherwise
+    // stay stuck in its loading state and swallow every future click.
+    window.addEventListener('pageshow', function (e) {
+        if (!e.persisted) return;
+        loadingButtons.forEach(function (entry) {
+            entry.btn.classList.remove('is-loading');
+            entry.btn.textContent = entry.originalText;
+        });
+    });
+})();
+</script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
