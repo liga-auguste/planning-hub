@@ -143,9 +143,16 @@
             <span style="margin-right: 8px;">←</span>Zurück zur Startseite
         </a>
         {% elif force_multi %}
+        {% if plan_exists %}
         <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: #6b6b6b;">
             <span style="margin-right: 8px;">←</span>Mein Plan
         </a>
+        {% else %}
+        <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: #6b6b6b;">
+            <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
+            Projekt selbst planen
+        </a>
+        {% endif %}
         <a class="sidebar-item" href="{% url 'index' %}" style="color: #9b9b9b; font-size: 12px;">
             <span style="margin-right: 8px;">←</span>Zurück zur Startseite
         </a>
