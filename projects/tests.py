@@ -103,6 +103,11 @@ class PlannerLoadingStateTest(DemoModeTestCase):
         response = self.client.get(reverse('impressum'))
         self.assertContains(response, 'loadingText')
 
+    def test_base_template_resets_loading_state_on_bfcache_restore(self):
+        response = self.client.get(reverse('impressum'))
+        self.assertContains(response, 'pageshow')
+        self.assertContains(response, 'e.persisted')
+
     def test_describe_form_button_has_loading_text(self):
         response = self.client.get(reverse('planner_start') + '?type=eigenes')
         self.assertContains(response, 'data-loading-text="Fragen werden erstellt..."')
