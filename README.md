@@ -131,6 +131,8 @@ The Claude API is stubbed in `DemoModeTestCase`, so the suite makes no network c
 env -u ANTHROPIC_API_KEY python manage.py test projects
 ```
 
+Because the suite needs nothing beyond the code, `.github/workflows/test.yml` runs it on every pull request and on every push to `main` — on Python 3.12 to match the `Dockerfile`, with `DEMO_MODE=true` so SQLite is used and no Postgres service or API key is required.
+
 ### With Notion (full mode)
 
 Add to `.env`:

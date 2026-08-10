@@ -1,0 +1,21 @@
+name: Test
+
+on:
+  push:
+    branches: [main]   # branches with a PR open are covered below; both triggers would run every commit twice
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10   # the run takes ~25s; the six-hour default would burn the quota on a hung job
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # matches the Dockerfile
+          cache: "pip"
+      - run: pip install -r requirements.txt
+      - run: python manage.py test projects --noinput
+        env:
+          DEMO_MODE: "true"   # SQLite instead of Postgres, see settings.py:80
