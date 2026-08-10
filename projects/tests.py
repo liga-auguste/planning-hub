@@ -1387,3 +1387,36 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         response = self.client.get(reverse('dashboard'))
         self.assertContains(response, 'const PRECACHED_MOMENTS = ')
         self.assertContains(response, 'const preloaded = new Set(PRECACHED_MOMENTS);')
+
+
+class MyPlanProgressBarTest(DemoModeTestCase):
+    """§4 of #10: the bar rendered `width: {{ done_count }}00%` — the done count
+    times 100 rather than a percentage — so it was full from the first completed
+    task on. updateProgress() computes it correctly but only runs after a toggle,
+    so on page load the bar was never right."""
+
+    def given_plan_with(self, total, done):
+        return self.given_session_plan(tasks=[
+            {
+                'id': f'demo-session-{i}',
+                'name': f'Aufgabe {i}',
+                'date': (date.today() + timedelta(days=i + 1)).isoformat(),
+                'kontext': 'Planung',
+                'done': i < done,
+            }
+            for i in range(total)
+        ])
+
+    def test_shows_the_correct_percentage_on_load(self):
+        self.given_plan_with(total=4, done=2)
+        self.assertContains(self.client.get(reverse('my_plan')), 'width: 50%')
+
+    def test_does_not_multiply_the_done_count_by_hundred(self):
+        self.given_plan_with(total=3, done=3)
+        response = self.client.get(reverse('my_plan'))
+        self.assertNotContains(response, 'width: 300%')
+        self.assertContains(response, 'width: 100%')
+
+    def test_nothing_done_is_zero_percent(self):
+        self.given_plan_with(total=4, done=0)
+        self.assertContains(self.client.get(reverse('my_plan')), 'width: 0%')
