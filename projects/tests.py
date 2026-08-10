@@ -40,6 +40,11 @@ class DemoModeTestCase(TestCase):
     """Stubs the Claude API — no test may make a real call."""
 
     def setUp(self):
+        # The demo caches live process-wide (LocMemCache), so an entry a
+        # previous test left behind would make a later test skip the Claude
+        # call it asserts on — see AiStubTest.
+        cache.clear()
+        self.addCleanup(cache.clear)
         self.ai_mocks = {}
         for target, return_value in AI_STUBS.items():
             patcher = patch(target, return_value=return_value)
@@ -528,6 +533,63 @@ class MultiViewSidebarLinkTest(DemoModeTestCase):
         response = self.client.get(reverse('dashboard') + '?mode=multi')
         self.assertContains(response, 'Mein Plan')
         self.assertNotContains(response, 'Projekt selbst planen')
+
+
+class MultiViewSimDateTest(DemoModeTestCase):
+    """#50: the simulated date used to be read before the mode was known, so a
+    Zeitreise set on the visitor's own plan classified and narrated the example
+    projects too — while every control that reveals or resets it stayed hidden."""
+
+    def given_sim_date(self, sim_date):
+        """Writes the value straight into the session, the way set_timelapse_date does."""
+        session = self.client.session
+        session['demo_sim_date'] = sim_date.isoformat()
+        session.save()
+
+    def given_plan_in_the_future(self):
+        sim_date = date.today() + timedelta(days=120)
+        self.given_session_plan()
+        self.given_timelapse_moments(sim_date.isoformat())
+        self.given_sim_date(sim_date)
+        return sim_date
+
+    def multi_tasks(self, response):
+        return [
+            task
+            for group in response.context['month_groups']
+            for project in group['projects']
+            for task in project['tasks']
+        ]
+
+    def test_a_future_task_is_not_overdue(self):
+        self.given_plan_in_the_future()
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        future = [t for t in self.multi_tasks(response) if t['due'] and t['due'] > date.today()]
+        self.assertTrue(future, 'the fixtures should carry tasks that are still due')
+        self.assertEqual([t for t in future if t['urgency'] == 'overdue'], [])
+
+    def test_the_summary_is_generated_for_the_real_today(self):
+        """A fix that only corrects the classification would leave the AI card
+        narrating the simulated date — the contradiction the issue observed."""
+        self.given_plan_in_the_future()
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        call = self.ai_mocks['projects.views.generate_weekly_summary'].call_args
+        self.assertEqual(call[0][1], date.today())
+
+    def test_no_simulation_banner_and_no_simulation_label(self):
+        self.given_plan_in_the_future()
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertNotContains(response, 'Simulierter Zeitpunkt')
+        self.assertNotContains(response, 'KI-Simulation')
+        self.assertContains(response, 'KI-Wochenübersicht')
+
+    def test_the_simulated_date_survives_the_detour(self):
+        """The simulation belongs to the visitor's plan, so a look at the example
+        projects scopes it out rather than resetting it."""
+        self.given_plan_in_the_future()
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'Simulierter Zeitpunkt')
 
 
 # --- Unit tests for the logic that is not a view ---

@@ -258,12 +258,17 @@
                 <button class="moment-btn-today" id="btn-today" onclick="setSimDate(null)">Heute</button>
             </div>
         </div>
+        {% endif %}
+        {% comment %}
+        The banner hangs off the same condition as the AI card's simulation
+        label below, so a label announcing a simulation without a notice and a
+        way back to today is structurally impossible (#50).
+        {% endcomment %}
         {% if sim_date %}
         <div class="sim-banner">
             <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
             <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
         </div>
-        {% endif %}
         {% endif %}
 
         {% if data_unavailable %}

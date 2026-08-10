@@ -233,13 +233,15 @@ def dashboard(request):
     data_unavailable = False
 
     if settings.DEMO_MODE:
-        sim_date, sim_date_str = _get_sim_date(request)
-        effective_today = sim_date or today
-
         session_plan = request.session.get('demo_plan')
         plan_exists = bool(session_plan)
         if session_plan and not force_multi:
             has_session_plan = True
+            # Read only here: the simulated date belongs to the visitor's own
+            # plan, and reading it before the mode was known let it classify
+            # and narrate the example projects too (#50).
+            sim_date, sim_date_str = _get_sim_date(request)
+            effective_today = sim_date or today
             project = copy.deepcopy(_build_session_project(session_plan))
             if sim_date:
                 for task in project['tasks']:
@@ -257,9 +259,11 @@ def dashboard(request):
                     summary = markdown.markdown(_fix_ai_markdown(summary_md))
                     request.session[summary_key] = summary
         else:
-            projects = _annotate_tasks(get_demo_projects(), effective_today)
+            # The example projects carry none of the plan's moments, so they
+            # are always classified against the real today (#50).
+            projects = _annotate_tasks(get_demo_projects(), today)
             try:
-                summary_md = generate_weekly_summary(projects, effective_today)
+                summary_md = generate_weekly_summary(projects, today)
             except AIUnavailableError:
                 summary = None
             else:
