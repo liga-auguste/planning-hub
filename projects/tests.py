@@ -637,6 +637,25 @@ class MultiViewSummaryCacheTest(DemoModeTestCase):
         self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
 
 
+class TemplateCommentTest(DemoModeTestCase):
+    """Django's {# #} is single-line only, so one spanning several lines is not
+    parsed as a comment and renders literally. It shipped twice: caught by
+    accident in #57, and live in production from #56 until this test existed.
+    Both dashboard modes are covered — the second leak sat in the per-task
+    markup, which only the task rows render."""
+
+    def assertNoLeakedComment(self, response):
+        for marker in ('{#', '#}'):
+            self.assertNotContains(response, marker)
+
+    def test_the_multi_view_renders_no_template_comment(self):
+        self.assertNoLeakedComment(self.client.get(reverse('dashboard') + '?mode=multi'))
+
+    def test_the_single_plan_view_renders_no_template_comment(self):
+        self.given_session_plan()
+        self.assertNoLeakedComment(self.client.get(reverse('dashboard')))
+
+
 # --- Unit tests for the logic that is not a view ---
 
 class DeriveKontextTest(SimpleTestCase):

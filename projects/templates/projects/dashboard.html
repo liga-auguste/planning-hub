@@ -373,9 +373,11 @@
                 {% if task.kontext %}<span class="task-kontext">{{ task.kontext }}</span>{% endif %}
             </div>
             <span class="task-right" style="display:flex;align-items:center;gap:4px;">
-                {# Rescheduling is offered where it persists: to Notion in production,
-                   to session['demo_plan'] for a demo session plan. The demo example
-                   projects are in no session, so there the date only renders (#10 §5). #}
+                {% comment %}
+                Rescheduling is offered where it persists: to Notion in production,
+                to session['demo_plan'] for a demo session plan. The demo example
+                projects are in no session, so there the date only renders (#10 §5).
+                {% endcomment %}
                 <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'overdue' %}overdue{% endif %}"
                       {% if not demo_mode or has_session_plan %}
                       data-task-id="{{ task.id }}"
