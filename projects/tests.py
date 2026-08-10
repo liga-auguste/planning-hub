@@ -1387,11 +1387,3 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         response = self.client.get(reverse('dashboard'))
         self.assertContains(response, 'const PRECACHED_MOMENTS = ')
         self.assertContains(response, 'const preloaded = new Set(PRECACHED_MOMENTS);')
-
-
-class CiRedCheckTest(TestCase):
-    """#45: temporary — proves a failing test turns the GitHub Actions check
-    red. Removed in the next commit on this branch."""
-
-    def test_ci_goes_red_on_failure(self):
-        self.assertEqual(1, 2)
