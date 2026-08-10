@@ -46,8 +46,11 @@
         .task-left { display: flex; align-items: center; flex: 1; min-width: 0; }
         .task-name { font-size: 13px; }
         .task-name.done { color: #c0c0c0; text-decoration: line-through; }
-        .task-due { font-size: 12px; color: #9b9b9b; margin-left: 16px; white-space: nowrap; cursor: pointer; }
-        .task-due:hover { text-decoration: underline; }
+        .task-due { font-size: 12px; color: #9b9b9b; margin-left: 16px; white-space: nowrap; }
+        /* The affordance follows the behaviour: only a date carrying
+           data-task-id is wired up for rescheduling (#10 §5). */
+        .task-due[data-task-id] { cursor: pointer; }
+        .task-due[data-task-id]:hover { text-decoration: underline; }
         .task-due.urgent { color: #f97316; font-weight: 500; }
         .task-due.overdue { color: #ef4444; font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid #e5e5e5; border-radius: 4px; padding: 1px 4px; }
@@ -365,15 +368,20 @@
                 {% if task.kontext %}<span class="task-kontext">{{ task.kontext }}</span>{% endif %}
             </div>
             <span class="task-right" style="display:flex;align-items:center;gap:4px;">
+                {# Rescheduling is offered where it persists: to Notion in production,
+                   to session['demo_plan'] for a demo session plan. The demo example
+                   projects are in no session, so there the date only renders (#10 §5). #}
                 <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'overdue' %}overdue{% endif %}"
+                      {% if not demo_mode or has_session_plan %}
                       data-task-id="{{ task.id }}"
                       data-raw-date="{{ task.due|date:'Y-m-d' }}"
-                      title="Datum ändern">
+                      title="Datum ändern"
+                      {% endif %}>
                     {{ task.due_display }}
                 </span>
-                {% if task.urgency == 'overdue' %}
+                {% if task.urgency == 'overdue' %}{% if not demo_mode or has_session_plan %}
                 <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
-                {% endif %}
+                {% endif %}{% endif %}
             </span>
         </div>
         {% endfor %}

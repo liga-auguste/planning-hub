@@ -20,7 +20,7 @@ from .notion import (
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
-from .views import CACHE_KEY, SUMMARY_KEY, _annotate_tasks, _fix_ai_markdown
+from .views import CACHE_KEY, SUMMARY_KEY, _annotate_tasks, _fix_ai_markdown, _format_date
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
@@ -1101,6 +1101,20 @@ def _fake_upcoming_project(name='Testkonzert'):
     }
 
 
+def _fake_upcoming_project_with_task():
+    """A project whose tasks actually render — the empty task list above never
+    reaches the per-task markup."""
+    project = _fake_upcoming_project()
+    project['tasks'] = [{
+        'id': 'task-1',
+        'name': 'Programm festlegen',
+        'due': date.today() + timedelta(days=3),
+        'done': False,
+        'kontext': [],
+    }]
+    return project
+
+
 @override_settings(DEMO_MODE=False)
 class DashboardNotionFailureTest(TestCase):
     """dashboard()'s production branch used to have nothing between it and
@@ -1420,3 +1434,101 @@ class MyPlanProgressBarTest(DemoModeTestCase):
     def test_nothing_done_is_zero_percent(self):
         self.given_plan_with(total=4, done=0)
         self.assertContains(self.client.get(reverse('my_plan')), 'width: 0%')
+
+
+class RescheduleTaskDemoModeTest(DemoModeTestCase):
+    """§5 of #10: reschedule_task_view answered {"ok": True} in demo mode
+    without writing anything, so the date the JS had already moved optimistically
+    was gone after a reload. It now writes to session['demo_plan'] the way
+    toggle_task_view does — and, unlike toggle_task_view, refuses to claim
+    success for a task it did not find."""
+
+    NEW_DATE = (date.today() + timedelta(days=21)).isoformat()
+
+    def post_date(self, task_id, body):
+        return self.client.post(
+            reverse('reschedule_task', args=[task_id]),
+            data=body,
+            content_type='application/json',
+        )
+
+    def stored_dates(self):
+        return [t['date'] for t in self.client.session['demo_plan']['tasks']]
+
+    def test_a_new_date_survives_a_reload(self):
+        self.given_session_plan()
+        response = self.post_date('demo-session-0', f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.stored_dates(), [self.NEW_DATE])
+        reloaded = self.client.get(reverse('my_plan'))
+        self.assertContains(reloaded, _format_date(date.fromisoformat(self.NEW_DATE)))
+
+    def test_an_invalid_date_is_rejected(self):
+        plan = self.given_session_plan()
+        response = self.post_date('demo-session-0', '{"date": "kein-datum"}')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+
+    def test_a_missing_date_is_rejected(self):
+        plan = self.given_session_plan()
+        response = self.post_date('demo-session-0', '{}')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+
+    def test_a_malformed_body_is_rejected(self):
+        plan = self.given_session_plan()
+        response = self.post_date('demo-session-0', 'kein json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+
+    def test_an_unknown_task_is_a_404(self):
+        # A demo-fixture id: it renders on the multi-project dashboard but is
+        # not in the session plan, so there is nothing to write it to.
+        plan = self.given_session_plan()
+        response = self.post_date('demo-1-7', f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+
+    def test_no_session_plan_at_all_is_a_404(self):
+        response = self.post_date('demo-session-0', f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 404)
+
+
+class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
+    """§5 of #10: rescheduling is offered exactly where it persists — via Notion
+    in production, via session['demo_plan'] for a demo session plan. The five demo
+    example projects come from get_demo_projects() and are in no session, so the
+    interaction is not offered for them at all."""
+
+    def test_offered_for_a_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'title="Datum ändern"')
+
+    def test_not_offered_in_the_multi_project_view(self):
+        self.given_session_plan()
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertNotContains(response, 'title="Datum ändern"')
+        self.assertNotContains(response, 'class="today-btn"')
+
+    def test_not_offered_without_a_session_plan(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertNotContains(response, 'title="Datum ändern"')
+        self.assertNotContains(response, 'class="today-btn"')
+
+    def test_the_date_itself_still_renders_when_it_is_not_clickable(self):
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(response, 'class="task-due')
+
+    @override_settings(DEMO_MODE=False)
+    def test_still_offered_in_production(self):
+        # has_session_plan is only ever set in the DEMO_MODE branch, so gating
+        # on it alone would have removed rescheduling from production — where
+        # it does persist, to Notion.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project_with_task()]), \
+             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
+            response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'title="Datum ändern"')
+        self.assertContains(response, 'data-task-id="task-1"')
