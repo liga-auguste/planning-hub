@@ -46,6 +46,14 @@ STALE_CACHE_KEY = "dashboard_data_stale_v2"
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v4"
+# The multi-project demo summary: get_demo_projects() is a pure function of
+# date.today() and holds no per-visitor data, so one Claude call per day serves
+# every visitor. The day is part of the key, so a rollover invalidates by
+# itself and the TTL only bounds how long one day's entry lives. LocMemCache is
+# per process (settings.py CACHES) and gunicorn runs two workers, so expect up
+# to one call per worker per day.
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v1"
+DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 
 def _annotate_tasks(projects, today):
@@ -262,12 +270,17 @@ def dashboard(request):
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
             projects = _annotate_tasks(get_demo_projects(), today)
-            try:
-                summary_md = generate_weekly_summary(projects, today)
-            except AIUnavailableError:
-                summary = None
-            else:
-                summary = markdown.markdown(_fix_ai_markdown(summary_md))
+            summary_cache_key = f'{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}'
+            summary = cache.get(summary_cache_key)
+            if summary is None:
+                try:
+                    summary_md = generate_weekly_summary(projects, today)
+                except AIUnavailableError:
+                    # Not cached, so the next request retries Claude.
+                    summary = None
+                else:
+                    summary = markdown.markdown(_fix_ai_markdown(summary_md))
+                    cache.set(summary_cache_key, summary, DEMO_MULTI_SUMMARY_TTL)
     else:
         cached = cache.get(CACHE_KEY)
         if cached:

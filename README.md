@@ -42,6 +42,8 @@ Historical events — several dozen completed projects since 2021 (the demo fixt
 
 Every Claude call runs inside the request — no task queue, no background workers. The Sonnet call blocks a gunicorn worker for its duration, and that is a deliberate choice: there is one user, the demo is nginx-rate-limited to 30 requests per minute (burst 10), and gunicorn runs two workers with a 120-second timeout. A task queue would add a broker, a worker process and a result store to solve a concurrency problem that does not exist. The trigger for revisiting: more than one user planning concurrently, i.e. requests regularly occupying both workers. While a call runs, the UI shows a loading state and blocks double submits.
 
+The one place where that blocking was worth removing is the multi-project demo view — where the landing-page CTA sends every first-time visitor. Its input is a pure function of `date.today()` with no per-visitor data, so its summary is cached for the day instead of being generated per request. The local-memory cache is per process and gunicorn runs two workers, so that means up to one call per worker per day rather than one per visit.
+
 ### Domain rules in the prompt, not in code
 
 Every domain has planning rules that Claude doesn't know by default — legal requirements, vendor workflows, internal conventions. These are encoded explicitly in the prompt as editable `PlannerRule` objects (stored in the database, editable via admin UI) rather than as conditional logic. Planning heuristics stay readable, adjustable, and separate from application code.
@@ -60,14 +62,14 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 
 - **AI weekly summary** — Claude response rendered as Markdown, with links to individual projects
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
-- **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment
+- **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date
 - **Kanban view** — Open / Urgent / Done columns with progress bar
 - **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
 - **Urgency system** — overdue / urgent / on track per task and project, colour-coded in sidebar
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed
-- **8h caching with stale fallback** — Notion API responses cached locally; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual sync button
+- **8h caching with stale fallback** — Notion API responses cached locally; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual sync button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
 - **DEMO_MODE** — runs on fixture data, no Notion credentials needed
 
 ---

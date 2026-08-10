@@ -20,7 +20,10 @@ from .notion import (
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
 from .startup import require_api_keys, MissingAPIKeyError
-from .views import CACHE_KEY, SUMMARY_KEY, _annotate_tasks, _fix_ai_markdown, _format_date
+from .views import (
+    CACHE_KEY, DEMO_MULTI_SUMMARY_KEY, SUMMARY_KEY,
+    _annotate_tasks, _fix_ai_markdown, _format_date,
+)
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
@@ -590,6 +593,48 @@ class MultiViewSimDateTest(DemoModeTestCase):
         self.client.get(reverse('dashboard') + '?mode=multi')
         response = self.client.get(reverse('dashboard'))
         self.assertContains(response, 'Simulierter Zeitpunkt')
+
+
+class MultiViewSummaryCacheTest(DemoModeTestCase):
+    """#51: the multi-project view called Claude on every single GET — the path
+    the landing-page CTA sends every first-time visitor to. Its input is a pure
+    function of date.today() with no per-visitor data, so one call per day
+    serves everyone."""
+
+    @property
+    def summary_mock(self):
+        return self.ai_mocks['projects.views.generate_weekly_summary']
+
+    def test_claude_is_called_once_for_repeated_visits(self):
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertEqual(self.summary_mock.call_count, 1)
+
+    def test_the_second_visit_still_renders_the_summary(self):
+        """"Called once" must not be bought with a blank AI card."""
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        second = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(second, 'Test summary')
+
+    def test_the_summary_is_cached_under_the_current_key(self):
+        """Without this, a key bump would leave the tests above vacuously green."""
+        self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertIsNotNone(cache.get(f'{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}'))
+
+    def test_a_failure_is_not_cached(self):
+        self.summary_mock.side_effect = AIUnavailableError('boom')
+        first = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(first, 'nicht verfügbar')
+        self.summary_mock.side_effect = None
+        second = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertContains(second, 'Test summary')
+
+    def test_the_single_plan_view_does_not_use_the_multi_cache(self):
+        """The visitor's own plan is per-session data and stays in the session."""
+        self.given_session_plan()
+        self.client.get(reverse('dashboard'))
+        self.assertIsNone(cache.get(f'{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}'))
+        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
 
 
 # --- Unit tests for the logic that is not a view ---
