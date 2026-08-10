@@ -1,10 +1,14 @@
 name: Test
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]   # branches with a PR open are covered below; both triggers would run every commit twice
+  pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # the run takes ~25s; the six-hour default would burn the quota on a hung job
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
