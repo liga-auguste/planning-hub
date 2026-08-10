@@ -423,10 +423,31 @@ def toggle_task_view(request, task_id):
 def reschedule_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    data = json.loads(request.body)
-    if not settings.DEMO_MODE:
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "invalid json"}, status=400)
+    raw_date = data.get("date") if isinstance(data, dict) else None
+    try:
+        date.fromisoformat(raw_date)
+    except (ValueError, TypeError):
+        return JsonResponse({"error": "invalid date"}, status=400)
+
+    if settings.DEMO_MODE:
+        # In demo mode only the visitor's own session plan can be written to;
+        # the example projects come from get_demo_projects() and are in no
+        # session. A task that isn't in the plan gets a 404 rather than
+        # toggle_task_view's silent ok — answering ok for something that was
+        # never saved is exactly the bug this view had (#10 §5).
+        plan = request.session.get('demo_plan')
+        task = next((t for t in plan['tasks'] if t['id'] == task_id), None) if plan else None
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        task['date'] = raw_date
+        request.session['demo_plan'] = plan
+    else:
         try:
-            update_task_date(task_id, data["date"])
+            update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
     return JsonResponse({"ok": True})

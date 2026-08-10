@@ -62,7 +62,7 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
 - **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment
 - **Kanban view** — Open / Urgent / Done columns with progress bar
-- **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks
+- **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
 - **Urgency system** — overdue / urgent / on track per task and project, colour-coded in sidebar
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
