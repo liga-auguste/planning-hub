@@ -46,6 +46,14 @@ STALE_CACHE_KEY = "dashboard_data_stale_v2"
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v4"
+# The multi-project demo summary: get_demo_projects() is a pure function of
+# date.today() and holds no per-visitor data, so one Claude call per day serves
+# every visitor. The day is part of the key, so a rollover invalidates by
+# itself and the TTL only bounds how long one day's entry lives. LocMemCache is
+# per process (settings.py CACHES) and gunicorn runs two workers, so expect up
+# to one call per worker per day.
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v1"
+DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 
 def _annotate_tasks(projects, today):
@@ -233,13 +241,15 @@ def dashboard(request):
     data_unavailable = False
 
     if settings.DEMO_MODE:
-        sim_date, sim_date_str = _get_sim_date(request)
-        effective_today = sim_date or today
-
         session_plan = request.session.get('demo_plan')
         plan_exists = bool(session_plan)
         if session_plan and not force_multi:
             has_session_plan = True
+            # Read only here: the simulated date belongs to the visitor's own
+            # plan, and reading it before the mode was known let it classify
+            # and narrate the example projects too (#50).
+            sim_date, sim_date_str = _get_sim_date(request)
+            effective_today = sim_date or today
             project = copy.deepcopy(_build_session_project(session_plan))
             if sim_date:
                 for task in project['tasks']:
@@ -257,13 +267,20 @@ def dashboard(request):
                     summary = markdown.markdown(_fix_ai_markdown(summary_md))
                     request.session[summary_key] = summary
         else:
-            projects = _annotate_tasks(get_demo_projects(), effective_today)
-            try:
-                summary_md = generate_weekly_summary(projects, effective_today)
-            except AIUnavailableError:
-                summary = None
-            else:
-                summary = markdown.markdown(_fix_ai_markdown(summary_md))
+            # The example projects carry none of the plan's moments, so they
+            # are always classified against the real today (#50).
+            projects = _annotate_tasks(get_demo_projects(), today)
+            summary_cache_key = f'{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}'
+            summary = cache.get(summary_cache_key)
+            if summary is None:
+                try:
+                    summary_md = generate_weekly_summary(projects, today)
+                except AIUnavailableError:
+                    # Not cached, so the next request retries Claude.
+                    summary = None
+                else:
+                    summary = markdown.markdown(_fix_ai_markdown(summary_md))
+                    cache.set(summary_cache_key, summary, DEMO_MULTI_SUMMARY_TTL)
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
