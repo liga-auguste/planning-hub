@@ -370,7 +370,7 @@
                     <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
                 </form>
                 <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-                {% if task.kontext %}<span class="task-kontext">{{ task.kontext }}</span>{% endif %}
+                {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
             </div>
             <span class="task-right" style="display:flex;align-items:center;gap:4px;">
                 {% comment %}

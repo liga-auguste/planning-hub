@@ -656,6 +656,35 @@ class TemplateCommentTest(DemoModeTestCase):
         self.assertNoLeakedComment(self.client.get(reverse('dashboard')))
 
 
+class KontextBadgeTest(DemoModeTestCase):
+    """Two builders assemble the same session project and disagree on the type
+    of kontext: _build_session_project passes the string through, my_plan wraps
+    it in a list. Each template was then written against one of them, so the
+    badge renders correctly only for the shape its own builder happens to
+    produce. Notion and derive_kontext both yield lists, which is the shape the
+    dashboard did not handle — hence the live [&#x27;Kommunikation&#x27;]."""
+
+    def assertRendersBadge(self, response, kontext):
+        self.assertContains(response, f'class="task-kontext">{kontext}<')
+
+    def test_the_multi_view_renders_a_derived_kontext_as_a_word(self):
+        # "Abendkasse organisieren" is an example project task; _annotate_tasks
+        # fills its empty kontext from derive_kontext, which returns a list.
+        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        self.assertRendersBadge(response, 'Kommunikation')
+        self.assertNotContains(response, '[&#x27;')
+
+    def test_the_single_plan_view_renders_a_kontext_as_a_word(self):
+        # Passes before the fix too: the dashboard printed the string builder's
+        # value unindexed. It pins that the fix does not break the other shape.
+        self.given_session_plan()
+        self.assertRendersBadge(self.client.get(reverse('dashboard')), 'Planung')
+
+    def test_my_plan_renders_a_kontext_as_a_word(self):
+        self.given_session_plan()
+        self.assertRendersBadge(self.client.get(reverse('my_plan')), 'Planung')
+
+
 # --- Unit tests for the logic that is not a view ---
 
 class DeriveKontextTest(SimpleTestCase):

@@ -156,7 +156,10 @@ def _build_session_project(session_plan):
             'name': t['name'],
             'due': date.fromisoformat(t['date']) if t.get('date') else None,
             'done': t['done'],
-            'kontext': t['kontext'] if t.get('kontext') else '',
+            # A list, like Notion and derive_kontext produce, so every consumer
+            # sees one shape — my_plan builds its own copy of this task the
+            # same way (#9).
+            'kontext': [t['kontext']] if t.get('kontext') else [],
         }
         for t in session_plan['tasks']
     ]
