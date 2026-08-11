@@ -133,7 +133,7 @@ The Claude API is stubbed in `DemoModeTestCase`, so the suite makes no network c
 env -u ANTHROPIC_API_KEY python manage.py test projects
 ```
 
-Because the suite needs nothing beyond the code, `.github/workflows/test.yml` runs it on every pull request and on every push to `main` — on Python 3.12 to match the `Dockerfile`, with `DEMO_MODE=true` so SQLite is used and no Postgres service or API key is required.
+`.github/workflows/test.yml` runs the suite on every pull request and on every push to `main`, on Python 3.12 to match the `Dockerfile`. It runs twice, once per database backend: `DEMO_MODE=true` for SQLite, which is what the demo deployment runs, and `DEMO_MODE=false` against a `postgres:16` service container, which is what production runs. Neither leg needs an API key. Covering both means a migration that only applies on SQLite cannot reach production, where `entrypoint.sh` runs `migrate` on every container start.
 
 ### With Notion (full mode)
 

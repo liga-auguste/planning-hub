@@ -7,8 +7,34 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.backend }})
     runs-on: ubuntu-latest
     timeout-minutes: 10   # the run takes ~25s; the six-hour default would burn the quota on a hung job
+    strategy:
+      fail-fast: false   # the point is knowing which backend broke, so one leg must not cancel the other
+      matrix:
+        include:
+          # Each leg mirrors a configuration that actually ships, so neither is
+          # wasted work: the public demo runs SQLite, production runs Postgres.
+          - backend: sqlite
+            demo_mode: "true"
+          - backend: postgres
+            demo_mode: "false"
+    # Services are job-level, so this container also starts on the SQLite leg,
+    # which never connects to it. That costs a few seconds; the alternative is
+    # duplicating all five steps into a second job to save them.
+    services:
+      postgres:
+        image: postgres:16   # matches docker-compose.yml
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432   # the job runs on the runner, not in a container, so the service is reached at localhost
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5
@@ -18,4 +44,11 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python manage.py test projects --noinput
         env:
-          DEMO_MODE: "true"   # SQLite instead of Postgres, see settings.py:80
+          DEMO_MODE: ${{ matrix.demo_mode }}   # "true" selects the SQLite branch, see settings.py:80
+          # Ignored on the SQLite leg. DB_NAME, DB_HOST and DB_PORT already
+          # default correctly (settings.py:91-95); DB_USER defaults to `liga`,
+          # which does not exist on the runner. The postgres superuser also
+          # brings the read access to the built-in `postgres` database that
+          # Django needs in order to create test_planning_hub.
+          DB_USER: postgres
+          DB_PASSWORD: postgres
