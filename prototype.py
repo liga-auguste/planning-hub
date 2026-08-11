@@ -1,5 +1,6 @@
-import anthropic
 from datetime import date
+
+import anthropic
 
 TODAY = date(2026, 8, 3)
 

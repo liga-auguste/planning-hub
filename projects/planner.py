@@ -1,6 +1,7 @@
-import anthropic
 import json
 import logging
+
+import anthropic
 
 from .ai import AIUnavailableError, translate_anthropic_errors
 
@@ -32,7 +33,7 @@ def _format_rules(rules: list) -> str:
     return f"\nWende folgende Regeln an, sofern sie zum Projekttyp passen:\n{lines}\n"
 
 
-def get_clarifying_questions(event_description: str, historical_projects: list, rules: list = None) -> str:
+def get_clarifying_questions(event_description: str, historical_projects: list, rules: list | None = None) -> str:
     history = _format_history(historical_projects)
     rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
@@ -78,7 +79,7 @@ def _generate_plan_text(client, prompt: str) -> str:
     return raw
 
 
-def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list = None) -> dict:
+def generate_plan(event_description: str, answers: str, historical_projects: list, rules: list | None = None) -> dict:
     """Returns the parsed task plan. Retries once if Claude's answer isn't
     a valid JSON object — a plain re-ask, since the same prompt often
     self-corrects — and only gives up with AIUnavailableError after the

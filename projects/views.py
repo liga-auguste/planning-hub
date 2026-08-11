@@ -1,17 +1,24 @@
-from datetime import date
+import copy
+import json
 import logging
 import re
+from datetime import date
+
 import markdown
-import json
-from django.shortcuts import render, redirect
-from django.core.cache import cache
-from django.http import JsonResponse, HttpResponse
 from django.conf import settings
-from .notion import NotionUnavailableError, get_upcoming_projects, toggle_task, update_task_date
-from .ai import AIUnavailableError, generate_weekly_summary, derive_kontext
-import copy
+from django.core.cache import cache
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
+
+from .ai import AIUnavailableError, derive_kontext, generate_weekly_summary
 from .demo_data import get_demo_projects
 from .models import DemoEvent
+from .notion import (
+    NotionUnavailableError,
+    get_upcoming_projects,
+    toggle_task,
+    update_task_date,
+)
 
 logger = logging.getLogger(__name__)
 

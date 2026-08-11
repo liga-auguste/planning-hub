@@ -1,19 +1,27 @@
-from django.shortcuts import render, redirect
-from django.core.cache import cache
-from django.conf import settings
-from django.http import JsonResponse
-from .models import DemoEvent
-from .notion import NotionUnavailableError, get_historical_projects, find_project, create_project, create_tasks
-from .planner import get_clarifying_questions, generate_plan
-from .demo_data import get_demo_history
-from .ai import AIUnavailableError, generate_timelapse_moments
-from . import rules as rules_store
-from .views import CACHE_KEY
-import logging
-import markdown as md
 import json
+import logging
 import re
 from datetime import date
+
+import markdown as md
+from django.conf import settings
+from django.core.cache import cache
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+
+from . import rules as rules_store
+from .ai import AIUnavailableError, generate_timelapse_moments
+from .demo_data import get_demo_history
+from .models import DemoEvent
+from .notion import (
+    NotionUnavailableError,
+    create_project,
+    create_tasks,
+    find_project,
+    get_historical_projects,
+)
+from .planner import generate_plan, get_clarifying_questions
+from .views import CACHE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +175,11 @@ def planner_create(request):
             try:
                 moments = generate_timelapse_moments(project_name, event_date, tasks)
                 request.session['demo_timelapse_moments'] = moments
-            except Exception:
+            except Exception:  # noqa: BLE001 — deliberate: the moments are a garnish
+                # Anything this call raises must not cost the visitor the plan
+                # they just waited for. generate_timelapse_moments already
+                # narrows API failures to AIUnavailableError, so what is caught
+                # here is the unexpected rest — a malformed model reply, say.
                 request.session.pop('demo_timelapse_moments', None)
             project_type = request.session.get('demo_project_type', '')
             DemoEvent.objects.create(

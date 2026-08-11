@@ -1,4 +1,5 @@
 from django.core.management.base import BaseCommand
+
 from projects.models import PlannerRule
 from projects.rules import INITIAL_RULES
 

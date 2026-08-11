@@ -1,0 +1,11 @@
+# Development tooling. Deliberately separate from requirements.txt, which the
+# Dockerfile installs — a linter has no business in the production image.
+#
+#   pip install -r requirements-dev.txt
+#   ruff check .          # lint
+#   ruff format .         # format in place
+#
+# Pinned to the exact version the Ruff CI job runs (.github/workflows/ruff.yml),
+# so a new ruff release cannot turn an unrelated pull request red. Bumping it is
+# a deliberate commit, not a surprise.
+ruff==0.16.2

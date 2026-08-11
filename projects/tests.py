@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import date, timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import anthropic
 import httpx
@@ -9,24 +9,45 @@ import markdown
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
-from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.test import (
+    Client,
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 from django.urls import reverse
 from notion_client.errors import HTTPResponseError, RequestTimeoutError
-from unittest.mock import Mock
 
-from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
+from .ai import (
+    AIUnavailableError,
+    _valid_moments,
+    derive_kontext,
+    generate_timelapse_moments,
+    generate_weekly_summary,
+)
 from .models import PlannerRule
 from .notion import (
-    NotionUnavailableError, create_project, create_tasks, find_project,
-    get_historical_projects, get_upcoming_projects, toggle_task, update_task_date,
+    NotionUnavailableError,
+    create_project,
+    create_tasks,
+    find_project,
+    get_historical_projects,
+    get_upcoming_projects,
+    toggle_task,
+    update_task_date,
 )
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
 from .rules import DEMO_RULES_KEY, INITIAL_RULES, get_active_rule_texts
-from .startup import require_api_keys, MissingAPIKeyError
+from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
-    CACHE_KEY, DEMO_MULTI_SUMMARY_KEY, SUMMARY_KEY,
-    _annotate_tasks, _fix_ai_markdown, _format_date,
+    CACHE_KEY,
+    DEMO_MULTI_SUMMARY_KEY,
+    SUMMARY_KEY,
+    _annotate_tasks,
+    _fix_ai_markdown,
+    _format_date,
 )
 
 # The view modules import the AI functions with `from .ai import ...`, so the
@@ -880,7 +901,9 @@ class FixAiMarkdownTest(SimpleTestCase):
         """The whole pipeline: a reply in the ## format (see build_prompt)
         through markdown() ends up with real h2 headers and nested sub-task
         lists — not a <p><strong> next to an invisible <hr>. See #20."""
-        reply = '\n'.join([
+        # Suppressed rather than turned into the f-string the rule wants: this
+        # fixture is Markdown, and one line per line is what keeps it readable.
+        reply = '\n'.join([  # noqa: FLY002
             '## Jetzt fällig',
             '',
             '- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:',
@@ -914,16 +937,20 @@ class RequiredApiKeysTest(SimpleTestCase):
     """
 
     def test_missing_anthropic_key_raises(self):
-        with patch.dict(os.environ, {'NOTION_API_KEY': 'x'}, clear=True):
-            with self.assertRaises(MissingAPIKeyError) as ctx:
-                require_api_keys()
+        with (
+            patch.dict(os.environ, {'NOTION_API_KEY': 'x'}, clear=True),
+            self.assertRaises(MissingAPIKeyError) as ctx,
+        ):
+            require_api_keys()
         self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
 
     @override_settings(DEMO_MODE=False)
     def test_missing_notion_key_raises_outside_demo_mode(self):
-        with patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True):
-            with self.assertRaises(MissingAPIKeyError) as ctx:
-                require_api_keys()
+        with (
+            patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True),
+            self.assertRaises(MissingAPIKeyError) as ctx,
+        ):
+            require_api_keys()
         self.assertIn('NOTION_API_KEY', str(ctx.exception))
 
     @override_settings(DEMO_MODE=True)
@@ -941,9 +968,11 @@ class RequiredApiKeysTest(SimpleTestCase):
 
     @override_settings(DEMO_MODE=False)
     def test_both_missing_names_both_variables(self):
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(MissingAPIKeyError) as ctx:
-                require_api_keys()
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(MissingAPIKeyError) as ctx,
+        ):
+            require_api_keys()
         self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
         self.assertIn('NOTION_API_KEY', str(ctx.exception))
 

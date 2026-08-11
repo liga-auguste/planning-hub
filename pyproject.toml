@@ -1,0 +1,21 @@
+# Ruff configuration (#46). The project ships no packaging metadata — this file
+# exists so ruff has a config, and holds nothing else.
+
+[tool.ruff]
+target-version = "py312"  # matches the Dockerfile and the CI job
+
+[tool.ruff.lint]
+# Ruff's default rule set, minus two families that do not fit this project.
+# Every entry here is a decision, not a way to make the check quiet: a rule
+# nobody can justify is worse than no rule, because it teaches you to ignore red.
+ignore = [
+    # date.today() reported as timezone-naive. The app plans by calendar date
+    # for one audience in one timezone, so the naive call is deliberate. Whether
+    # that should change is #14's decision (TIME_ZONE = 'UTC' vs. local time),
+    # not something a lint config should settle in passing. 43 findings.
+    "DTZ011",
+    # Mutable class attributes without a ClassVar annotation. Normal in Django
+    # (Meta.ordering) and in module-level constants like MONTHS_DE; the
+    # annotations would be noise. 12 findings.
+    "RUF012",
+]

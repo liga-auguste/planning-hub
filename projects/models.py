@@ -1,6 +1,5 @@
 from django.db import models
 
-
 # Project and task data lives in Notion (see projects/notion.py), not here.
 # What remains are the two things that are genuinely local: anonymous demo
 # usage counters, and the planning rules that go into the Claude prompt.
