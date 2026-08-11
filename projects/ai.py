@@ -1,8 +1,9 @@
-import anthropic
 import json as _json
 import logging
 from contextlib import contextmanager
 from datetime import date
+
+import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,6 @@ TASK_KONTEXT = {
     "Musikerverträge": "Büro",
     "Programm machen": "Büro",
     "Programm formatieren": "Büro",
-    "Programme bereitlegen": "Büro",
     "Kostenabrechnung": "Büro",
     "Abrechnung": "Büro",
     "Saalplan": "Büro",
@@ -116,15 +116,25 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         done_count = len([t for t in p["tasks"] if t["done"]])
 
         lines.append(f"## {'Dein Projekt' if single_project_demo else p['name']}")
-        lines.append(f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)")
+        lines.append(
+            f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)"
+        )
         lines.append(f"Mitwirkende: {p.get('performers', '')}")
         lines.append(f"Erledigt: {done_count} Aufgaben ✅")
         lines.append(f"Offene Aufgaben ({len(open_tasks)}):")
 
         for t in open_tasks:
             diff = (t["due"] - today).days if t["due"] else "?"
-            urgency = " ⚠️ DIESE WOCHE" if isinstance(diff, int) and diff <= 7 else f" (fällig in {diff} Tagen)"
-            kontext = f" [Kontext: {', '.join(t['kontext'])}]" if (t["kontext"] and not single_project_demo) else ""
+            urgency = (
+                " ⚠️ DIESE WOCHE"
+                if isinstance(diff, int) and diff <= 7
+                else f" (fällig in {diff} Tagen)"
+            )
+            kontext = (
+                f" [Kontext: {', '.join(t['kontext'])}]"
+                if (t["kontext"] and not single_project_demo)
+                else ""
+            )
             lines.append(f"  ☐ {t['name']}{urgency}{kontext}")
 
         lines.append("")
@@ -135,7 +145,9 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
     for kontext in KONTEXTE:
         tasks_im_kontext = [t for t in all_open if kontext in t["kontext"]]
         if tasks_im_kontext:
-            lines.append(f"**{kontext}:** {', '.join(t['name'] for t in tasks_im_kontext)}")
+            lines.append(
+                f"**{kontext}:** {', '.join(t['name'] for t in tasks_im_kontext)}"
+            )
     lines.append("")
 
     if single_project_demo:
@@ -206,25 +218,26 @@ def _valid_moments(raw) -> list:
     """
     moments = []
     for moment in raw if isinstance(raw, list) else []:
-        if not isinstance(moment, dict) or not isinstance(moment.get('date'), str):
+        if not isinstance(moment, dict) or not isinstance(moment.get("date"), str):
             continue
         try:
-            parsed = date.fromisoformat(moment['date'])
+            parsed = date.fromisoformat(moment["date"])
         except ValueError:
             continue
-        moments.append({**moment, 'date': parsed.isoformat()})
+        moments.append({**moment, "date": parsed.isoformat()})
     return moments
 
 
-def generate_timelapse_moments(project_name: str, event_date: date, tasks: list) -> list:
+def generate_timelapse_moments(
+    project_name: str, event_date: date, tasks: list
+) -> list:
     """Returns 4 narrative key moments as [{date_iso, label, description}]."""
     today = date.today()
     client = anthropic.Anthropic()
     task_lines = "\n".join(
-        f"- {t['name']} (fällig: {t['date']})"
-        for t in tasks if t.get('date')
+        f"- {t['name']} (fällig: {t['date']})" for t in tasks if t.get("date")
     )
-    prompt = f"""Du planst ein Projekt: "{project_name}", Termin: {event_date.strftime('%d.%m.%Y')}.
+    prompt = f"""Du planst ein Projekt: "{project_name}", Termin: {event_date.strftime("%d.%m.%Y")}.
 
 Aufgaben:
 {task_lines}
@@ -250,20 +263,23 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
     text = response.content[0].text.strip()
     if "```" in text:
         text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+        text = text.removeprefix("json")
         text = text.strip()
     return _valid_moments(_json.loads(text))
 
 
-def generate_weekly_summary(projects: list, today: date, single_project_demo: bool = False) -> str:
+def generate_weekly_summary(
+    projects: list, today: date, single_project_demo: bool = False
+) -> str:
     client = anthropic.Anthropic()
     prompt = build_prompt(projects, today, single_project_demo=single_project_demo)
 
-    with translate_anthropic_errors():
-        with client.messages.stream(
+    with (
+        translate_anthropic_errors(),
+        client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            return stream.get_final_text()
+        ) as stream,
+    ):
+        return stream.get_final_text()

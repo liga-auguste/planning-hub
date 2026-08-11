@@ -4,23 +4,52 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0002_plannerrule'),
+        ("projects", "0002_plannerrule"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='DemoEvent',
+            name="DemoEvent",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('event_type', models.CharField(choices=[('plan_started', 'Plan gestartet'), ('plan_generated', 'Plan generiert'), ('plan_downloaded', 'Plan heruntergeladen')], max_length=30)),
-                ('project_type', models.CharField(blank=True, choices=[('konzert', 'Konzert / Event'), ('hochzeit', 'Hochzeit / Feier'), ('recruiting', 'Recruiting'), ('eigenes', 'Eigenes Projekt')], max_length=20)),
-                ('task_count', models.PositiveIntegerField(blank=True, null=True)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                (
+                    "event_type",
+                    models.CharField(
+                        choices=[
+                            ("plan_started", "Plan gestartet"),
+                            ("plan_generated", "Plan generiert"),
+                            ("plan_downloaded", "Plan heruntergeladen"),
+                        ],
+                        max_length=30,
+                    ),
+                ),
+                (
+                    "project_type",
+                    models.CharField(
+                        blank=True,
+                        choices=[
+                            ("konzert", "Konzert / Event"),
+                            ("hochzeit", "Hochzeit / Feier"),
+                            ("recruiting", "Recruiting"),
+                            ("eigenes", "Eigenes Projekt"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+                ("task_count", models.PositiveIntegerField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ['-created_at'],
+                "ordering": ["-created_at"],
             },
         ),
     ]

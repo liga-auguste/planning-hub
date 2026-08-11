@@ -5,63 +5,114 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='ProjectType',
+            name="ProjectType",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=100)),
-                ('slug', models.SlugField(unique=True)),
-                ('description', models.TextField(blank=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=100)),
+                ("slug", models.SlugField(unique=True)),
+                ("description", models.TextField(blank=True)),
             ],
         ),
         migrations.CreateModel(
-            name='Project',
+            name="Project",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=200)),
-                ('event_date', models.DateField()),
-                ('performers', models.CharField(blank=True, max_length=300)),
-                ('status', models.CharField(blank=True, max_length=100)),
-                ('user_id', models.CharField(max_length=100)),
-                ('project_type', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='projects', to='projects.projecttype')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("event_date", models.DateField()),
+                ("performers", models.CharField(blank=True, max_length=300)),
+                ("status", models.CharField(blank=True, max_length=100)),
+                ("user_id", models.CharField(max_length=100)),
+                (
+                    "project_type",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.PROTECT,
+                        related_name="projects",
+                        to="projects.projecttype",
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
-            name='Task',
+            name="Task",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=200)),
-                ('description', models.TextField(blank=True)),
-                ('due_date', models.DateField(blank=True, null=True)),
-                ('done', models.BooleanField(default=False)),
-                ('is_batchable', models.BooleanField(default=False)),
-                ('order', models.PositiveIntegerField(default=0)),
-                ('project', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='tasks', to='projects.project')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("description", models.TextField(blank=True)),
+                ("due_date", models.DateField(blank=True, null=True)),
+                ("done", models.BooleanField(default=False)),
+                ("is_batchable", models.BooleanField(default=False)),
+                ("order", models.PositiveIntegerField(default=0)),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tasks",
+                        to="projects.project",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['due_date', 'order'],
+                "ordering": ["due_date", "order"],
             },
         ),
         migrations.CreateModel(
-            name='TaskTemplate',
+            name="TaskTemplate",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(max_length=200)),
-                ('description', models.TextField(blank=True)),
-                ('days_before_event', models.IntegerField(blank=True, null=True)),
-                ('is_batchable', models.BooleanField(default=False)),
-                ('order', models.PositiveIntegerField(default=0)),
-                ('project_type', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='task_templates', to='projects.projecttype')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("name", models.CharField(max_length=200)),
+                ("description", models.TextField(blank=True)),
+                ("days_before_event", models.IntegerField(blank=True, null=True)),
+                ("is_batchable", models.BooleanField(default=False)),
+                ("order", models.PositiveIntegerField(default=0)),
+                (
+                    "project_type",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="task_templates",
+                        to="projects.projecttype",
+                    ),
+                ),
             ],
             options={
-                'ordering': ['order'],
+                "ordering": ["order"],
             },
         ),
     ]

@@ -1,5 +1,6 @@
-import anthropic
 from datetime import date
+
+import anthropic
 
 TODAY = date(2026, 8, 3)
 
@@ -21,23 +22,24 @@ MZM_TASK_DESCRIPTIONS = {
     "Besucher und Spenden aufschreiben": "Besucherzahl und Spendeneinnahmen notieren.",
 }
 
+
 def make_tasks(overrides: dict) -> list:
     """Builds the task list for an MzM event, applying project-specific overrides."""
     base = [
         {"name": "Eintrag in die Veranstaltungsdatenbank", "done": True},
-        {"name": "Eintrag Papierkalender",                  "done": True},
-        {"name": "Eintrag iCal",                            "done": True},
-        {"name": "Plakate machen",                          "done": False},
-        {"name": "Plakate aushängen",                       "done": False},
-        {"name": "Veranstaltung in den Facebook-Kalender",  "done": False},
-        {"name": "Pressetext an die Vlothoer Zeitung",      "done": False},
-        {"name": "Programm machen",                         "done": False},
-        {"name": "Programme bereitlegen",                   "done": False},
-        {"name": "Blumen",                                  "done": False},
-        {"name": "GEMA-Meldung",                            "done": False},
-        {"name": "Musikervertrag / Rechnung",               "done": False},
-        {"name": "Programm abheften",                       "done": False},
-        {"name": "Besucher und Spenden aufschreiben",       "done": False},
+        {"name": "Eintrag Papierkalender", "done": True},
+        {"name": "Eintrag iCal", "done": True},
+        {"name": "Plakate machen", "done": False},
+        {"name": "Plakate aushängen", "done": False},
+        {"name": "Veranstaltung in den Facebook-Kalender", "done": False},
+        {"name": "Pressetext an die Vlothoer Zeitung", "done": False},
+        {"name": "Programm machen", "done": False},
+        {"name": "Programme bereitlegen", "done": False},
+        {"name": "Blumen", "done": False},
+        {"name": "GEMA-Meldung", "done": False},
+        {"name": "Musikervertrag / Rechnung", "done": False},
+        {"name": "Programm abheften", "done": False},
+        {"name": "Besucher und Spenden aufschreiben", "done": False},
     ]
     for task in base:
         task["due"] = overrides[task["name"]]
@@ -51,88 +53,104 @@ projects = [
         "event_date": date(2026, 9, 5),
         "performers": "KMD Martin Winkler, Orgel und Gerlind Tautorus, Violine",
         "status": "geplant / mit Zeitplan",
-        "tasks": make_tasks({
-            "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
-            "Eintrag Papierkalender":                  date(2025, 12, 10),
-            "Eintrag iCal":                            date(2025, 12, 10),
-            "Plakate machen":                          date(2026,  8, 22),
-            "Plakate aushängen":                       date(2026,  8, 26),  # 10 days before
-            "Veranstaltung in den Facebook-Kalender":  date(2026,  8, 22),
-            "Pressetext an die Vlothoer Zeitung":      date(2026,  9,  2),  # Wednesday before
-            "Programm machen":                         date(2026,  9,  2),
-            "Programme bereitlegen":                   date(2026,  9,  5),
-            "Blumen":                                  date(2026,  9,  4),
-            "GEMA-Meldung":                            date(2026,  9,  5),
-            "Musikervertrag / Rechnung":               date(2026,  9,  2),
-            "Programm abheften":                       date(2026,  9,  5),
-            "Besucher und Spenden aufschreiben":       date(2026,  9,  5),
-        }),
+        "tasks": make_tasks(
+            {
+                "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
+                "Eintrag Papierkalender": date(2025, 12, 10),
+                "Eintrag iCal": date(2025, 12, 10),
+                "Plakate machen": date(2026, 8, 22),
+                "Plakate aushängen": date(2026, 8, 26),  # 10 days before
+                "Veranstaltung in den Facebook-Kalender": date(2026, 8, 22),
+                "Pressetext an die Vlothoer Zeitung": date(
+                    2026, 9, 2
+                ),  # Wednesday before
+                "Programm machen": date(2026, 9, 2),
+                "Programme bereitlegen": date(2026, 9, 5),
+                "Blumen": date(2026, 9, 4),
+                "GEMA-Meldung": date(2026, 9, 5),
+                "Musikervertrag / Rechnung": date(2026, 9, 2),
+                "Programm abheften": date(2026, 9, 5),
+                "Besucher und Spenden aufschreiben": date(2026, 9, 5),
+            }
+        ),
     },
     {
         "name": "Musik zur Marktzeit am 3. Oktober 2026",
         "event_date": date(2026, 10, 3),
         "performers": "Posaunenchor der Christuskirche Herford",
         "status": "geplant / mit Zeitplan",
-        "tasks": make_tasks({
-            "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
-            "Eintrag Papierkalender":                  date(2025, 12, 10),
-            "Eintrag iCal":                            date(2025, 12, 10),
-            "Plakate machen":                          date(2026,  9, 19),
-            "Plakate aushängen":                       date(2026,  9, 23),  # 10 days before
-            "Veranstaltung in den Facebook-Kalender":  date(2026,  9, 19),
-            "Pressetext an die Vlothoer Zeitung":      date(2026,  9, 30),  # Wednesday before
-            "Programm machen":                         date(2026,  9, 30),
-            "Programme bereitlegen":                   date(2026, 10,  3),
-            "Blumen":                                  date(2026, 10,  2),
-            "GEMA-Meldung":                            date(2026, 10,  3),
-            "Musikervertrag / Rechnung":               date(2026,  9, 30),
-            "Programm abheften":                       date(2026, 10,  3),
-            "Besucher und Spenden aufschreiben":       date(2026, 10,  3),
-        }),
+        "tasks": make_tasks(
+            {
+                "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
+                "Eintrag Papierkalender": date(2025, 12, 10),
+                "Eintrag iCal": date(2025, 12, 10),
+                "Plakate machen": date(2026, 9, 19),
+                "Plakate aushängen": date(2026, 9, 23),  # 10 days before
+                "Veranstaltung in den Facebook-Kalender": date(2026, 9, 19),
+                "Pressetext an die Vlothoer Zeitung": date(
+                    2026, 9, 30
+                ),  # Wednesday before
+                "Programm machen": date(2026, 9, 30),
+                "Programme bereitlegen": date(2026, 10, 3),
+                "Blumen": date(2026, 10, 2),
+                "GEMA-Meldung": date(2026, 10, 3),
+                "Musikervertrag / Rechnung": date(2026, 9, 30),
+                "Programm abheften": date(2026, 10, 3),
+                "Besucher und Spenden aufschreiben": date(2026, 10, 3),
+            }
+        ),
     },
     {
         "name": "Musik zur Marktzeit am 7. November 2026",
         "event_date": date(2026, 11, 7),
         "performers": "Blockflötenensemble 5+1, Leitung Elisabeth Schwanda",
         "status": "geplant / mit Zeitplan",
-        "tasks": make_tasks({
-            "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
-            "Eintrag Papierkalender":                  date(2025, 12, 10),
-            "Eintrag iCal":                            date(2025, 12, 10),
-            "Plakate machen":                          date(2026, 10, 24),
-            "Plakate aushängen":                       date(2026, 10, 28),  # 10 days before
-            "Veranstaltung in den Facebook-Kalender":  date(2026, 10, 24),
-            "Pressetext an die Vlothoer Zeitung":      date(2026, 11,  4),  # Wednesday before
-            "Programm machen":                         date(2026, 11,  4),
-            "Programme bereitlegen":                   date(2026, 11,  7),
-            "Blumen":                                  date(2026, 11,  6),
-            "GEMA-Meldung":                            date(2026, 11,  7),
-            "Musikervertrag / Rechnung":               date(2026, 11,  4),
-            "Programm abheften":                       date(2026, 11,  7),
-            "Besucher und Spenden aufschreiben":       date(2026, 11,  7),
-        }),
+        "tasks": make_tasks(
+            {
+                "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
+                "Eintrag Papierkalender": date(2025, 12, 10),
+                "Eintrag iCal": date(2025, 12, 10),
+                "Plakate machen": date(2026, 10, 24),
+                "Plakate aushängen": date(2026, 10, 28),  # 10 days before
+                "Veranstaltung in den Facebook-Kalender": date(2026, 10, 24),
+                "Pressetext an die Vlothoer Zeitung": date(
+                    2026, 11, 4
+                ),  # Wednesday before
+                "Programm machen": date(2026, 11, 4),
+                "Programme bereitlegen": date(2026, 11, 7),
+                "Blumen": date(2026, 11, 6),
+                "GEMA-Meldung": date(2026, 11, 7),
+                "Musikervertrag / Rechnung": date(2026, 11, 4),
+                "Programm abheften": date(2026, 11, 7),
+                "Besucher und Spenden aufschreiben": date(2026, 11, 7),
+            }
+        ),
     },
     {
         "name": "Musik zur Marktzeit am 5. Dezember 2026",
         "event_date": date(2026, 12, 5),
         "performers": "Kreiskantorin Rina Sawabe (Kirchenkreis Lübbecke), Orgel",
         "status": "geplant / mit Zeitplan",
-        "tasks": make_tasks({
-            "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
-            "Eintrag Papierkalender":                  date(2025, 12, 10),
-            "Eintrag iCal":                            date(2025, 12, 10),
-            "Plakate machen":                          date(2026, 11, 21),
-            "Plakate aushängen":                       date(2026, 11, 25),  # 10 days before
-            "Veranstaltung in den Facebook-Kalender":  date(2026, 11, 21),
-            "Pressetext an die Vlothoer Zeitung":      date(2026, 12,  2),  # Wednesday before
-            "Programm machen":                         date(2026, 12,  2),
-            "Programme bereitlegen":                   date(2026, 12,  5),
-            "Blumen":                                  date(2026, 12,  4),
-            "GEMA-Meldung":                            date(2026, 12,  5),
-            "Musikervertrag / Rechnung":               date(2026, 12,  2),
-            "Programm abheften":                       date(2026, 12,  5),
-            "Besucher und Spenden aufschreiben":       date(2026, 12,  5),
-        }),
+        "tasks": make_tasks(
+            {
+                "Eintrag in die Veranstaltungsdatenbank": date(2025, 12, 10),
+                "Eintrag Papierkalender": date(2025, 12, 10),
+                "Eintrag iCal": date(2025, 12, 10),
+                "Plakate machen": date(2026, 11, 21),
+                "Plakate aushängen": date(2026, 11, 25),  # 10 days before
+                "Veranstaltung in den Facebook-Kalender": date(2026, 11, 21),
+                "Pressetext an die Vlothoer Zeitung": date(
+                    2026, 12, 2
+                ),  # Wednesday before
+                "Programm machen": date(2026, 12, 2),
+                "Programme bereitlegen": date(2026, 12, 5),
+                "Blumen": date(2026, 12, 4),
+                "GEMA-Meldung": date(2026, 12, 5),
+                "Musikervertrag / Rechnung": date(2026, 12, 2),
+                "Programm abheften": date(2026, 12, 5),
+                "Besucher und Spenden aufschreiben": date(2026, 12, 5),
+            }
+        ),
     },
 ]
 
@@ -151,7 +169,9 @@ def build_prompt(projects: list, today: date) -> str:
         open_tasks = [t for t in p["tasks"] if not t["done"]]
 
         lines.append(f"## {p['name']}")
-        lines.append(f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)")
+        lines.append(
+            f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)"
+        )
         lines.append(f"Mitwirkende: {p['performers']}")
         lines.append(f"Status: {p['status']}")
         lines.append("")
@@ -164,7 +184,11 @@ def build_prompt(projects: list, today: date) -> str:
             lines.append(f"Offene Aufgaben ({len(open_tasks)}):")
             for t in open_tasks:
                 diff = (t["due"] - today).days
-                urgency = " ⚠️ DIESE WOCHE" if diff <= 7 else f" (fällig in {diff} Tagen, {t['due'].strftime('%d.%m.')})"
+                urgency = (
+                    " ⚠️ DIESE WOCHE"
+                    if diff <= 7
+                    else f" (fällig in {diff} Tagen, {t['due'].strftime('%d.%m.')})"
+                )
                 lines.append(f"  ☐ {t['name']}{urgency}")
                 lines.append(f"    → {t['description']}")
         else:

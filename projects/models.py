@@ -1,21 +1,21 @@
 from django.db import models
 
-
 # Project and task data lives in Notion (see projects/notion.py), not here.
 # What remains are the two things that are genuinely local: anonymous demo
 # usage counters, and the planning rules that go into the Claude prompt.
 
+
 class DemoEvent(models.Model):
     EVENT_TYPES = [
-        ('plan_started', 'Plan gestartet'),
-        ('plan_generated', 'Plan generiert'),
-        ('plan_downloaded', 'Plan heruntergeladen'),
+        ("plan_started", "Plan gestartet"),
+        ("plan_generated", "Plan generiert"),
+        ("plan_downloaded", "Plan heruntergeladen"),
     ]
     PROJECT_TYPES = [
-        ('konzert', 'Konzert / Event'),
-        ('hochzeit', 'Hochzeit / Feier'),
-        ('recruiting', 'Recruiting'),
-        ('eigenes', 'Eigenes Projekt'),
+        ("konzert", "Konzert / Event"),
+        ("hochzeit", "Hochzeit / Feier"),
+        ("recruiting", "Recruiting"),
+        ("eigenes", "Eigenes Projekt"),
     ]
     event_type = models.CharField(max_length=30, choices=EVENT_TYPES)
     project_type = models.CharField(max_length=20, choices=PROJECT_TYPES, blank=True)
@@ -23,7 +23,7 @@ class DemoEvent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ["-created_at"]
 
     def __str__(self):
         return f"{self.event_type} / {self.project_type} / {self.created_at:%d.%m.%Y %H:%M}"
@@ -35,7 +35,7 @@ class PlannerRule(models.Model):
     order = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ['order']
+        ordering = ["order"]
 
     def __str__(self):
         return self.text[:60]

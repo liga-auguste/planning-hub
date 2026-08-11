@@ -12,6 +12,7 @@ the views never learn which backend they are talking to. The session entries
 are dicts with the same 'id' / 'text' / 'active' keys the template reads off
 the model, which is why planner_rules.html renders both unchanged.
 """
+
 from django.conf import settings
 
 from .models import PlannerRule
@@ -27,14 +28,15 @@ INITIAL_RULES = [
     "Bei Recruiting / Personalplanung: Stellenausschreibung, Bewerbungsschluss, Interview-Runden, Referenzcheck und Angebot einplanen",
 ]
 
-DEMO_RULES_KEY = 'demo_rules'
+DEMO_RULES_KEY = "demo_rules"
 
 
 # --- Session backend ---
 
+
 def _seed():
     return [
-        {'id': i + 1, 'text': text, 'active': True}
+        {"id": i + 1, "text": text, "active": True}
         for i, text in enumerate(INITIAL_RULES)
     ]
 
@@ -42,9 +44,9 @@ def _seed():
 def _is_valid(rules):
     return isinstance(rules, list) and all(
         isinstance(r, dict)
-        and isinstance(r.get('id'), int)
-        and isinstance(r.get('text'), str)
-        and isinstance(r.get('active'), bool)
+        and isinstance(r.get("id"), int)
+        and isinstance(r.get("text"), str)
+        and isinstance(r.get("active"), bool)
         for r in rules
     )
 
@@ -77,12 +79,13 @@ def _save_session_rules(request, rules):
 
 def _find(rules, rule_id):
     for rule in rules:
-        if rule['id'] == rule_id:
+        if rule["id"] == rule_id:
             return rule
     return None
 
 
 # --- Public interface ---
+
 
 def get_rules(request):
     """All rules, active and inactive, in display order."""
@@ -94,17 +97,19 @@ def get_rules(request):
 def get_active_rule_texts(request):
     """The texts the planner prompt is built from — active rules only."""
     if settings.DEMO_MODE:
-        return [r['text'] for r in _session_rules(request) if r['active']]
-    return list(PlannerRule.objects.filter(active=True).values_list('text', flat=True))
+        return [r["text"] for r in _session_rules(request) if r["active"]]
+    return list(PlannerRule.objects.filter(active=True).values_list("text", flat=True))
 
 
 def add_rule(request, text):
     if settings.DEMO_MODE:
         rules = _session_rules(request)
-        next_id = max((r['id'] for r in rules), default=0) + 1
-        _save_session_rules(request, rules + [{'id': next_id, 'text': text, 'active': True}])
+        next_id = max((r["id"] for r in rules), default=0) + 1
+        _save_session_rules(
+            request, rules + [{"id": next_id, "text": text, "active": True}]
+        )
         return
-    last = PlannerRule.objects.order_by('-order').first()
+    last = PlannerRule.objects.order_by("-order").first()
     next_order = (last.order + 1) if last else 0
     PlannerRule.objects.create(text=text, active=True, order=next_order)
 
@@ -116,9 +121,9 @@ def toggle_rule(request, rule_id):
         rule = _find(rules, rule_id)
         if rule is None:
             return None
-        rule['active'] = not rule['active']
+        rule["active"] = not rule["active"]
         _save_session_rules(request, rules)
-        return rule['active']
+        return rule["active"]
     rule = PlannerRule.objects.filter(pk=rule_id).first()
     if rule is None:
         return None
@@ -135,7 +140,7 @@ def update_rule(request, rule_id, text):
         if rule is None:
             return False
         if text:
-            rule['text'] = text
+            rule["text"] = text
             _save_session_rules(request, rules)
         return True
     rule = PlannerRule.objects.filter(pk=rule_id).first()
@@ -150,7 +155,7 @@ def update_rule(request, rule_id, text):
 def delete_rule(request, rule_id):
     if settings.DEMO_MODE:
         rules = _session_rules(request)
-        _save_session_rules(request, [r for r in rules if r['id'] != rule_id])
+        _save_session_rules(request, [r for r in rules if r["id"] != rule_id])
         return
     PlannerRule.objects.filter(pk=rule_id).delete()
 
@@ -162,12 +167,12 @@ def reorder_rules(request, ids):
     no order field — list order *is* the ordering — so unknown ids are dropped
     and rules the payload does not mention keep their relative order at the end.
     """
-    ids = [int(i) for i in ids if str(i).lstrip('-').isdigit()]
+    ids = [int(i) for i in ids if str(i).lstrip("-").isdigit()]
     if settings.DEMO_MODE:
         rules = _session_rules(request)
-        by_id = {r['id']: r for r in rules}
+        by_id = {r["id"]: r for r in rules}
         ordered = [by_id.pop(i) for i in dict.fromkeys(ids) if i in by_id]
-        _save_session_rules(request, ordered + [r for r in rules if r['id'] in by_id])
+        _save_session_rules(request, ordered + [r for r in rules if r["id"] in by_id])
         return
     for i, rule_id in enumerate(ids):
         PlannerRule.objects.filter(pk=rule_id).update(order=i)
