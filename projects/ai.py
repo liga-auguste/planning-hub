@@ -1,8 +1,9 @@
-import anthropic
 import json as _json
 import logging
 from contextlib import contextmanager
 from datetime import date
+
+import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,6 @@ TASK_KONTEXT = {
     "Musikerverträge": "Büro",
     "Programm machen": "Büro",
     "Programm formatieren": "Büro",
-    "Programme bereitlegen": "Büro",
     "Kostenabrechnung": "Büro",
     "Abrechnung": "Büro",
     "Saalplan": "Büro",
@@ -250,8 +250,7 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
     text = response.content[0].text.strip()
     if "```" in text:
         text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
+        text = text.removeprefix("json")
         text = text.strip()
     return _valid_moments(_json.loads(text))
 
@@ -260,10 +259,9 @@ def generate_weekly_summary(projects: list, today: date, single_project_demo: bo
     client = anthropic.Anthropic()
     prompt = build_prompt(projects, today, single_project_demo=single_project_demo)
 
-    with translate_anthropic_errors():
-        with client.messages.stream(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream:
-            return stream.get_final_text()
+    with translate_anthropic_errors(), client.messages.stream(
+        model="claude-sonnet-4-6",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        return stream.get_final_text()
