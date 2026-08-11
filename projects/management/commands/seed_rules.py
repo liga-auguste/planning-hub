@@ -1,13 +1,6 @@
 from django.core.management.base import BaseCommand
 from projects.models import PlannerRule
-
-INITIAL_RULES = [
-    "Bei Konzertveranstaltungen GEMA-Meldung einplanen — nicht bei Gottesdiensten",
-    "Bei externen Mitwirkenden: Verträge, Honorare und Fahrtkosten einplanen",
-    "Bei Konzerten Plakat als Standard voraussetzen; bei Gottesdiensten genügt ein Hausausdruck",
-    "Vorverkauf nur bei größeren Konzerten relevant",
-    "Bei Recruiting / Personalplanung: Stellenausschreibung, Bewerbungsschluss, Interview-Runden, Referenzcheck und Angebot einplanen",
-]
+from projects.rules import INITIAL_RULES
 
 
 class Command(BaseCommand):

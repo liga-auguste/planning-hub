@@ -41,7 +41,11 @@
     <h1>Planungsregeln</h1>
     <p class="subtitle">
         Diese Regeln fließen in jeden generierten Plan ein.<br>
-        Claude entscheidet selbst, welche davon zum Projekttyp passen.
+        Claude entscheidet selbst, welche davon zum Projekttyp passen.<br>
+        Eine ausgeschaltete Regel bleibt in der Liste, geht aber nicht in den Plan ein.
+        {% if demo_mode %}<br>
+        Im Demo-Modus gehören diese Regeln nur zu diesem Besuch und wirken sich ausschließlich auf deine eigenen Pläne aus.
+        {% endif %}
     </p>
 
     <ul id="rules-list">

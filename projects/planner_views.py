@@ -2,11 +2,12 @@ from django.shortcuts import render, redirect
 from django.core.cache import cache
 from django.conf import settings
 from django.http import JsonResponse
-from .models import PlannerRule, DemoEvent
+from .models import DemoEvent
 from .notion import NotionUnavailableError, get_historical_projects, find_project, create_project, create_tasks
 from .planner import get_clarifying_questions, generate_plan
 from .demo_data import get_demo_history
 from .ai import AIUnavailableError, generate_timelapse_moments
+from . import rules as rules_store
 from .views import CACHE_KEY
 import logging
 import markdown as md
@@ -47,10 +48,6 @@ def _get_history():
     return history
 
 
-def _get_active_rules():
-    return list(PlannerRule.objects.filter(active=True).order_by('order').values_list('text', flat=True))
-
-
 def _parse_event_date(description: str):
     today = date.today()
     # With a year
@@ -83,7 +80,7 @@ def planner_start(request):
         description = request.POST.get('description', '').strip()
         if description:
             history = _get_history()
-            rules = _get_active_rules()
+            rules = rules_store.get_active_rule_texts(request)
             try:
                 questions = get_clarifying_questions(description, history, rules)
             except AIUnavailableError:
@@ -114,7 +111,7 @@ def planner_review(request):
         full_answers = request.POST.get('answers', '').strip()
 
         history = _get_history()
-        rules = _get_active_rules()
+        rules = rules_store.get_active_rule_texts(request)
         try:
             plan = generate_plan(description, full_answers, history, rules)
         except AIUnavailableError:
@@ -214,51 +211,42 @@ def planner_create(request):
 # --- Rule management ---
 
 def rules_list(request):
-    rules = PlannerRule.objects.all()
-    return render(request, 'projects/planner_rules.html', {'rules': rules})
+    return render(request, 'projects/planner_rules.html', {
+        'rules': rules_store.get_rules(request),
+        'demo_mode': settings.DEMO_MODE,
+    })
 
 
 def rule_add(request):
     if request.method == 'POST':
         text = request.POST.get('text', '').strip()
         if text:
-            last = PlannerRule.objects.order_by('-order').first()
-            next_order = (last.order + 1) if last else 0
-            PlannerRule.objects.create(text=text, active=True, order=next_order)
+            rules_store.add_rule(request, text)
     return redirect('rules_list')
 
 
 def rule_toggle(request, rule_id):
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
-    try:
-        rule = PlannerRule.objects.get(pk=rule_id)
-        rule.active = not rule.active
-        rule.save()
-        return JsonResponse({'active': rule.active})
-    except PlannerRule.DoesNotExist:
+    active = rules_store.toggle_rule(request, rule_id)
+    if active is None:
         return JsonResponse({'error': 'not found'}, status=404)
+    return JsonResponse({'active': active})
 
 
 def rule_update(request, rule_id):
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
-    try:
-        data = json.loads(request.body)
-        rule = PlannerRule.objects.get(pk=rule_id)
-        text = data.get('text', '').strip()
-        if text:
-            rule.text = text
-            rule.save()
-        return JsonResponse({'ok': True})
-    except PlannerRule.DoesNotExist:
+    data = json.loads(request.body)
+    if not rules_store.update_rule(request, rule_id, data.get('text', '').strip()):
         return JsonResponse({'error': 'not found'}, status=404)
+    return JsonResponse({'ok': True})
 
 
 def rule_delete(request, rule_id):
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
-    PlannerRule.objects.filter(pk=rule_id).delete()
+    rules_store.delete_rule(request, rule_id)
     return JsonResponse({'ok': True})
 
 
@@ -266,6 +254,5 @@ def rule_reorder(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'method not allowed'}, status=405)
     data = json.loads(request.body)
-    for i, rule_id in enumerate(data.get('order', [])):
-        PlannerRule.objects.filter(pk=rule_id).update(order=i)
+    rules_store.reorder_rules(request, data.get('order', []))
     return JsonResponse({'ok': True})
