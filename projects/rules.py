@@ -50,7 +50,13 @@ def _is_valid(rules):
 
 
 def _session_rules(request):
-    """The visitor's own rules, seeded on first read.
+    """The visitor's own rules, seeded but deliberately not persisted.
+
+    Seeding does not write the session, so merely reading the rules page — a
+    GET, and the demo is public and uncrawled (#27) — creates no session row.
+    Every mutating function below saves right afterwards anyway, and _seed()
+    hands out the same ids every time, so a later toggle of id 3 still resolves
+    against an unsaved seed.
 
     Self-healing like _get_sim_date / _allowed_sim_dates (views.py): a session
     written by an older version — or by hand — can hold anything, and the rules
@@ -60,7 +66,6 @@ def _session_rules(request):
     rules = request.session.get(DEMO_RULES_KEY)
     if rules is None or not _is_valid(rules):
         rules = _seed()
-        _save_session_rules(request, rules)
     return rules
 
 

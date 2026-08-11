@@ -7,6 +7,7 @@ import anthropic
 import httpx
 import markdown
 from django.conf import settings
+from django.contrib.sessions.models import Session
 from django.core.cache import cache
 from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
@@ -1705,7 +1706,12 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         return request
 
     def rule_ids(self):
-        return [r['id'] for r in self.client.session[DEMO_RULES_KEY]]
+        """Reading persists nothing, so before the first write fall back to the
+        seed's ids — _seed() hands out 1..n every time."""
+        rules = self.client.session.get(DEMO_RULES_KEY)
+        if rules is None:
+            return list(range(1, len(INITIAL_RULES) + 1))
+        return [r['id'] for r in rules]
 
     def test_a_fresh_session_is_seeded_with_the_initial_rules(self):
         response = self.client.get(reverse('rules_list'))
@@ -1713,6 +1719,20 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         for text in INITIAL_RULES:
             self.assertContains(response, text)
         self.assertNotContains(response, 'Noch keine Regeln')
+
+    def test_reading_the_rules_page_persists_no_session(self):
+        """The demo is public and not yet behind a robots.txt (#27), so a GET
+        must not leave a session row behind for every visitor and crawler."""
+        response = self.client.get(reverse('rules_list'))
+        self.assertContains(response, INITIAL_RULES[0])
+        self.assertEqual(Session.objects.count(), 0)
+
+    def test_the_first_write_persists_the_seeded_rules(self):
+        self.client.post(reverse('rule_toggle', args=[self.rule_ids()[0]]))
+        self.assertEqual(Session.objects.count(), 1)
+        stored = self.client.session[DEMO_RULES_KEY]
+        self.assertEqual([r['text'] for r in stored], INITIAL_RULES)
+        self.assertFalse(stored[0]['active'])
 
     def test_adding_a_rule_writes_nothing_to_the_database(self):
         self.client.post(reverse('rule_add'), data={'text': 'Neue Regel'})
