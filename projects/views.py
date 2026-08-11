@@ -23,14 +23,32 @@ from .notion import (
 logger = logging.getLogger(__name__)
 
 MONTHS_DE = {
-    1: "Januar", 2: "Februar", 3: "März", 4: "April",
-    5: "Mai", 6: "Juni", 7: "Juli", 8: "August",
-    9: "September", 10: "Oktober", 11: "November", 12: "Dezember",
+    1: "Januar",
+    2: "Februar",
+    3: "März",
+    4: "April",
+    5: "Mai",
+    6: "Juni",
+    7: "Juli",
+    8: "August",
+    9: "September",
+    10: "Oktober",
+    11: "November",
+    12: "Dezember",
 }
 MONTHS_SHORT = {
-    1: "Jan", 2: "Feb", 3: "Mär", 4: "Apr",
-    5: "Mai", 6: "Jun", 7: "Jul", 8: "Aug",
-    9: "Sep", 10: "Okt", 11: "Nov", 12: "Dez",
+    1: "Jan",
+    2: "Feb",
+    3: "Mär",
+    4: "Apr",
+    5: "Mai",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Okt",
+    11: "Nov",
+    12: "Dez",
 }
 WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
@@ -40,6 +58,7 @@ def _format_date(d):
         return ""
     weekday = WEEKDAYS_SHORT[d.weekday()]
     return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
+
 
 # Both cache keys and SUMMARY_KEY store rendered summary HTML, so they carry a
 # version that is bumped on every format change (#20: v2/v4) — otherwise
@@ -87,35 +106,35 @@ def _annotate_tasks(projects, today):
 
 # A sub-task bullet the model indented too shallowly: python-markdown only
 # nests a list at four spaces, anything less renders as a flat sibling li.
-_SHALLOW_BULLET = re.compile(r'^ {1,3}- ')
+_SHALLOW_BULLET = re.compile(r"^ {1,3}- ")
 
 
 def _fix_ai_markdown(text: str) -> str:
-    lines = text.split('\n')
+    lines = text.split("\n")
     result = []
     in_project = False
     for line in lines:
-        if line.startswith('- **'):
+        if line.startswith("- **"):
             in_project = True
             result.append(line)
-        elif line.startswith(('---', '**', '#')):
+        elif line.startswith(("---", "**", "#")):
             # The blank line before a boundary is what makes the next block a
             # block — the blank-skipping below would otherwise glue it to the
             # last task line, and Markdown lazily continues the list over it
             # (the vanished section header of #20).
             if in_project:
-                result.append('')
+                result.append("")
                 in_project = False
             result.append(line)
         elif in_project and not line.strip():
             pass  # skip blank lines inside a project block
         elif in_project and _SHALLOW_BULLET.match(line):
-            result.append(f'    {line.strip()}')
-        elif in_project and not line.strip().startswith(('-', '#', '>')):
-            result.append(f'    - {line.strip()}')
+            result.append(f"    {line.strip()}")
+        elif in_project and not line.strip().startswith(("-", "#", ">")):
+            result.append(f"    - {line.strip()}")
         else:
             result.append(line)
-    return '\n'.join(result)
+    return "\n".join(result)
 
 
 def _fetch_fresh_data(today):
@@ -146,50 +165,50 @@ def _group_by_month(projects):
 
 
 def _strip_year(name):
-    return re.sub(r'\s+\d{4}$', '', name).strip()
+    return re.sub(r"\s+\d{4}$", "", name).strip()
 
 
 def index(request):
     if settings.DEMO_MODE:
-        return render(request, 'projects/landing.html')
-    return redirect('dashboard')
+        return render(request, "projects/landing.html")
+    return redirect("dashboard")
 
 
 def _build_session_project(session_plan):
-    event_date = date.fromisoformat(session_plan['event_date'])
+    event_date = date.fromisoformat(session_plan["event_date"])
     tasks = [
         {
-            'id': t['id'],
-            'name': t['name'],
-            'due': date.fromisoformat(t['date']) if t.get('date') else None,
-            'done': t['done'],
+            "id": t["id"],
+            "name": t["name"],
+            "due": date.fromisoformat(t["date"]) if t.get("date") else None,
+            "done": t["done"],
             # A list, like Notion and derive_kontext produce, so every consumer
             # sees one shape — my_plan builds its own copy of this task the
             # same way (#9).
-            'kontext': [t['kontext']] if t.get('kontext') else [],
+            "kontext": [t["kontext"]] if t.get("kontext") else [],
         }
-        for t in session_plan['tasks']
+        for t in session_plan["tasks"]
     ]
     return {
-        'id': 'session-plan',
-        'name': session_plan['name'],
-        'event_date': event_date,
-        'performers': '',
-        'tasks': tasks,
-        'status': 'in Vorbereitung',
-        'status_color': 'default',
+        "id": "session-plan",
+        "name": session_plan["name"],
+        "event_date": event_date,
+        "performers": "",
+        "tasks": tasks,
+        "status": "in Vorbereitung",
+        "status_color": "default",
     }
 
 
 def _get_sim_date(request):
     """Reads demo_sim_date, discarding a value that predates its validation."""
-    raw = request.session.get('demo_sim_date')
+    raw = request.session.get("demo_sim_date")
     if not raw:
         return None, None
     try:
         return date.fromisoformat(raw), raw
     except (ValueError, TypeError):
-        request.session.pop('demo_sim_date', None)
+        request.session.pop("demo_sim_date", None)
         return None, None
 
 
@@ -200,12 +219,13 @@ def _allowed_sim_dates(request):
     can hold anything the model returned, and an unhashable value would otherwise
     blow up the set itself.
     """
-    moments = request.session.get('demo_timelapse_moments') or []
+    moments = request.session.get("demo_timelapse_moments") or []
     if not isinstance(moments, list):
         return set()
     return {
-        m['date'] for m in moments
-        if isinstance(m, dict) and isinstance(m.get('date'), str)
+        m["date"]
+        for m in moments
+        if isinstance(m, dict) and isinstance(m.get("date"), str)
     }
 
 
@@ -222,22 +242,22 @@ def _parse_posted_date(request):
     can parse. Callers get a value date.fromisoformat() accepts or an error.
     """
     if not settings.DEMO_MODE:
-        return None, JsonResponse({'error': 'not available'}, status=404)
+        return None, JsonResponse({"error": "not available"}, status=404)
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
-        return None, JsonResponse({'error': 'invalid json'}, status=400)
+        return None, JsonResponse({"error": "invalid json"}, status=400)
     if not isinstance(data, dict):
-        return None, JsonResponse({'error': 'invalid json'}, status=400)
-    raw = data.get('date')
+        return None, JsonResponse({"error": "invalid json"}, status=400)
+    raw = data.get("date")
     if not raw:
         return None, None
     if not isinstance(raw, str) or raw not in _allowed_sim_dates(request):
-        return None, JsonResponse({'error': 'invalid date'}, status=400)
+        return None, JsonResponse({"error": "invalid date"}, status=400)
     try:
         date.fromisoformat(raw)
     except ValueError:
-        return None, JsonResponse({'error': 'invalid date'}, status=400)
+        return None, JsonResponse({"error": "invalid date"}, status=400)
     return raw, None
 
 
@@ -245,13 +265,13 @@ def dashboard(request):
     today = date.today()
     has_session_plan = False
     plan_exists = False
-    force_multi = request.GET.get('mode') == 'multi'
+    force_multi = request.GET.get("mode") == "multi"
     sim_date, sim_date_str = None, None
     stale = False
     data_unavailable = False
 
     if settings.DEMO_MODE:
-        session_plan = request.session.get('demo_plan')
+        session_plan = request.session.get("demo_plan")
         plan_exists = bool(session_plan)
         if session_plan and not force_multi:
             has_session_plan = True
@@ -262,15 +282,17 @@ def dashboard(request):
             effective_today = sim_date or today
             project = copy.deepcopy(_build_session_project(session_plan))
             if sim_date:
-                for task in project['tasks']:
-                    if task.get('due') and task['due'] <= sim_date:
-                        task['done'] = True
+                for task in project["tasks"]:
+                    if task.get("due") and task["due"] <= sim_date:
+                        task["done"] = True
             projects = _annotate_tasks([project], effective_today)
-            summary_key = f'{SUMMARY_KEY}_{sim_date_str or "today"}'
+            summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
             summary = request.session.get(summary_key)
             if not summary:
                 try:
-                    summary_md = generate_weekly_summary(projects, effective_today, single_project_demo=True)
+                    summary_md = generate_weekly_summary(
+                        projects, effective_today, single_project_demo=True
+                    )
                 except AIUnavailableError:
                     summary = None
                 else:
@@ -280,7 +302,7 @@ def dashboard(request):
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
             projects = _annotate_tasks(get_demo_projects(), today)
-            summary_cache_key = f'{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}'
+            summary_cache_key = f"{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}"
             summary = cache.get(summary_cache_key)
             if summary is None:
                 try:
@@ -299,7 +321,9 @@ def dashboard(request):
             try:
                 projects, summary = _fetch_fresh_data(today)
             except NotionUnavailableError:
-                logger.warning("Notion read failed; falling back to the last known-good dashboard data")
+                logger.warning(
+                    "Notion read failed; falling back to the last known-good dashboard data"
+                )
                 last_known_good = cache.get(STALE_CACHE_KEY)
                 if last_known_good is None:
                     projects, summary = [], None
@@ -324,50 +348,61 @@ def dashboard(request):
     years = sorted({g["year"] for g in month_groups if g["year"]})
 
     project_map = {
-        p['display_name']: p['id']
-        for group in month_groups
-        for p in group['projects']
+        p["display_name"]: p["id"] for group in month_groups for p in group["projects"]
     }
 
-    timelapse_moments = request.session.get('demo_timelapse_moments', []) if settings.DEMO_MODE else []
+    timelapse_moments = (
+        request.session.get("demo_timelapse_moments", []) if settings.DEMO_MODE else []
+    )
 
     # Moments whose summary is already cached in the session, so the JS
     # preloader can skip re-requesting them after a reload (#36).
-    precached_moments = [
-        d for d in _allowed_sim_dates(request)
-        if request.session.get(f'{SUMMARY_KEY}_{d}')
-    ] if settings.DEMO_MODE else []
+    precached_moments = (
+        [
+            d
+            for d in _allowed_sim_dates(request)
+            if request.session.get(f"{SUMMARY_KEY}_{d}")
+        ]
+        if settings.DEMO_MODE
+        else []
+    )
 
     # Project name for demo single-project header
-    demo_project_name = ''
-    demo_project_date = ''
+    demo_project_name = ""
+    demo_project_date = ""
     if settings.DEMO_MODE and has_session_plan and month_groups:
-        first_project = month_groups[0]['projects'][0] if month_groups[0]['projects'] else None
+        first_project = (
+            month_groups[0]["projects"][0] if month_groups[0]["projects"] else None
+        )
         if first_project:
-            demo_project_name = first_project['display_name']
-            demo_project_date = first_project['event_date_display']
+            demo_project_name = first_project["display_name"]
+            demo_project_date = first_project["event_date_display"]
 
-    return render(request, 'projects/dashboard.html', {
-        'month_groups': month_groups,
-        'years': years,
-        'summary': summary,
-        'today': today,
-        'today_display': _format_date(today),
-        'today_iso': today.isoformat(),
-        'project_map': json.dumps(project_map),
-        'has_session_plan': has_session_plan,
-        'plan_exists': plan_exists,
-        'force_multi': force_multi,
-        'demo_mode': settings.DEMO_MODE,
-        'timelapse_moments': json.dumps(timelapse_moments),
-        'precached_moments': json.dumps(precached_moments),
-        'sim_date': sim_date_str,
-        'sim_date_display': _format_date(sim_date) if sim_date else '',
-        'demo_project_name': demo_project_name,
-        'demo_project_date': demo_project_date,
-        'stale': stale,
-        'data_unavailable': data_unavailable,
-    })
+    return render(
+        request,
+        "projects/dashboard.html",
+        {
+            "month_groups": month_groups,
+            "years": years,
+            "summary": summary,
+            "today": today,
+            "today_display": _format_date(today),
+            "today_iso": today.isoformat(),
+            "project_map": json.dumps(project_map),
+            "has_session_plan": has_session_plan,
+            "plan_exists": plan_exists,
+            "force_multi": force_multi,
+            "demo_mode": settings.DEMO_MODE,
+            "timelapse_moments": json.dumps(timelapse_moments),
+            "precached_moments": json.dumps(precached_moments),
+            "sim_date": sim_date_str,
+            "sim_date_display": _format_date(sim_date) if sim_date else "",
+            "demo_project_name": demo_project_name,
+            "demo_project_date": demo_project_date,
+            "stale": stale,
+            "data_unavailable": data_unavailable,
+        },
+    )
 
 
 def refresh(request):
@@ -377,22 +412,22 @@ def refresh(request):
 
 
 def set_timelapse_date(request):
-    if request.method != 'POST':
-        return JsonResponse({'error': 'method not allowed'}, status=405)
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
     sim_date, error = _parse_posted_date(request)
     if error:
         return error
     if sim_date:
-        request.session['demo_sim_date'] = sim_date
+        request.session["demo_sim_date"] = sim_date
     else:
-        request.session.pop('demo_sim_date', None)
-    return JsonResponse({'ok': True})
+        request.session.pop("demo_sim_date", None)
+    return JsonResponse({"ok": True})
 
 
 def preload_timelapse_summary(request):
     """Pre-generates and caches the AI summary for a given sim date (called from JS background)."""
-    if request.method != 'POST':
-        return JsonResponse({'error': 'method not allowed'}, status=405)
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
     sim_date_str, error = _parse_posted_date(request)  # None = today
     if error:
         return error
@@ -400,29 +435,32 @@ def preload_timelapse_summary(request):
     today = date.today()
     sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
     effective_today = sim_date or today
-    summary_key = f'{SUMMARY_KEY}_{sim_date_str or "today"}'
+    summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
 
     if request.session.get(summary_key):
-        return JsonResponse({'ok': True, 'cached': True})
+        return JsonResponse({"ok": True, "cached": True})
 
-    session_plan = request.session.get('demo_plan')
+    session_plan = request.session.get("demo_plan")
     if not session_plan:
-        return JsonResponse({'ok': False})
+        return JsonResponse({"ok": False})
 
     project = copy.deepcopy(_build_session_project(session_plan))
     if sim_date:
-        for task in project['tasks']:
-            if task.get('due') and task['due'] <= sim_date:
-                task['done'] = True
+        for task in project["tasks"]:
+            if task.get("due") and task["due"] <= sim_date:
+                task["done"] = True
     projects = _annotate_tasks([project], effective_today)
     try:
-        summary_md = generate_weekly_summary(projects, effective_today, single_project_demo=True)
+        summary_md = generate_weekly_summary(
+            projects, effective_today, single_project_demo=True
+        )
     except AIUnavailableError:
         # Nothing written to the session — the next real visit to this date
         # just tries again instead of replaying a cached failure.
-        return JsonResponse({'ok': False})
+        return JsonResponse({"ok": False})
     request.session[summary_key] = markdown.markdown(_fix_ai_markdown(summary_md))
-    return JsonResponse({'ok': True})
+    return JsonResponse({"ok": True})
+
 
 def toggle_task_view(request, task_id):
     if request.method != "POST":
@@ -430,13 +468,13 @@ def toggle_task_view(request, task_id):
     data = json.loads(request.body)
     done = data["done"]
     if settings.DEMO_MODE:
-        plan = request.session.get('demo_plan')
+        plan = request.session.get("demo_plan")
         if plan:
-            for t in plan['tasks']:
-                if t['id'] == task_id:
-                    t['done'] = done
+            for t in plan["tasks"]:
+                if t["id"] == task_id:
+                    t["done"] = done
                     break
-            request.session['demo_plan'] = plan
+            request.session["demo_plan"] = plan
     else:
         try:
             toggle_task(task_id, done)
@@ -466,12 +504,16 @@ def reschedule_task_view(request, task_id):
         # session. A task that isn't in the plan gets a 404 rather than
         # toggle_task_view's silent ok — answering ok for something that was
         # never saved is exactly the bug this view had (#10 §5).
-        plan = request.session.get('demo_plan')
-        task = next((t for t in plan['tasks'] if t['id'] == task_id), None) if plan else None
+        plan = request.session.get("demo_plan")
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
         if task is None:
             return JsonResponse({"error": "unknown task"}, status=404)
-        task['date'] = raw_date
-        request.session['demo_plan'] = plan
+        task["date"] = raw_date
+        request.session["demo_plan"] = plan
     else:
         try:
             update_task_date(task_id, raw_date)
@@ -484,105 +526,123 @@ def stats(request):
     from django.db.models import Count
     from django.db.models.functions import TruncDate
 
-    total_generated = DemoEvent.objects.filter(event_type='plan_generated').count()
-    total_downloaded = DemoEvent.objects.filter(event_type='plan_downloaded').count()
+    total_generated = DemoEvent.objects.filter(event_type="plan_generated").count()
+    total_downloaded = DemoEvent.objects.filter(event_type="plan_downloaded").count()
 
     by_type = (
-        DemoEvent.objects
-        .filter(event_type='plan_generated')
-        .values('project_type')
-        .annotate(count=Count('id'))
-        .order_by('-count')
+        DemoEvent.objects.filter(event_type="plan_generated")
+        .values("project_type")
+        .annotate(count=Count("id"))
+        .order_by("-count")
     )
 
     by_day = (
-        DemoEvent.objects
-        .filter(event_type='plan_generated')
-        .annotate(day=TruncDate('created_at'))
-        .values('day')
-        .annotate(count=Count('id'))
-        .order_by('-day')[:14]
+        DemoEvent.objects.filter(event_type="plan_generated")
+        .annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(count=Count("id"))
+        .order_by("-day")[:14]
     )
 
     TYPE_LABELS = {
-        'konzert': 'Konzert / Event',
-        'hochzeit': 'Hochzeit / Feier',
-        'recruiting': 'Recruiting',
-        'eigenes': 'Eigenes Projekt',
-        '': 'Unbekannt',
+        "konzert": "Konzert / Event",
+        "hochzeit": "Hochzeit / Feier",
+        "recruiting": "Recruiting",
+        "eigenes": "Eigenes Projekt",
+        "": "Unbekannt",
     }
 
-    return render(request, 'projects/stats.html', {
-        'total_generated': total_generated,
-        'total_downloaded': total_downloaded,
-        'download_rate': round(total_downloaded / total_generated * 100) if total_generated else 0,
-        'by_type': [{'label': TYPE_LABELS.get(r['project_type'], r['project_type']), 'count': r['count']} for r in by_type],
-        'by_day': list(by_day),
-    })
+    return render(
+        request,
+        "projects/stats.html",
+        {
+            "total_generated": total_generated,
+            "total_downloaded": total_downloaded,
+            "download_rate": round(total_downloaded / total_generated * 100)
+            if total_generated
+            else 0,
+            "by_type": [
+                {
+                    "label": TYPE_LABELS.get(r["project_type"], r["project_type"]),
+                    "count": r["count"],
+                }
+                for r in by_type
+            ],
+            "by_day": list(by_day),
+        },
+    )
 
 
 def my_plan(request):
-    plan = request.session.get('demo_plan')
+    plan = request.session.get("demo_plan")
     if not plan:
-        return redirect('index')
+        return redirect("index")
 
     today = date.today()
-    event_date = date.fromisoformat(plan['event_date'])
+    event_date = date.fromisoformat(plan["event_date"])
 
     tasks = []
-    for t in plan['tasks']:
-        due = date.fromisoformat(t['date']) if t.get('date') else None
-        tasks.append({
-            'id': t['id'],
-            'name': t['name'],
-            'due': due,
-            'done': t['done'],
-            'kontext': [t['kontext']] if t.get('kontext') else [],
-        })
+    for t in plan["tasks"]:
+        due = date.fromisoformat(t["date"]) if t.get("date") else None
+        tasks.append(
+            {
+                "id": t["id"],
+                "name": t["name"],
+                "due": due,
+                "done": t["done"],
+                "kontext": [t["kontext"]] if t.get("kontext") else [],
+            }
+        )
 
     project = {
-        'id': 'session-plan',
-        'name': plan['name'],
-        'event_date': event_date,
-        'event_date_display': _format_date(event_date),
-        'performers': '',
-        'tasks': tasks,
-        'status': 'in Vorbereitung',
+        "id": "session-plan",
+        "name": plan["name"],
+        "event_date": event_date,
+        "event_date_display": _format_date(event_date),
+        "performers": "",
+        "tasks": tasks,
+        "status": "in Vorbereitung",
     }
     _annotate_tasks([project], today)
 
-    done_count = sum(1 for t in tasks if t['done'])
+    done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
 
-    summary = request.session.get(f'{SUMMARY_KEY}_today')
+    summary = request.session.get(f"{SUMMARY_KEY}_today")
     summary_error = False
     if not summary:
         try:
-            summary_md = generate_weekly_summary([project], today, single_project_demo=True)
+            summary_md = generate_weekly_summary(
+                [project], today, single_project_demo=True
+            )
         except AIUnavailableError:
             summary_error = True
         else:
             summary = markdown.markdown(_fix_ai_markdown(summary_md))
-            request.session[f'{SUMMARY_KEY}_today'] = summary
+            request.session[f"{SUMMARY_KEY}_today"] = summary
 
-    return render(request, 'projects/my_plan.html', {
-        'project': project,
-        'done_count': done_count,
-        'total': total,
-        'today': today,
-        'today_display': _format_date(today),
-        'summary': summary,
-        'summary_error': summary_error,
-    })
+    return render(
+        request,
+        "projects/my_plan.html",
+        {
+            "project": project,
+            "done_count": done_count,
+            "total": total,
+            "today": today,
+            "today_display": _format_date(today),
+            "summary": summary,
+            "summary_error": summary_error,
+        },
+    )
 
 
 def download_plan(request):
-    plan = request.session.get('demo_plan')
+    plan = request.session.get("demo_plan")
     if not plan:
-        return redirect('index')
+        return redirect("index")
 
     today = date.today()
-    event_date = date.fromisoformat(plan['event_date'])
+    event_date = date.fromisoformat(plan["event_date"])
     event_display = _format_date(event_date)
 
     lines = [
@@ -595,11 +655,11 @@ def download_plan(request):
         "",
     ]
 
-    for t in plan['tasks']:
-        checkbox = "[x]" if t['done'] else "[ ]"
-        due = date.fromisoformat(t['date']) if t.get('date') else None
+    for t in plan["tasks"]:
+        checkbox = "[x]" if t["done"] else "[ ]"
+        due = date.fromisoformat(t["date"]) if t.get("date") else None
         due_str = f" — {_format_date(due)}" if due else ""
-        kontext = f" *({t['kontext']})*" if t.get('kontext') else ""
+        kontext = f" *({t['kontext']})*" if t.get("kontext") else ""
         lines.append(f"- {checkbox} {t['name']}{kontext}{due_str}")
 
     lines += [
@@ -616,10 +676,10 @@ def download_plan(request):
     ]
 
     content = "\n".join(lines)
-    filename = plan['name'].replace(" ", "_").replace("/", "-")[:50] + ".md"
+    filename = plan["name"].replace(" ", "_").replace("/", "-")[:50] + ".md"
 
-    project_type = request.session.get('demo_project_type', '')
-    DemoEvent.objects.create(event_type='plan_downloaded', project_type=project_type)
+    project_type = request.session.get("demo_project_type", "")
+    DemoEvent.objects.create(event_type="plan_downloaded", project_type=project_type)
 
     response = HttpResponse(content, content_type="text/markdown; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
@@ -627,11 +687,11 @@ def download_plan(request):
 
 
 def impressum(request):
-    return render(request, 'projects/impressum.html')
+    return render(request, "projects/impressum.html")
 
 
 def datenschutz(request):
-    return render(request, 'projects/datenschutz.html')
+    return render(request, "projects/datenschutz.html")
 
 
 def toggle_session_task(request, task_id):
@@ -639,11 +699,11 @@ def toggle_session_task(request, task_id):
         return JsonResponse({"error": "method not allowed"}, status=405)
     data = json.loads(request.body)
     done = data["done"]
-    plan = request.session.get('demo_plan')
+    plan = request.session.get("demo_plan")
     if plan:
-        for t in plan['tasks']:
-            if t['id'] == task_id:
-                t['done'] = done
+        for t in plan["tasks"]:
+            if t["id"] == task_id:
+                t["done"] = done
                 break
-        request.session['demo_plan'] = plan
+        request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})

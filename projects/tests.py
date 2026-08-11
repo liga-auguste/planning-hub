@@ -53,13 +53,16 @@ from .views import (
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
 AI_STUBS = {
-    'projects.views.generate_weekly_summary': '**Test summary**',
-    'projects.planner_views.get_clarifying_questions': '**Wie viele Mitwirkende?**',
+    "projects.views.generate_weekly_summary": "**Test summary**",
+    "projects.planner_views.get_clarifying_questions": "**Wie viele Mitwirkende?**",
     # generate_plan now parses its own response and returns a dict (see #29 /
     # GeneratePlanRetryTest) — this stub has to match that shape, not the raw
     # JSON string Claude used to hand back.
-    'projects.planner_views.generate_plan': {"project_name": "Testkonzert", "tasks": []},
-    'projects.planner_views.generate_timelapse_moments': [],
+    "projects.planner_views.generate_plan": {
+        "project_name": "Testkonzert",
+        "tasks": [],
+    },
+    "projects.planner_views.generate_timelapse_moments": [],
 }
 
 
@@ -82,45 +85,45 @@ class DemoModeTestCase(TestCase):
     def given_session_plan(self, **overrides):
         """Creates a session plan the way planner_create produces it."""
         plan = {
-            'name': 'Testkonzert',
-            'event_date': (date.today() + timedelta(days=30)).isoformat(),
-            'tasks': [
+            "name": "Testkonzert",
+            "event_date": (date.today() + timedelta(days=30)).isoformat(),
+            "tasks": [
                 {
-                    'id': 'demo-session-0',
-                    'name': 'Programm festlegen',
-                    'date': (date.today() + timedelta(days=7)).isoformat(),
-                    'kontext': 'Planung',
-                    'done': False,
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (date.today() + timedelta(days=7)).isoformat(),
+                    "kontext": "Planung",
+                    "done": False,
                 },
             ],
         }
         plan.update(overrides)
         session = self.client.session
-        session['demo_plan'] = plan
+        session["demo_plan"] = plan
         session.save()
         return plan
 
     def given_timelapse_moments(self, *dates):
         """Stores moments the way planner_create does. Only these dates are postable."""
         session = self.client.session
-        session['demo_timelapse_moments'] = [
-            {'date': d, 'label': 'Moment', 'description': 'Beschreibung'} for d in dates
+        session["demo_timelapse_moments"] = [
+            {"date": d, "label": "Moment", "description": "Beschreibung"} for d in dates
         ]
         session.save()
 
 
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
-        response = self.client.get('/dashboard/')
-        self.assertContains(response, 'gap: 6px')
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "gap: 6px")
 
     def test_kanban_meta_first_child_selector_exists(self):
-        response = self.client.get('/dashboard/')
-        self.assertContains(response, '.kanban-card-meta span:first-child')
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".kanban-card-meta span:first-child")
 
     def test_kanban_meta_last_child_selector_exists(self):
-        response = self.client.get('/dashboard/')
-        self.assertContains(response, '.kanban-card-meta span:last-child')
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
 class PlannerLoadingStateTest(DemoModeTestCase):
@@ -130,33 +133,39 @@ class PlannerLoadingStateTest(DemoModeTestCase):
     isn't provable by a Django TestCase and gets a manual browser pass."""
 
     def test_base_template_defines_the_loading_css(self):
-        response = self.client.get(reverse('impressum'))
-        self.assertContains(response, '.btn-primary.is-loading')
+        response = self.client.get(reverse("impressum"))
+        self.assertContains(response, ".btn-primary.is-loading")
 
     def test_base_template_ships_the_double_submit_script(self):
-        response = self.client.get(reverse('impressum'))
-        self.assertContains(response, 'loadingText')
+        response = self.client.get(reverse("impressum"))
+        self.assertContains(response, "loadingText")
 
     def test_base_template_resets_loading_state_on_bfcache_restore(self):
-        response = self.client.get(reverse('impressum'))
-        self.assertContains(response, 'pageshow')
-        self.assertContains(response, 'e.persisted')
+        response = self.client.get(reverse("impressum"))
+        self.assertContains(response, "pageshow")
+        self.assertContains(response, "e.persisted")
 
     def test_describe_form_button_has_loading_text(self):
-        response = self.client.get(reverse('planner_start') + '?type=eigenes')
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
         self.assertContains(response, 'data-loading-text="Fragen werden erstellt..."')
 
     def test_questions_form_button_has_loading_text(self):
-        response = self.client.post(reverse('planner_start'), data={
-            'description': 'Konzert am 15. September 2026',
-        })
+        response = self.client.post(
+            reverse("planner_start"),
+            data={
+                "description": "Konzert am 15. September 2026",
+            },
+        )
         self.assertContains(response, 'data-loading-text="Plan wird erstellt..."')
 
     def test_review_form_button_has_loading_text(self):
-        response = self.client.post(reverse('planner_review'), data={
-            'description': 'Konzert am 5. September 2026',
-            'answers': 'keine weiteren Angaben',
-        })
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
         self.assertContains(response, 'data-loading-text="Wird gespeichert..."')
 
 
@@ -166,23 +175,25 @@ class FooterPinningTest(DemoModeTestCase):
     footer floating mid-viewport. They belong in base_public.html."""
 
     def test_base_template_makes_body_a_flex_column(self):
-        response = self.client.get('/impressum/')
-        self.assertContains(response, 'min-height: 100vh; display: flex; flex-direction: column;')
+        response = self.client.get("/impressum/")
+        self.assertContains(
+            response, "min-height: 100vh; display: flex; flex-direction: column;"
+        )
 
     def test_base_template_pins_the_footer(self):
-        response = self.client.get('/impressum/')
-        self.assertContains(response, 'margin-top: auto; padding-top: 20px;')
+        response = self.client.get("/impressum/")
+        self.assertContains(response, "margin-top: auto; padding-top: 20px;")
 
     def test_landing_page_no_longer_duplicates_the_override(self):
         # Exactly one occurrence: the base rule, not a second copy in extra_css.
-        response = self.client.get('/')
-        self.assertContains(response, 'margin-top: auto', count=1)
+        response = self.client.get("/")
+        self.assertContains(response, "margin-top: auto", count=1)
 
     def test_wrapper_padding_for_the_floating_footer_is_gone(self):
         # The 80px bottom padding only existed to keep content clear of the
         # floating footer; once pinned it would double the spacing.
-        response = self.client.get('/impressum/')
-        self.assertNotContains(response, 'padding: 32px 20px 80px')
+        response = self.client.get("/impressum/")
+        self.assertNotContains(response, "padding: 32px 20px 80px")
 
 
 class FooterOnDashboardPagesTest(DemoModeTestCase):
@@ -191,47 +202,47 @@ class FooterOnDashboardPagesTest(DemoModeTestCase):
     cookie banner also links to Datenschutz, hence the full-markup asserts."""
 
     def assert_has_footer(self, response):
-        self.assertContains(response, 'page-footer')
+        self.assertContains(response, "page-footer")
         self.assertContains(response, '<a href="/impressum/">Impressum</a>')
         self.assertContains(response, '<a href="/datenschutz/">Datenschutz</a>')
-        self.assertContains(response, '© 2026 Liga Auguste')
+        self.assertContains(response, "© 2026 Liga Auguste")
 
     def test_dashboard_has_the_footer(self):
-        self.assert_has_footer(self.client.get('/dashboard/'))
+        self.assert_has_footer(self.client.get("/dashboard/"))
 
     def test_my_plan_has_the_footer(self):
         self.given_session_plan()
-        self.assert_has_footer(self.client.get('/mein-plan/'))
+        self.assert_has_footer(self.client.get("/mein-plan/"))
 
     def test_stats_has_the_footer(self):
-        self.assert_has_footer(self.client.get('/stats/'))
+        self.assert_has_footer(self.client.get("/stats/"))
 
     def test_planner_start_keeps_its_footer(self):
-        self.assert_has_footer(self.client.get(reverse('planner_start')))
+        self.assert_has_footer(self.client.get(reverse("planner_start")))
 
 
 class AiStubTest(DemoModeTestCase):
     """Guards the guard: proves the stubs are actually in the request path."""
 
     def test_dashboard_does_not_call_the_real_api(self):
-        self.client.get('/dashboard/')
-        self.ai_mocks['projects.views.generate_weekly_summary'].assert_called()
+        self.client.get("/dashboard/")
+        self.ai_mocks["projects.views.generate_weekly_summary"].assert_called()
 
 
 class PlannerGetFallthroughTest(DemoModeTestCase):
     """Both views used to fall through to an implicit `return None` on GET."""
 
     def test_review_get_redirects_to_start(self):
-        response = self.client.get(reverse('planner_review'))
-        self.assertRedirects(response, reverse('planner_start'))
+        response = self.client.get(reverse("planner_review"))
+        self.assertRedirects(response, reverse("planner_start"))
 
     def test_create_get_redirects_to_start(self):
-        response = self.client.get(reverse('planner_create'))
-        self.assertRedirects(response, reverse('planner_start'))
+        response = self.client.get(reverse("planner_create"))
+        self.assertRedirects(response, reverse("planner_start"))
 
     def test_questions_route_is_gone(self):
         # Literal path: the URL name no longer exists, so reverse() cannot be used.
-        self.assertEqual(self.client.get('/planner/questions/').status_code, 404)
+        self.assertEqual(self.client.get("/planner/questions/").status_code, 404)
 
 
 class PlannerReviewHappyPathTest(DemoModeTestCase):
@@ -240,12 +251,15 @@ class PlannerReviewHappyPathTest(DemoModeTestCase):
     this guards against a stub/view mismatch regressing that silently."""
 
     def test_post_renders_the_generated_plan(self):
-        response = self.client.post(reverse('planner_review'), data={
-            'description': 'Konzert am 5. September 2026',
-            'answers': 'keine weiteren Angaben',
-        })
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Testkonzert')
+        self.assertContains(response, "Testkonzert")
 
 
 class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
@@ -255,19 +269,22 @@ class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
 
     def test_all_summary_versions_are_cleared(self):
         session = self.client.session
-        session['demo_plan_summary_v3_today'] = '<p>alt</p>'
-        session[f'{SUMMARY_KEY}_today'] = '<p>aktuell</p>'
+        session["demo_plan_summary_v3_today"] = "<p>alt</p>"
+        session[f"{SUMMARY_KEY}_today"] = "<p>aktuell</p>"
         session.save()
-        self.client.post(reverse('planner_create'), data={
-            'description': 'Konzert am 5. September',
-            'project_name': 'Sommerkonzert',
-            'event_date': (date.today() + timedelta(days=30)).isoformat(),
-            'task_name': ['Programm festlegen'],
-            'task_date': [(date.today() + timedelta(days=7)).isoformat()],
-            'task_kontext': ['Planung'],
-        })
-        self.assertNotIn('demo_plan_summary_v3_today', self.client.session)
-        self.assertNotIn(f'{SUMMARY_KEY}_today', self.client.session)
+        self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert am 5. September",
+                "project_name": "Sommerkonzert",
+                "event_date": (date.today() + timedelta(days=30)).isoformat(),
+                "task_name": ["Programm festlegen"],
+                "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+                "task_kontext": ["Planung"],
+            },
+        )
+        self.assertNotIn("demo_plan_summary_v3_today", self.client.session)
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
 class PlannerStartAiFailureTest(DemoModeTestCase):
@@ -275,14 +292,19 @@ class PlannerStartAiFailureTest(DemoModeTestCase):
     failure here 500'd before the visitor ever saw the questions step."""
 
     def test_shows_a_german_error_and_keeps_the_description(self):
-        self.ai_mocks['projects.planner_views.get_clarifying_questions'].side_effect = AIUnavailableError('boom')
-        response = self.client.post(reverse('planner_start'), data={
-            'description': 'Konzert am 5. September',
-        })
+        self.ai_mocks[
+            "projects.planner_views.get_clarifying_questions"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_start"),
+            data={
+                "description": "Konzert am 5. September",
+            },
+        )
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, 'projects/planner_start.html')
-        self.assertContains(response, 'Konzert am 5. September')
-        self.assertContains(response, 'nicht erstellt werden')
+        self.assertTemplateUsed(response, "projects/planner_start.html")
+        self.assertContains(response, "Konzert am 5. September")
+        self.assertContains(response, "nicht erstellt werden")
 
 
 class PlannerReviewAiFailureTest(DemoModeTestCase):
@@ -292,16 +314,21 @@ class PlannerReviewAiFailureTest(DemoModeTestCase):
     already typed two rounds of input (description, then answers)."""
 
     def test_shows_a_german_error_and_keeps_description_and_answers(self):
-        self.ai_mocks['projects.planner_views.generate_plan'].side_effect = AIUnavailableError('boom')
-        response = self.client.post(reverse('planner_review'), data={
-            'description': 'Konzert am 5. September',
-            'answers': '20 Gäste, in der Kirche',
-        })
+        self.ai_mocks[
+            "projects.planner_views.generate_plan"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September",
+                "answers": "20 Gäste, in der Kirche",
+            },
+        )
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, 'projects/planner_questions.html')
-        self.assertContains(response, 'Konzert am 5. September')
-        self.assertContains(response, '20 Gäste, in der Kirche')
-        self.assertContains(response, 'nicht erstellt werden')
+        self.assertTemplateUsed(response, "projects/planner_questions.html")
+        self.assertContains(response, "Konzert am 5. September")
+        self.assertContains(response, "20 Gäste, in der Kirche")
+        self.assertContains(response, "nicht erstellt werden")
 
 
 class DashboardAiFailureTest(DemoModeTestCase):
@@ -311,24 +338,30 @@ class DashboardAiFailureTest(DemoModeTestCase):
     can't."""
 
     def test_multi_project_dashboard_degrades_without_a_summary(self):
-        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
-        response = self.client.get(reverse('dashboard'))
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'nicht verfügbar')
+        self.assertContains(response, "nicht verfügbar")
 
     def test_session_plan_dashboard_degrades_without_a_summary(self):
         self.given_session_plan()
-        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
-        response = self.client.get(reverse('dashboard'))
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'nicht verfügbar')
+        self.assertContains(response, "nicht verfügbar")
 
     def test_a_failure_is_not_cached_as_a_summary(self):
         """A later, healthy request must retry rather than replay a blank."""
         self.given_session_plan()
-        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
-        self.client.get(reverse('dashboard'))
-        self.assertNotIn(f'{SUMMARY_KEY}_today', self.client.session)
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        self.client.get(reverse("dashboard"))
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
 class SummarySessionCacheTest(DemoModeTestCase):
@@ -338,22 +371,24 @@ class SummarySessionCacheTest(DemoModeTestCase):
 
     def test_a_successful_summary_is_cached_under_the_current_key(self):
         self.given_session_plan()
-        self.client.get(reverse('dashboard'))
-        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
+        self.client.get(reverse("dashboard"))
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
     def test_my_plan_reads_and_writes_the_same_key(self):
         self.given_session_plan()
-        self.client.get(reverse('my_plan'))
-        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
+        self.client.get(reverse("my_plan"))
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
 class MyPlanAiFailureTest(DemoModeTestCase):
     def test_my_plan_degrades_without_a_summary(self):
         self.given_session_plan()
-        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
-        response = self.client.get(reverse('my_plan'))
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.get(reverse("my_plan"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'nicht verfügbar')
+        self.assertContains(response, "nicht verfügbar")
 
 
 class PreloadAiFailureTest(DemoModeTestCase):
@@ -361,15 +396,17 @@ class PreloadAiFailureTest(DemoModeTestCase):
         self.given_session_plan()
         moment = (date.today() + timedelta(days=5)).isoformat()
         self.given_timelapse_moments(moment)
-        self.ai_mocks['projects.views.generate_weekly_summary'].side_effect = AIUnavailableError('boom')
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
         response = self.client.post(
-            reverse('preload_timelapse_summary'),
+            reverse("preload_timelapse_summary"),
             data=f'{{"date": "{moment}"}}',
-            content_type='application/json',
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'ok': False})
-        self.assertNotIn(f'{SUMMARY_KEY}_{moment}', self.client.session)
+        self.assertEqual(response.json(), {"ok": False})
+        self.assertNotIn(f"{SUMMARY_KEY}_{moment}", self.client.session)
 
 
 class TimelapseValidationTest(DemoModeTestCase):
@@ -377,16 +414,16 @@ class TimelapseValidationTest(DemoModeTestCase):
 
     def post_date(self, body):
         return self.client.post(
-            reverse('set_timelapse_date'), data=body, content_type='application/json'
+            reverse("set_timelapse_date"), data=body, content_type="application/json"
         )
 
     def test_invalid_date_is_rejected(self):
         response = self.post_date('{"date": "kaputt"}')
         self.assertEqual(response.status_code, 400)
-        self.assertNotIn('demo_sim_date', self.client.session)
+        self.assertNotIn("demo_sim_date", self.client.session)
 
     def test_malformed_json_is_rejected(self):
-        response = self.post_date('{')
+        response = self.post_date("{")
         self.assertEqual(response.status_code, 400)
 
     def test_valid_date_is_stored(self):
@@ -394,7 +431,7 @@ class TimelapseValidationTest(DemoModeTestCase):
         self.given_timelapse_moments(sim_date)
         response = self.post_date(f'{{"date": "{sim_date}"}}')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.client.session['demo_sim_date'], sim_date)
+        self.assertEqual(self.client.session["demo_sim_date"], sim_date)
 
     def test_empty_date_clears_the_session(self):
         today = date.today().isoformat()
@@ -402,7 +439,7 @@ class TimelapseValidationTest(DemoModeTestCase):
         self.post_date(f'{{"date": "{today}"}}')
         response = self.post_date('{"date": null}')
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn('demo_sim_date', self.client.session)
+        self.assertNotIn("demo_sim_date", self.client.session)
 
     @override_settings(DEMO_MODE=False)
     def test_unavailable_outside_demo_mode(self):
@@ -410,17 +447,17 @@ class TimelapseValidationTest(DemoModeTestCase):
 
     def test_preload_rejects_invalid_date(self):
         response = self.client.post(
-            reverse('preload_timelapse_summary'),
+            reverse("preload_timelapse_summary"),
             data='{"date": "kaputt"}',
-            content_type='application/json',
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
 
     def test_preload_rejects_malformed_json(self):
         response = self.client.post(
-            reverse('preload_timelapse_summary'),
-            data='{',
-            content_type='application/json',
+            reverse("preload_timelapse_summary"),
+            data="{",
+            content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
 
@@ -431,44 +468,50 @@ class SimDateIsRestrictedToGeneratedMomentsTest(DemoModeTestCase):
 
     def post_date(self, url_name, raw):
         return self.client.post(
-            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+            reverse(url_name),
+            data=f'{{"date": "{raw}"}}',
+            content_type="application/json",
         )
 
     def test_well_formed_date_outside_the_moments_is_rejected(self):
         self.given_timelapse_moments((date.today() + timedelta(days=5)).isoformat())
         other = (date.today() + timedelta(days=6)).isoformat()
-        self.assertEqual(self.post_date('set_timelapse_date', other).status_code, 400)
-        self.assertNotIn('demo_sim_date', self.client.session)
+        self.assertEqual(self.post_date("set_timelapse_date", other).status_code, 400)
+        self.assertNotIn("demo_sim_date", self.client.session)
 
     def test_far_future_date_is_rejected(self):
         self.given_timelapse_moments(date.today().isoformat())
-        self.assertEqual(self.post_date('set_timelapse_date', '9999-12-31').status_code, 400)
+        self.assertEqual(
+            self.post_date("set_timelapse_date", "9999-12-31").status_code, 400
+        )
 
     def test_no_moments_means_no_date_is_accepted(self):
         sim_date = (date.today() + timedelta(days=5)).isoformat()
-        self.assertEqual(self.post_date('set_timelapse_date', sim_date).status_code, 400)
+        self.assertEqual(
+            self.post_date("set_timelapse_date", sim_date).status_code, 400
+        )
 
     def test_preload_spends_no_api_call_on_an_unlisted_date(self):
         self.given_session_plan()
         self.given_timelapse_moments(date.today().isoformat())
         unlisted = (date.today() + timedelta(days=99)).isoformat()
-        response = self.post_date('preload_timelapse_summary', unlisted)
+        response = self.post_date("preload_timelapse_summary", unlisted)
         self.assertEqual(response.status_code, 400)
-        self.ai_mocks['projects.views.generate_weekly_summary'].assert_not_called()
+        self.ai_mocks["projects.views.generate_weekly_summary"].assert_not_called()
 
     def test_preload_accepts_a_listed_date(self):
         moment = (date.today() + timedelta(days=5)).isoformat()
         self.given_session_plan()
         self.given_timelapse_moments(moment)
-        response = self.post_date('preload_timelapse_summary', moment)
+        response = self.post_date("preload_timelapse_summary", moment)
         self.assertEqual(response.status_code, 200)
-        self.ai_mocks['projects.views.generate_weekly_summary'].assert_called()
+        self.ai_mocks["projects.views.generate_weekly_summary"].assert_called()
 
     def test_replanning_invalidates_the_old_moments(self):
         old = (date.today() + timedelta(days=5)).isoformat()
         self.given_timelapse_moments(old)
         self.given_timelapse_moments((date.today() + timedelta(days=9)).isoformat())
-        self.assertEqual(self.post_date('set_timelapse_date', old).status_code, 400)
+        self.assertEqual(self.post_date("set_timelapse_date", old).status_code, 400)
 
 
 class UnparseableMomentDateTest(DemoModeTestCase):
@@ -477,29 +520,35 @@ class UnparseableMomentDateTest(DemoModeTestCase):
 
     def post_date(self, url_name, raw):
         return self.client.post(
-            reverse(url_name), data=f'{{"date": "{raw}"}}', content_type='application/json'
+            reverse(url_name),
+            data=f'{{"date": "{raw}"}}',
+            content_type="application/json",
         )
 
     def test_wrong_format_is_not_written_to_the_session(self):
-        self.given_timelapse_moments('05.09.2026')
-        self.assertEqual(self.post_date('set_timelapse_date', '05.09.2026').status_code, 400)
-        self.assertNotIn('demo_sim_date', self.client.session)
+        self.given_timelapse_moments("05.09.2026")
+        self.assertEqual(
+            self.post_date("set_timelapse_date", "05.09.2026").status_code, 400
+        )
+        self.assertNotIn("demo_sim_date", self.client.session)
 
     def test_impossible_day_does_not_reach_fromisoformat(self):
         self.given_session_plan()
-        self.given_timelapse_moments('2026-02-30')
-        self.assertEqual(self.post_date('preload_timelapse_summary', '2026-02-30').status_code, 400)
+        self.given_timelapse_moments("2026-02-30")
+        self.assertEqual(
+            self.post_date("preload_timelapse_summary", "2026-02-30").status_code, 400
+        )
 
 
 class MalformedPayloadTest(DemoModeTestCase):
     """Valid JSON of the wrong shape must be a 400, not an unhandled exception.
     Both endpoints are unauthenticated on the public demo."""
 
-    URL_NAMES = ('set_timelapse_date', 'preload_timelapse_summary')
+    URL_NAMES = ("set_timelapse_date", "preload_timelapse_summary")
 
     def post_body(self, url_name, body):
         return self.client.post(
-            reverse(url_name), data=body, content_type='application/json'
+            reverse(url_name), data=body, content_type="application/json"
         )
 
     def assert_rejects(self, body):
@@ -516,12 +565,12 @@ class MalformedPayloadTest(DemoModeTestCase):
         self.assert_rejects('{"date": 20260905}')
 
     def test_body_that_is_not_an_object_is_rejected(self):
-        for body in ('null', '[]', '"2026-09-05"', '5'):
+        for body in ("null", "[]", '"2026-09-05"', "5"):
             self.assert_rejects(body)
 
     def test_unhashable_moment_in_the_session_does_not_break_the_allowlist(self):
         session = self.client.session
-        session['demo_timelapse_moments'] = [{'date': ['2026-09-05']}, {'date': None}]
+        session["demo_timelapse_moments"] = [{"date": ["2026-09-05"]}, {"date": None}]
         session.save()
         self.assert_rejects('{"date": "2026-09-05"}')
 
@@ -531,19 +580,19 @@ class PoisonedSessionHealingTest(DemoModeTestCase):
 
     def poison(self):
         session = self.client.session
-        session['demo_sim_date'] = 'kaputt'
+        session["demo_sim_date"] = "kaputt"
         session.save()
 
     def test_dashboard_renders_and_clears_the_bad_value(self):
         self.given_session_plan()
         self.poison()
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertNotIn('demo_sim_date', self.client.session)
+        self.assertNotIn("demo_sim_date", self.client.session)
 
     def test_dashboard_renders_without_a_session_plan(self):
         self.poison()
-        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 200)
+        self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
 
 
 class MultiViewSidebarLinkTest(DemoModeTestCase):
@@ -552,15 +601,15 @@ class MultiViewSidebarLinkTest(DemoModeTestCase):
     even when no plan had ever been generated in this session."""
 
     def test_shows_create_link_without_a_session_plan(self):
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertContains(response, 'Projekt selbst planen')
-        self.assertNotContains(response, 'Mein Plan')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Projekt selbst planen")
+        self.assertNotContains(response, "Mein Plan")
 
     def test_shows_mein_plan_link_with_a_session_plan(self):
         self.given_session_plan()
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertContains(response, 'Mein Plan')
-        self.assertNotContains(response, 'Projekt selbst planen')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Mein Plan")
+        self.assertNotContains(response, "Projekt selbst planen")
 
 
 class MultiViewSimDateTest(DemoModeTestCase):
@@ -571,7 +620,7 @@ class MultiViewSimDateTest(DemoModeTestCase):
     def given_sim_date(self, sim_date):
         """Writes the value straight into the session, the way set_timelapse_date does."""
         session = self.client.session
-        session['demo_sim_date'] = sim_date.isoformat()
+        session["demo_sim_date"] = sim_date.isoformat()
         session.save()
 
     def given_plan_in_the_future(self):
@@ -584,40 +633,44 @@ class MultiViewSimDateTest(DemoModeTestCase):
     def multi_tasks(self, response):
         return [
             task
-            for group in response.context['month_groups']
-            for project in group['projects']
-            for task in project['tasks']
+            for group in response.context["month_groups"]
+            for project in group["projects"]
+            for task in project["tasks"]
         ]
 
     def test_a_future_task_is_not_overdue(self):
         self.given_plan_in_the_future()
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
-        future = [t for t in self.multi_tasks(response) if t['due'] and t['due'] > date.today()]
-        self.assertTrue(future, 'the fixtures should carry tasks that are still due')
-        self.assertEqual([t for t in future if t['urgency'] == 'overdue'], [])
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        future = [
+            t
+            for t in self.multi_tasks(response)
+            if t["due"] and t["due"] > date.today()
+        ]
+        self.assertTrue(future, "the fixtures should carry tasks that are still due")
+        self.assertEqual([t for t in future if t["urgency"] == "overdue"], [])
 
     def test_the_summary_is_generated_for_the_real_today(self):
         """A fix that only corrects the classification would leave the AI card
         narrating the simulated date — the contradiction the issue observed."""
         self.given_plan_in_the_future()
-        self.client.get(reverse('dashboard') + '?mode=multi')
-        call = self.ai_mocks['projects.views.generate_weekly_summary'].call_args
+        self.client.get(reverse("dashboard") + "?mode=multi")
+        call = self.ai_mocks["projects.views.generate_weekly_summary"].call_args
         self.assertEqual(call[0][1], date.today())
 
     def test_no_simulation_banner_and_no_simulation_label(self):
         self.given_plan_in_the_future()
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertNotContains(response, 'Simulierter Zeitpunkt')
-        self.assertNotContains(response, 'KI-Simulation')
-        self.assertContains(response, 'KI-Wochenübersicht')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertNotContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, "KI-Simulation")
+        self.assertContains(response, "KI-Wochenübersicht")
 
     def test_the_simulated_date_survives_the_detour(self):
         """The simulation belongs to the visitor's plan, so a look at the example
         projects scopes it out rather than resetting it."""
         self.given_plan_in_the_future()
-        self.client.get(reverse('dashboard') + '?mode=multi')
-        response = self.client.get(reverse('dashboard'))
-        self.assertContains(response, 'Simulierter Zeitpunkt')
+        self.client.get(reverse("dashboard") + "?mode=multi")
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Simulierter Zeitpunkt")
 
 
 class MultiViewSummaryCacheTest(DemoModeTestCase):
@@ -628,38 +681,42 @@ class MultiViewSummaryCacheTest(DemoModeTestCase):
 
     @property
     def summary_mock(self):
-        return self.ai_mocks['projects.views.generate_weekly_summary']
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
 
     def test_claude_is_called_once_for_repeated_visits(self):
-        self.client.get(reverse('dashboard') + '?mode=multi')
-        self.client.get(reverse('dashboard') + '?mode=multi')
+        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertEqual(self.summary_mock.call_count, 1)
 
     def test_the_second_visit_still_renders_the_summary(self):
-        """"Called once" must not be bought with a blank AI card."""
-        self.client.get(reverse('dashboard') + '?mode=multi')
-        second = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertContains(second, 'Test summary')
+        """ "Called once" must not be bought with a blank AI card."""
+        self.client.get(reverse("dashboard") + "?mode=multi")
+        second = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(second, "Test summary")
 
     def test_the_summary_is_cached_under_the_current_key(self):
         """Without this, a key bump would leave the tests above vacuously green."""
-        self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertIsNotNone(cache.get(f'{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}'))
+        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertIsNotNone(
+            cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
+        )
 
     def test_a_failure_is_not_cached(self):
-        self.summary_mock.side_effect = AIUnavailableError('boom')
-        first = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertContains(first, 'nicht verfügbar')
+        self.summary_mock.side_effect = AIUnavailableError("boom")
+        first = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(first, "nicht verfügbar")
         self.summary_mock.side_effect = None
-        second = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertContains(second, 'Test summary')
+        second = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(second, "Test summary")
 
     def test_the_single_plan_view_does_not_use_the_multi_cache(self):
         """The visitor's own plan is per-session data and stays in the session."""
         self.given_session_plan()
-        self.client.get(reverse('dashboard'))
-        self.assertIsNone(cache.get(f'{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}'))
-        self.assertIn(f'{SUMMARY_KEY}_today', self.client.session)
+        self.client.get(reverse("dashboard"))
+        self.assertIsNone(
+            cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
+        )
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
 class TemplateCommentTest(DemoModeTestCase):
@@ -670,15 +727,17 @@ class TemplateCommentTest(DemoModeTestCase):
     markup, which only the task rows render."""
 
     def assertNoLeakedComment(self, response):
-        for marker in ('{#', '#}'):
+        for marker in ("{#", "#}"):
             self.assertNotContains(response, marker)
 
     def test_the_multi_view_renders_no_template_comment(self):
-        self.assertNoLeakedComment(self.client.get(reverse('dashboard') + '?mode=multi'))
+        self.assertNoLeakedComment(
+            self.client.get(reverse("dashboard") + "?mode=multi")
+        )
 
     def test_the_single_plan_view_renders_no_template_comment(self):
         self.given_session_plan()
-        self.assertNoLeakedComment(self.client.get(reverse('dashboard')))
+        self.assertNoLeakedComment(self.client.get(reverse("dashboard")))
 
 
 class KontextBadgeTest(DemoModeTestCase):
@@ -695,36 +754,39 @@ class KontextBadgeTest(DemoModeTestCase):
     def test_the_multi_view_renders_a_derived_kontext_as_a_word(self):
         # "Abendkasse organisieren" is an example project task; _annotate_tasks
         # fills its empty kontext from derive_kontext, which returns a list.
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
-        self.assertRendersBadge(response, 'Kommunikation')
-        self.assertNotContains(response, '[&#x27;')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertRendersBadge(response, "Kommunikation")
+        self.assertNotContains(response, "[&#x27;")
 
     def test_the_single_plan_view_renders_a_kontext_as_a_word(self):
         # Passes before the fix too: the dashboard printed the string builder's
         # value unindexed. It pins that the fix does not break the other shape.
         self.given_session_plan()
-        self.assertRendersBadge(self.client.get(reverse('dashboard')), 'Planung')
+        self.assertRendersBadge(self.client.get(reverse("dashboard")), "Planung")
 
     def test_my_plan_renders_a_kontext_as_a_word(self):
         self.given_session_plan()
-        self.assertRendersBadge(self.client.get(reverse('my_plan')), 'Planung')
+        self.assertRendersBadge(self.client.get(reverse("my_plan")), "Planung")
 
 
 # --- Unit tests for the logic that is not a view ---
 
+
 class DeriveKontextTest(SimpleTestCase):
     def test_keyword_match_returns_its_kontext(self):
-        self.assertEqual(derive_kontext('GEMA-Meldung'), ['Büro'])
+        self.assertEqual(derive_kontext("GEMA-Meldung"), ["Büro"])
 
     def test_match_is_case_insensitive_and_partial(self):
-        self.assertEqual(derive_kontext('Heute noch das Programm festlegen'), ['Planung'])
+        self.assertEqual(
+            derive_kontext("Heute noch das Programm festlegen"), ["Planung"]
+        )
 
     def test_no_match_returns_empty(self):
-        self.assertEqual(derive_kontext('Irgendetwas Unbekanntes'), [])
+        self.assertEqual(derive_kontext("Irgendetwas Unbekanntes"), [])
 
     def test_returns_a_list_not_a_string(self):
         """_annotate_tasks writes this into a field that otherwise holds a string. See #9."""
-        self.assertIsInstance(derive_kontext('GEMA-Meldung'), list)
+        self.assertIsInstance(derive_kontext("GEMA-Meldung"), list)
 
 
 class ValidMomentsTest(SimpleTestCase):
@@ -732,170 +794,181 @@ class ValidMomentsTest(SimpleTestCase):
     allowlist and are parsed back later, so they cannot be taken on trust."""
 
     def test_well_formed_moments_survive_untouched(self):
-        moments = [{'date': '2026-09-05', 'label': 'Probe', 'description': 'Text'}]
+        moments = [{"date": "2026-09-05", "label": "Probe", "description": "Text"}]
         self.assertEqual(_valid_moments(moments), moments)
 
     def test_unparseable_date_is_dropped(self):
-        self.assertEqual(_valid_moments([{'date': '05.09.2026', 'label': 'Probe'}]), [])
+        self.assertEqual(_valid_moments([{"date": "05.09.2026", "label": "Probe"}]), [])
 
     def test_impossible_day_is_dropped(self):
-        self.assertEqual(_valid_moments([{'date': '2026-02-30'}]), [])
+        self.assertEqual(_valid_moments([{"date": "2026-02-30"}]), [])
 
     def test_non_string_date_is_dropped(self):
-        self.assertEqual(_valid_moments([{'date': None}, {'date': ['2026-09-05']}]), [])
+        self.assertEqual(_valid_moments([{"date": None}, {"date": ["2026-09-05"]}]), [])
 
     def test_moment_without_a_date_is_dropped(self):
-        self.assertEqual(_valid_moments([{'label': 'Probe'}, 'nonsense']), [])
+        self.assertEqual(_valid_moments([{"label": "Probe"}, "nonsense"]), [])
 
     def test_parseable_date_is_normalised(self):
         """date.fromisoformat also takes the basic and week forms, which the dashboard
         JS cannot — it builds `date + 'T12:00:00'`. Rewrite them rather than drop them."""
         self.assertEqual(
-            _valid_moments([{'date': '20260905', 'label': 'Probe'}]),
-            [{'date': '2026-09-05', 'label': 'Probe'}],
+            _valid_moments([{"date": "20260905", "label": "Probe"}]),
+            [{"date": "2026-09-05", "label": "Probe"}],
         )
-        self.assertEqual(_valid_moments([{'date': '2026-W36-6'}]), [{'date': '2026-09-05'}])
+        self.assertEqual(
+            _valid_moments([{"date": "2026-W36-6"}]), [{"date": "2026-09-05"}]
+        )
 
     def test_datetime_string_is_dropped(self):
-        self.assertEqual(_valid_moments([{'date': '2026-09-05T10:00:00'}]), [])
+        self.assertEqual(_valid_moments([{"date": "2026-09-05T10:00:00"}]), [])
 
     def test_good_moments_are_kept_when_a_sibling_is_dropped(self):
-        result = _valid_moments([{'date': 'kaputt'}, {'date': '2026-09-05'}])
-        self.assertEqual(result, [{'date': '2026-09-05'}])
+        result = _valid_moments([{"date": "kaputt"}, {"date": "2026-09-05"}])
+        self.assertEqual(result, [{"date": "2026-09-05"}])
 
     def test_a_non_list_response_yields_no_moments(self):
-        self.assertEqual(_valid_moments({'date': '2026-09-05'}), [])
+        self.assertEqual(_valid_moments({"date": "2026-09-05"}), [])
         self.assertEqual(_valid_moments(None), [])
 
 
 class ParseEventDateTest(SimpleTestCase):
     def test_explicit_year_is_used(self):
         self.assertEqual(
-            _parse_event_date('Konzert am 5. September 2026'), date(2026, 9, 5)
+            _parse_event_date("Konzert am 5. September 2026"), date(2026, 9, 5)
         )
 
     def test_without_year_returns_the_next_occurrence(self):
-        result = _parse_event_date('Konzert am 5. September')
+        result = _parse_event_date("Konzert am 5. September")
         self.assertEqual((result.month, result.day), (9, 5))
         self.assertGreater(result, date.today())
         self.assertLessEqual((result - date.today()).days, 366)
 
     def test_impossible_day_returns_none(self):
-        self.assertIsNone(_parse_event_date('Konzert am 31. Februar 2026'))
+        self.assertIsNone(_parse_event_date("Konzert am 31. Februar 2026"))
 
     def test_unknown_month_returns_none(self):
-        self.assertIsNone(_parse_event_date('Konzert am 5. Smarch 2026'))
+        self.assertIsNone(_parse_event_date("Konzert am 5. Smarch 2026"))
 
     def test_no_date_returns_none(self):
-        self.assertIsNone(_parse_event_date('Konzert irgendwann im Herbst'))
+        self.assertIsNone(_parse_event_date("Konzert irgendwann im Herbst"))
 
 
 class AnnotateTasksTest(SimpleTestCase):
     TODAY = date(2026, 6, 15)
 
     def annotate(self, *tasks):
-        project = {'tasks': [
-            {'name': 'Aufgabe', 'kontext': 'Büro', 'done': False, 'due': None, **t}
-            for t in tasks
-        ]}
+        project = {
+            "tasks": [
+                {"name": "Aufgabe", "kontext": "Büro", "done": False, "due": None, **t}
+                for t in tasks
+            ]
+        }
         return _annotate_tasks([project], self.TODAY)[0]
 
     def urgency_for(self, **task):
-        return self.annotate(task)['tasks'][0]['urgency']
+        return self.annotate(task)["tasks"][0]["urgency"]
 
     def test_done_task_is_done(self):
-        self.assertEqual(self.urgency_for(done=True, due=self.TODAY - timedelta(days=1)), 'done')
+        self.assertEqual(
+            self.urgency_for(done=True, due=self.TODAY - timedelta(days=1)), "done"
+        )
 
     def test_task_without_due_date_is_done(self):
-        self.assertEqual(self.urgency_for(due=None), 'done')
+        self.assertEqual(self.urgency_for(due=None), "done")
 
     def test_past_due_is_overdue(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY - timedelta(days=1)), 'overdue')
+        self.assertEqual(
+            self.urgency_for(due=self.TODAY - timedelta(days=1)), "overdue"
+        )
 
     def test_today_is_urgent(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY), 'urgent')
+        self.assertEqual(self.urgency_for(due=self.TODAY), "urgent")
 
     def test_seven_days_out_is_still_urgent(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), 'urgent')
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), "urgent")
 
     def test_eight_days_out_is_ok(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=8)), 'ok')
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=8)), "ok")
 
     def test_overdue_beats_urgent_on_the_project(self):
         project = self.annotate(
-            {'due': self.TODAY + timedelta(days=2)},
-            {'due': self.TODAY - timedelta(days=2)},
+            {"due": self.TODAY + timedelta(days=2)},
+            {"due": self.TODAY - timedelta(days=2)},
         )
-        self.assertEqual(project['urgency'], 'overdue')
+        self.assertEqual(project["urgency"], "overdue")
 
     def test_project_without_open_work_stays_ok(self):
-        project = self.annotate({'due': self.TODAY + timedelta(days=30)})
-        self.assertEqual(project['urgency'], 'ok')
+        project = self.annotate({"due": self.TODAY + timedelta(days=30)})
+        self.assertEqual(project["urgency"], "ok")
 
     def test_due_display_is_formatted_german(self):
-        task = self.annotate({'due': date(2026, 6, 15)})['tasks'][0]
-        self.assertEqual(task['due_display'], 'Mo, 15. Juni')
+        task = self.annotate({"due": date(2026, 6, 15)})["tasks"][0]
+        self.assertEqual(task["due_display"], "Mo, 15. Juni")
 
     def test_empty_kontext_is_derived_from_the_name(self):
-        task = self.annotate({'name': 'GEMA-Meldung', 'kontext': ''})['tasks'][0]
-        self.assertEqual(task['kontext'], ['Büro'])
+        task = self.annotate({"name": "GEMA-Meldung", "kontext": ""})["tasks"][0]
+        self.assertEqual(task["kontext"], ["Büro"])
 
 
 class FixAiMarkdownTest(SimpleTestCase):
     """Claude returns task lines under a project bullet without list markers."""
 
     def test_continuation_lines_become_sub_bullets(self):
-        result = _fix_ai_markdown('- **Konzert**\nPlakate aushängen')
-        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+        result = _fix_ai_markdown("- **Konzert**\nPlakate aushängen")
+        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
 
     def test_blank_lines_inside_a_block_are_dropped(self):
-        result = _fix_ai_markdown('- **Konzert**\n\nPlakate aushängen')
-        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+        result = _fix_ai_markdown("- **Konzert**\n\nPlakate aushängen")
+        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
 
     def test_existing_list_markers_are_left_alone(self):
-        result = _fix_ai_markdown('- **Konzert**\n- Plakate aushängen')
-        self.assertEqual(result, '- **Konzert**\n- Plakate aushängen')
+        result = _fix_ai_markdown("- **Konzert**\n- Plakate aushängen")
+        self.assertEqual(result, "- **Konzert**\n- Plakate aushängen")
 
     def test_horizontal_rule_ends_the_block(self):
         """A boundary glued to the last task line would be lazily continued
         into the list by Markdown — a blank line is restored before it."""
-        result = _fix_ai_markdown('- **Konzert**\n---\nFreier Text')
-        self.assertEqual(result, '- **Konzert**\n\n---\nFreier Text')
+        result = _fix_ai_markdown("- **Konzert**\n---\nFreier Text")
+        self.assertEqual(result, "- **Konzert**\n\n---\nFreier Text")
 
     def test_bold_line_ends_the_block(self):
-        result = _fix_ai_markdown('- **Konzert**\n**Hinweis**\nFreier Text')
-        self.assertEqual(result, '- **Konzert**\n\n**Hinweis**\nFreier Text')
+        result = _fix_ai_markdown("- **Konzert**\n**Hinweis**\nFreier Text")
+        self.assertEqual(result, "- **Konzert**\n\n**Hinweis**\nFreier Text")
 
     def test_text_outside_a_block_is_untouched(self):
-        self.assertEqual(_fix_ai_markdown('Nur ein Satz.'), 'Nur ein Satz.')
+        self.assertEqual(_fix_ai_markdown("Nur ein Satz."), "Nur ein Satz.")
 
     def test_section_header_keeps_its_blank_line(self):
         """A '##' header after a project block used to lose the blank line that
         makes it a header, so Markdown rendered it as list content and the
         summary showed an unexplained gap. See #20.
         """
-        text = '- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen'
+        text = "- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen"
         self.assertEqual(_fix_ai_markdown(text), text)
 
     def test_section_header_ends_the_block(self):
         """'#' must reset in_project — text after the header is not a sub-task."""
-        result = _fix_ai_markdown('- **Konzert**\nPlakate aushängen\n## Nächste Woche\nFreier Text')
+        result = _fix_ai_markdown(
+            "- **Konzert**\nPlakate aushängen\n## Nächste Woche\nFreier Text"
+        )
         self.assertEqual(
-            result, '- **Konzert**\n    - Plakate aushängen\n\n## Nächste Woche\nFreier Text'
+            result,
+            "- **Konzert**\n    - Plakate aushängen\n\n## Nächste Woche\nFreier Text",
         )
 
     def test_shallow_sub_task_indent_is_deepened_to_nest(self):
         """python-markdown nests a sub-list at four spaces of indent; the two
         the model tends to emit leave every sub-task a flat sibling li."""
-        result = _fix_ai_markdown('- **Konzert**\n  - Plakate aushängen')
-        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+        result = _fix_ai_markdown("- **Konzert**\n  - Plakate aushängen")
+        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
 
     def test_four_space_indent_is_left_alone(self):
-        result = _fix_ai_markdown('- **Konzert**\n    - Plakate aushängen')
-        self.assertEqual(result, '- **Konzert**\n    - Plakate aushängen')
+        result = _fix_ai_markdown("- **Konzert**\n    - Plakate aushängen")
+        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
 
     def test_shallow_indent_outside_a_block_is_untouched(self):
-        self.assertEqual(_fix_ai_markdown('  - Notiz'), '  - Notiz')
+        self.assertEqual(_fix_ai_markdown("  - Notiz"), "  - Notiz")
 
     def test_new_format_reply_renders_headers_and_nested_lists(self):
         """The whole pipeline: a reply in the ## format (see build_prompt)
@@ -903,29 +976,32 @@ class FixAiMarkdownTest(SimpleTestCase):
         lists — not a <p><strong> next to an invisible <hr>. See #20."""
         # Suppressed rather than turned into the f-string the rule wants: this
         # fixture is Markdown, and one line per line is what keeps it readable.
-        reply = '\n'.join([  # noqa: FLY002
-            '## Jetzt fällig',
-            '',
-            '- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:',
-            '  - Plakate aushängen',
-            '  - GEMA-Meldung',
-            '',
-            '## Nächste Woche',
-            '',
-            '- **Herbstkonzert** — noch gut im Zeitplan:',
-            '  - Programm festlegen',
-        ])
+        reply = "\n".join(
+            [  # noqa: FLY002
+                "## Jetzt fällig",
+                "",
+                "- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:",
+                "  - Plakate aushängen",
+                "  - GEMA-Meldung",
+                "",
+                "## Nächste Woche",
+                "",
+                "- **Herbstkonzert** — noch gut im Zeitplan:",
+                "  - Programm festlegen",
+            ]
+        )
         html = markdown.markdown(_fix_ai_markdown(reply))
-        self.assertIn('<h2>Jetzt fällig</h2>', html)
-        self.assertIn('<h2>Nächste Woche</h2>', html)
-        self.assertNotIn('<hr', html)
-        self.assertNotIn('<p><strong>', html)
+        self.assertIn("<h2>Jetzt fällig</h2>", html)
+        self.assertIn("<h2>Nächste Woche</h2>", html)
+        self.assertNotIn("<hr", html)
+        self.assertNotIn("<p><strong>", html)
         # Two blocks, each an outer project list with a nested sub-task list.
-        self.assertEqual(html.count('<ul>'), 4)
-        self.assertIn('<li>Plakate aushängen</li>', html)
+        self.assertEqual(html.count("<ul>"), 4)
+        self.assertIn("<li>Plakate aushängen</li>", html)
 
 
 # --- #29: fail at startup, not at first request ---
+
 
 class RequiredApiKeysTest(SimpleTestCase):
     """wsgi.py calls require_api_keys() before serving a single request. This is
@@ -938,31 +1014,31 @@ class RequiredApiKeysTest(SimpleTestCase):
 
     def test_missing_anthropic_key_raises(self):
         with (
-            patch.dict(os.environ, {'NOTION_API_KEY': 'x'}, clear=True),
+            patch.dict(os.environ, {"NOTION_API_KEY": "x"}, clear=True),
             self.assertRaises(MissingAPIKeyError) as ctx,
         ):
             require_api_keys()
-        self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
+        self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
 
     @override_settings(DEMO_MODE=False)
     def test_missing_notion_key_raises_outside_demo_mode(self):
         with (
-            patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True),
+            patch.dict(os.environ, {"ANTHROPIC_API_KEY": "x"}, clear=True),
             self.assertRaises(MissingAPIKeyError) as ctx,
         ):
             require_api_keys()
-        self.assertIn('NOTION_API_KEY', str(ctx.exception))
+        self.assertIn("NOTION_API_KEY", str(ctx.exception))
 
     @override_settings(DEMO_MODE=True)
     def test_missing_notion_key_is_fine_in_demo_mode(self):
         # Demo mode never calls notion.py — get_upcoming_projects etc. are only
         # reached from the non-demo branch of every view that touches Notion.
-        with patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'x'}, clear=True):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "x"}, clear=True):
             require_api_keys()
 
     @override_settings(DEMO_MODE=False)
     def test_all_keys_present_is_fine(self):
-        env = {'ANTHROPIC_API_KEY': 'x', 'NOTION_API_KEY': 'y'}
+        env = {"ANTHROPIC_API_KEY": "x", "NOTION_API_KEY": "y"}
         with patch.dict(os.environ, env, clear=True):
             require_api_keys()
 
@@ -973,19 +1049,19 @@ class RequiredApiKeysTest(SimpleTestCase):
             self.assertRaises(MissingAPIKeyError) as ctx,
         ):
             require_api_keys()
-        self.assertIn('ANTHROPIC_API_KEY', str(ctx.exception))
-        self.assertIn('NOTION_API_KEY', str(ctx.exception))
+        self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
+        self.assertIn("NOTION_API_KEY", str(ctx.exception))
 
 
 def _anthropic_timeout_error():
-    request = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     return anthropic.APITimeoutError(request=request)
 
 
 def _anthropic_rate_limit_error():
-    request = httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, request=request)
-    return anthropic.RateLimitError('rate limited', response=response, body=None)
+    return anthropic.RateLimitError("rate limited", response=response, body=None)
 
 
 class AnthropicFailureTranslationTest(SimpleTestCase):
@@ -995,25 +1071,31 @@ class AnthropicFailureTranslationTest(SimpleTestCase):
     anthropic.* type directly."""
 
     def test_weekly_summary_translates_a_timeout(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
-            MockAnthropic.return_value.messages.stream.side_effect = _anthropic_timeout_error()
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.stream.side_effect = (
+                _anthropic_timeout_error()
+            )
             with self.assertRaises(AIUnavailableError):
                 generate_weekly_summary([], date.today())
 
     def test_weekly_summary_translates_a_rate_limit(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
-            MockAnthropic.return_value.messages.stream.side_effect = _anthropic_rate_limit_error()
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.stream.side_effect = (
+                _anthropic_rate_limit_error()
+            )
             with self.assertRaises(AIUnavailableError):
                 generate_weekly_summary([], date.today())
 
     def test_timelapse_moments_translates_a_failure(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
-            MockAnthropic.return_value.messages.create.side_effect = _anthropic_timeout_error()
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.side_effect = (
+                _anthropic_timeout_error()
+            )
             with self.assertRaises(AIUnavailableError):
-                generate_timelapse_moments('Test', date.today(), [])
+                generate_timelapse_moments("Test", date.today(), [])
 
     def test_original_exception_is_preserved_as_the_cause(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             timeout = _anthropic_timeout_error()
             MockAnthropic.return_value.messages.stream.side_effect = timeout
             with self.assertRaises(AIUnavailableError) as ctx:
@@ -1034,10 +1116,10 @@ class GeneratePlanRetryTest(SimpleTestCase):
     VALID = '{"project_name": "Testkonzert", "tasks": []}'
 
     def generate(self):
-        return generate_plan('Konzert am 5. September', 'keine weiteren Angaben', [])
+        return generate_plan("Konzert am 5. September", "keine weiteren Angaben", [])
 
     def test_returns_parsed_dict_on_first_valid_response(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
             create.return_value = _fake_response(self.VALID)
             result = self.generate()
@@ -1045,17 +1127,23 @@ class GeneratePlanRetryTest(SimpleTestCase):
         self.assertEqual(create.call_count, 1)
 
     def test_retries_once_on_invalid_json_then_succeeds(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
-            create.side_effect = [_fake_response('not json'), _fake_response(self.VALID)]
+            create.side_effect = [
+                _fake_response("not json"),
+                _fake_response(self.VALID),
+            ]
             result = self.generate()
         self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
         self.assertEqual(create.call_count, 2)
 
     def test_raises_ai_unavailable_after_a_second_invalid_response(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
-            create.side_effect = [_fake_response('not json'), _fake_response('still not json')]
+            create.side_effect = [
+                _fake_response("not json"),
+                _fake_response("still not json"),
+            ]
             with self.assertRaises(AIUnavailableError):
                 self.generate()
         self.assertEqual(create.call_count, 2)
@@ -1064,7 +1152,7 @@ class GeneratePlanRetryTest(SimpleTestCase):
         """A bare task array passes json.loads but would crash
         planner_review on plan.get() — it has to count as a bad response,
         not as a success (the third finding from PR #34's review)."""
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
             create.side_effect = [
                 _fake_response('[{"name": "Programm festlegen", "days_before": 30}]'),
@@ -1075,9 +1163,12 @@ class GeneratePlanRetryTest(SimpleTestCase):
         self.assertEqual(create.call_count, 2)
 
     def test_raises_ai_unavailable_after_a_second_non_object_response(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
-            create.side_effect = [_fake_response('[]'), _fake_response('"nur ein String"')]
+            create.side_effect = [
+                _fake_response("[]"),
+                _fake_response('"nur ein String"'),
+            ]
             with self.assertRaises(AIUnavailableError):
                 self.generate()
         self.assertEqual(create.call_count, 2)
@@ -1086,7 +1177,7 @@ class GeneratePlanRetryTest(SimpleTestCase):
         """A valid object that lacks the "tasks" key passes the dict check
         but would crash planner_review on plan['tasks'] — it has to count
         as a bad response too (the finding from PR #34's review)."""
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
             create.side_effect = [
                 _fake_response('{"project_name": "Testkonzert"}'),
@@ -1100,7 +1191,7 @@ class GeneratePlanRetryTest(SimpleTestCase):
         """The SDK already retried transport failures internally (see
         AnthropicFailureTranslationTest); a second attempt here would silently
         double that budget instead of surfacing the failure."""
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
             create.side_effect = _anthropic_timeout_error()
             with self.assertRaises(AIUnavailableError):
@@ -1108,24 +1199,30 @@ class GeneratePlanRetryTest(SimpleTestCase):
         self.assertEqual(create.call_count, 1)
 
     def test_fenced_response_is_still_parsed(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
+        with patch("anthropic.Anthropic") as MockAnthropic:
             create = MockAnthropic.return_value.messages.create
-            create.return_value = _fake_response(f'```json\n{self.VALID}\n```')
+            create.return_value = _fake_response(f"```json\n{self.VALID}\n```")
             result = self.generate()
         self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
 
 
 class GetClarifyingQuestionsTest(SimpleTestCase):
     def test_translates_an_sdk_failure(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
-            MockAnthropic.return_value.messages.create.side_effect = _anthropic_timeout_error()
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.side_effect = (
+                _anthropic_timeout_error()
+            )
             with self.assertRaises(AIUnavailableError):
-                get_clarifying_questions('Konzert am 5. September', [])
+                get_clarifying_questions("Konzert am 5. September", [])
 
     def test_returns_the_response_text_on_success(self):
-        with patch('anthropic.Anthropic') as MockAnthropic:
-            MockAnthropic.return_value.messages.create.return_value = _fake_response('Wie viele Gäste?')
-            self.assertEqual(get_clarifying_questions('Konzert', []), 'Wie viele Gäste?')
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response(
+                "Wie viele Gäste?"
+            )
+            self.assertEqual(
+                get_clarifying_questions("Konzert", []), "Wie viele Gäste?"
+            )
 
 
 class NotionFailureTranslationTest(SimpleTestCase):
@@ -1139,7 +1236,7 @@ class NotionFailureTranslationTest(SimpleTestCase):
         # _client() reads os.environ["NOTION_API_KEY"] directly (a KeyError,
         # not a graceful failure, if unset) — irrelevant to what's under test
         # here, so pin it rather than depend on the ambient environment.
-        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -1151,42 +1248,42 @@ class NotionFailureTranslationTest(SimpleTestCase):
         return instance
 
     def test_get_upcoming_projects_translates_a_timeout(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 get_upcoming_projects(date.today())
 
     def test_get_historical_projects_translates_an_http_error(self):
-        request = httpx.Request('POST', 'https://api.notion.com/v1/databases/x/query')
+        request = httpx.Request("POST", "https://api.notion.com/v1/databases/x/query")
         response = httpx.Response(500, request=request)
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             self._stub_every_call(MockClient, HTTPResponseError(response))
             with self.assertRaises(NotionUnavailableError):
                 get_historical_projects()
 
     def test_toggle_task_translates_a_raw_connection_error(self):
-        with patch('projects.notion.Client') as MockClient:
-            self._stub_every_call(MockClient, httpx.ConnectError('boom'))
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, httpx.ConnectError("boom"))
             with self.assertRaises(NotionUnavailableError):
-                toggle_task('task-id', True)
+                toggle_task("task-id", True)
 
     def test_update_task_date_translates_a_failure(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
-                update_task_date('task-id', '2026-09-05')
+                update_task_date("task-id", "2026-09-05")
 
     def test_create_project_translates_a_failure(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
-                create_project('Test', date.today())
+                create_project("Test", date.today())
 
     def test_create_tasks_translates_a_failure(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
-                create_tasks('project-id', [{'name': 'x', 'date': '2026-09-05'}])
+                create_tasks("project-id", [{"name": "x", "date": "2026-09-05"}])
 
 
 class FindProjectTest(SimpleTestCase):
@@ -1195,45 +1292,55 @@ class FindProjectTest(SimpleTestCase):
     and the retry must find and reuse it instead of creating a twin."""
 
     def setUp(self):
-        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_returns_the_id_of_an_exact_match(self):
-        with patch('projects.notion.Client') as MockClient:
-            MockClient.return_value.databases.query.return_value = {'results': [{'id': 'page-1'}]}
-            self.assertEqual(find_project('Sommerkonzert', date(2026, 9, 5)), 'page-1')
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {
+                "results": [{"id": "page-1"}]
+            }
+            self.assertEqual(find_project("Sommerkonzert", date(2026, 9, 5)), "page-1")
 
     def test_queries_by_exact_name_and_date(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
-            query.return_value = {'results': []}
-            find_project('Sommerkonzert', date(2026, 9, 5))
-        conditions = query.call_args.kwargs['filter']['and']
-        self.assertIn({'property': 'Name der Veranstaltung', 'title': {'equals': 'Sommerkonzert'}}, conditions)
-        self.assertIn({'property': 'Termin', 'date': {'equals': '2026-09-05'}}, conditions)
+            query.return_value = {"results": []}
+            find_project("Sommerkonzert", date(2026, 9, 5))
+        conditions = query.call_args.kwargs["filter"]["and"]
+        self.assertIn(
+            {
+                "property": "Name der Veranstaltung",
+                "title": {"equals": "Sommerkonzert"},
+            },
+            conditions,
+        )
+        self.assertIn(
+            {"property": "Termin", "date": {"equals": "2026-09-05"}}, conditions
+        )
 
     def test_returns_none_when_nothing_matches(self):
-        with patch('projects.notion.Client') as MockClient:
-            MockClient.return_value.databases.query.return_value = {'results': []}
-            self.assertIsNone(find_project('Sommerkonzert', date(2026, 9, 5)))
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {"results": []}
+            self.assertIsNone(find_project("Sommerkonzert", date(2026, 9, 5)))
 
     def test_translates_a_failure(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             MockClient.return_value.databases.query.side_effect = RequestTimeoutError()
             with self.assertRaises(NotionUnavailableError):
-                find_project('Sommerkonzert', date(2026, 9, 5))
+                find_project("Sommerkonzert", date(2026, 9, 5))
 
 
 def _fake_task_page(name, iso_date):
     # Shaped the way _get_tasks parses a Notion task page.
     return {
-        'id': 'task-1',
-        'properties': {
-            'Aufgabe': {'title': [{'plain_text': name}]},
-            'Wann?': {'date': {'start': iso_date}},
-            'Done': {'checkbox': False},
-            'Kontext': {'multi_select': []},
+        "id": "task-1",
+        "properties": {
+            "Aufgabe": {"title": [{"plain_text": name}]},
+            "Wann?": {"date": {"start": iso_date}},
+            "Done": {"checkbox": False},
+            "Kontext": {"multi_select": []},
         },
     }
 
@@ -1244,48 +1351,63 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
     already made it to Notion must be skipped, not created again."""
 
     def setUp(self):
-        patcher = patch.dict(os.environ, {'NOTION_API_KEY': 'testkey'})
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
         patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_already_written_tasks_are_skipped(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
             instance.databases.query.return_value = {
-                'results': [_fake_task_page('Programm festlegen', '2026-08-20')]
+                "results": [_fake_task_page("Programm festlegen", "2026-08-20")]
             }
-            create_tasks('project-id', [
-                {'name': 'Programm festlegen', 'date': '2026-08-20'},
-                {'name': 'Plakate aushängen', 'date': '2026-08-27'},
-            ])
+            create_tasks(
+                "project-id",
+                [
+                    {"name": "Programm festlegen", "date": "2026-08-20"},
+                    {"name": "Plakate aushängen", "date": "2026-08-27"},
+                ],
+            )
         self.assertEqual(instance.pages.create.call_count, 1)
-        created = instance.pages.create.call_args.kwargs['properties']
-        self.assertEqual(created['Aufgabe']['title'][0]['text']['content'], 'Plakate aushängen')
+        created = instance.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(
+            created["Aufgabe"]["title"][0]["text"]["content"], "Plakate aushängen"
+        )
 
     def test_a_fresh_project_writes_the_whole_list(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {'results': []}
-            create_tasks('project-id', [
-                {'name': 'Programm festlegen', 'date': '2026-08-20'},
-                {'name': 'Plakate aushängen', 'date': '2026-08-27'},
-            ])
+            instance.databases.query.return_value = {"results": []}
+            create_tasks(
+                "project-id",
+                [
+                    {"name": "Programm festlegen", "date": "2026-08-20"},
+                    {"name": "Plakate aushängen", "date": "2026-08-27"},
+                ],
+            )
         self.assertEqual(instance.pages.create.call_count, 2)
 
     def test_same_name_on_a_different_date_is_not_skipped(self):
-        with patch('projects.notion.Client') as MockClient:
+        with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
             instance.databases.query.return_value = {
-                'results': [_fake_task_page('Programm festlegen', '2026-08-20')]
+                "results": [_fake_task_page("Programm festlegen", "2026-08-20")]
             }
-            create_tasks('project-id', [{'name': 'Programm festlegen', 'date': '2026-08-27'}])
+            create_tasks(
+                "project-id", [{"name": "Programm festlegen", "date": "2026-08-27"}]
+            )
         self.assertEqual(instance.pages.create.call_count, 1)
 
 
-def _fake_upcoming_project(name='Testkonzert'):
+def _fake_upcoming_project(name="Testkonzert"):
     return {
-        'id': 'p1', 'name': name, 'event_date': date.today() + timedelta(days=10),
-        'performers': '', 'status': None, 'status_color': 'gray', 'tasks': [],
+        "id": "p1",
+        "name": name,
+        "event_date": date.today() + timedelta(days=10),
+        "performers": "",
+        "status": None,
+        "status_color": "gray",
+        "tasks": [],
     }
 
 
@@ -1293,13 +1415,15 @@ def _fake_upcoming_project_with_task():
     """A project whose tasks actually render — the empty task list above never
     reaches the per-task markup."""
     project = _fake_upcoming_project()
-    project['tasks'] = [{
-        'id': 'task-1',
-        'name': 'Programm festlegen',
-        'due': date.today() + timedelta(days=3),
-        'done': False,
-        'kontext': [],
-    }]
+    project["tasks"] = [
+        {
+            "id": "task-1",
+            "name": "Programm festlegen",
+            "due": date.today() + timedelta(days=3),
+            "done": False,
+            "kontext": [],
+        }
+    ]
     return project
 
 
@@ -1315,30 +1439,54 @@ class DashboardNotionFailureTest(TestCase):
         self.addCleanup(cache.clear)
 
     def test_cold_cache_and_a_failure_is_an_honest_empty_state_not_a_500(self):
-        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
-            response = self.client.get(reverse('dashboard'))
+        with patch(
+            "projects.views.get_upcoming_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'nicht verfügbar')
+        self.assertContains(response, "nicht verfügbar")
 
     def test_falls_back_to_the_last_successful_read_when_notion_then_fails(self):
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
-            first = self.client.get(reverse('dashboard'))
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            first = self.client.get(reverse("dashboard"))
         self.assertEqual(first.status_code, 200)
-        self.assertContains(first, 'Testkonzert')
+        self.assertContains(first, "Testkonzert")
 
-        cache.delete(CACHE_KEY)  # the 8h primary cache expiring; the stale copy outlives it
-        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
-            second = self.client.get(reverse('dashboard'))
+        cache.delete(
+            CACHE_KEY
+        )  # the 8h primary cache expiring; the stale copy outlives it
+        with patch(
+            "projects.views.get_upcoming_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            second = self.client.get(reverse("dashboard"))
         self.assertEqual(second.status_code, 200)
-        self.assertContains(second, 'Testkonzert')
-        self.assertContains(second, 'evtl. nicht')
+        self.assertContains(second, "Testkonzert")
+        self.assertContains(second, "evtl. nicht")
 
     def test_no_stale_banner_on_a_normal_successful_request(self):
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
-            response = self.client.get(reverse('dashboard'))
-        self.assertNotContains(response, 'evtl. nicht')
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "evtl. nicht")
 
 
 @override_settings(DEMO_MODE=False)
@@ -1353,32 +1501,66 @@ class DashboardAiFailureCacheTest(TestCase):
         self.addCleanup(cache.clear)
 
     def test_a_failed_summary_is_retried_on_the_next_request(self):
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', side_effect=AIUnavailableError('boom')):
-            first = self.client.get(reverse('dashboard'))
-        self.assertContains(first, 'nicht verfügbar')
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                side_effect=AIUnavailableError("boom"),
+            ),
+        ):
+            first = self.client.get(reverse("dashboard"))
+        self.assertContains(first, "nicht verfügbar")
         # Claude recovers. Without any cache-busting in between, the very
         # next request must pick the summary up again.
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', return_value='**Wieder da**'):
-            second = self.client.get(reverse('dashboard'))
-        self.assertContains(second, 'Wieder da')
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary", return_value="**Wieder da**"
+            ),
+        ):
+            second = self.client.get(reverse("dashboard"))
+        self.assertContains(second, "Wieder da")
 
     def test_a_failed_summary_does_not_clobber_the_last_good_one(self):
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', return_value='**Letzte gute Übersicht**'):
-            self.client.get(reverse('dashboard'))
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Letzte gute Übersicht**",
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
 
         cache.delete(CACHE_KEY)  # the 8h primary cache expiring; the stale copy stays
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project()]), \
-             patch('projects.views.generate_weekly_summary', side_effect=AIUnavailableError('boom')):
-            self.client.get(reverse('dashboard'))
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                side_effect=AIUnavailableError("boom"),
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
 
         cache.delete(CACHE_KEY)  # must be a no-op — a failed fetch may not have cached
-        with patch('projects.views.get_upcoming_projects', side_effect=NotionUnavailableError('boom')):
-            third = self.client.get(reverse('dashboard'))
-        self.assertContains(third, 'Letzte gute Übersicht')
-        self.assertContains(third, 'evtl. nicht')
+        with patch(
+            "projects.views.get_upcoming_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            third = self.client.get(reverse("dashboard"))
+        self.assertContains(third, "Letzte gute Übersicht")
+        self.assertContains(third, "evtl. nicht")
 
 
 @override_settings(DEMO_MODE=False)
@@ -1391,7 +1573,10 @@ class HistoryFallbackTest(TestCase):
 
     def test_notion_failure_falls_back_to_an_empty_history(self):
         cache.clear()
-        with patch('projects.planner_views.get_historical_projects', side_effect=NotionUnavailableError('boom')):
+        with patch(
+            "projects.planner_views.get_historical_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
             self.assertEqual(_get_history(), [])
 
 
@@ -1404,47 +1589,52 @@ class ToggleTaskNotionFailureTest(TestCase):
     apply the change it was hoping for."""
 
     def test_notion_failure_is_a_502_not_a_500(self):
-        with patch('projects.views.toggle_task', side_effect=NotionUnavailableError('boom')):
+        with patch(
+            "projects.views.toggle_task", side_effect=NotionUnavailableError("boom")
+        ):
             response = self.client.post(
-                reverse('toggle_task', args=['task-1']),
+                reverse("toggle_task", args=["task-1"]),
                 data='{"done": true}',
-                content_type='application/json',
+                content_type="application/json",
             )
         self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json(), {'error': 'notion unavailable'})
+        self.assertEqual(response.json(), {"error": "notion unavailable"})
 
     def test_success_still_reports_ok(self):
-        with patch('projects.views.toggle_task') as mock_toggle:
+        with patch("projects.views.toggle_task") as mock_toggle:
             response = self.client.post(
-                reverse('toggle_task', args=['task-1']),
+                reverse("toggle_task", args=["task-1"]),
                 data='{"done": true}',
-                content_type='application/json',
+                content_type="application/json",
             )
         self.assertEqual(response.status_code, 200)
-        mock_toggle.assert_called_once_with('task-1', True)
+        mock_toggle.assert_called_once_with("task-1", True)
 
 
 @override_settings(DEMO_MODE=False)
 class RescheduleTaskNotionFailureTest(TestCase):
     def test_notion_failure_is_a_502_not_a_500(self):
-        with patch('projects.views.update_task_date', side_effect=NotionUnavailableError('boom')):
+        with patch(
+            "projects.views.update_task_date",
+            side_effect=NotionUnavailableError("boom"),
+        ):
             response = self.client.post(
-                reverse('reschedule_task', args=['task-1']),
+                reverse("reschedule_task", args=["task-1"]),
                 data='{"date": "2026-09-05"}',
-                content_type='application/json',
+                content_type="application/json",
             )
         self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json(), {'error': 'notion unavailable'})
+        self.assertEqual(response.json(), {"error": "notion unavailable"})
 
     def test_success_still_reports_ok(self):
-        with patch('projects.views.update_task_date') as mock_update:
+        with patch("projects.views.update_task_date") as mock_update:
             response = self.client.post(
-                reverse('reschedule_task', args=['task-1']),
+                reverse("reschedule_task", args=["task-1"]),
                 data='{"date": "2026-09-05"}',
-                content_type='application/json',
+                content_type="application/json",
             )
         self.assertEqual(response.status_code, 200)
-        mock_update.assert_called_once_with('task-1', '2026-09-05')
+        mock_update.assert_called_once_with("task-1", "2026-09-05")
 
 
 @override_settings(DEMO_MODE=False)
@@ -1457,66 +1647,92 @@ class PlannerCreateNotionFailureTest(TestCase):
     def post_plan(self):
         event_date = date.today() + timedelta(days=30)
         task_date = date.today() + timedelta(days=7)
-        return self.client.post(reverse('planner_create'), data={
-            'description': 'Konzert am 5. September',
-            'project_name': 'Sommerkonzert',
-            'event_date': event_date.isoformat(),
-            'task_name': ['Programm festlegen'],
-            'task_date': [task_date.isoformat()],
-            'task_kontext': ['Planung'],
-        })
+        return self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert am 5. September",
+                "project_name": "Sommerkonzert",
+                "event_date": event_date.isoformat(),
+                "task_name": ["Programm festlegen"],
+                "task_date": [task_date.isoformat()],
+                "task_kontext": ["Planung"],
+            },
+        )
 
     def test_notion_failure_redisplays_the_plan_instead_of_losing_it(self):
-        with patch('projects.planner_views.find_project', return_value=None), \
-             patch('projects.planner_views.create_project', side_effect=NotionUnavailableError('boom')):
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch(
+                "projects.planner_views.create_project",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+        ):
             response = self.post_plan()
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, 'projects/planner_review.html')
-        self.assertContains(response, 'Sommerkonzert')
-        self.assertContains(response, 'Programm festlegen')
-        self.assertContains(response, 'nicht gespeichert')
+        self.assertTemplateUsed(response, "projects/planner_review.html")
+        self.assertContains(response, "Sommerkonzert")
+        self.assertContains(response, "Programm festlegen")
+        self.assertContains(response, "nicht gespeichert")
 
     def test_a_failure_in_create_tasks_also_redisplays_the_plan(self):
-        with patch('projects.planner_views.find_project', return_value=None), \
-             patch('projects.planner_views.create_project', return_value='page-id'), \
-             patch('projects.planner_views.create_tasks', side_effect=NotionUnavailableError('boom')):
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch(
+                "projects.planner_views.create_tasks",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+        ):
             response = self.post_plan()
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Programm festlegen')
+        self.assertContains(response, "Programm festlegen")
 
     def test_a_failure_in_the_lookup_itself_also_redisplays_the_plan(self):
-        with patch('projects.planner_views.find_project', side_effect=NotionUnavailableError('boom')):
+        with patch(
+            "projects.planner_views.find_project",
+            side_effect=NotionUnavailableError("boom"),
+        ):
             response = self.post_plan()
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Programm festlegen')
-        self.assertContains(response, 'nicht gespeichert')
+        self.assertContains(response, "Programm festlegen")
+        self.assertContains(response, "nicht gespeichert")
 
     def test_a_retry_reuses_the_project_the_failed_attempt_created(self):
         """The error page invites the visitor to re-POST the same plan. If
         the first attempt died between create_project and create_tasks, the
         retry must attach the tasks to the existing page, not create a twin
         project — the duplicate-data finding from PR #34's review."""
-        with patch('projects.planner_views.find_project', return_value='page-id') as mock_find, \
-             patch('projects.planner_views.create_project') as mock_create_project, \
-             patch('projects.planner_views.create_tasks') as mock_create_tasks:
+        with (
+            patch(
+                "projects.planner_views.find_project", return_value="page-id"
+            ) as mock_find,
+            patch("projects.planner_views.create_project") as mock_create_project,
+            patch("projects.planner_views.create_tasks") as mock_create_tasks,
+        ):
             response = self.post_plan()
-        self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
+        self.assertRedirects(
+            response, reverse("dashboard"), fetch_redirect_response=False
+        )
         mock_find.assert_called_once()
         mock_create_project.assert_not_called()
         mock_create_tasks.assert_called_once()
         called_project_id, called_tasks = mock_create_tasks.call_args.args
-        self.assertEqual(called_project_id, 'page-id')
-        self.assertEqual([t['name'] for t in called_tasks], ['Programm festlegen'])
+        self.assertEqual(called_project_id, "page-id")
+        self.assertEqual([t["name"] for t in called_tasks], ["Programm festlegen"])
 
     def test_success_still_redirects_to_the_dashboard(self):
-        with patch('projects.planner_views.find_project', return_value=None), \
-             patch('projects.planner_views.create_project', return_value='page-id'), \
-             patch('projects.planner_views.create_tasks') as mock_create_tasks:
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks") as mock_create_tasks,
+        ):
             response = self.post_plan()
         # fetch_redirect_response=False: dashboard()'s own behavior has its
         # own tests (DashboardNotionFailureTest); this only checks the
         # redirect target, not a live render of it.
-        self.assertRedirects(response, reverse('dashboard'), fetch_redirect_response=False)
+        self.assertRedirects(
+            response, reverse("dashboard"), fetch_redirect_response=False
+        )
         mock_create_tasks.assert_called_once()
 
     def test_a_saved_plan_busts_the_dashboard_cache(self):
@@ -1524,10 +1740,12 @@ class PlannerCreateNotionFailureTest(TestCase):
         a key bump in views.py would silently turn that into a no-op and a
         freshly saved project would hide behind the 8h TTL."""
         self.addCleanup(cache.clear)
-        cache.set(CACHE_KEY, ([], '<p>alt</p>'), 60)
-        with patch('projects.planner_views.find_project', return_value=None), \
-             patch('projects.planner_views.create_project', return_value='page-id'), \
-             patch('projects.planner_views.create_tasks'):
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks"),
+        ):
             self.post_plan()
         self.assertIsNone(cache.get(CACHE_KEY))
 
@@ -1538,14 +1756,14 @@ class NginxDemoRateLimitTest(SimpleTestCase):
     preloader alone fires 4 POSTs per dashboard load."""
 
     def setUp(self):
-        self.conf = (settings.BASE_DIR / 'nginx-demo.conf').read_text()
+        self.conf = (settings.BASE_DIR / "nginx-demo.conf").read_text()
 
     def test_rate_and_burst_cover_a_page_load_plus_preloads(self):
-        self.assertIn('rate=30r/m', self.conf)
-        self.assertIn('burst=10 nodelay', self.conf)
+        self.assertIn("rate=30r/m", self.conf)
+        self.assertIn("burst=10 nodelay", self.conf)
 
     def test_rejections_are_a_429_not_a_bare_503(self):
-        self.assertIn('limit_req_status 429;', self.conf)
+        self.assertIn("limit_req_status 429;", self.conf)
 
 
 class TimelapsePrecachedMomentsTest(DemoModeTestCase):
@@ -1555,23 +1773,27 @@ class TimelapsePrecachedMomentsTest(DemoModeTestCase):
     `preloaded` from them instead of re-requesting."""
 
     def test_a_moment_with_a_cached_summary_is_precached(self):
-        self.given_timelapse_moments('2026-09-05')
+        self.given_timelapse_moments("2026-09-05")
         session = self.client.session
-        session[f'{SUMMARY_KEY}_2026-09-05'] = '<p>cached</p>'
+        session[f"{SUMMARY_KEY}_2026-09-05"] = "<p>cached</p>"
         session.save()
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'const PRECACHED_MOMENTS = ["2026-09-05"]')
 
     def test_a_moment_without_a_cached_summary_is_not_precached(self):
-        self.given_timelapse_moments('2026-09-05')
-        response = self.client.get(reverse('dashboard'))
-        self.assertContains(response, 'const PRECACHED_MOMENTS = []')
+        self.given_timelapse_moments("2026-09-05")
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const PRECACHED_MOMENTS = []")
 
     def test_malformed_session_moments_do_not_break_the_dashboard(self):
         session = self.client.session
-        session['demo_timelapse_moments'] = [{'date': ['2026-09-05']}, {'date': None}, 'not-a-dict']
+        session["demo_timelapse_moments"] = [
+            {"date": ["2026-09-05"]},
+            {"date": None},
+            "not-a-dict",
+        ]
         session.save()
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
 
 
@@ -1582,13 +1804,13 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
     PlannerLoadingStateTest."""
 
     def test_preload_one_checks_response_ok_before_marking_preloaded(self):
-        response = self.client.get(reverse('dashboard'))
-        self.assertContains(response, 'if (!response.ok) return;')
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "if (!response.ok) return;")
 
     def test_template_seeds_preloaded_from_precached_moments(self):
-        response = self.client.get(reverse('dashboard'))
-        self.assertContains(response, 'const PRECACHED_MOMENTS = ')
-        self.assertContains(response, 'const preloaded = new Set(PRECACHED_MOMENTS);')
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const PRECACHED_MOMENTS = ")
+        self.assertContains(response, "const preloaded = new Set(PRECACHED_MOMENTS);")
 
 
 class MyPlanProgressBarTest(DemoModeTestCase):
@@ -1598,30 +1820,32 @@ class MyPlanProgressBarTest(DemoModeTestCase):
     so on page load the bar was never right."""
 
     def given_plan_with(self, total, done):
-        return self.given_session_plan(tasks=[
-            {
-                'id': f'demo-session-{i}',
-                'name': f'Aufgabe {i}',
-                'date': (date.today() + timedelta(days=i + 1)).isoformat(),
-                'kontext': 'Planung',
-                'done': i < done,
-            }
-            for i in range(total)
-        ])
+        return self.given_session_plan(
+            tasks=[
+                {
+                    "id": f"demo-session-{i}",
+                    "name": f"Aufgabe {i}",
+                    "date": (date.today() + timedelta(days=i + 1)).isoformat(),
+                    "kontext": "Planung",
+                    "done": i < done,
+                }
+                for i in range(total)
+            ]
+        )
 
     def test_shows_the_correct_percentage_on_load(self):
         self.given_plan_with(total=4, done=2)
-        self.assertContains(self.client.get(reverse('my_plan')), 'width: 50%')
+        self.assertContains(self.client.get(reverse("my_plan")), "width: 50%")
 
     def test_does_not_multiply_the_done_count_by_hundred(self):
         self.given_plan_with(total=3, done=3)
-        response = self.client.get(reverse('my_plan'))
-        self.assertNotContains(response, 'width: 300%')
-        self.assertContains(response, 'width: 100%')
+        response = self.client.get(reverse("my_plan"))
+        self.assertNotContains(response, "width: 300%")
+        self.assertContains(response, "width: 100%")
 
     def test_nothing_done_is_zero_percent(self):
         self.given_plan_with(total=4, done=0)
-        self.assertContains(self.client.get(reverse('my_plan')), 'width: 0%')
+        self.assertContains(self.client.get(reverse("my_plan")), "width: 0%")
 
 
 class RescheduleTaskDemoModeTest(DemoModeTestCase):
@@ -1635,50 +1859,50 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
 
     def post_date(self, task_id, body):
         return self.client.post(
-            reverse('reschedule_task', args=[task_id]),
+            reverse("reschedule_task", args=[task_id]),
             data=body,
-            content_type='application/json',
+            content_type="application/json",
         )
 
     def stored_dates(self):
-        return [t['date'] for t in self.client.session['demo_plan']['tasks']]
+        return [t["date"] for t in self.client.session["demo_plan"]["tasks"]]
 
     def test_a_new_date_survives_a_reload(self):
         self.given_session_plan()
-        response = self.post_date('demo-session-0', f'{{"date": "{self.NEW_DATE}"}}')
+        response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.stored_dates(), [self.NEW_DATE])
-        reloaded = self.client.get(reverse('my_plan'))
+        reloaded = self.client.get(reverse("my_plan"))
         self.assertContains(reloaded, _format_date(date.fromisoformat(self.NEW_DATE)))
 
     def test_an_invalid_date_is_rejected(self):
         plan = self.given_session_plan()
-        response = self.post_date('demo-session-0', '{"date": "kein-datum"}')
+        response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+        self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
 
     def test_a_missing_date_is_rejected(self):
         plan = self.given_session_plan()
-        response = self.post_date('demo-session-0', '{}')
+        response = self.post_date("demo-session-0", "{}")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+        self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
 
     def test_a_malformed_body_is_rejected(self):
         plan = self.given_session_plan()
-        response = self.post_date('demo-session-0', 'kein json')
+        response = self.post_date("demo-session-0", "kein json")
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+        self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
 
     def test_an_unknown_task_is_a_404(self):
         # A demo-fixture id: it renders on the multi-project dashboard but is
         # not in the session plan, so there is nothing to write it to.
         plan = self.given_session_plan()
-        response = self.post_date('demo-1-7', f'{{"date": "{self.NEW_DATE}"}}')
+        response = self.post_date("demo-1-7", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 404)
-        self.assertEqual(self.stored_dates(), [plan['tasks'][0]['date']])
+        self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
 
     def test_no_session_plan_at_all_is_a_404(self):
-        response = self.post_date('demo-session-0', f'{{"date": "{self.NEW_DATE}"}}')
+        response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 404)
 
 
@@ -1690,22 +1914,22 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
 
     def test_offered_for_a_session_plan(self):
         self.given_session_plan()
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'title="Datum ändern"')
 
     def test_not_offered_in_the_multi_project_view(self):
         self.given_session_plan()
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertNotContains(response, 'title="Datum ändern"')
         self.assertNotContains(response, 'class="today-btn"')
 
     def test_not_offered_without_a_session_plan(self):
-        response = self.client.get(reverse('dashboard'))
+        response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'title="Datum ändern"')
         self.assertNotContains(response, 'class="today-btn"')
 
     def test_the_date_itself_still_renders_when_it_is_not_clickable(self):
-        response = self.client.get(reverse('dashboard') + '?mode=multi')
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, 'class="task-due')
 
     @override_settings(DEMO_MODE=False)
@@ -1715,9 +1939,17 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
         # it does persist, to Notion.
         cache.clear()
         self.addCleanup(cache.clear)
-        with patch('projects.views.get_upcoming_projects', return_value=[_fake_upcoming_project_with_task()]), \
-             patch('projects.views.generate_weekly_summary', return_value='**Sommerkonzert**'):
-            response = self.client.get(reverse('dashboard'))
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'title="Datum ändern"')
         self.assertContains(response, 'data-task-id="task-1"')
 
@@ -1730,7 +1962,7 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
 
     def request_with_session(self):
         """A request carrying this client's session, as the planner views see it."""
-        request = RequestFactory().get('/')
+        request = RequestFactory().get("/")
         request.session = self.client.session
         return request
 
@@ -1740,109 +1972,109 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         rules = self.client.session.get(DEMO_RULES_KEY)
         if rules is None:
             return list(range(1, len(INITIAL_RULES) + 1))
-        return [r['id'] for r in rules]
+        return [r["id"] for r in rules]
 
     def test_a_fresh_session_is_seeded_with_the_initial_rules(self):
-        response = self.client.get(reverse('rules_list'))
+        response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
         for text in INITIAL_RULES:
             self.assertContains(response, text)
-        self.assertNotContains(response, 'Noch keine Regeln')
+        self.assertNotContains(response, "Noch keine Regeln")
 
     def test_reading_the_rules_page_persists_no_session(self):
         """The demo is public and not yet behind a robots.txt (#27), so a GET
         must not leave a session row behind for every visitor and crawler."""
-        response = self.client.get(reverse('rules_list'))
+        response = self.client.get(reverse("rules_list"))
         self.assertContains(response, INITIAL_RULES[0])
         self.assertEqual(Session.objects.count(), 0)
 
     def test_the_first_write_persists_the_seeded_rules(self):
-        self.client.post(reverse('rule_toggle', args=[self.rule_ids()[0]]))
+        self.client.post(reverse("rule_toggle", args=[self.rule_ids()[0]]))
         self.assertEqual(Session.objects.count(), 1)
         stored = self.client.session[DEMO_RULES_KEY]
-        self.assertEqual([r['text'] for r in stored], INITIAL_RULES)
-        self.assertFalse(stored[0]['active'])
+        self.assertEqual([r["text"] for r in stored], INITIAL_RULES)
+        self.assertFalse(stored[0]["active"])
 
     def test_adding_a_rule_writes_nothing_to_the_database(self):
-        self.client.post(reverse('rule_add'), data={'text': 'Neue Regel'})
+        self.client.post(reverse("rule_add"), data={"text": "Neue Regel"})
         self.assertEqual(PlannerRule.objects.count(), 0)
-        self.assertContains(self.client.get(reverse('rules_list')), 'Neue Regel')
+        self.assertContains(self.client.get(reverse("rules_list")), "Neue Regel")
 
     def test_toggle_update_delete_and_reorder_write_nothing_to_the_database(self):
-        self.client.get(reverse('rules_list'))
+        self.client.get(reverse("rules_list"))
         ids = self.rule_ids()
-        self.client.post(reverse('rule_toggle', args=[ids[0]]))
+        self.client.post(reverse("rule_toggle", args=[ids[0]]))
         self.client.post(
-            reverse('rule_update', args=[ids[1]]),
-            data=json.dumps({'text': 'Geänderte Regel'}),
-            content_type='application/json',
+            reverse("rule_update", args=[ids[1]]),
+            data=json.dumps({"text": "Geänderte Regel"}),
+            content_type="application/json",
         )
-        self.client.post(reverse('rule_delete', args=[ids[2]]))
+        self.client.post(reverse("rule_delete", args=[ids[2]]))
         self.client.post(
-            reverse('rule_reorder'),
-            data=json.dumps({'order': [str(i) for i in reversed(ids[:2])]}),
-            content_type='application/json',
+            reverse("rule_reorder"),
+            data=json.dumps({"order": [str(i) for i in reversed(ids[:2])]}),
+            content_type="application/json",
         )
         self.assertEqual(PlannerRule.objects.count(), 0)
 
     def test_one_visitor_cannot_change_what_another_one_sees(self):
         other = Client()
-        self.client.post(reverse('rule_add'), data={'text': 'Nur für mich'})
+        self.client.post(reverse("rule_add"), data={"text": "Nur für mich"})
         first_id = self.rule_ids()[0]
-        self.client.post(reverse('rule_delete', args=[first_id]))
+        self.client.post(reverse("rule_delete", args=[first_id]))
 
-        response = other.get(reverse('rules_list'))
-        self.assertNotContains(response, 'Nur für mich')
+        response = other.get(reverse("rules_list"))
+        self.assertNotContains(response, "Nur für mich")
         for text in INITIAL_RULES:
             self.assertContains(response, text)
 
     def test_a_deactivated_rule_stays_listed_but_leaves_the_prompt(self):
-        self.client.get(reverse('rules_list'))
+        self.client.get(reverse("rules_list"))
         ids = self.rule_ids()
-        response = self.client.post(reverse('rule_toggle', args=[ids[0]]))
-        self.assertEqual(response.json()['active'], False)
+        response = self.client.post(reverse("rule_toggle", args=[ids[0]]))
+        self.assertEqual(response.json()["active"], False)
 
         request = self.request_with_session()
         self.assertNotIn(INITIAL_RULES[0], get_active_rule_texts(request))
         self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
-        self.assertContains(self.client.get(reverse('rules_list')), INITIAL_RULES[0])
+        self.assertContains(self.client.get(reverse("rules_list")), INITIAL_RULES[0])
 
     def test_reordering_reaches_the_prompt_in_the_new_order(self):
-        self.client.get(reverse('rules_list'))
+        self.client.get(reverse("rules_list"))
         ids = self.rule_ids()
         reordered = [ids[-1]] + ids[:-1]
         self.client.post(
-            reverse('rule_reorder'),
-            data=json.dumps({'order': [str(i) for i in reordered]}),
-            content_type='application/json',
+            reverse("rule_reorder"),
+            data=json.dumps({"order": [str(i) for i in reordered]}),
+            content_type="application/json",
         )
         expected = [INITIAL_RULES[-1]] + INITIAL_RULES[:-1]
         self.assertEqual(get_active_rule_texts(self.request_with_session()), expected)
 
     def test_toggling_an_unknown_rule_is_a_404(self):
-        response = self.client.post(reverse('rule_toggle', args=[9999]))
+        response = self.client.post(reverse("rule_toggle", args=[9999]))
         self.assertEqual(response.status_code, 404)
 
     def test_a_poisoned_session_re_seeds_instead_of_crashing(self):
         session = self.client.session
-        session[DEMO_RULES_KEY] = 'kaputt'
+        session[DEMO_RULES_KEY] = "kaputt"
         session.save()
-        response = self.client.get(reverse('rules_list'))
+        response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, INITIAL_RULES[0])
 
     def test_entries_of_the_wrong_shape_re_seed_instead_of_crashing(self):
         session = self.client.session
-        session[DEMO_RULES_KEY] = [{'id': 1}, 'kaputt']
+        session[DEMO_RULES_KEY] = [{"id": 1}, "kaputt"]
         session.save()
-        response = self.client.get(reverse('rules_list'))
+        response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, INITIAL_RULES[0])
 
     def test_the_page_explains_the_demo_scope_and_inactive_rules(self):
-        response = self.client.get(reverse('rules_list'))
-        self.assertContains(response, 'diesem Besuch')
-        self.assertContains(response, 'nicht in den Plan')
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "diesem Besuch")
+        self.assertContains(response, "nicht in den Plan")
 
 
 @override_settings(DEMO_MODE=False)
@@ -1855,53 +2087,53 @@ class PlannerRulesDatabaseModeTest(TestCase):
             PlannerRule.objects.create(text=text, active=True, order=i)
 
     def test_add_creates_a_rule_in_the_database(self):
-        self.client.post(reverse('rule_add'), data={'text': 'Neue Regel'})
-        rule = PlannerRule.objects.get(text='Neue Regel')
+        self.client.post(reverse("rule_add"), data={"text": "Neue Regel"})
+        rule = PlannerRule.objects.get(text="Neue Regel")
         self.assertTrue(rule.active)
         self.assertEqual(rule.order, len(INITIAL_RULES))
         self.assertNotIn(DEMO_RULES_KEY, self.client.session)
 
     def test_toggle_flips_the_database_row(self):
         rule = PlannerRule.objects.first()
-        response = self.client.post(reverse('rule_toggle', args=[rule.pk]))
-        self.assertEqual(response.json()['active'], False)
+        response = self.client.post(reverse("rule_toggle", args=[rule.pk]))
+        self.assertEqual(response.json()["active"], False)
         rule.refresh_from_db()
         self.assertFalse(rule.active)
 
     def test_update_changes_the_database_row(self):
         rule = PlannerRule.objects.first()
         self.client.post(
-            reverse('rule_update', args=[rule.pk]),
-            data=json.dumps({'text': 'Geänderte Regel'}),
-            content_type='application/json',
+            reverse("rule_update", args=[rule.pk]),
+            data=json.dumps({"text": "Geänderte Regel"}),
+            content_type="application/json",
         )
         rule.refresh_from_db()
-        self.assertEqual(rule.text, 'Geänderte Regel')
+        self.assertEqual(rule.text, "Geänderte Regel")
 
     def test_delete_removes_the_database_row(self):
         rule = PlannerRule.objects.first()
-        self.client.post(reverse('rule_delete', args=[rule.pk]))
+        self.client.post(reverse("rule_delete", args=[rule.pk]))
         self.assertFalse(PlannerRule.objects.filter(pk=rule.pk).exists())
         self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES) - 1)
 
     def test_reorder_writes_the_new_order_column(self):
-        ids = list(PlannerRule.objects.values_list('pk', flat=True))
+        ids = list(PlannerRule.objects.values_list("pk", flat=True))
         self.client.post(
-            reverse('rule_reorder'),
-            data=json.dumps({'order': [str(i) for i in reversed(ids)]}),
-            content_type='application/json',
+            reverse("rule_reorder"),
+            data=json.dumps({"order": [str(i) for i in reversed(ids)]}),
+            content_type="application/json",
         )
         self.assertEqual(
-            list(PlannerRule.objects.values_list('pk', flat=True)),
+            list(PlannerRule.objects.values_list("pk", flat=True)),
             list(reversed(ids)),
         )
 
     def test_the_prompt_gets_the_active_rules_from_the_database(self):
         PlannerRule.objects.filter(text=INITIAL_RULES[0]).update(active=False)
-        request = RequestFactory().get('/')
+        request = RequestFactory().get("/")
         request.session = self.client.session
         self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
 
     def test_the_demo_notice_is_absent(self):
-        response = self.client.get(reverse('rules_list'))
-        self.assertNotContains(response, 'diesem Besuch')
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, "diesem Besuch")

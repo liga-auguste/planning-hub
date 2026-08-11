@@ -19,10 +19,10 @@ def require_api_keys():
     RequiredApiKeysTest's docstring in tests.py for why.
     """
     missing = []
-    if not os.environ.get('ANTHROPIC_API_KEY'):
-        missing.append('ANTHROPIC_API_KEY')
-    if not settings.DEMO_MODE and not os.environ.get('NOTION_API_KEY'):
-        missing.append('NOTION_API_KEY')
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        missing.append("ANTHROPIC_API_KEY")
+    if not settings.DEMO_MODE and not os.environ.get("NOTION_API_KEY"):
+        missing.append("NOTION_API_KEY")
     if missing:
         raise MissingAPIKeyError(
             f"Missing required environment variable(s): {', '.join(missing)}. "

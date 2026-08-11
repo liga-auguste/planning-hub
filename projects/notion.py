@@ -39,17 +39,24 @@ def translate_notion_errors():
 def _client():
     return Client(auth=os.environ["NOTION_API_KEY"])
 
+
 def get_upcoming_projects(today: date) -> list:
     with translate_notion_errors():
         response = _client().databases.query(
             database_id=PROJECTS_DB,
             filter={
                 "and": [
-                    {"property": "Status/Aufgaben", "status": {"does_not_equal": "abgeschlossen"}},
-                    {"property": "Status/Aufgaben", "status": {"does_not_equal": "kein Status erforderlich"}},
+                    {
+                        "property": "Status/Aufgaben",
+                        "status": {"does_not_equal": "abgeschlossen"},
+                    },
+                    {
+                        "property": "Status/Aufgaben",
+                        "status": {"does_not_equal": "kein Status erforderlich"},
+                    },
                 ]
             },
-            sorts=[{"property": "Termin", "direction": "ascending"}]
+            sorts=[{"property": "Termin", "direction": "ascending"}],
         )
 
         projects = []
@@ -75,37 +82,37 @@ def _get_tasks(project_page_id: str) -> list:
         database_id=TASKS_DB,
         filter={
             "property": "Related to Projekte",
-            "relation": {"contains": project_page_id}
-        }
+            "relation": {"contains": project_page_id},
+        },
     )
 
     tasks = []
     for page in response["results"]:
         props = page["properties"]
-        tasks.append({
-            "id": page["id"],
-            "name": _text(props["Aufgabe"]["title"]),
-            "due": _date(props["Wann?"]),
-            "done": props["Done"]["checkbox"],
-            "kontext": [k["name"] for k in props.get("Kontext", {}).get("multi_select", [])],
-        })
+        tasks.append(
+            {
+                "id": page["id"],
+                "name": _text(props["Aufgabe"]["title"]),
+                "due": _date(props["Wann?"]),
+                "done": props["Done"]["checkbox"],
+                "kontext": [
+                    k["name"] for k in props.get("Kontext", {}).get("multi_select", [])
+                ],
+            }
+        )
 
     return tasks
 
 
 def toggle_task(task_id: str, done: bool) -> None:
     with translate_notion_errors():
-        _client().pages.update(
-            page_id=task_id,
-            properties={"Done": {"checkbox": done}}
-        )
+        _client().pages.update(page_id=task_id, properties={"Done": {"checkbox": done}})
 
 
 def update_task_date(task_id: str, new_date: str) -> None:
     with translate_notion_errors():
         _client().pages.update(
-            page_id=task_id,
-            properties={"Wann?": {"date": {"start": new_date}}}
+            page_id=task_id, properties={"Wann?": {"date": {"start": new_date}}}
         )
 
 
@@ -119,15 +126,16 @@ def _date(date_prop: dict) -> date | None:
         return date.fromisoformat(value["start"])
     return None
 
+
 def get_historical_projects() -> list:
     with translate_notion_errors():
         response = _client().databases.query(
             database_id=PROJECTS_DB,
             filter={
                 "property": "Status/Aufgaben",
-                "status": {"equals": "abgeschlossen"}
+                "status": {"equals": "abgeschlossen"},
             },
-            sorts=[{"property": "Termin", "direction": "descending"}]
+            sorts=[{"property": "Termin", "direction": "descending"}],
         )
 
         projects = []
@@ -136,14 +144,17 @@ def get_historical_projects() -> list:
             name = _text(props["Name der Veranstaltung"]["title"])
             if "Marktzeit" in name:
                 continue
-            projects.append({
-                "name": name,
-                "event_date": _date(props["Termin"]),
-                "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
-                "tasks": _get_tasks(page["id"]),
-            })
+            projects.append(
+                {
+                    "name": name,
+                    "event_date": _date(props["Termin"]),
+                    "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
+                    "tasks": _get_tasks(page["id"]),
+                }
+            )
 
         return projects
+
 
 def find_project(name: str, event_date: date) -> str | None:
     """Returns the page id of the project with exactly this name and date,
@@ -170,16 +181,10 @@ def create_project(name: str, event_date: date) -> str:
         response = _client().pages.create(
             parent={"database_id": PROJECTS_DB},
             properties={
-                "Name der Veranstaltung": {
-                    "title": [{"text": {"content": name}}]
-                },
-                "Termin": {
-                    "date": {"start": event_date.isoformat()}
-                },
-                "Status/Aufgaben": {
-                    "status": {"name": "geplant / mit Zeitplan"}
-                },
-            }
+                "Name der Veranstaltung": {"title": [{"text": {"content": name}}]},
+                "Termin": {"date": {"start": event_date.isoformat()}},
+                "Status/Aufgaben": {"status": {"name": "geplant / mit Zeitplan"}},
+            },
         )
         return response["id"]
 
@@ -200,17 +205,9 @@ def create_tasks(project_id: str, tasks: list) -> None:
             client.pages.create(
                 parent={"database_id": TASKS_DB},
                 properties={
-                    "Aufgabe": {
-                        "title": [{"text": {"content": task["name"]}}]
-                    },
-                    "Wann?": {
-                        "date": {"start": task["date"]}
-                    },
-                    "Done": {
-                        "checkbox": False
-                    },
-                    "Related to Projekte": {
-                        "relation": [{"id": project_id}]
-                    },
-                }
+                    "Aufgabe": {"title": [{"text": {"content": task["name"]}}]},
+                    "Wann?": {"date": {"start": task["date"]}},
+                    "Done": {"checkbox": False},
+                    "Related to Projekte": {"relation": [{"id": project_id}]},
+                },
             )

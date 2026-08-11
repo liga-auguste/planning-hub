@@ -4,30 +4,29 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0003_demoevent'),
+        ("projects", "0003_demoevent"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='task',
-            name='project',
+            model_name="task",
+            name="project",
         ),
         migrations.RemoveField(
-            model_name='tasktemplate',
-            name='project_type',
+            model_name="tasktemplate",
+            name="project_type",
         ),
         migrations.DeleteModel(
-            name='Project',
+            name="Project",
         ),
         migrations.DeleteModel(
-            name='Task',
+            name="Task",
         ),
         migrations.DeleteModel(
-            name='ProjectType',
+            name="ProjectType",
         ),
         migrations.DeleteModel(
-            name='TaskTemplate',
+            name="TaskTemplate",
         ),
     ]

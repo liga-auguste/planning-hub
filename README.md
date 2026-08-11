@@ -150,7 +150,7 @@ In `projects/notion.py`, replace the two database IDs with your own:
 
 ```python
 PROJECTS_DB = "your-projects-database-id"
-TASKS_DB    = "your-tasks-database-id"
+TASKS_DB = "your-tasks-database-id"
 ```
 
 The German Notion property names (`"Name der Veranstaltung"`, `"Wann?"`, `"Status/Aufgaben"`, `"Related to Projekte"`) are hardcoded in `notion.py` and must exist in your databases as well.
