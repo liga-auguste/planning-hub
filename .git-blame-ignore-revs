@@ -1,0 +1,12 @@
+# Commits that only reformat, never change behaviour. `git blame` skips them so
+# a line still shows the change that actually wrote it, not the reformatting.
+#
+# GitHub honours this file automatically in its blame view. Locally it needs to
+# be enabled once:
+#
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Only add commits here that are provably formatting-only.
+
+# Apply ruff format across the codebase (#46)
+c19814599901c0c1fd02eb3105336175536b3b12
