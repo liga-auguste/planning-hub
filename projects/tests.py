@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import date, timedelta
 from unittest.mock import patch
@@ -6,19 +7,22 @@ import anthropic
 import httpx
 import markdown
 from django.conf import settings
+from django.contrib.sessions.models import Session
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from notion_client.errors import HTTPResponseError, RequestTimeoutError
 from unittest.mock import Mock
 
 from .ai import AIUnavailableError, derive_kontext, generate_timelapse_moments, generate_weekly_summary, _valid_moments
+from .models import PlannerRule
 from .notion import (
     NotionUnavailableError, create_project, create_tasks, find_project,
     get_historical_projects, get_upcoming_projects, toggle_task, update_task_date,
 )
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
+from .rules import DEMO_RULES_KEY, INITIAL_RULES, get_active_rule_texts
 from .startup import require_api_keys, MissingAPIKeyError
 from .views import (
     CACHE_KEY, DEMO_MULTI_SUMMARY_KEY, SUMMARY_KEY,
@@ -1687,3 +1691,188 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
             response = self.client.get(reverse('dashboard'))
         self.assertContains(response, 'title="Datum ändern"')
         self.assertContains(response, 'data-task-id="task-1"')
+
+
+class PlannerRulesDemoModeTest(DemoModeTestCase):
+    """#22: PlannerRule was the one demo-editable object that was not
+    session-scoped, so any anonymous visitor could rewrite or delete the rules
+    every other visitor's plan is generated with. In demo mode the rules now
+    live in request.session, seeded from INITIAL_RULES."""
+
+    def request_with_session(self):
+        """A request carrying this client's session, as the planner views see it."""
+        request = RequestFactory().get('/')
+        request.session = self.client.session
+        return request
+
+    def rule_ids(self):
+        """Reading persists nothing, so before the first write fall back to the
+        seed's ids — _seed() hands out 1..n every time."""
+        rules = self.client.session.get(DEMO_RULES_KEY)
+        if rules is None:
+            return list(range(1, len(INITIAL_RULES) + 1))
+        return [r['id'] for r in rules]
+
+    def test_a_fresh_session_is_seeded_with_the_initial_rules(self):
+        response = self.client.get(reverse('rules_list'))
+        self.assertEqual(response.status_code, 200)
+        for text in INITIAL_RULES:
+            self.assertContains(response, text)
+        self.assertNotContains(response, 'Noch keine Regeln')
+
+    def test_reading_the_rules_page_persists_no_session(self):
+        """The demo is public and not yet behind a robots.txt (#27), so a GET
+        must not leave a session row behind for every visitor and crawler."""
+        response = self.client.get(reverse('rules_list'))
+        self.assertContains(response, INITIAL_RULES[0])
+        self.assertEqual(Session.objects.count(), 0)
+
+    def test_the_first_write_persists_the_seeded_rules(self):
+        self.client.post(reverse('rule_toggle', args=[self.rule_ids()[0]]))
+        self.assertEqual(Session.objects.count(), 1)
+        stored = self.client.session[DEMO_RULES_KEY]
+        self.assertEqual([r['text'] for r in stored], INITIAL_RULES)
+        self.assertFalse(stored[0]['active'])
+
+    def test_adding_a_rule_writes_nothing_to_the_database(self):
+        self.client.post(reverse('rule_add'), data={'text': 'Neue Regel'})
+        self.assertEqual(PlannerRule.objects.count(), 0)
+        self.assertContains(self.client.get(reverse('rules_list')), 'Neue Regel')
+
+    def test_toggle_update_delete_and_reorder_write_nothing_to_the_database(self):
+        self.client.get(reverse('rules_list'))
+        ids = self.rule_ids()
+        self.client.post(reverse('rule_toggle', args=[ids[0]]))
+        self.client.post(
+            reverse('rule_update', args=[ids[1]]),
+            data=json.dumps({'text': 'Geänderte Regel'}),
+            content_type='application/json',
+        )
+        self.client.post(reverse('rule_delete', args=[ids[2]]))
+        self.client.post(
+            reverse('rule_reorder'),
+            data=json.dumps({'order': [str(i) for i in reversed(ids[:2])]}),
+            content_type='application/json',
+        )
+        self.assertEqual(PlannerRule.objects.count(), 0)
+
+    def test_one_visitor_cannot_change_what_another_one_sees(self):
+        other = Client()
+        self.client.post(reverse('rule_add'), data={'text': 'Nur für mich'})
+        first_id = self.rule_ids()[0]
+        self.client.post(reverse('rule_delete', args=[first_id]))
+
+        response = other.get(reverse('rules_list'))
+        self.assertNotContains(response, 'Nur für mich')
+        for text in INITIAL_RULES:
+            self.assertContains(response, text)
+
+    def test_a_deactivated_rule_stays_listed_but_leaves_the_prompt(self):
+        self.client.get(reverse('rules_list'))
+        ids = self.rule_ids()
+        response = self.client.post(reverse('rule_toggle', args=[ids[0]]))
+        self.assertEqual(response.json()['active'], False)
+
+        request = self.request_with_session()
+        self.assertNotIn(INITIAL_RULES[0], get_active_rule_texts(request))
+        self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
+        self.assertContains(self.client.get(reverse('rules_list')), INITIAL_RULES[0])
+
+    def test_reordering_reaches_the_prompt_in_the_new_order(self):
+        self.client.get(reverse('rules_list'))
+        ids = self.rule_ids()
+        reordered = [ids[-1]] + ids[:-1]
+        self.client.post(
+            reverse('rule_reorder'),
+            data=json.dumps({'order': [str(i) for i in reordered]}),
+            content_type='application/json',
+        )
+        expected = [INITIAL_RULES[-1]] + INITIAL_RULES[:-1]
+        self.assertEqual(get_active_rule_texts(self.request_with_session()), expected)
+
+    def test_toggling_an_unknown_rule_is_a_404(self):
+        response = self.client.post(reverse('rule_toggle', args=[9999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_poisoned_session_re_seeds_instead_of_crashing(self):
+        session = self.client.session
+        session[DEMO_RULES_KEY] = 'kaputt'
+        session.save()
+        response = self.client.get(reverse('rules_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, INITIAL_RULES[0])
+
+    def test_entries_of_the_wrong_shape_re_seed_instead_of_crashing(self):
+        session = self.client.session
+        session[DEMO_RULES_KEY] = [{'id': 1}, 'kaputt']
+        session.save()
+        response = self.client.get(reverse('rules_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, INITIAL_RULES[0])
+
+    def test_the_page_explains_the_demo_scope_and_inactive_rules(self):
+        response = self.client.get(reverse('rules_list'))
+        self.assertContains(response, 'diesem Besuch')
+        self.assertContains(response, 'nicht in den Plan')
+
+
+@override_settings(DEMO_MODE=False)
+class PlannerRulesDatabaseModeTest(TestCase):
+    """The production path is untouched by #22: rules stay in the database and
+    the session stays empty."""
+
+    def setUp(self):
+        for i, text in enumerate(INITIAL_RULES):
+            PlannerRule.objects.create(text=text, active=True, order=i)
+
+    def test_add_creates_a_rule_in_the_database(self):
+        self.client.post(reverse('rule_add'), data={'text': 'Neue Regel'})
+        rule = PlannerRule.objects.get(text='Neue Regel')
+        self.assertTrue(rule.active)
+        self.assertEqual(rule.order, len(INITIAL_RULES))
+        self.assertNotIn(DEMO_RULES_KEY, self.client.session)
+
+    def test_toggle_flips_the_database_row(self):
+        rule = PlannerRule.objects.first()
+        response = self.client.post(reverse('rule_toggle', args=[rule.pk]))
+        self.assertEqual(response.json()['active'], False)
+        rule.refresh_from_db()
+        self.assertFalse(rule.active)
+
+    def test_update_changes_the_database_row(self):
+        rule = PlannerRule.objects.first()
+        self.client.post(
+            reverse('rule_update', args=[rule.pk]),
+            data=json.dumps({'text': 'Geänderte Regel'}),
+            content_type='application/json',
+        )
+        rule.refresh_from_db()
+        self.assertEqual(rule.text, 'Geänderte Regel')
+
+    def test_delete_removes_the_database_row(self):
+        rule = PlannerRule.objects.first()
+        self.client.post(reverse('rule_delete', args=[rule.pk]))
+        self.assertFalse(PlannerRule.objects.filter(pk=rule.pk).exists())
+        self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES) - 1)
+
+    def test_reorder_writes_the_new_order_column(self):
+        ids = list(PlannerRule.objects.values_list('pk', flat=True))
+        self.client.post(
+            reverse('rule_reorder'),
+            data=json.dumps({'order': [str(i) for i in reversed(ids)]}),
+            content_type='application/json',
+        )
+        self.assertEqual(
+            list(PlannerRule.objects.values_list('pk', flat=True)),
+            list(reversed(ids)),
+        )
+
+    def test_the_prompt_gets_the_active_rules_from_the_database(self):
+        PlannerRule.objects.filter(text=INITIAL_RULES[0]).update(active=False)
+        request = RequestFactory().get('/')
+        request.session = self.client.session
+        self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
+
+    def test_the_demo_notice_is_absent(self):
+        response = self.client.get(reverse('rules_list'))
+        self.assertNotContains(response, 'diesem Besuch')

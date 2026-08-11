@@ -41,7 +41,11 @@
     <h1>Planungsregeln</h1>
     <p class="subtitle">
         Diese Regeln fließen in jeden generierten Plan ein.<br>
-        Claude entscheidet selbst, welche davon zum Projekttyp passen.
+        Claude entscheidet selbst, welche davon zum Projekttyp passen.<br>
+        Eine ausgeschaltete Regel bleibt in der Liste, geht aber nicht in den Plan ein.
+        {% if demo_mode %}<br>
+        Im Demo-Modus gehören diese Regeln nur zu diesem Besuch und wirken sich ausschließlich auf deine eigenen Pläne aus.
+        {% endif %}
     </p>
 
     <ul id="rules-list">
@@ -82,12 +86,20 @@
 <script>
 const CSRF = '{{ csrf_token }}';
 
+// In demo mode a rule write is a read-modify-write over the whole session, so
+// two overlapping requests would silently drop one of the changes. Queueing the
+// mutations keeps them one at a time. The catch keeps a failed request from
+// wedging the queue for good, while callers still see the rejection.
+let queue = Promise.resolve();
+
 function post(url, data) {
-    return fetch(url, {
+    const response = queue.then(() => fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify(data),
-    });
+    }));
+    queue = response.catch(() => {});
+    return response;
 }
 
 function toggleRule(id, checkbox) {
