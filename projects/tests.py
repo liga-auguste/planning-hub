@@ -976,8 +976,8 @@ class FixAiMarkdownTest(SimpleTestCase):
         lists — not a <p><strong> next to an invisible <hr>. See #20."""
         # Suppressed rather than turned into the f-string the rule wants: this
         # fixture is Markdown, and one line per line is what keeps it readable.
-        reply = "\n".join(
-            [  # noqa: FLY002
+        reply = "\n".join(  # noqa: FLY002
+            [
                 "## Jetzt fällig",
                 "",
                 "- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:",
