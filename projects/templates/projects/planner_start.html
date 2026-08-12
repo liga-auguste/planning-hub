@@ -40,6 +40,13 @@
         --bs-btn-active-color: #fff;
         --bs-btn-active-bg: #333;
         --bs-btn-active-border-color: #333;
+        /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
+           loading state is a class (.is-loading), not the disabled attribute,
+           so nothing reaches these today — they close the set so that a later
+           switch to `disabled` can't turn the button blue. */
+        --bs-btn-disabled-color: #fff;
+        --bs-btn-disabled-bg: #1a1a1a;
+        --bs-btn-disabled-border-color: #1a1a1a;
         --bs-btn-focus-shadow-rgb: 26, 26, 26;
         /* The hand-rolled button had `border: none`; .btn would otherwise add
            1px and grow the box by 2px in each direction. */

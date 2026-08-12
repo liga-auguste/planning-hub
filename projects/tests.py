@@ -384,6 +384,16 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
             with self.subTest(step=step):
                 self.assertContains(response, "--bs-btn-border-width: 0")
 
+    def test_every_step_keeps_our_colour_on_a_disabled_button(self):
+        # .btn-primary ships --bs-btn-disabled-bg: #0d6efd, and .btn:disabled
+        # reads it. Unreachable while the loading state is a class rather than
+        # the disabled attribute -- this pins the colour before that changes.
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-disabled-bg: #1a1a1a")
+                self.assertContains(response, "--bs-btn-disabled-color: #fff")
+                self.assertContains(response, "--bs-btn-disabled-border-color: #1a1a1a")
+
     def test_no_step_paints_over_bootstrap_any_more(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
