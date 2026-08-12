@@ -2,8 +2,8 @@
 # Dockerfile installs — a linter has no business in the production image.
 #
 #   pip install -r requirements-dev.txt
-#   ruff check .          # lint
 #   ruff format .         # format in place
+#   ruff check .          # lint — after formatting, which can move a '# noqa'
 #
 # Pinned to the exact version the Ruff CI job runs (.github/workflows/ruff.yml),
 # so a new ruff release cannot turn an unrelated pull request red. Bumping it is
