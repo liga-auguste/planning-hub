@@ -348,6 +348,13 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
                 self.assertContains(response, "--bs-btn-bg: #1a1a1a")
                 self.assertContains(response, "--bs-btn-hover-bg: #333")
 
+    def test_every_step_keeps_the_borderless_box(self):
+        # `border: none` before; .btn's 1px default would grow the button by
+        # 2px in each direction, which a screenshot diff picks up.
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-width: 0")
+
     def test_no_step_paints_over_bootstrap_any_more(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):

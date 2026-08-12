@@ -28,6 +28,9 @@
         --bs-btn-active-bg: #333;
         --bs-btn-active-border-color: #333;
         --bs-btn-focus-shadow-rgb: 26, 26, 26;
+        /* The hand-rolled button had `border: none`; .btn would otherwise add
+           1px and grow the box by 2px in each direction. */
+        --bs-btn-border-width: 0;
         --bs-btn-border-radius: 6px;
         --bs-btn-padding-x: 24px;
         --bs-btn-padding-y: 10px;
