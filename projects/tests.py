@@ -215,6 +215,56 @@ class PlannerLoadingStateTest(DemoModeTestCase):
         )
         self.assertContains(response, 'data-loading-text="Wird gespeichert..."')
 
+    def test_the_selector_this_script_hangs_on_still_matches(self):
+        # #64 added `.btn` to the buttons; the script and the .is-loading /
+        # .spinner rules key off `.btn-primary`, which has to survive that.
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertContains(response, 'button[type="submit"].btn-primary')
+        self.assertContains(response, 'class="btn btn-primary"')
+
+
+class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
+    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
+    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
+    what reads them, so setting variables without adding `.btn` would have
+    looked like adoption and changed nothing."""
+
+    def steps(self):
+        """The three planner steps that carry a submit button."""
+        return {
+            "start": self.client.get(reverse("planner_start") + "?type=eigenes"),
+            "questions": self.client.post(
+                reverse("planner_start"),
+                data={"description": "Konzert am 15. September 2026"},
+            ),
+            "review": self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 5. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            ),
+        }
+
+    def test_every_submit_button_carries_both_classes(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, 'class="btn btn-primary"')
+
+    def test_every_step_feeds_the_colours_in_as_variables(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-bg: #1a1a1a")
+                self.assertContains(response, "--bs-btn-hover-bg: #333")
+
+    def test_no_step_paints_over_bootstrap_any_more(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertNotContains(response, ".btn-primary { background: #1a1a1a")
+                self.assertNotContains(
+                    response, ".btn-primary:hover { background: #333"
+                )
+
 
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in

@@ -16,8 +16,24 @@
     textarea, input[type="text"], input[type="number"] { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
     textarea:focus, input:focus { outline: none; border-color: #1a1a1a; }
     .field-label { font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
-    .btn-primary { background: #1a1a1a; border: none; border-radius: 6px; padding: 10px 24px; color: #fff; font-size: 14px; margin-top: 8px; cursor: pointer; }
-    .btn-primary:hover { background: #333; }
+    /* Bootstrap's .btn reads these; margin has no variable, so it stays a rule. */
+    .btn-primary {
+        --bs-btn-color: #fff;
+        --bs-btn-bg: #1a1a1a;
+        --bs-btn-border-color: #1a1a1a;
+        --bs-btn-hover-color: #fff;
+        --bs-btn-hover-bg: #333;
+        --bs-btn-hover-border-color: #333;
+        --bs-btn-active-color: #fff;
+        --bs-btn-active-bg: #333;
+        --bs-btn-active-border-color: #333;
+        --bs-btn-focus-shadow-rgb: 26, 26, 26;
+        --bs-btn-border-radius: 6px;
+        --bs-btn-padding-x: 24px;
+        --bs-btn-padding-y: 10px;
+        --bs-btn-font-size: 14px;
+        margin-top: 8px;
+    }
     .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
 {% endblock %}
 
@@ -41,7 +57,7 @@
         <textarea name="answers" rows="6"
             placeholder="Beantworte die Fragen oben...">{{ answers }}</textarea>
 
-        <button type="submit" class="btn-primary" data-loading-text="Plan wird erstellt...">Plan generieren →</button>
+        <button type="submit" class="btn btn-primary" data-loading-text="Plan wird erstellt...">Plan generieren →</button>
     </form>
 </div>
 {% endblock %}
