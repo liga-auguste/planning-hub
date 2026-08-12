@@ -3,7 +3,17 @@
 {% block title %}Planungsregeln – Planning Hub{% endblock %}
 
 {% block extra_css %}
-    .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 40px; }
+    /* .card reads all of these except the spacers, which .card-body reads.
+       --bs-card-color is needed because .card sets its own colour instead of
+       inheriting ours; --bs-card-border-width is already 1px by default. */
+    .card {
+        --bs-card-bg: #fff;
+        --bs-card-color: #1a1a1a;
+        --bs-card-border-color: #e5e5e5;
+        --bs-card-border-radius: 8px;
+        --bs-card-spacer-x: 40px;
+        --bs-card-spacer-y: 40px;
+    }
     h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
     .subtitle { color: #9b9b9b; margin-bottom: 28px; line-height: 1.5; }
     .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
@@ -36,7 +46,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="card">
+<div class="card"><div class="card-body">
     <a href="{% url 'planner_start' %}" class="back">← Planer</a>
     <h1>Planungsregeln</h1>
     <p class="subtitle">
@@ -78,7 +88,7 @@
             <button type="submit" class="btn-add">Hinzufügen</button>
         </form>
     </div>
-</div>
+</div></div>
 {% endblock %}
 
 {% block extra_js %}

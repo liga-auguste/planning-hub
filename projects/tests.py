@@ -223,6 +223,60 @@ class PlannerLoadingStateTest(DemoModeTestCase):
         self.assertContains(response, 'class="btn btn-primary"')
 
 
+class CardUsesBootstrapVariablesTest(DemoModeTestCase):
+    """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
+    and our four cards were bare divs carrying their own padding. Without the
+    inner element the spacer variables would have had nothing to act on."""
+
+    def test_stats_tiles_feed_their_values_in(self):
+        response = self.client.get("/stats/")
+        self.assertContains(response, "--bs-card-bg: #fff")
+        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-border-radius: 10px")
+        self.assertContains(response, "--bs-card-spacer-x: 20px")
+        self.assertContains(response, "--bs-card-spacer-y: 20px")
+
+    def test_stats_renders_all_three_tiles_with_a_card_body(self):
+        response = self.client.get("/stats/")
+        self.assertContains(
+            response, '<div class="card"><div class="card-body">', count=3
+        )
+
+    def test_stats_tile_contents_still_render(self):
+        response = self.client.get("/stats/")
+        self.assertContains(response, "card-value")
+        self.assertContains(response, "card-label")
+
+    def test_rules_card_feeds_its_values_in(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "--bs-card-bg: #fff")
+        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-border-radius: 8px")
+        self.assertContains(response, "--bs-card-spacer-x: 40px")
+        self.assertContains(response, "--bs-card-spacer-y: 40px")
+
+    def test_rules_renders_a_card_body(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(
+            response, '<div class="card"><div class="card-body">', count=1
+        )
+
+    def test_neither_page_paints_over_bootstrap_any_more(self):
+        for url in ("/stats/", reverse("rules_list")):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(
+                    response, ".card { background: #fff; border: 1px solid"
+                )
+
+    def test_card_text_keeps_our_body_colour(self):
+        # .card sets `color: var(--bs-body-color)` (#212529) rather than
+        # inheriting ours, so .card-body has to be told the real value.
+        for url in ("/stats/", reverse("rules_list")):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
+
+
 class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
     """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
     In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
