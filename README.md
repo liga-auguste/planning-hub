@@ -46,11 +46,13 @@ The one place where that blocking was worth removing is the multi-project demo v
 
 ### Domain rules in the prompt, not in code
 
-Every domain has planning rules that Claude doesn't know by default — legal requirements, vendor workflows, internal conventions. These are encoded explicitly in the prompt as editable `PlannerRule` objects (stored in the database, editable via admin UI) rather than as conditional logic. Planning heuristics stay readable, adjustable, and separate from application code.
+Every domain has planning rules that Claude doesn't know by default — legal requirements, vendor workflows, internal conventions. These are encoded explicitly in the prompt as editable rules rather than as conditional logic, so planning heuristics stay readable, adjustable, and separate from application code.
+
+Where a rule lives depends on who owns it. In production it is a `PlannerRule` row the maintainer curates for everyone. In demo mode the public page has no authentication, so a shared table would let any visitor rewrite the rules every other visitor's plan is generated with — there the rules live in the visitor's own session instead, seeded from the same defaults. Both sit behind one interface in `rules.py`, so the views never learn which backend answered.
 
 ### Notion as source of truth
 
-Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database now holds only `PlannerRule` (editable planning rules) and `DemoEvent` (anonymous usage telemetry).
+Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database now holds only `PlannerRule` (the production planning rules) and `DemoEvent` (anonymous usage telemetry).
 
 ### Context derivation in code, not in Notion
 
@@ -68,7 +70,7 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 - **Urgency system** — overdue / urgent / on track per task and project, colour-coded in sidebar
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
-- **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed
+- **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
 - **8h caching with stale fallback** — Notion API responses cached locally; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual sync button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
 - **DEMO_MODE** — runs on fixture data, no Notion credentials needed
 
@@ -135,6 +137,18 @@ env -u ANTHROPIC_API_KEY python manage.py test projects
 
 `.github/workflows/test.yml` runs the suite on every pull request and on every push to `main`, on Python 3.12 to match the `Dockerfile`. It runs twice, once per database backend: `DEMO_MODE=true` for SQLite, which is what the demo deployment runs, and `DEMO_MODE=false` against a `postgres:16` service container, which is what production runs. Neither leg needs an API key. Covering both means a migration that only applies on SQLite cannot reach production, where `entrypoint.sh` runs `migrate` on every container start.
 
+### Linting
+
+`.github/workflows/ruff.yml` gates the same events on `ruff check` and `ruff format --check`. The rule set is Ruff's default minus two families, each carrying its reason in `pyproject.toml`. Ruff is pinned to one version in both the workflow and `requirements-dev.txt`, so a new release cannot fail a pull request that changed nothing; it is deliberately absent from `requirements.txt`, which the `Dockerfile` installs — a linter has no business in the production image.
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+ruff format --check .
+```
+
+`ruff check` has to run *after* `ruff format`: a `# noqa` binds to its physical line, so reformatting can carry a suppression onto the wrong one.
+
 ### With Notion (full mode)
 
 Add to `.env`:
@@ -186,11 +200,12 @@ projects/
   planner.py         # RAG-based plan generation (questions + tasks)
   notion.py          # Notion API read/write
   demo_data.py       # Fixture data for DEMO_MODE
+  rules.py           # Planning rules: database in production, session in demo mode
   views.py           # Dashboard, task toggle, time-lapse, stats
   planner_views.py   # 4-step planner flow
   models.py          # PlannerRule, DemoEvent
   startup.py         # Fail-fast API-key checks at server start
-  tests.py           # 150 tests, fully offline (Claude stubbed)
+  tests.py           # Test suite, fully offline (Claude stubbed)
   urls.py            # Dashboard, task actions, legal pages
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 15 templates, all JS inline
