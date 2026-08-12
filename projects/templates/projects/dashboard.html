@@ -29,8 +29,8 @@
         /* border-top: none — nested lis also match .ai-card ul > li above and
            would inherit its separator line. */
         .ai-card ul ul li { font-size: 12px; font-weight: 400; color: #6b6b6b; padding: 2px 0 2px 16px; border-top: none; }
-        /* Guard against a stray paragraph in the summary — base_dashboard has
-           no margin reset, so Bootstrap's 1rem would gape here (#20). */
+        /* Guard against a stray paragraph in the summary — since #64 the reset
+           in base_dashboard zeroes it, so the spacing has to be stated (#20). */
         .ai-card p { margin: 0 0 8px; }
         .ai-project-link { cursor: pointer; }
         .ai-project-link:hover { text-decoration: underline; }

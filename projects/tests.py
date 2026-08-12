@@ -223,6 +223,43 @@ class PlannerLoadingStateTest(DemoModeTestCase):
         self.assertContains(response, 'class="btn btn-primary"')
 
 
+class BaseResetParityTest(DemoModeTestCase):
+    """#64 unit 4: base_public.html reset itself while base_dashboard.html
+    inherited Reboot's. Two sources for the same thing is what produces
+    unexplainable eight-pixel jumps later, so both now reset the same way.
+
+    The other direction -- dropping our reset and letting Reboot serve both --
+    would have added padding-left: 2rem to datenschutz.html's lists and shifted
+    those bullets 32px right, on a page under the legal hard constraint."""
+
+    RESET = "* { box-sizing: border-box; margin: 0; padding: 0; }"
+
+    def test_both_bases_reset_the_same_way(self):
+        self.assertContains(self.client.get("/dashboard/"), self.RESET)
+        self.assertContains(self.client.get("/impressum/"), self.RESET)
+
+    def test_dashboard_summary_paragraphs_keep_their_spacing(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
+
+    def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
+        self.given_session_plan()
+        response = self.client.get("/mein-plan/")
+        self.assertContains(response, ".summary-box ul { padding-left: 20px")
+        self.assertContains(response, ".summary-box p { margin: 0 0 8px; }")
+
+    def test_stats_empty_state_keeps_its_trailing_gap(self):
+        response = self.client.get("/stats/")
+        self.assertContains(
+            response,
+            ".empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
+        )
+
+    def test_datenschutz_lists_are_untouched(self):
+        response = self.client.get("/datenschutz/")
+        self.assertContains(response, "ul { margin: 6px 0 8px 18px;")
+
+
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):
     """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
     and our four cards were bare divs carrying their own padding. Without the

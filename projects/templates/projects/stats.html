@@ -33,7 +33,9 @@
     .day-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
     .day-row:last-child { border-bottom: none; }
     .day-count { font-weight: 600; }
-    .empty { color: #bbb; font-size: 13px; padding: 8px 0; }
+    /* The trailing gap came from Reboot's p margin, which the #64 reset
+       removes; stated here so the empty section keeps its height. */
+    .empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }
 {% endblock %}
 
 {% block body %}
