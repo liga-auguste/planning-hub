@@ -147,7 +147,7 @@ ruff check .
 ruff format --check .
 ```
 
-`ruff check` has to run *after* `ruff format`: a `# noqa` binds to its physical line, so reformatting can carry a suppression onto the wrong one.
+Neither command above writes, so in that order — and in CI, which runs the same two — the sequence does not matter. It starts to matter the moment you format in place: a `# noqa` binds to its physical line, and `ruff format .` can split the line it sits on, leaving the suppression on the closing bracket while the finding stays on the first line. A `ruff check .` from before that pass would have called the file clean. So when the formatter writes, run it first and check afterwards.
 
 ### With Notion (full mode)
 
