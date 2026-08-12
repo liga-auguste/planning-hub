@@ -10,11 +10,10 @@ __pycache__/
 *.map
 .env
 
+# Only bootstrap.min.css is vendored (#64). These guard against an accidental
+# full-dist unzip putting the unused builds back into the repo.
 projects/static/projects/css/bootstrap-*
 projects/static/projects/css/bootstrap.css
 projects/static/projects/css/bootstrap.rtl*
-projects/static/projects/js/bootstrap.bundle.js
-projects/static/projects/js/bootstrap.esm*
-projects/static/projects/js/bootstrap.js
-projects/static/projects/js/bootstrap.min.js
+projects/static/projects/js/bootstrap*
 ANALYSEN.md

@@ -112,6 +112,53 @@ class DemoModeTestCase(TestCase):
         session.save()
 
 
+class BootstrapVendoredVersionTest(SimpleTestCase):
+    """#64 unit 1: what sits on disk under projects/static/. The globs match
+    `bootstrap*` rather than the whole directory listing so that a .DS_Store
+    dropped by Finder can't turn the trim assertions red."""
+
+    css_dir = settings.BASE_DIR / "projects" / "static" / "projects" / "css"
+    js_dir = settings.BASE_DIR / "projects" / "static" / "projects" / "js"
+
+    def test_vendored_css_is_538(self):
+        header = (self.css_dir / "bootstrap.min.css").read_text()[:200]
+        self.assertIn("Bootstrap", header)
+        self.assertIn("v5.3.8", header)
+        self.assertNotIn("v5.0.2", header)
+
+    def test_vendored_css_ships_color_modes(self):
+        # data-bs-theme is the 5.3 feature #12 rides on; 5.0.2 has none.
+        css = (self.css_dir / "bootstrap.min.css").read_text()
+        self.assertIn("data-bs-theme", css)
+
+    def test_only_the_linked_stylesheet_is_vendored(self):
+        # No RTL builds, no .map files, no grid/utilities/reboot variants.
+        self.assertEqual(
+            sorted(p.name for p in self.css_dir.glob("bootstrap*")),
+            ["bootstrap.min.css"],
+        )
+
+    def test_no_bootstrap_javascript_is_vendored(self):
+        self.assertEqual(sorted(p.name for p in self.js_dir.glob("bootstrap*")), [])
+
+
+class BootstrapJsBundleDroppedTest(DemoModeTestCase):
+    """#64 unit 1: nothing initialises a Bootstrap JS component (zero
+    data-bs-* attributes), so the bundle was dropped rather than upgraded."""
+
+    def test_dashboard_does_not_load_the_bundle(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, "bootstrap.bundle.min.js")
+
+    def test_dashboard_keeps_its_own_sidebar_script(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "sidebarCollapsed")
+
+    def test_both_bases_still_link_the_stylesheet(self):
+        self.assertContains(self.client.get("/dashboard/"), "bootstrap.min.css")
+        self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
