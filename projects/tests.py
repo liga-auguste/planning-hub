@@ -112,6 +112,53 @@ class DemoModeTestCase(TestCase):
         session.save()
 
 
+class BootstrapVendoredVersionTest(SimpleTestCase):
+    """#64 unit 1: what sits on disk under projects/static/. The globs match
+    `bootstrap*` rather than the whole directory listing so that a .DS_Store
+    dropped by Finder can't turn the trim assertions red."""
+
+    css_dir = settings.BASE_DIR / "projects" / "static" / "projects" / "css"
+    js_dir = settings.BASE_DIR / "projects" / "static" / "projects" / "js"
+
+    def test_vendored_css_is_538(self):
+        header = (self.css_dir / "bootstrap.min.css").read_text()[:200]
+        self.assertIn("Bootstrap", header)
+        self.assertIn("v5.3.8", header)
+        self.assertNotIn("v5.0.2", header)
+
+    def test_vendored_css_ships_color_modes(self):
+        # data-bs-theme is the 5.3 feature #12 rides on; 5.0.2 has none.
+        css = (self.css_dir / "bootstrap.min.css").read_text()
+        self.assertIn("data-bs-theme", css)
+
+    def test_only_the_linked_stylesheet_is_vendored(self):
+        # No RTL builds, no .map files, no grid/utilities/reboot variants.
+        self.assertEqual(
+            sorted(p.name for p in self.css_dir.glob("bootstrap*")),
+            ["bootstrap.min.css"],
+        )
+
+    def test_no_bootstrap_javascript_is_vendored(self):
+        self.assertEqual(sorted(p.name for p in self.js_dir.glob("bootstrap*")), [])
+
+
+class BootstrapJsBundleDroppedTest(DemoModeTestCase):
+    """#64 unit 1: nothing initialises a Bootstrap JS component (zero
+    data-bs-* attributes), so the bundle was dropped rather than upgraded."""
+
+    def test_dashboard_does_not_load_the_bundle(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, "bootstrap.bundle.min.js")
+
+    def test_dashboard_keeps_its_own_sidebar_script(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "sidebarCollapsed")
+
+    def test_both_bases_still_link_the_stylesheet(self):
+        self.assertContains(self.client.get("/dashboard/"), "bootstrap.min.css")
+        self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
@@ -167,6 +214,193 @@ class PlannerLoadingStateTest(DemoModeTestCase):
             },
         )
         self.assertContains(response, 'data-loading-text="Wird gespeichert..."')
+
+    def test_the_selector_this_script_hangs_on_still_matches(self):
+        # #64 added `.btn` to the buttons; the script and the .is-loading /
+        # .spinner rules key off `.btn-primary`, which has to survive that.
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertContains(response, 'button[type="submit"].btn-primary')
+        self.assertContains(response, 'class="btn btn-primary"')
+
+
+class BaseResetParityTest(DemoModeTestCase):
+    """#64 unit 4: base_public.html reset itself while base_dashboard.html
+    inherited Reboot's. Two sources for the same thing is what produces
+    unexplainable eight-pixel jumps later, so both now reset the same way.
+
+    The other direction -- dropping our reset and letting Reboot serve both --
+    would have added padding-left: 2rem to datenschutz.html's lists and shifted
+    those bullets 32px right, on a page under the legal hard constraint."""
+
+    RESET = "* { box-sizing: border-box; margin: 0; padding: 0; }"
+
+    def test_both_bases_reset_the_same_way(self):
+        self.assertContains(self.client.get("/dashboard/"), self.RESET)
+        self.assertContains(self.client.get("/impressum/"), self.RESET)
+
+    def test_dashboard_summary_paragraphs_keep_their_spacing(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
+
+    def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
+        self.given_session_plan()
+        response = self.client.get("/mein-plan/")
+        self.assertContains(
+            response, ".summary-box ul, .summary-box ol { padding-left: 20px"
+        )
+        self.assertContains(response, ".summary-box p { margin: 0 0 8px; }")
+
+    def test_ordered_lists_keep_room_for_their_numbers(self):
+        # The reset took Reboot's ol padding with it, and .ai-card / .summary-box
+        # hold markdown.markdown() output -- so the tag set they have to survive
+        # is the model's, not the one the templates spell out.
+        self.assertContains(
+            self.client.get("/dashboard/"),
+            ".ai-card ol { margin: 0 0 8px; padding-left: 20px; }",
+        )
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get("/mein-plan/"),
+            ".summary-box ul, .summary-box ol { padding-left: 20px",
+        )
+
+    def test_summary_headings_cover_every_level_markdown_can_emit(self):
+        # h1-h3 were styled and h4-h6 were left on Reboot's margins, which the
+        # reset then zeroed.
+        self.given_session_plan()
+        pages = {
+            ".ai-card": self.client.get("/dashboard/"),
+            ".summary-box": self.client.get("/mein-plan/"),
+        }
+        for prefix, response in pages.items():
+            for level in range(1, 7):
+                with self.subTest(container=prefix, level=level):
+                    self.assertContains(response, f"{prefix} h{level}")
+
+    def test_stats_empty_state_keeps_its_trailing_gap(self):
+        response = self.client.get("/stats/")
+        self.assertContains(
+            response,
+            ".empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
+        )
+
+    def test_datenschutz_lists_are_untouched(self):
+        response = self.client.get("/datenschutz/")
+        self.assertContains(response, "ul { margin: 6px 0 8px 18px;")
+
+
+class CardUsesBootstrapVariablesTest(DemoModeTestCase):
+    """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
+    and our four cards were bare divs carrying their own padding. Without the
+    inner element the spacer variables would have had nothing to act on."""
+
+    def test_stats_tiles_feed_their_values_in(self):
+        response = self.client.get("/stats/")
+        self.assertContains(response, "--bs-card-bg: #fff")
+        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-border-radius: 10px")
+        self.assertContains(response, "--bs-card-spacer-x: 20px")
+        self.assertContains(response, "--bs-card-spacer-y: 20px")
+
+    def test_stats_renders_all_three_tiles_with_a_card_body(self):
+        response = self.client.get("/stats/")
+        self.assertContains(
+            response, '<div class="card"><div class="card-body">', count=3
+        )
+
+    def test_stats_tile_contents_still_render(self):
+        response = self.client.get("/stats/")
+        self.assertContains(response, "card-value")
+        self.assertContains(response, "card-label")
+
+    def test_rules_card_feeds_its_values_in(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "--bs-card-bg: #fff")
+        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-border-radius: 8px")
+        self.assertContains(response, "--bs-card-spacer-x: 40px")
+        self.assertContains(response, "--bs-card-spacer-y: 40px")
+
+    def test_rules_renders_a_card_body(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(
+            response, '<div class="card"><div class="card-body">', count=1
+        )
+
+    def test_neither_page_paints_over_bootstrap_any_more(self):
+        for url in ("/stats/", reverse("rules_list")):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(
+                    response, ".card { background: #fff; border: 1px solid"
+                )
+
+    def test_card_text_keeps_our_body_colour(self):
+        # .card sets `color: var(--bs-body-color)` (#212529) rather than
+        # inheriting ours, so .card-body has to be told the real value.
+        for url in ("/stats/", reverse("rules_list")):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
+
+
+class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
+    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
+    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
+    what reads them, so setting variables without adding `.btn` would have
+    looked like adoption and changed nothing."""
+
+    def steps(self):
+        """The three planner steps that carry a submit button."""
+        return {
+            "start": self.client.get(reverse("planner_start") + "?type=eigenes"),
+            "questions": self.client.post(
+                reverse("planner_start"),
+                data={"description": "Konzert am 15. September 2026"},
+            ),
+            "review": self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 5. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            ),
+        }
+
+    def test_every_submit_button_carries_both_classes(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, 'class="btn btn-primary"')
+
+    def test_every_step_feeds_the_colours_in_as_variables(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-bg: #1a1a1a")
+                self.assertContains(response, "--bs-btn-hover-bg: #333")
+
+    def test_every_step_keeps_the_borderless_box(self):
+        # `border: none` before; .btn's 1px default would grow the button by
+        # 2px in each direction, which a screenshot diff picks up.
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-width: 0")
+
+    def test_every_step_keeps_our_colour_on_a_disabled_button(self):
+        # .btn-primary ships --bs-btn-disabled-bg: #0d6efd, and .btn:disabled
+        # reads it. Unreachable while the loading state is a class rather than
+        # the disabled attribute -- this pins the colour before that changes.
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-disabled-bg: #1a1a1a")
+                self.assertContains(response, "--bs-btn-disabled-color: #fff")
+                self.assertContains(response, "--bs-btn-disabled-border-color: #1a1a1a")
+
+    def test_no_step_paints_over_bootstrap_any_more(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertNotContains(response, ".btn-primary { background: #1a1a1a")
+                self.assertNotContains(
+                    response, ".btn-primary:hover { background: #333"
+                )
 
 
 class FooterPinningTest(DemoModeTestCase):

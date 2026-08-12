@@ -7,6 +7,7 @@
     <title>{% block title %}Planning Hub{% endblock %}</title>
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background: #f7f7f8;
             color: #1a1a1a;
@@ -107,7 +108,6 @@
 {% endblock body %}
 
 {% include 'projects/_cookie_banner.html' %}
-<script src="{% static 'projects/js/bootstrap.bundle.min.js' %}"></script>
 <script>
 const sidebar = document.getElementById('sidebar');
 const main = document.querySelector('.main');

@@ -84,7 +84,7 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 | Database | PostgreSQL 16 (prod) · SQLite (demo) |
 | AI | Claude API — `claude-sonnet-4-6` (planner + summaries) · `claude-haiku-4-5` (time-lapse) |
 | Data source | Notion API (notion-client 2.2.1) |
-| Frontend | Bootstrap 5 (local), vanilla JS |
+| Frontend | Bootstrap 5.3 (local, CSS only), vanilla JS |
 | Web server | Nginx + Gunicorn |
 | Deployment | Docker Compose, Hetzner VPS |
 

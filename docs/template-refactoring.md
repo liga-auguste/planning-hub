@@ -209,3 +209,20 @@ DEMO_MODE=true python manage.py runserver
 ```
 
 After refactoring: no child template contains `{% load static %}` or full HTML boilerplate.
+
+---
+
+## Note (2026-08-12, [#64](https://github.com/liga-auguste/planning-hub/issues/64))
+
+Two details of the base-template skeletons above are now out of date. The skeletons are
+left as written, because this document records the refactor as it was carried out.
+
+- **The Bootstrap JS bundle is gone.** Both skeletons still show
+  `<script src="{% static 'projects/js/bootstrap.bundle.min.js' %}"></script>`. Nothing
+  initialised a Bootstrap component — zero `data-bs-*` attributes across all templates —
+  so the 76 KB bundle was dropped when the CSS moved to 5.3.8. Only
+  `projects/static/projects/css/bootstrap.min.css` is vendored now.
+- **`base_dashboard.html` resets like `base_public.html`.** Point 4 of "Decisions" above
+  reads the reset as equivalent to Bootstrap's normalize; in practice only the public base
+  carried it and the dashboard base inherited Reboot's instead. Both now declare
+  `* { box-sizing: border-box; margin: 0; padding: 0; }`.

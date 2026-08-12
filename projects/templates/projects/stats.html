@@ -10,7 +10,17 @@
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
     .subtitle { color: #9b9b9b; margin-bottom: 36px; }
     .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 36px; }
-    .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 20px; }
+    /* .card reads all of these except the spacers, which .card-body reads.
+       --bs-card-color is needed because .card sets its own colour instead of
+       inheriting ours; --bs-card-border-width is already 1px by default. */
+    .card {
+        --bs-card-bg: #fff;
+        --bs-card-color: #1a1a1a;
+        --bs-card-border-color: #e5e5e5;
+        --bs-card-border-radius: 10px;
+        --bs-card-spacer-x: 20px;
+        --bs-card-spacer-y: 20px;
+    }
     .card-value { font-size: 32px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
     .card-label { font-size: 12px; color: #9b9b9b; }
     .section { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 24px; margin-bottom: 16px; }
@@ -23,7 +33,9 @@
     .day-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
     .day-row:last-child { border-bottom: none; }
     .day-count { font-weight: 600; }
-    .empty { color: #bbb; font-size: 13px; padding: 8px 0; }
+    /* The trailing gap came from Reboot's p margin, which the #64 reset
+       removes; stated here so the empty section keeps its height. */
+    .empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }
 {% endblock %}
 
 {% block body %}
@@ -36,18 +48,18 @@
     <p class="subtitle">Anonyme Ereignisse — kein Inhalt, keine personenbezogenen Daten.</p>
 
     <div class="cards">
-        <div class="card">
+        <div class="card"><div class="card-body">
             <div class="card-value">{{ total_generated }}</div>
             <div class="card-label">Pläne generiert</div>
-        </div>
-        <div class="card">
+        </div></div>
+        <div class="card"><div class="card-body">
             <div class="card-value">{{ total_downloaded }}</div>
             <div class="card-label">Pläne heruntergeladen</div>
-        </div>
-        <div class="card">
+        </div></div>
+        <div class="card"><div class="card-body">
             <div class="card-value">{{ download_rate }}%</div>
             <div class="card-label">Download-Rate</div>
-        </div>
+        </div></div>
     </div>
 
     <div class="section">

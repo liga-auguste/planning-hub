@@ -29,8 +29,34 @@
     .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
     textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
     textarea:focus { outline: none; border-color: #1a1a1a; }
-    .btn-primary { background: #1a1a1a; border: none; border-radius: 6px; padding: 10px 24px; color: #fff; font-size: 14px; margin-top: 16px; cursor: pointer; }
-    .btn-primary:hover { background: #333; }
+    /* Bootstrap's .btn reads these; margin has no variable, so it stays a rule. */
+    .btn-primary {
+        --bs-btn-color: #fff;
+        --bs-btn-bg: #1a1a1a;
+        --bs-btn-border-color: #1a1a1a;
+        --bs-btn-hover-color: #fff;
+        --bs-btn-hover-bg: #333;
+        --bs-btn-hover-border-color: #333;
+        --bs-btn-active-color: #fff;
+        --bs-btn-active-bg: #333;
+        --bs-btn-active-border-color: #333;
+        /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
+           loading state is a class (.is-loading), not the disabled attribute,
+           so nothing reaches these today — they close the set so that a later
+           switch to `disabled` can't turn the button blue. */
+        --bs-btn-disabled-color: #fff;
+        --bs-btn-disabled-bg: #1a1a1a;
+        --bs-btn-disabled-border-color: #1a1a1a;
+        --bs-btn-focus-shadow-rgb: 26, 26, 26;
+        /* The hand-rolled button had `border: none`; .btn would otherwise add
+           1px and grow the box by 2px in each direction. */
+        --bs-btn-border-width: 0;
+        --bs-btn-border-radius: 6px;
+        --bs-btn-padding-x: 24px;
+        --bs-btn-padding-y: 10px;
+        --bs-btn-font-size: 14px;
+        margin-top: 16px;
+    }
     .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
     .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
     @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
@@ -105,7 +131,7 @@
             {% csrf_token %}
             <textarea name="description" rows="4"
                 placeholder="z.B. Konzert am 15. September 2026, Violine und Orgel — oder: Kandidat einstellen bis 1. Oktober">{{ prefill }}</textarea>
-            <button type="submit" class="btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
+            <button type="submit" class="btn btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
         </form>
         <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0;">
             <a href="{% url 'rules_list' %}" style="color: #9b9b9b; font-size: 13px; text-decoration: none;">
