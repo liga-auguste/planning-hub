@@ -20,7 +20,10 @@
         .dot.orange, .dot.purple, .dot.pink, .dot.brown, .dot.default { background: #c8c8c8; }
         .ai-card { margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: #c0c0c0; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
-        .ai-card h1, .ai-card h2, .ai-card h3 { font-size: 13px; font-weight: 600; color: #9b9b9b; margin-top: 28px; margin-bottom: 12px; }
+        /* All six levels: the summary is markdown.markdown() output, so the
+           heading depth is the model's to pick, not ours (#64). */
+        .ai-card h1, .ai-card h2, .ai-card h3,
+        .ai-card h4, .ai-card h5, .ai-card h6 { font-size: 13px; font-weight: 600; color: #9b9b9b; margin-top: 28px; margin-bottom: 12px; }
         .ai-card hr { border: none; border-top: 1px solid #f0f0f0; margin: 24px 0; }
         .ai-card ul { margin: 0; padding-left: 0; list-style: none; }
         .ai-card ul > li { font-size: 13px; font-weight: 600; padding: 10px 0 2px; color: #1a1a1a; border-top: 1px solid #f3f3f3; }
@@ -29,6 +32,12 @@
         /* border-top: none — nested lis also match .ai-card ul > li above and
            would inherit its separator line. */
         .ai-card ul ul li { font-size: 12px; font-weight: 400; color: #6b6b6b; padding: 2px 0 2px 16px; border-top: none; }
+        /* Off-format — the prompt asks for `-` bullets — but a numbered list
+           still has to land inside the card. Reboot's padding is what held the
+           markers, and the #64 reset took it away; padding-left keeps them from
+           rendering outside the content box. No list-style: none here: unlike
+           the bullets above, the numbers carry the ordering. */
+        .ai-card ol { margin: 0 0 8px; padding-left: 20px; }
         /* Guard against a stray paragraph in the summary — since #64 the reset
            in base_dashboard zeroes it, so the spacing has to be stated (#20). */
         .ai-card p { margin: 0 0 8px; }

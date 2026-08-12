@@ -245,8 +245,37 @@ class BaseResetParityTest(DemoModeTestCase):
     def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
         self.given_session_plan()
         response = self.client.get("/mein-plan/")
-        self.assertContains(response, ".summary-box ul { padding-left: 20px")
+        self.assertContains(
+            response, ".summary-box ul, .summary-box ol { padding-left: 20px"
+        )
         self.assertContains(response, ".summary-box p { margin: 0 0 8px; }")
+
+    def test_ordered_lists_keep_room_for_their_numbers(self):
+        # The reset took Reboot's ol padding with it, and .ai-card / .summary-box
+        # hold markdown.markdown() output -- so the tag set they have to survive
+        # is the model's, not the one the templates spell out.
+        self.assertContains(
+            self.client.get("/dashboard/"),
+            ".ai-card ol { margin: 0 0 8px; padding-left: 20px; }",
+        )
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get("/mein-plan/"),
+            ".summary-box ul, .summary-box ol { padding-left: 20px",
+        )
+
+    def test_summary_headings_cover_every_level_markdown_can_emit(self):
+        # h1-h3 were styled and h4-h6 were left on Reboot's margins, which the
+        # reset then zeroed.
+        self.given_session_plan()
+        pages = {
+            ".ai-card": self.client.get("/dashboard/"),
+            ".summary-box": self.client.get("/mein-plan/"),
+        }
+        for prefix, response in pages.items():
+            for level in range(1, 7):
+                with self.subTest(container=prefix, level=level):
+                    self.assertContains(response, f"{prefix} h{level}")
 
     def test_stats_empty_state_keeps_its_trailing_gap(self):
         response = self.client.get("/stats/")
