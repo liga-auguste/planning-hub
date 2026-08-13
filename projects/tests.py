@@ -601,6 +601,43 @@ class PlannerTileLinksTest(DemoModeTestCase):
         self.assertContains(response, "Hochzeit am 20. Juni</textarea>")
 
 
+class TileIconsTest(DemoModeTestCase):
+    """#44: the eight emoji tile icons become Lucide line icons, delivered as
+    one <symbol> sprite referenced by <use> — currentColor resolves through
+    the <use> shadow tree, so the icons inherit the tile's colour. What no
+    assertion can catch: a wrong viewBox or a leftover fill attribute shows
+    up as a black blob only in a browser."""
+
+    EMOJI = ["🎵", "💍", "👤", "🚀", "🎓", "📣", "🤝", "🏗"]
+
+    def test_no_tile_emoji_renders_on_step_one(self):
+        response = self.client.get(reverse("planner_start"))
+        for emoji in self.EMOJI:
+            with self.subTest(emoji=emoji):
+                self.assertNotContains(response, emoji)
+
+    def test_nine_references_and_nine_definitions(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, '<use href="#icon-', count=9)
+        self.assertContains(response, '<symbol id="icon-', count=9)
+
+    def test_the_icons_inherit_the_tiles_colour(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "stroke: currentColor")
+
+    def test_the_ninth_tile_gets_the_pencil(self):
+        # The one reference no other assertion would catch: "Eigenes Projekt"
+        # had no icon at all before, so a count of nine could also mean a
+        # duplicate on the eight.
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, '<symbol id="icon-pencil"')
+        self.assertContains(response, '<use href="#icon-pencil"')
+
+    def test_step_two_ships_no_sprite(self):
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertNotContains(response, '<symbol id="icon-')
+
+
 class PlannerReviewHappyPathTest(DemoModeTestCase):
     """First test to exercise planner_review's POST path at all. generate_plan
     now returns a dict directly (see GeneratePlanRetryTest in planner.py) —

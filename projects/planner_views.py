@@ -55,69 +55,71 @@ DEFAULT_PLACEHOLDER = (
 )
 
 # One entry per tile on the planner's first step; planner_start builds each
-# href with urlencode() (#5). The placeholder is ghost text the empty describe
-# field shows once a type is chosen — the old prefill wrote "[Datum]"-style
+# href with urlencode() (#5), and the icon names a <symbol> in the Lucide
+# sprite planner_start.html defines (#44). The placeholder is ghost text the
+# empty describe field shows once a type is chosen — the old prefill wrote "[Datum]"-style
 # templates into the field itself, and deleting the square brackets was the
 # first thing every visitor had to do (#72).
 PLANNER_TILES = [
     {
         "type": "konzert",
-        "icon": "🎵",
+        "icon": "music",
         "label": "Konzert / Event",
         "example": "Musikveranstaltung, Gottesdienst, Vereinsabend",
         "placeholder": "z.B. Konzert am 15. September, Violine und Orgel, in der Stadtkirche",
     },
     {
         "type": "hochzeit",
-        "icon": "💍",
+        "icon": "heart",
         "label": "Hochzeit / Feier",
         "example": "Hochzeit, Geburtstag, Jubiläum",
         "placeholder": "z.B. Hochzeit am 20. Juni in Potsdam, ca. 80 Gäste",
     },
     {
         "type": "recruiting",
-        "icon": "👤",
+        "icon": "user-plus",
         "label": "Recruiting",
         "example": "Stelle besetzen, Bewerbungsprozess",
         "placeholder": "z.B. Kandidat einstellen bis 1. Oktober, Position: Frontend-Entwicklung",
     },
     {
         "type": "launch",
-        "icon": "🚀",
+        "icon": "rocket",
         "label": "Produktlaunch",
         "example": "Software-Release, neue Kollektion",
         "placeholder": "z.B. Produktlaunch am 3. November: neue Herbstkollektion",
     },
     {
         "type": "workshop",
-        "icon": "🎓",
+        "icon": "graduation-cap",
         "label": "Workshop / Schulung",
         "example": "Seminar, Trainingsday, Webinar",
         "placeholder": "z.B. Workshop am 10. Oktober, Thema: Zeitmanagement, ca. 15 Teilnehmer",
     },
     {
         "type": "kampagne",
-        "icon": "📣",
+        "icon": "megaphone",
         "label": "Kampagne",
         "example": "Launch-Kampagne, Mailing, Social Media",
         "placeholder": "z.B. Marketing-Kampagne für das Weihnachtsgeschäft, Start: 1. November",
     },
     {
         "type": "konferenz",
-        "icon": "🤝",
+        "icon": "users",
         "label": "Konferenz / Tagung",
         "example": "Fachtagung, Firmenevent, Meetup",
         "placeholder": "z.B. Fachtagung am 12. März in Leipzig, ca. 120 Teilnehmer",
     },
     {
         "type": "umzug",
-        "icon": "🏗️",
+        "icon": "truck",
         "label": "Umzug / Umbau",
         "example": "Büroumzug, Renovierung, neue Räume",
         "placeholder": "z.B. Büroumzug am 1. Dezember: neue Räume am Marktplatz",
     },
     {
         "type": "eigenes",
+        "icon": "pencil",
         "custom": True,
         "label": "Eigenes Projekt",
         "example": "Freie Beschreibung — für alles andere",
