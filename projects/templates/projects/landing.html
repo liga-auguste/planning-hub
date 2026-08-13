@@ -244,9 +244,23 @@
     .flow[data-reached="2"] .flow-halo-3 {
         animation: flow-pulse 1.9s ease-out infinite;
     }
+    /* Reduce, not remove. What goes is the motion carrying no information: the
+       halo's endless scaling pulse — a looping zoom is the vestibular trigger
+       the setting exists for — and the run-out off the edge, which moves a lot
+       of the frame at once.
+       What stays is the line drawing itself, at a third of the duration and
+       eased flat. It is not decoration; it is the one thing on the page that
+       says how far you have come, and a progress indicator that teleports has
+       stopped indicating. A 2px stroke extending along its own path moves very
+       little of the frame, which is the measure that matters here.
+       Colour fades stay untouched — a fill changing hue is not movement. The
+       label keeps both its sizes and snaps between them instead of scaling.
+       That also removes the reason for the description's delay: it was there to
+       let the label finish shrinking, and nothing shrinks any more. */
     @media (prefers-reduced-motion: reduce) {
-        .step-desc, .flow-fill, .flow-dot, .step-label { transition: none; }
-        .step-desc { transform: none; }
+        .flow-fill { transition: stroke-dashoffset 0.3s linear; }
+        .step-label { transition: color 0.3s; }
+        .step-desc { transform: none; transition: opacity 0.2s ease; }
         .flow-halo, .flow-fill { animation: none !important; }
     }
     /* The row carries the two paths and nothing else, so centring it needs no
