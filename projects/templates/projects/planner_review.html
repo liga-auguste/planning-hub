@@ -8,23 +8,37 @@
 
 {% block extra_css %}
     {% include 'projects/_planner_css.html' %}
-    table { width: 100%; border-collapse: collapse; }
-    th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
-    td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-    td:nth-child(2) { width: 150px; white-space: nowrap; }
-    td:last-child { width: 36px; }
-    td textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; }
-    td input[type="number"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 80px; }
-    td select { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; background: #f0f0f0; }
-    td input:hover, td input:focus, td select:hover, td select:focus { border-color: #e5e5e5; outline: none; }
+    /* Project name and target date as one labelled row instead of three
+       unrelated slabs of inline style. */
+    .plan-head { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
+    .plan-head label { display: block; font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
+    .plan-head-name { flex: 1 1 280px; }
+    .plan-head-name input { width: 100%; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px 12px; font-size: 16px; font-weight: 500; }
+    .plan-head-name input:focus { outline: none; border-color: #1a1a1a; }
+    .plan-head-date input { border: 1px solid #e5e5e5; border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: #1a1a1a; background: #fff; }
+    .task-table { width: 100%; border-collapse: collapse; }
+    .task-table th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
+    .task-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    /* The name takes every spare pixel and the other columns shrink to their
+       content — width: 1% on a nowrap cell rests on table-layout: auto — so a
+       task and its date stop drifting hundreds of pixels apart. */
+    .task-table .col-name { width: 100%; padding-left: 0; }
+    .task-table .col-date,
+    .task-table .col-kontext,
+    .task-table .col-actions { width: 1%; white-space: nowrap; }
+    /* Transparent so tr.sofort's inset bar stays visible now that .col-name
+       has no left padding under the textarea. */
+    .task-table textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; background: transparent; }
+    .task-table input[type="date"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; color: #6b6b6b; background: transparent; font-family: inherit; }
+    .task-table input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.35; }
+    .task-table select { border: 1px solid transparent; border-radius: 99px; padding: 4px 12px; font-size: 12px; background: #f0f0f0; font-family: inherit; }
+    .task-table textarea:hover, .task-table textarea:focus,
+    .task-table input:hover, .task-table input:focus,
+    .task-table select:hover, .task-table select:focus { border-color: #e5e5e5; outline: none; }
     .btn-delete { background: none; border: none; color: #ccc; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: #e00; }
     .btn-primary { margin-top: 24px; }
-    .date-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-    .date-header label { font-size: 12px; color: #9b9b9b; white-space: nowrap; }
-    .date-header input[type="date"] { border: 1px solid #e5e5e5; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
-    .task-date { color: #9b9b9b; font-size: 13px; white-space: nowrap; }
-    tr.sofort td:first-child { box-shadow: inset 3px 0 0 #e86600; }
+    tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }
     tr.sofort input[name="task_date"] { color: #e86600; font-weight: 500; }
 {% endblock %}
 
@@ -38,40 +52,41 @@
     <p class="error-notice">Der Plan konnte nicht gespeichert werden. Deine Aufgaben sind unten erhalten geblieben — bitte versuche es gleich noch einmal.</p>
     {% endif %}
 
-    <div style="margin-bottom: 20px;">
-        <div style="font-size:12px; color:#9b9b9b; margin-bottom:4px;">Projektname</div>
-        <input type="text" name="project_name" form="create-form"
-               style="width:100%; border:1px solid #e5e5e5; border-radius:6px; padding:8px 12px; font-size:16px; font-weight:500;"
-               value="{{ project_name }}">
-    </div>
-
-    <div class="date-header">
-        <label>Zieldatum</label>
-        <input type="date" id="event-date" value="{{ event_date_iso }}">
+    <div class="plan-head">
+        <div class="plan-head-name">
+            <label for="project-name">Projektname</label>
+            <input type="text" id="project-name" name="project_name" form="create-form"
+                   value="{{ project_name }}">
+        </div>
+        <div class="plan-head-date">
+            <label for="event-date">Zieldatum</label>
+            <input type="date" id="event-date" value="{{ event_date_iso }}">
+        </div>
     </div>
 
     <form method="post" action="{% url 'planner_create' %}" id="create-form">
         {% csrf_token %}
         <input type="hidden" name="description" value="{{ description }}">
         <input type="hidden" name="event_date" id="event-date-hidden" value="{{ event_date_iso }}">
-        <table>
+        <table class="task-table">
             <thead>
                 <tr>
-                    <th>Aufgabe</th>
-                    <th>Datum</th>
-                    {% if not demo_mode %}<th>Kontext</th>{% endif %}
-                    <th></th>
+                    <th class="col-name">Aufgabe</th>
+                    <th class="col-date">Datum</th>
+                    {% if not demo_mode %}<th class="col-kontext">Kontext</th>{% endif %}
+                    <th class="col-actions"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for task in tasks %}
                 <tr data-days="{{ task.days_before }}">
-                    <td><textarea name="task_name" rows="1">{{ task.name }}</textarea></td>
-                    <td><input type="date" name="task_date"></td>
-                    {% if demo_mode %}
-                    <input type="hidden" name="task_kontext" value="">
-                    {% else %}
-                    <td>
+                    <td class="col-name">
+                        {% if demo_mode %}<input type="hidden" name="task_kontext" value="">{% endif %}
+                        <textarea name="task_name" rows="1">{{ task.name }}</textarea>
+                    </td>
+                    <td class="col-date"><input type="date" name="task_date"></td>
+                    {% if not demo_mode %}
+                    <td class="col-kontext">
                         <select name="task_kontext">
                             {% for k in kontexte %}
                             <option value="{{ k }}" {% if k == task.kontext %}selected{% endif %}>{{ k }}</option>
@@ -79,7 +94,7 @@
                         </select>
                     </td>
                     {% endif %}
-                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
+                    <td class="col-actions"><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
                 </tr>
                 {% endfor %}
             </tbody>

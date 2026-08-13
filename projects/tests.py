@@ -638,6 +638,114 @@ class TileIconsTest(DemoModeTestCase):
         self.assertNotContains(response, '<symbol id="icon-')
 
 
+class ReviewLayoutTest(DemoModeTestCase):
+    """#72 step 4: the review table's cells carry explicit column classes now.
+    td:nth-child was unusable — in demo mode the row is name/date/delete, in
+    production name/date/kontext/delete, so nth-child(3) named a different
+    column per deployment; its fixed 150px date width was also the direct
+    cause of #71. The name column takes every spare pixel, the rest shrink to
+    their content, and the head becomes one labelled row."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_every_cell_carries_its_column_class(self):
+        html = self.review_page().content.decode()
+        for cls in ("col-name", "col-date", "col-actions"):
+            with self.subTest(cls=cls):
+                self.assertIn(f'<th class="{cls}"', html)
+                self.assertIn(f'<td class="{cls}"', html)
+
+    def test_the_name_column_takes_the_spare_width(self):
+        response = self.review_page()
+        self.assertContains(
+            response, ".task-table .col-name { width: 100%; padding-left: 0; }"
+        )
+        self.assertContains(response, "width: 1%; white-space: nowrap;")
+
+    def test_the_nth_child_widths_are_gone(self):
+        response = self.review_page()
+        self.assertNotContains(response, "td:nth-child(2)")
+        self.assertNotContains(response, "td:last-child")
+
+    def test_the_head_is_one_labelled_row(self):
+        response = self.review_page()
+        self.assertContains(response, 'class="plan-head"')
+        self.assertContains(response, "Projektname")
+        self.assertContains(response, "Zieldatum")
+        self.assertNotContains(response, "date-header")
+        self.assertNotContains(response, 'style="margin-bottom: 20px;"')
+
+    def test_the_demo_hidden_kontext_sits_inside_the_first_cell(self):
+        # It used to sit directly under <tr>, outside any cell — invalid HTML
+        # that browsers foster-parent out of the table.
+        html = self.review_page().content.decode()
+        self.assertRegex(
+            html, r'<td class="col-name">\s*<input type="hidden" name="task_kontext"'
+        )
+
+    def test_the_date_control_is_governed(self):
+        response = self.review_page()
+        self.assertContains(response, '.task-table input[type="date"]')
+        self.assertContains(response, "::-webkit-calendar-picker-indicator")
+
+    def test_the_sofort_marker_moved_to_the_classed_cell(self):
+        response = self.review_page()
+        self.assertContains(
+            response, "tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }"
+        )
+        self.assertNotContains(response, "td:first-child")
+
+
+@override_settings(DEMO_MODE=False)
+class ReviewKontextColumnTest(DemoModeTestCase):
+    """The four-column layout never renders in a demo browser pass, so its
+    markup contract is pinned here: the kontext select gets its own classed
+    cell and wears the chip the design language gives a tag."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        with patch("projects.planner_views.get_historical_projects", return_value=[]):
+            return self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 5. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            )
+
+    def test_the_kontext_cell_is_classed(self):
+        html = self.review_page().content.decode()
+        self.assertIn('<th class="col-kontext">Kontext</th>', html)
+        self.assertRegex(
+            html, r'<td class="col-kontext">\s*<select name="task_kontext"'
+        )
+
+    def test_the_select_wears_the_chip(self):
+        response = self.review_page()
+        self.assertContains(
+            response,
+            ".task-table select { border: 1px solid transparent; border-radius: 99px;",
+        )
+
+
 class PlannerReviewHappyPathTest(DemoModeTestCase):
     """First test to exercise planner_review's POST path at all. generate_plan
     now returns a dict directly (see GeneratePlanRetryTest in planner.py) —
