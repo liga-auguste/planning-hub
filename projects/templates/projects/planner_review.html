@@ -40,6 +40,29 @@
     .btn-primary { margin-top: 24px; }
     tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }
     tr.sofort input[name="task_date"] { color: #e86600; font-weight: 500; }
+    /* Below 768px the table is the wrong shape for this content (#71): the
+       fixed columns left the name ~60px and cut every task. Each row becomes
+       a block — name on its own line, the controls underneath, the delete
+       pinned top-right so a long kontext can never push it to a third line.
+       The header row goes: once the cells stop being columns there is
+       nothing left for it to align with. */
+    @media (max-width: 768px) {
+        .task-table thead { display: none; }
+        .task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }
+        .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid #f0f0f0; }
+        .task-table td { width: auto; padding: 0; border: none; white-space: normal; }
+        .task-table .col-name { margin-bottom: 8px; padding-right: 32px; }
+        .task-table .col-date,
+        .task-table .col-kontext { display: inline-flex; align-items: center; margin-right: 8px; }
+        .task-table .col-actions { position: absolute; top: 8px; right: 0; width: auto; padding: 0; }
+        /* ~28px touch target */
+        .btn-delete { padding: 4px 8px; font-size: 20px; }
+        /* box-shadow on a display: table-row is not reliably painted — why
+           the marker sat on the first cell. As a block the row paints it,
+           and the bar spans the whole stacked task. */
+        tr.sofort .col-name { box-shadow: none; }
+        tr.sofort { box-shadow: inset 3px 0 0 #e86600; }
+    }
 {% endblock %}
 
 {% block content %}

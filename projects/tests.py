@@ -746,6 +746,52 @@ class ReviewKontextColumnTest(DemoModeTestCase):
         )
 
 
+class ReviewStacksOnMobileTest(DemoModeTestCase):
+    """#71: on a 390px viewport the fixed column widths left the task name
+    ~60px and cut every task after a few characters — on the one screen where
+    the plan is checked before it is written anywhere. Below 768px each row
+    becomes a block. These assert the rules are served; that they actually
+    reflow is the browser pass at 390px."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_the_rows_become_blocks_below_the_breakpoint(self):
+        response = self.review_page()
+        self.assertContains(response, "@media (max-width: 768px)")
+        self.assertContains(
+            response,
+            ".task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }",
+        )
+
+    def test_the_header_row_is_dropped(self):
+        self.assertContains(self.review_page(), ".task-table thead { display: none; }")
+
+    def test_the_sofort_marker_moves_from_the_cell_to_the_row(self):
+        response = self.review_page()
+        self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
+        self.assertContains(
+            response, "tr.sofort { box-shadow: inset 3px 0 0 #e86600; }"
+        )
+
+    def test_the_delete_button_leaves_the_flow(self):
+        self.assertContains(
+            self.review_page(), ".task-table .col-actions { position: absolute;"
+        )
+
+
 class PlannerReviewHappyPathTest(DemoModeTestCase):
     """First test to exercise planner_review's POST path at all. generate_plan
     now returns a dict directly (see GeneratePlanRetryTest in planner.py) —
