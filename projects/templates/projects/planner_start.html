@@ -69,53 +69,23 @@
         <h1>Welche Art von Projekt?</h1>
         <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
         <div class="tiles">
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Konzert am [Datum], [Besetzung / Ort]&type=konzert">
-                <div class="tile-icon">🎵</div>
-                <div class="tile-label">Konzert / Event</div>
-                <div class="tile-example">Musikveranstaltung, Gottesdienst, Vereinsabend</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Hochzeit am [Datum], [Ort], ca. [Anzahl] Gäste&type=hochzeit">
-                <div class="tile-icon">💍</div>
-                <div class="tile-label">Hochzeit / Feier</div>
-                <div class="tile-example">Hochzeit, Geburtstag, Jubiläum</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle]&type=recruiting">
-                <div class="tile-icon">👤</div>
-                <div class="tile-label">Recruiting</div>
-                <div class="tile-example">Stelle besetzen, Bewerbungsprozess</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Produktlaunch am [Datum]: [Produkt / Feature / Kollektion]&type=launch">
-                <div class="tile-icon">🚀</div>
-                <div class="tile-label">Produktlaunch</div>
-                <div class="tile-example">Software-Release, neue Kollektion</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Workshop am [Datum], Thema: [Thema], ca. [Anzahl] Teilnehmer&type=workshop">
-                <div class="tile-icon">🎓</div>
-                <div class="tile-label">Workshop / Schulung</div>
-                <div class="tile-example">Seminar, Trainingsday, Webinar</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Marketing-Kampagne für [Produkt / Anlass], Start: [Datum]&type=kampagne">
-                <div class="tile-icon">📣</div>
-                <div class="tile-label">Kampagne</div>
-                <div class="tile-example">Launch-Kampagne, Mailing, Social Media</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Konferenz / Tagung am [Datum], [Ort], ca. [Anzahl] Teilnehmer&type=konferenz">
-                <div class="tile-icon">🤝</div>
-                <div class="tile-label">Konferenz / Tagung</div>
-                <div class="tile-example">Fachtagung, Firmenevent, Meetup</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Umzug / Einrichtung am [Datum]: [Büro / Wohnung / Standort]&type=umzug">
-                <div class="tile-icon">🏗️</div>
-                <div class="tile-label">Umzug / Umbau</div>
-                <div class="tile-example">Büroumzug, Renovierung, neue Räume</div>
-            </a>
-            <a class="tile tile-custom" href="{% url 'planner_start' %}?type=eigenes">
+            {% for tile in tiles %}
+            {% if tile.custom %}
+            <a class="tile tile-custom" href="{{ tile.href }}">
                 <div>
-                    <div class="tile-label">Eigenes Projekt</div>
-                    <div class="tile-example">Freie Beschreibung — für alles andere</div>
+                    <div class="tile-label">{{ tile.label }}</div>
+                    <div class="tile-example">{{ tile.example }}</div>
                 </div>
                 <span class="arrow">→</span>
             </a>
+            {% else %}
+            <a class="tile" href="{{ tile.href }}">
+                <div class="tile-icon">{{ tile.icon }}</div>
+                <div class="tile-label">{{ tile.label }}</div>
+                <div class="tile-example">{{ tile.example }}</div>
+            </a>
+            {% endif %}
+            {% endfor %}
         </div>
     </div>
 
@@ -130,7 +100,7 @@
         <form method="post">
             {% csrf_token %}
             <textarea name="description" rows="4"
-                placeholder="z.B. Konzert am 15. September 2026, Violine und Orgel — oder: Kandidat einstellen bis 1. Oktober">{{ prefill }}</textarea>
+                placeholder="{{ placeholder }}">{{ prefill }}</textarea>
             <button type="submit" class="btn btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
         </form>
         <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0;">

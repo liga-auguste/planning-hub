@@ -480,6 +480,47 @@ class PlannerGetFallthroughTest(DemoModeTestCase):
         self.assertEqual(self.client.get("/planner/questions/").status_code, 404)
 
 
+class PlannerTileLinksTest(DemoModeTestCase):
+    """#5 / #72: the tile links used to carry a raw-text prefill query
+    parameter ("?prefill=Konzert am [Datum], ..."), unencoded and written
+    straight into the textarea — deleting the square brackets was the
+    visitor's first job on step 2. The links now carry only the
+    urlencode()-built type; the field starts empty and a type-specific
+    placeholder shows the example instead. The prefill context key stays:
+    it restores typed text on an AIUnavailableError re-render (see
+    PlannerStartAiFailureTest)."""
+
+    def test_the_nine_tile_links_carry_only_the_encoded_type(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "?type=", count=9)
+        self.assertContains(response, 'href="/planner/?type=konzert"')
+        self.assertContains(response, 'href="/planner/?type=eigenes"')
+        self.assertNotContains(response, "prefill=")
+
+    def test_a_chosen_type_shows_its_placeholder_in_an_empty_field(self):
+        response = self.client.get(reverse("planner_start") + "?type=konzert")
+        self.assertContains(response, 'placeholder="z.B. Konzert am 15. September')
+        self.assertContains(response, "></textarea>")
+        self.assertNotContains(response, "[Datum]")
+
+    def test_an_unknown_type_falls_back_to_the_generic_placeholder(self):
+        response = self.client.get(reverse("planner_start") + "?type=quatsch")
+        self.assertContains(response, "oder: Kandidat einstellen bis 1. Oktober")
+
+    def test_the_error_rerender_keeps_the_chosen_types_placeholder(self):
+        self.client.get(reverse("planner_start") + "?type=hochzeit")
+        self.ai_mocks[
+            "projects.planner_views.get_clarifying_questions"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_start"), data={"description": "Hochzeit am 20. Juni"}
+        )
+        self.assertContains(
+            response, 'placeholder="z.B. Hochzeit am 20. Juni in Potsdam'
+        )
+        self.assertContains(response, "Hochzeit am 20. Juni</textarea>")
+
+
 class PlannerReviewHappyPathTest(DemoModeTestCase):
     """First test to exercise planner_review's POST path at all. generate_plan
     now returns a dict directly (see GeneratePlanRetryTest in planner.py) —
