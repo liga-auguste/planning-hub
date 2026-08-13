@@ -5,8 +5,13 @@
        equal specificity, and base CSS is declared before extra_css, so a
        hoisted rule would silently land under theirs. Maps 1:1 onto a future
        planner stylesheet once the inline CSS moves out (#32). */
-    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 40px; }
+    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 40px; }
+    /* The landing page's headline treatment at working-surface size: same
+       weight, tracking and tight leading, not the 42px poster cut. */
+    h1 { font-size: 28px; font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; margin-bottom: 8px; }
+    .subtitle { color: #6b6b6b; line-height: 1.65; margin-bottom: 28px; }
     .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    .back:hover { color: #1a1a1a; }
     .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
     /* Bootstrap's .btn reads these; margin has no variable, so each step
        keeps its own margin-top rule. */
@@ -31,8 +36,20 @@
         /* The hand-rolled button had `border: none`; .btn would otherwise add
            1px and grow the box by 2px in each direction. */
         --bs-btn-border-width: 0;
-        --bs-btn-border-radius: 6px;
-        --bs-btn-padding-x: 24px;
-        --bs-btn-padding-y: 10px;
+        /* The landing page's pill: 99px radius, 12px/22px padding at weight
+           600. 11px here plus Bootstrap's line-height of 1.5 on a 14px label
+           computes to the same 43px box as the hand-rolled .action pill. */
+        --bs-btn-border-radius: 99px;
+        --bs-btn-padding-x: 22px;
+        --bs-btn-padding-y: 11px;
         --bs-btn-font-size: 14px;
+        --bs-btn-font-weight: 600;
+    }
+    @media (max-width: 768px) {
+        h1 { font-size: 24px; }
+        .planner-card { padding: 28px; }
+    }
+    @media (max-width: 560px) {
+        h1 { font-size: 22px; }
+        .planner-card { padding: 20px; }
     }

@@ -49,14 +49,23 @@
         .ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
         .ps-step + .ps-step::before {
             content: ''; position: absolute; top: 4px;
-            left: -50%; right: 50%; height: 2px; background: #e0e0e0;
+            left: -50%; right: 50%; height: 2px; background: #e5e5e5;
         }
         .ps-step.done + .ps-step::before { background: #1a1a1a; }
-        .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: #e0e0e0; margin-bottom: 6px; position: relative; z-index: 1; }
+        .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5e5e5; margin-bottom: 6px; position: relative; z-index: 1; }
         .ps-step.done .ps-dot, .ps-step.active .ps-dot { background: #1a1a1a; }
+        /* The landing page's halo, held still: a marker on the current step,
+           not a loop that never resolves. */
+        .ps-step.active .ps-dot { box-shadow: 0 0 0 3px rgba(26,26,26,0.10); }
         .ps-label { font-size: 10px; color: #ccc; text-align: center; white-space: nowrap; }
         .ps-step.done .ps-label { color: #aaa; }
         .ps-step.active .ps-label { color: #1a1a1a; font-weight: 600; }
+        /* Only the planner fills topbar_right; on a phone the track takes
+           its own row instead of squeezing beside the wordmark. */
+        @media (max-width: 560px) {
+            .top-bar { flex-wrap: wrap; row-gap: 14px; }
+            .ps-track { width: 100%; max-width: 320px; }
+        }
         #cookie-banner {
             position: fixed;
             bottom: 0; left: 0; right: 0;

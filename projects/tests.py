@@ -432,6 +432,58 @@ class PlannerSharedCssTest(PlannerStepsMixin, DemoModeTestCase):
                 self.assertNotContains(response, "--bs-btn-border-width")
 
 
+class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72: the planner steps wore a different product than the landing page
+    one click earlier — a 6px near-square button against the landing pill,
+    20px headlines with default leading against tracked display type. The
+    shared partial now carries the landing figures at working-surface size."""
+
+    def test_every_step_wears_the_landing_pill(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-radius: 99px")
+                self.assertContains(response, "--bs-btn-padding-x: 22px")
+                self.assertContains(response, "--bs-btn-padding-y: 11px")
+                self.assertContains(response, "--bs-btn-font-weight: 600")
+                self.assertNotContains(response, "--bs-btn-border-radius: 6px")
+
+    def test_every_step_carries_the_landing_headline_treatment(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "letter-spacing: -0.02em")
+                self.assertContains(response, "text-wrap: balance")
+
+    def test_the_subtitle_is_body_text_not_label_grey(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, ".subtitle { color: #6b6b6b")
+
+
+class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72 decision 1: the four step labels stay as they are — the naming
+    question against the landing page's three terms is deliberately deferred,
+    and this pins the labels so a later pass cannot rename them silently."""
+
+    LABELS = ["Projekttyp", "Beschreiben", "Klärung", "Review"]
+
+    def test_all_four_labels_render_on_every_step(self):
+        pages = {"tiles": self.client.get(reverse("planner_start")), **self.steps()}
+        for step, response in pages.items():
+            for label in self.LABELS:
+                with self.subTest(step=step, label=label):
+                    self.assertContains(
+                        response, f'<span class="ps-label">{label}</span>'
+                    )
+
+    def test_the_active_dot_wears_the_landing_halo_held_still(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "box-shadow: 0 0 0 3px rgba(26,26,26,0.10)")
+
+    def test_the_track_takes_its_own_row_on_a_phone(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, ".top-bar { flex-wrap: wrap;")
+
+
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the

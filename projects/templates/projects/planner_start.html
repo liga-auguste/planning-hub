@@ -13,8 +13,6 @@
 {% block extra_css %}
     {% include 'projects/_planner_css.html' %}
     /* Step 1: tile grid */
-    .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
-    .tile-page .subtitle { color: #9b9b9b; margin-bottom: 28px; }
     .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .tile { display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; text-decoration: none; color: #1a1a1a; transition: border-color 0.15s, box-shadow 0.15s; }
     .tile:hover { border-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,0,0,0.06); color: #1a1a1a; }
@@ -25,11 +23,12 @@
     .tile-custom .tile-label { margin-bottom: 0; }
     .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
     /* Step 2: describe form */
-    .planner-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
     textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
     textarea:focus { outline: none; border-color: #1a1a1a; }
-    .btn-primary { margin-top: 16px; }
+    .btn-primary { margin-top: 8px; }
+    .rules-link-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0; }
+    .rules-link { color: #9b9b9b; font-size: 13px; text-decoration: none; }
+    .rules-link:hover { color: #1a1a1a; }
     @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 {% endblock %}
 
@@ -70,14 +69,12 @@
         {% endif %}
         <form method="post">
             {% csrf_token %}
-            <textarea name="description" rows="4"
+            <textarea name="description" rows="6"
                 placeholder="{{ placeholder }}">{{ prefill }}</textarea>
             <button type="submit" class="btn btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
         </form>
-        <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0;">
-            <a href="{% url 'rules_list' %}" style="color: #9b9b9b; font-size: 13px; text-decoration: none;">
-                ⚙ Planungsregeln verwalten
-            </a>
+        <div class="rules-link-row">
+            <a href="{% url 'rules_list' %}" class="rules-link">⚙ Planungsregeln verwalten</a>
         </div>
     </div>
 {% endif %}
