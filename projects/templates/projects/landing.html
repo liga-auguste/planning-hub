@@ -144,6 +144,12 @@
        stays exact because zero gap makes each column exactly a third. */
     .flow-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: -12.4444%; }
     .step { position: relative; padding: 0 12px 92px; text-align: center; cursor: default; }
+    /* iOS Safari only dispatches click on an element it considers clickable,
+       and a bare div is not one — cursor:pointer is the property it reads to
+       decide. It stays inside the hover:none query because on a mouse the
+       cursor would promise a link that is not there: hover already opens the
+       station, so there is nothing left for the click to do. */
+    @media (hover: none) { .step { cursor: pointer; } }
     .step:nth-child(1) { padding-top: calc(34.571% + 30px); }  /* 3 × 103.71/900 */
     .step:nth-child(3) { padding-top: calc(5.818% + 30px); }   /* 3 × 17.45/900 */
     /* The middle station reads above the line instead of below it. With all
@@ -293,9 +299,12 @@
     .tech-link { color: inherit; text-decoration: none; transition: color 0.15s; }
     .tech-link:hover { color: #1a1a1a; }
     .tech-icon { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; margin-right: 4px; }
-    /* The curve is a pointer device with no touch equivalent, so below 769px it
-       is dropped and the three steps become a plain stacked list with their
-       descriptions always visible — nothing is only reachable by hover. */
+    /* Below 769px three columns have no room to hold a label and its text side
+       by side, so the curve is dropped and the steps become a plain stacked
+       list with their descriptions always visible. Above it the descriptions
+       stay hidden until a station is visited — which on a touch screen means
+       tapped, hence the click listener in the script. The breakpoint is a
+       width, not a pointer, and cannot stand in for one. */
     @media (max-width: 768px) {
         .flow { margin-top: 56px; }
         .flow-line { display: none; }
@@ -399,6 +408,13 @@
         }
         step.addEventListener('mouseenter', reveal);
         step.addEventListener('focus', reveal);
+        // A tap is the touch equivalent of the hover, and the breakpoint below
+        // does not cover it: 769px is a width, not a pointer, so a tablet in
+        // landscape gets the curve and its hover-only descriptions. Tapping a
+        // plain div does not reliably move focus either, so `focus` is no
+        // substitute. A click costs a mouse visitor nothing — hover has already
+        // opened the station by the time the button goes down.
+        step.addEventListener('click', reveal);
     });
 })();
 </script>
