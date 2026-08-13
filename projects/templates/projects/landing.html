@@ -79,24 +79,27 @@
        100vw wide — which would rescale it and pull the dots off their columns —
        the element keeps the wrapper's width and the *path* is drawn past the
        viewBox, with overflow:visible letting it paint there. The scale, and so
-       the dot alignment, is untouched. The lead-out is a straight line carrying
-       the curve's exact end slope (-0.2533), so it continues without a kink.
+       the dot alignment, is untouched.
 
-       The lead-in is a cubic rather than a straight one, and where its bend
-       sits is the whole point. The wrapper is a fixed 920px, so what shows of
-       the lead-in is half of whatever the window has beyond that — about 240
-       units at 1414px, 372 at 1680px, and only 176 at 1280px. A bend near the
-       far start at x=-1000 would therefore never be seen; the first version
-       had its steepest point there and arrived across the visible stretch
-       almost flat, dropping 15 units.
-       So the control points are pulled towards x=0: the steepest point now
-       falls at x=-336, inside the visible stretch at ordinary widths, and the
-       drop across it doubles to 31 units. The second control point still sits
-       on the main curve's start tangent (-0.02), which keeps the join
-       kink-free — the line eases out of its climb, holds level for a moment
-       at x=0 and picks the climb back up. 1000 units of lead-in still cover
-       the margin of a window up to about 2960px wide; wider than that and the
-       line would start short of the edge.
+       Both tails are straight lines carrying the curve's exact end slope —
+       -0.2533 on the right, -0.02 on the left — so neither joins with a kink.
+       The lead-in was a cubic before, with its bend pulled towards x=0 so that
+       the drop would fall inside the stretch that actually shows (the wrapper
+       is a fixed 920px, so that is half of whatever the window has beyond it:
+       about 240 units at 1414px). It bought the drop at the price of an elbow.
+       The main curve leaves x=0 almost level, at a slope of 0.02, and steepens
+       from there; anything steeper than 0.02 on the left therefore has to
+       flatten back out to meet it, and that flattening is a visible bend a
+       couple of hundred units before the first station. The line read as two
+       pieces glued together.
+       So the left stays level, and that is not a compromise but the shape
+       itself: as long as the slope only ever grows from left to right, the
+       straight tangent is the steepest lead-in there is. It drops 4.7 units
+       across those 240, which is the whole budget. The climb begins where the
+       content does — which is what "a flat start that accelerates" was always
+       going to mean. 1000 units of lead-in cover the margin of a window up to
+       about 2960px wide; wider than that and the line would start short of the
+       edge.
 
        Content painted outside a box still counts as scrollable overflow, hence
        the clip on body — scoped to this page, since it lives in extra_css. */
@@ -113,8 +116,8 @@
     .flow-line { display: block; width: 100%; height: auto; overflow: visible; pointer-events: none; }
     .flow-track { fill: none; stroke: #e5e5e5; stroke-width: 2; }
     /* The progress line. Its dash pattern is one segment as long as the whole
-       path (3262.2 units, from integrating both curves and adding the straight
-       lead-out), pushed entirely out of view; pulling the offset back to 2102.0,
+       path (3252.3 units, from integrating the curve and adding the two
+       straight tails), pushed entirely out of view; pulling the offset back to 2102.0,
        1800.2 or 1495.2 — the remainders after each dot's arc length — draws the
        line up to exactly that station. Those three are measured from the *end*
        of the path, so reshaping the lead-in leaves them untouched: it changes
@@ -124,7 +127,7 @@
        through that quickly, then decelerates into the dot where it is seen. */
     .flow-fill {
         fill: none; stroke: #1a1a1a; stroke-width: 2; stroke-linecap: round;
-        stroke-dasharray: 3262.2; stroke-dashoffset: 3262.2;
+        stroke-dasharray: 3252.3; stroke-dashoffset: 3252.3;
         transition: stroke-dashoffset 0.9s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .flow-dot { fill: #fff; stroke: #c0c0c0; stroke-width: 2; transition: fill 0.3s, stroke 0.3s; }
@@ -244,24 +247,33 @@
     .flow[data-reached="2"] .flow-halo-3 {
         animation: flow-pulse 1.9s ease-out infinite;
     }
-    /* Reduce, not remove. What goes is the motion carrying no information: the
-       halo's endless scaling pulse — a looping zoom is the vestibular trigger
-       the setting exists for — and the run-out off the edge, which moves a lot
-       of the frame at once.
-       What stays is the line drawing itself, at a third of the duration and
-       eased flat. It is not decoration; it is the one thing on the page that
-       says how far you have come, and a progress indicator that teleports has
-       stopped indicating. A 2px stroke extending along its own path moves very
-       little of the frame, which is the measure that matters here.
-       Colour fades stay untouched — a fill changing hue is not movement. The
-       label keeps both its sizes and snaps between them instead of scaling.
-       That also removes the reason for the description's delay: it was there to
-       let the label finish shrinking, and nothing shrinks any more. */
+    /* Reduce, not remove — and what gets reduced is the character of the
+       motion, not its length. Shortening a duration does not make movement
+       easier to tolerate; it makes it a lunge. So every timing here keeps its
+       full run and gives up its easing instead: constant speed throughout, no
+       curve that flings the line out and catches it at the end.
+
+       Only one thing is dropped outright, the halo's endless scale to 2.8. A
+       looping zoom that never resolves is the trigger the setting exists for,
+       and it carries no information the pulse's own position does not.
+
+       The line keeps both of its moves, including the run-out past station 3.
+       Without it the fill stops dead at x=750 with grey track still running to
+       the edge, and the page reads as broken off rather than finished — the
+       one state worse than too much movement is a journey with no arrival. It
+       goes linear over 2.4s, which is close to the speed of the hops before it,
+       so it reads as the same line continuing rather than as a departure.
+
+       Colour transitions stay untouched: a fill changing hue is not movement.
+       The label keeps both its sizes and snaps between them instead of
+       scaling, which in turn makes the description's delay pointless — it was
+       there to wait out a shrink that no longer happens. */
     @media (prefers-reduced-motion: reduce) {
-        .flow-fill { transition: stroke-dashoffset 0.3s linear; }
+        .flow-fill { transition: stroke-dashoffset 0.9s linear; }
+        .flow[data-reached="3"] .flow-fill { animation: flow-run-out 2.4s linear 2s forwards; }
         .step-label { transition: color 0.3s; }
         .step-desc { transform: none; transition: opacity 0.2s ease; }
-        .flow-halo, .flow-fill { animation: none !important; }
+        .flow-halo { animation: none !important; }
     }
     /* The row carries the two paths and nothing else, so centring it needs no
        machinery: a flex row with justify-content does it, and the two pills
@@ -347,8 +359,8 @@
     <h1>Aus einer Idee wird ein Plan</h1>
     <div class="flow">
         <svg class="flow-line" viewBox="0 0 900 112" aria-hidden="true">
-            <path class="flow-track" d="M -1000 250 C -560 210, -150 113, 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
-            <path class="flow-fill"  d="M -1000 250 C -560 210, -150 113, 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
+            <path class="flow-track" d="M -1000 130 L 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
+            <path class="flow-fill"  d="M -1000 130 L 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
             <circle class="flow-halo flow-halo-1" cx="150" cy="103.71" r="5"/>
             <circle class="flow-halo flow-halo-2" cx="450" cy="72.25" r="5"/>
             <circle class="flow-halo flow-halo-3" cx="750" cy="17.45" r="5"/>
@@ -361,8 +373,7 @@
                 <div class="step-inner">
                     <span class="step-label">Idee beschreiben</span>
                     <span class="step-desc">
-                        Ein Satz genügt: was stattfinden soll, wann, mit wem. Mehr braucht
-                        die KI nicht als Ausgangspunkt.
+                        Ein Satz genügt: was stattfinden soll, wann, mit wem.
                     </span>
                 </div>
             </div>
@@ -398,7 +409,7 @@
     </div>
 
     <div class="tech-badge">
-        Django · PostgreSQL · Claude API (Anthropic) · Hetzner VPS ·
+        Django · PostgreSQL · Claude API · Hetzner VPS ·
         <a class="tech-link" href="https://github.com/liga-auguste/planning-hub"
            target="_blank" rel="noopener"><svg class="tech-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Quellcode</a>
     </div>
