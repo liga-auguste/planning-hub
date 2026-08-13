@@ -724,6 +724,62 @@ class PlannerReviewAiFailureTest(DemoModeTestCase):
         self.assertContains(response, "nicht erstellt werden")
 
 
+class QuestionsLayoutTest(DemoModeTestCase):
+    """#72 step 3: four questions used to sit in a grey box above a single
+    free-text field, so anyone answering the later questions typed against a
+    list they had scrolled past. The form is now the grid — questions sticky
+    on the left, answers on the right — and the answers stay one free-text
+    field (decision 4: no parsing of Claude's markdown into per-question
+    fields)."""
+
+    def questions_page(self):
+        return self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+
+    def test_the_form_is_the_grid(self):
+        response = self.questions_page()
+        self.assertContains(response, 'class="qa-form"')
+        self.assertContains(
+            response, "grid-template-columns: repeat(2, minmax(0, 1fr))"
+        )
+        self.assertContains(response, "position: sticky")
+
+    def test_the_questions_render_inside_the_form(self):
+        html = self.questions_page().content.decode()
+        self.assertLess(html.index("<form"), html.index('class="questions-box"'))
+
+    def test_the_grey_panel_became_a_left_rule(self):
+        response = self.questions_page()
+        self.assertContains(response, ".questions-box { border-left: 2px solid #e5e5e5")
+        self.assertNotContains(response, ".questions-box { background")
+
+    def test_markdown_output_survives_the_global_reset(self):
+        response = self.questions_page()
+        self.assertContains(
+            response,
+            ".questions-box ul, .questions-box ol { margin: 0 0 8px; padding-left: 20px; }",
+        )
+
+    def test_the_error_moved_to_the_shared_notice(self):
+        self.ai_mocks[
+            "projects.planner_views.generate_plan"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_review"),
+            data={"description": "Konzert am 5. September", "answers": "20 Gäste"},
+        )
+        self.assertContains(response, 'class="error-notice"')
+        self.assertContains(response, "nicht erstellt werden")
+        self.assertNotContains(response, ".questions-box.error")
+
+    def test_the_dead_field_rules_are_gone(self):
+        response = self.questions_page()
+        self.assertNotContains(response, ".field-label")
+        self.assertNotContains(response, 'input[type="text"]')
+
+
 class DashboardAiFailureTest(DemoModeTestCase):
     """generate_weekly_summary is called from four different places in
     views.py (dashboard x2, my_plan, preload) — none of them guarded before

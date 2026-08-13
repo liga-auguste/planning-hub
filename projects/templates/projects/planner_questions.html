@@ -8,13 +8,34 @@
 
 {% block extra_css %}
     {% include 'projects/_planner_css.html' %}
-    h2 { font-size: 14px; font-weight: 600; margin: 28px 0 12px; }
-    .questions-box { background: #f7f7f8; border-radius: 6px; padding: 16px; margin-bottom: 8px; line-height: 1.7; }
-    .questions-box.error { background: #fdf0ef; color: #b3261e; font-size: 13px; }
-    textarea, input[type="text"], input[type="number"] { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
-    textarea:focus, input:focus { outline: none; border-color: #1a1a1a; }
-    .field-label { font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
+    /* The form is the grid: questions left, answers right. The csrf token
+       and the hidden description input are display:none by default and
+       create no grid items. */
+    .qa-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px; align-items: start; }
+    .qa-questions { position: sticky; top: 24px; }
+    /* The error re-render carries no questions; a single column keeps the
+       answers from sitting beside an empty half. */
+    .qa-single { grid-template-columns: 1fr; }
+    h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #9b9b9b; margin-bottom: 12px; }
+    /* The grey panel was the page ground punched into a white card; a left
+       rule marks the quoted questions instead. */
+    .questions-box { border-left: 2px solid #e5e5e5; padding: 2px 0 2px 16px; line-height: 1.7; }
+    /* The box renders markdown.markdown() output and the global reset zeroes
+       list padding — the same trap BaseResetParityTest pins for .ai-card —
+       so the model's tag set gets explicit rules here. */
+    .questions-box p { margin: 0 0 8px; }
+    .questions-box ul, .questions-box ol { margin: 0 0 8px; padding-left: 20px; }
+    .questions-box li { margin-bottom: 6px; }
+    .questions-box strong { font-weight: 600; }
+    .questions-box h1, .questions-box h2, .questions-box h3,
+    .questions-box h4, .questions-box h5, .questions-box h6 { font-size: 14px; font-weight: 600; line-height: 1.4; letter-spacing: 0; text-transform: none; color: #1a1a1a; margin: 12px 0 6px; }
+    textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px 12px; font-size: 14px; line-height: 1.6; min-height: 200px; resize: vertical; margin-bottom: 10px; }
+    textarea:focus { outline: none; border-color: #1a1a1a; }
     .btn-primary { margin-top: 8px; }
+    @media (max-width: 860px) {
+        .qa-form { grid-template-columns: 1fr; gap: 20px; }
+        .qa-questions { position: static; }
+    }
 {% endblock %}
 
 {% block content %}
@@ -24,20 +45,26 @@
     <p class="subtitle">{{ description }}</p>
 
     {% if error %}
-    <div class="questions-box error">Der Plan konnte gerade nicht erstellt werden. Deine Antworten sind erhalten geblieben — bitte versuche es gleich noch einmal.</div>
-    {% else %}
-    <div class="questions-box">{{ questions|safe }}</div>
+    <p class="error-notice">Der Plan konnte gerade nicht erstellt werden. Deine Antworten sind erhalten geblieben — bitte versuche es gleich noch einmal.</p>
     {% endif %}
 
-    <form method="post" action="{% url 'planner_review' %}">
+    <form method="post" action="{% url 'planner_review' %}" class="qa-form{% if error %} qa-single{% endif %}">
         {% csrf_token %}
         <input type="hidden" name="description" value="{{ description }}">
 
-        <h2>Antworten</h2>
-        <textarea name="answers" rows="6"
-            placeholder="Beantworte die Fragen oben...">{{ answers }}</textarea>
+        {% if not error %}
+        <div class="qa-questions">
+            <h2>Fragen</h2>
+            <div class="questions-box">{{ questions|safe }}</div>
+        </div>
+        {% endif %}
 
-        <button type="submit" class="btn btn-primary" data-loading-text="Plan wird erstellt...">Plan generieren →</button>
+        <div class="qa-answers">
+            <h2>Antworten</h2>
+            <textarea name="answers" rows="6"
+                placeholder="Deine Antworten — Stichpunkte genügen">{{ answers }}</textarea>
+            <button type="submit" class="btn btn-primary" data-loading-text="Plan wird erstellt...">Plan generieren →</button>
+        </div>
     </form>
 </div>
 {% endblock %}
