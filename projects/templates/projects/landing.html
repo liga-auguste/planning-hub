@@ -3,77 +3,444 @@
 {% block title %}Planning Hub{% endblock %}
 
 {% block extra_css %}
-    h1 { font-size: 26px; font-weight: 600; line-height: 1.25; margin-bottom: 14px; }
-    .intro { font-size: 14px; color: #6b6b6b; line-height: 1.7; max-width: 580px; margin-bottom: 10px; }
+    /* .wrapper is already a flex column, and base_public pins the footer to its
+       bottom with an auto top margin. Letting .landing claim the free space
+       with `flex: 1` centres the block without touching that rule — repeating
+       the auto margin here would fight it, and FooterPinningTest asserts the
+       declaration appears exactly once on this page.
+
+       Free space begins around 940px: top bar 72, status chip 58, headline 46,
+       the flow band 349, the button row 134, the stack line 81, footer 67 and
+       32 of wrapper padding come to roughly 839px of content — and the spacing
+       is set so that roughly half of it falls on either side of the drawing,
+       which puts the line at the middle of the window rather than above it.
+       Below that the page is already full and it falls back to the top-down
+       flow — centring content that overflows its container is exactly what
+       clips its top edge. The width condition guards the same failure from the
+       other side: under 769px the curve is dropped and the steps unfold to
+       their full text, so the block grows well past this estimate. */
+    @media (min-height: 940px) and (min-width: 769px) {
+        .landing { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    }
+    /* The one fact a visitor wants before the first click: this costs them
+       nothing and asks nothing of them. Green is the one accent on an
+       otherwise monochrome page. What it is built on — the API included —
+       stands in the meta line at the foot; saying it here as well would make
+       the same point twice and stretch the chip past the size that lets it
+       read as a label.
+       It sits above the headline and wears a shape, because as loose grey text
+       below it there was nothing for the eye to hold on to — small, uncontained
+       and followed by the emptiest part of the page. As a chip it braces the
+       claim from above instead of trailing after it. White on the #f7f7f8 page
+       ground with the project's own 99px radius, which is the same figure the
+       buttons below cut — the page opens and closes on the same shape.
+       fit-content is what keeps it a chip: without it the flex box would
+       stretch to the full column and the background would become a band. */
+    .status-row {
+        display: flex; width: fit-content;
+        align-items: center; gap: 8px; flex-wrap: wrap;
+        padding: 7px 16px 7px 13px; border-radius: 99px;
+        background: #fff; border: 1px solid #e5e5e5;
+        font-size: 13px; color: #6b6b6b; margin-bottom: 24px;
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+    /* The claim leads, the brand stays quiet: the wordmark keeps base_public's
+       size and the headline is what carries the page. Large type needs tighter
+       tracking and leading than body copy — the inverse of what small uppercase
+       needs — hence the negative letter-spacing and 1.1 line height.
+       text-wrap: balance only does anything once the line wraps, so it costs
+       nothing on a wide screen and evens out the break on a narrow one.
+       No bottom margin: nothing stands between the claim and the drawing any
+       more, so the gap is .flow's to set on its own. */
+    h1 {
+        font-size: 42px; font-weight: 600; line-height: 1.1;
+        letter-spacing: -0.02em; text-wrap: balance;
+        max-width: 640px;
+    }
+
+    /* The three beats as stations on a curve. A line with points on it is the
+       native picture of a schedule, which is why this suits the product better
+       than a row of boxes — and it is not the straight stepper _progress.html
+       already owns.
+
+       The control points sit at x=300 and x=600 of a 900-wide viewBox, which
+       makes x(t) exactly linear: t = 1/6, 1/2, 5/6 land on x = 150, 450, 750 —
+       the centres of a three-column grid. So the dots stay over their labels at
+       every width, because both scale with the same container.
+
+       The line climbs and steepens: the dots are at y 103.7, 72.3 and 17.5, so
+       the steps between them are 31.5 and 54.8. A flat start that accelerates
+       reads as progress; an even slope only reads as a tilted line. The whole
+       rise is 86 units across the three stations, and the control polygon
+       drops 6, 46 and 76 to get there — evenly spaced control points would
+       have produced an even slope again.
+
+       The line runs off both edges of the window. Rather than making the SVG
+       100vw wide — which would rescale it and pull the dots off their columns —
+       the element keeps the wrapper's width and the *path* is drawn past the
+       viewBox, with overflow:visible letting it paint there. The scale, and so
+       the dot alignment, is untouched.
+
+       Both tails are straight lines carrying the curve's exact end slope —
+       -0.2533 on the right, -0.02 on the left — so neither joins with a kink.
+       The lead-in was a cubic before, with its bend pulled towards x=0 so that
+       the drop would fall inside the stretch that actually shows (the wrapper
+       is a fixed 920px, so that is half of whatever the window has beyond it:
+       about 240 units at 1414px). It bought the drop at the price of an elbow.
+       The main curve leaves x=0 almost level, at a slope of 0.02, and steepens
+       from there; anything steeper than 0.02 on the left therefore has to
+       flatten back out to meet it, and that flattening is a visible bend a
+       couple of hundred units before the first station. The line read as two
+       pieces glued together.
+       So the left stays level, and that is not a compromise but the shape
+       itself: as long as the slope only ever grows from left to right, the
+       straight tangent is the steepest lead-in there is. It drops 4.7 units
+       across those 240, which is the whole budget. The climb begins where the
+       content does — which is what "a flat start that accelerates" was always
+       going to mean. 1000 units of lead-in cover the margin of a window up to
+       about 2960px wide; wider than that and the line would start short of the
+       edge.
+
+       Content painted outside a box still counts as scrollable overflow, hence
+       the clip on body — scoped to this page, since it lives in extra_css. */
+    body { overflow-x: clip; }
+    /* Only part of the gap under the headline is this margin. The drawing runs
+       low on the left and high on the right, so the top left of its box is
+       empty by construction — about 112px of the distance to where the line
+       first appears is the curve's own shape, and no margin reaches it. 100
+       here is what is actually adjustable; taking more would start crowding
+       the claim against a line that has not arrived yet. */
+    .flow { position: relative; margin-top: 100px; }
+    /* pointer-events:none hands the hover to the step columns laid over it, so
+       the line itself is hoverable without needing its own hit targets. */
+    .flow-line { display: block; width: 100%; height: auto; overflow: visible; pointer-events: none; }
+    .flow-track { fill: none; stroke: #e5e5e5; stroke-width: 2; }
+    /* The progress line. Its dash pattern is one segment as long as the whole
+       path (3252.3 units, from integrating the curve and adding the two
+       straight tails), pushed entirely out of view; pulling the offset back to 2102.0,
+       1800.2 or 1495.2 — the remainders after each dot's arc length — draws the
+       line up to exactly that station. Those three are measured from the *end*
+       of the path, so reshaping the lead-in leaves them untouched: it changes
+       the total, and with it only the dash array and its starting offset.
+       An ease-out is deliberate: about half the run to the first dot happens
+       off-screen in the lead-in, and a curve that covers most ground early gets
+       through that quickly, then decelerates into the dot where it is seen. */
+    .flow-fill {
+        fill: none; stroke: #1a1a1a; stroke-width: 2; stroke-linecap: round;
+        stroke-dasharray: 3252.3; stroke-dashoffset: 3252.3;
+        transition: stroke-dashoffset 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .flow-dot { fill: #fff; stroke: #c0c0c0; stroke-width: 2; transition: fill 0.3s, stroke 0.3s; }
+    .flow-halo { fill: none; stroke: #1a1a1a; stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+
+    /* The step columns are pulled up over the drawing by exactly its height
+       (112/900 of the container width) and each is then pushed back down by its
+       own dot's y, so every label ends up the same 30px below its station and
+       the row follows the curve. Every column's hit area reaches up over its
+       stretch of line. Zero gap keeps those areas touching — the text is inset
+       with padding instead, so there is no dead strip between stations.
+
+       The step percentages are the container ones times three. A percentage
+       margin on .flow-steps resolves against its containing block, but a
+       percentage padding on a *grid item* resolves against its own grid area —
+       one third as wide here. Tripling restores the intended length, and it
+       stays exact because zero gap makes each column exactly a third. */
+    .flow-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin-top: -12.4444%; }
+    .step { position: relative; padding: 0 12px 92px; text-align: center; cursor: default; }
+    /* iOS Safari only dispatches click on an element it considers clickable,
+       and a bare div is not one — cursor:pointer is the property it reads to
+       decide. It stays inside the hover:none query because on a mouse the
+       cursor would promise a link that is not there: hover already opens the
+       station, so there is nothing left for the click to do. */
+    @media (hover: none) { .step { cursor: pointer; } }
+    .step:nth-child(1) { padding-top: calc(34.571% + 30px); }  /* 3 × 103.71/900 */
+    .step:nth-child(3) { padding-top: calc(5.818% + 30px); }   /* 3 × 17.45/900 */
+    /* The middle station reads above the line instead of below it. With all
+       three hanging under the curve the band between the status row and the
+       line stayed empty while the text crowded below; lifting one block fills
+       the height from both sides and gives the row a rhythm.
+       24.083% is dot 2's own distance from the top of the grid, so subtracting
+       the label's height plus the same 30px gap the other two keep puts its
+       baseline the same distance from its dot — just on the other side. Its
+       description flips with it and grows upward, which keeps the label the
+       element nearest the dot in all three columns. */
+    .step:nth-child(2) { padding-top: calc(24.083% - 50px); padding-bottom: 0; }  /* 3 × 72.25/900 */
+    .step:nth-child(2) .step-desc { top: auto; bottom: calc(100% + 14px); }
+    .step-inner { position: relative; }
+    /* At rest the labels stand at 1.7x — roughly 24px — so the page carries its
+       own weight before anyone touches it; reaching a station shrinks that one
+       back to its true size and hands the room to the explanation.
+
+       The growth is a transform, never font-size. font-size would change the
+       label's height, and its height is what the whole band is measured from:
+       the 30px gap to the dot, the anchor the description hangs off, and for
+       station 2 the direction it grows in. A transform is purely visual, so all
+       of that geometry stays computed on the 14px box and nothing shifts.
+
+       The origin is what keeps the gap constant: stations 1 and 3 sit below
+       their dot and grow downward from their fixed top, station 2 sits above
+       and grows upward from its fixed bottom. */
+    .step-label {
+        display: block;
+        font-size: 14px; font-weight: 600; color: #9b9b9b; line-height: 1.4;
+        transform: scale(1.7); transform-origin: top center;
+        transition: color 0.3s, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .step:nth-child(2) .step-label { transform-origin: bottom center; }
+    /* The hover half is the no-JS fallback; .is-open is what makes it stick. */
+    .step:is(:hover, :focus-within) .step-label,
+    .step.is-open .step-label { color: #1a1a1a; transform: scale(1); }
+    /* Absolute, so revealing it can never reflow the page; anchored to the
+       label so it travels with the staggered heights. The short delay lets the
+       label finish shrinking before the text arrives — while the label is still
+       at 1.7x it covers exactly the space the text is about to occupy, so
+       without it the two would cross. It is also the nicer order to watch: the
+       heading gives way, then the explanation takes the room. */
+    .step-desc {
+        position: absolute; top: calc(100% + 14px); left: 0; right: 0;
+        font-size: 13px; line-height: 1.65; color: #6b6b6b;
+        opacity: 0; transform: translateY(5px);
+        transition: opacity 0.3s ease 0.15s, transform 0.3s ease 0.15s;
+    }
+    .step:is(:hover, :focus-within) .step-desc,
+    .step.is-open .step-desc { opacity: 1; transform: none; }
+
+    /* Progress is one-way and driven by data-reached, which the script below
+       only ever raises. Hover alone cannot express that — it forgets the moment
+       the cursor leaves, and the page would empty out behind the visitor.
+
+       All three hops share one duration, and dot 1→2 and dot 2→3 are 301.7 and
+       305.0 units apart, so those two travel at all but the same speed.
+
+       The third station then does something the others do not: two seconds after
+       it is reached, the line carries on off the right edge. A transition cannot
+       hold and then continue, so the two halves are split — the transition
+       covers the hop to dot 3, and a delayed animation takes over from there.
+       During its delay the animation contributes nothing (no `backwards` fill),
+       which is what leaves the transition in charge; its first keyframe equals
+       the offset already standing, so the handover is seamless. It eases *in*,
+       leaving the dot at the speed it arrived and accelerating away — a
+       departure rather than a fourth hop. */
+    .flow[data-reached="1"] .flow-fill { stroke-dashoffset: 2102.0; }
+    .flow[data-reached="2"] .flow-fill { stroke-dashoffset: 1800.2; }
+    .flow[data-reached="3"] .flow-fill {
+        stroke-dashoffset: 1495.2;
+        animation: flow-run-out 1.6s cubic-bezier(0.45, 0, 0.9, 0.6) 2s forwards;
+    }
+    @keyframes flow-run-out {
+        from { stroke-dashoffset: 1495.2; }
+        to   { stroke-dashoffset: 0; }
+    }
+    .flow[data-reached="1"] .flow-dot-1,
+    .flow[data-reached="2"] :is(.flow-dot-1, .flow-dot-2),
+    .flow[data-reached="3"] .flow-dot { fill: #1a1a1a; stroke: #1a1a1a; }
+
+    /* The invitation: whichever station comes next quietly pulses. Untouched,
+       that is the first one, so the page shows where to start on its own. */
+    @keyframes flow-pulse {
+        0%   { opacity: 0.45; transform: scale(1); }
+        75%  { opacity: 0;    transform: scale(2.8); }
+        100% { opacity: 0;    transform: scale(2.8); }
+    }
+    .flow:not([data-reached]) .flow-halo-1,
+    .flow[data-reached="1"] .flow-halo-2,
+    .flow[data-reached="2"] .flow-halo-3 {
+        animation: flow-pulse 1.9s ease-out infinite;
+    }
+    /* Reduce, not remove — and what gets reduced is the character of the
+       motion, not its length. Shortening a duration does not make movement
+       easier to tolerate; it makes it a lunge. So every timing here keeps its
+       full run and gives up its easing instead: constant speed throughout, no
+       curve that flings the line out and catches it at the end.
+
+       Only one thing is dropped outright, the halo's endless scale to 2.8. A
+       looping zoom that never resolves is the trigger the setting exists for,
+       and it carries no information the pulse's own position does not.
+
+       The line keeps both of its moves, including the run-out past station 3.
+       Without it the fill stops dead at x=750 with grey track still running to
+       the edge, and the page reads as broken off rather than finished — the
+       one state worse than too much movement is a journey with no arrival. It
+       goes linear over 2.4s, which is close to the speed of the hops before it,
+       so it reads as the same line continuing rather than as a departure.
+
+       Colour transitions stay untouched: a fill changing hue is not movement.
+       The label keeps both its sizes and snaps between them instead of
+       scaling, which in turn makes the description's delay pointless — it was
+       there to wait out a shrink that no longer happens. */
+    @media (prefers-reduced-motion: reduce) {
+        .flow-fill { transition: stroke-dashoffset 0.9s linear; }
+        .flow[data-reached="3"] .flow-fill { animation: flow-run-out 2.4s linear 2s forwards; }
+        .step-label { transition: color 0.3s; }
+        .step-desc { transform: none; transition: opacity 0.2s ease; }
+        .flow-halo { animation: none !important; }
+    }
+    /* The row carries the two paths and nothing else, so centring it needs no
+       machinery: a flex row with justify-content does it, and the two pills
+       stay centred against the page because nothing sits beside them competing
+       for the width.
+       As pills the paths read as the next step rather than as a second
+       headline. 99px is the radius the project already uses for its pills and
+       progress tracks, #333 the hover its dark buttons already use. flex-wrap
+       handles narrow screens, so these need no breakpoint of their own. */
+    .actions {
+        display: flex; gap: 12px; flex-wrap: wrap;
+        justify-content: center; margin-top: 90px;
+    }
+    .action {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 12px 22px; border-radius: 99px;
+        font-size: 14px; font-weight: 600; text-decoration: none;
+        background: #fff; border: 1px solid #e5e5e5; color: #1a1a1a;
+        transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .action:hover { border-color: #aaa; box-shadow: 0 2px 10px rgba(0,0,0,0.07); color: #1a1a1a; }
+    .action.primary { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
+    .action.primary:hover { background: #333; border-color: #333; color: #fff; }
+    .action-arrow { transition: transform 0.15s; }
+    .action:hover .action-arrow { transform: translateX(3px); }
+    /* One meta line under the paths: what this is built with, and where the
+       source is. Both answer "how was this made", not "what do I do here", so
+       they belong together and below — the repo link used to sit in the row
+       above as a third item, where it competed with the two paths for the
+       reading order and was too wide for the space left beside them.
+       It stands permanently now. Fading it in on hover only made sense while
+       something else was there to hover; a line nobody can find is not a line.
+       Centred, so the row above and this one share an axis — the headline
+       stays left on purpose, that is the one deliberate break.
+       It needs room on both sides to read as its own line rather than as
+       something that fell off the buttons: at 20px above and the footer's own
+       20px below it sat in a 40px slot between two heavier blocks. 36 and 28
+       give it air without making it a section. The bottom margin also pushes
+       the whole centred block up a little, which is where the spare height
+       was anyway. */
     .tech-badge {
-        font-size: 11px; color: #b8b8b8;
+        font-size: 11px; color: #9b9b9b;
         font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
-        margin-bottom: 36px; letter-spacing: 0.01em;
+        margin-top: 36px; margin-bottom: 28px;
+        letter-spacing: 0.01em; text-align: center;
     }
-    .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 44px; }
-    .mode-card {
-        display: flex; flex-direction: column;
-        background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 22px;
-        text-decoration: none; color: #1a1a1a;
-        transition: border-color 0.15s, box-shadow 0.15s;
+    /* currentColor ties the mark to the text, so it darkens with the link
+       instead of needing its own hover rule. */
+    .tech-link { color: inherit; text-decoration: none; transition: color 0.15s; }
+    .tech-link:hover { color: #1a1a1a; }
+    .tech-icon { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; margin-right: 4px; }
+    /* Below 769px three columns have no room to hold a label and its text side
+       by side, so the curve is dropped and the steps become a plain stacked
+       list with their descriptions always visible. Above it the descriptions
+       stay hidden until a station is visited — which on a touch screen means
+       tapped, hence the click listener in the script. The breakpoint is a
+       width, not a pointer, and cannot stand in for one. */
+    @media (max-width: 768px) {
+        .flow { margin-top: 56px; }
+        .flow-line { display: none; }
+        .flow-steps { grid-template-columns: 1fr; gap: 20px; margin-top: 0; }
+        .step, .step:nth-child(1), .step:nth-child(2), .step:nth-child(3) {
+            padding: 0; text-align: left;
+        }
+        /* Everything back to the left, in step with the stacked steps. */
+        .actions { justify-content: flex-start; margin-top: 40px; }
+        .step-label { color: #1a1a1a; display: block; margin-bottom: 4px; transform: none; }
+        .tech-badge { text-align: left; }
+        .step-desc { position: static; opacity: 1; transform: none; }
     }
-    .mode-card:hover { border-color: #aaa; box-shadow: 0 2px 10px rgba(0,0,0,0.07); color: #1a1a1a; }
-    .mode-card.primary { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
-    .mode-card.primary:hover { background: #2c2c2c; border-color: #2c2c2c; color: #fff; }
-    .mode-card-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; margin-bottom: 10px; opacity: 0.45; }
-    .mode-card-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; line-height: 1.3; }
-    .mode-card-desc { font-size: 13px; line-height: 1.55; opacity: 0.6; flex: 1; margin-bottom: 18px; }
-    .mode-card-cta { font-size: 13px; font-weight: 600; }
-    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .tile {
-        display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
-        padding: 14px; text-decoration: none; color: #1a1a1a;
-        transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    .tile:hover { border-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,0,0,0.06); color: #1a1a1a; }
-    .tile-icon { font-size: 16px; margin-bottom: 7px; line-height: 1; }
-    .tile-label { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-    .tile-example { font-size: 11px; color: #aaa; line-height: 1.4; }
-    .tile-custom { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #f7f7f8; }
-    .tile-custom .tile-label { margin-bottom: 0; }
-    .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
-    .section-divider { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-    .section-divider-line { flex: 1; height: 1px; background: #e5e5e5; }
-    .section-divider-label { font-size: 11px; font-weight: 600; color: #c0c0c0; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
     @media (max-width: 560px) {
-        .mode-cards { grid-template-columns: 1fr; }
-        .tiles { grid-template-columns: repeat(2, 1fr); }
+        h1 { font-size: 30px; }
+        .status-row { margin-bottom: 18px; }
     }
 {% endblock %}
 
 {% block content %}
-    <h1>KI-gestützte Projektplanung</h1>
-    <p class="intro">
-        Beschreib dein Vorhaben in einem Satz — die KI stellt gezielte Rückfragen und generiert
-        daraus einen vollständigen Aufgabenplan mit realistischen Deadlines. Alle laufenden Projekte
-        erscheinen im zentralen Dashboard mit Fortschrittsanzeige und automatischer Wochenübersicht.
+<div class="landing">
+    <p class="status-row">
+        <span class="status-dot"></span>
+        Live-Demo, kein Login
     </p>
-    <div class="tech-badge">Django · PostgreSQL · Claude API (Anthropic) · Hetzner VPS</div>
-
-    <div class="mode-cards">
-        <a class="mode-card primary" href="{% url 'planner_start' %}">
-            <div class="mode-card-eyebrow">Interaktiv</div>
-            <div class="mode-card-title">Projekt selbst planen</div>
-            <div class="mode-card-desc">
-                Beschreib ein eigenes Projekt — die KI führt dich durch gezielte Rückfragen
-                und erstellt deinen fertigen Aufgabenplan.
+    <h1>Aus einer Idee wird ein Plan</h1>
+    <div class="flow">
+        <svg class="flow-line" viewBox="0 0 900 112" aria-hidden="true">
+            <path class="flow-track" d="M -1000 130 L 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
+            <path class="flow-fill"  d="M -1000 130 L 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
+            <circle class="flow-halo flow-halo-1" cx="150" cy="103.71" r="5"/>
+            <circle class="flow-halo flow-halo-2" cx="450" cy="72.25" r="5"/>
+            <circle class="flow-halo flow-halo-3" cx="750" cy="17.45" r="5"/>
+            <circle class="flow-dot flow-dot-1" cx="150" cy="103.71" r="5"/>
+            <circle class="flow-dot flow-dot-2" cx="450" cy="72.25" r="5"/>
+            <circle class="flow-dot flow-dot-3" cx="750" cy="17.45" r="5"/>
+        </svg>
+        <div class="flow-steps">
+            <div class="step" tabindex="0">
+                <div class="step-inner">
+                    <span class="step-label">Idee beschreiben</span>
+                    <span class="step-desc">
+                        Ein Satz genügt: was stattfinden soll, wann, mit wem.
+                    </span>
+                </div>
             </div>
-            <div class="mode-card-cta">Jetzt planen →</div>
+            <div class="step" tabindex="0">
+                <div class="step-inner">
+                    <span class="step-label">Rückfragen klären</span>
+                    <span class="step-desc">
+                        Die KI fragt nur nach, was den Plan wirklich verändert. Was ohnehin
+                        in deinen Regeln steht, fragt sie gar nicht erst.
+                    </span>
+                </div>
+            </div>
+            <div class="step" tabindex="0">
+                <div class="step-inner">
+                    <span class="step-label">Einfach arbeiten</span>
+                    <span class="step-desc">
+                        Jede Aufgabe bekommt ihr Datum rückwärts vom Termin, alle Projekte
+                        stehen nebeneinander. Vorausschauende Planung ist nicht mehr die
+                        eigene Disziplin, sondern ein Teil des Systems.
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="actions">
+        <a class="action primary" href="{% url 'planner_start' %}">
+            Eigenes Projekt planen <span class="action-arrow">→</span>
         </a>
-
-        <a class="mode-card" href="{% url 'dashboard' %}?mode=multi">
-            <div class="mode-card-eyebrow">Beispiel</div>
-            <div class="mode-card-title">Mehrprojekt-Dashboard ansehen</div>
-            <div class="mode-card-desc">
-                Simuliertes Dashboard mit mehreren laufenden Projekten — so sieht
-                Planning Hub im echten Betrieb aus.
-            </div>
-            <div class="mode-card-cta">Dashboard öffnen →</div>
+        <a class="action" href="{% url 'dashboard' %}?mode=multi">
+            Beispiel-Dashboard ansehen
         </a>
     </div>
+
+    <div class="tech-badge">
+        Django · PostgreSQL · Notion API · Claude API · Hetzner VPS ·
+        <a class="tech-link" href="https://github.com/liga-auguste/planning-hub"
+           target="_blank" rel="noopener"><svg class="tech-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Quellcode</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const flow = document.querySelector('.flow');
+    if (!flow) return;
+    // Revealing is deliberately one-way. Hover on its own empties the page again
+    // the moment the cursor moves on; here each station stays open once visited
+    // and data-reached only ever climbs, so the page fills up as it is explored.
+    flow.querySelectorAll('.step').forEach(function (step, i) {
+        function reveal() {
+            step.classList.add('is-open');
+            if (i + 1 > Number(flow.dataset.reached || 0)) {
+                flow.dataset.reached = i + 1;
+            }
+        }
+        step.addEventListener('mouseenter', reveal);
+        step.addEventListener('focus', reveal);
+        // A tap is the touch equivalent of the hover, and the breakpoint below
+        // does not cover it: 769px is a width, not a pointer, so a tablet in
+        // landscape gets the curve and its hover-only descriptions. Tapping a
+        // plain div does not reliably move focus either, so `focus` is no
+        // substitute. A click costs a mouse visitor nothing — hover has already
+        // opened the station by the time the button goes down.
+        step.addEventListener('click', reveal);
+    });
+})();
+</script>
 {% endblock %}
