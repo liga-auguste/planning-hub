@@ -344,14 +344,10 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
                 self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
 
 
-class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
-    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
-    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
-    what reads them, so setting variables without adding `.btn` would have
-    looked like adoption and changed nothing."""
+class PlannerStepsMixin:
+    """Fetches the three planner steps that carry a submit button."""
 
     def steps(self):
-        """The three planner steps that carry a submit button."""
         return {
             "start": self.client.get(reverse("planner_start") + "?type=eigenes"),
             "questions": self.client.post(
@@ -366,6 +362,14 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
                 },
             ),
         }
+
+
+class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCase):
+    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
+    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
+    what reads them, so setting variables without adding `.btn` would have
+    looked like adoption and changed nothing. Since #72 the variable block
+    itself lives in _planner_css.html — one copy served to all three steps."""
 
     def test_every_submit_button_carries_both_classes(self):
         for step, response in self.steps().items():
@@ -402,6 +406,30 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
                 self.assertNotContains(
                     response, ".btn-primary:hover { background: #333"
                 )
+
+
+class PlannerSharedCssTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72: the .btn-primary variable block, .planner-card, .back and
+    .error-notice used to be copy-pasted into all three planner templates —
+    28 lines, comments included, three times. They live in _planner_css.html
+    now, included by the three steps and by nothing else."""
+
+    def test_every_step_serves_the_shared_block_exactly_once(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-width: 0", count=1)
+                self.assertContains(response, ".planner-card")
+                self.assertContains(response, ".error-notice")
+
+    def test_the_legal_pages_do_not_inherit_planner_css(self):
+        # The guard against a later "just hoist it into the base": base CSS is
+        # declared before extra_css at equal specificity, so hoisting would
+        # silently override the legal pages' own .back flavour.
+        for url in ("/impressum/", "/datenschutz/"):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(response, ".planner-card")
+                self.assertNotContains(response, "--bs-btn-border-width")
 
 
 class FooterPinningTest(DemoModeTestCase):
