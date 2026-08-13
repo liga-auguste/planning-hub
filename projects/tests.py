@@ -22,6 +22,7 @@ from notion_client.errors import HTTPResponseError, RequestTimeoutError
 from .ai import (
     AIUnavailableError,
     _valid_moments,
+    build_prompt,
     derive_kontext,
     generate_timelapse_moments,
     generate_weekly_summary,
@@ -1001,6 +1002,41 @@ class KontextBadgeTest(DemoModeTestCase):
     def test_my_plan_renders_a_kontext_as_a_word(self):
         self.given_session_plan()
         self.assertRendersBadge(self.client.get(reverse("my_plan")), "Planung")
+
+
+class PictographicEmojiTest(DemoModeTestCase):
+    """#23: pictographic emoji are not part of the design language. The prompt
+    symbols count as UI too — the language convention already treats prompts
+    and their output as user-facing, and Claude echoes their register back
+    into what renders on screen."""
+
+    def test_the_summary_prompt_carries_no_pictographic_emoji(self):
+        project = {
+            "name": "Sommerkonzert",
+            "event_date": date.today() + timedelta(days=10),
+            "performers": "",
+            "tasks": [
+                {
+                    "name": "Plakate aushängen",
+                    "done": False,
+                    "due": date.today(),
+                    "kontext": ["Unterwegs"],
+                },
+                {
+                    "name": "Programm festlegen",
+                    "done": True,
+                    "due": None,
+                    "kontext": [],
+                },
+            ],
+        }
+        prompt = build_prompt([project], date.today())
+        for glyph in ("✅", "⚠", "☐"):
+            self.assertNotIn(glyph, prompt)
+
+    def test_my_plan_decorates_no_date_with_an_emoji(self):
+        self.given_session_plan()
+        self.assertNotContains(self.client.get(reverse("my_plan")), "📅")
 
 
 # --- Unit tests for the logic that is not a view ---

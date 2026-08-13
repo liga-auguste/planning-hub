@@ -120,13 +120,13 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)"
         )
         lines.append(f"Mitwirkende: {p.get('performers', '')}")
-        lines.append(f"Erledigt: {done_count} Aufgaben ✅")
+        lines.append(f"Erledigt: {done_count} Aufgaben")
         lines.append(f"Offene Aufgaben ({len(open_tasks)}):")
 
         for t in open_tasks:
             diff = (t["due"] - today).days if t["due"] else "?"
             urgency = (
-                " ⚠️ DIESE WOCHE"
+                " — DIESE WOCHE"
                 if isinstance(diff, int) and diff <= 7
                 else f" (fällig in {diff} Tagen)"
             )
@@ -135,7 +135,7 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
                 if (t["kontext"] and not single_project_demo)
                 else ""
             )
-            lines.append(f"  ☐ {t['name']}{urgency}{kontext}")
+            lines.append(f"  - {t['name']}{urgency}{kontext}")
 
         lines.append("")
 
