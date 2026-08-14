@@ -52,8 +52,12 @@
         .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid #f0f0f0; }
         .task-table td { width: auto; padding: 0; border: none; white-space: normal; }
         .task-table .col-name { margin-bottom: 8px; padding-right: 32px; }
+        /* width: auto must repeat the two-class specificity: the td rule
+           above sits at (0,1,1) and loses to the 1% column widths, which
+           kept these cells 5px wide and painted the kontext pill over the
+           date. .col-actions below already does the same. */
         .task-table .col-date,
-        .task-table .col-kontext { display: inline-flex; align-items: center; margin-right: 8px; }
+        .task-table .col-kontext { display: inline-flex; align-items: center; margin-right: 8px; width: auto; }
         .task-table .col-actions { position: absolute; top: 8px; right: 0; width: auto; padding: 0; }
         /* ~28px touch target */
         .btn-delete { padding: 4px 8px; font-size: 20px; }
