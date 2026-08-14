@@ -1,0 +1,75 @@
+{# Lucide icons (https://lucide.dev) — ISC License, Copyright (c) Lucide Contributors. #}
+<div class="theme-toggle" id="theme-toggle" role="group" aria-label="Design">
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="icon-theme-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2"/>
+            <path d="M12 20v2"/>
+            <path d="m4.93 4.93 1.41 1.41"/>
+            <path d="m17.66 17.66 1.41 1.41"/>
+            <path d="M2 12h2"/>
+            <path d="M20 12h2"/>
+            <path d="m6.34 17.66-1.41 1.41"/>
+            <path d="m19.07 4.93-1.41 1.41"/>
+        </symbol>
+        <symbol id="icon-theme-moon" viewBox="0 0 24 24">
+            <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/>
+        </symbol>
+        <symbol id="icon-theme-monitor" viewBox="0 0 24 24">
+            <rect width="20" height="14" x="2" y="3" rx="2"/>
+            <line x1="8" x2="16" y1="21" y2="21"/>
+            <line x1="12" x2="12" y1="17" y2="21"/>
+        </symbol>
+    </svg>
+    <button type="button" class="theme-toggle-btn" data-theme-choice="light" title="Hell" aria-label="Helles Design">
+        <svg class="theme-toggle-icon" aria-hidden="true"><use href="#icon-theme-sun"/></svg>
+    </button>
+    <button type="button" class="theme-toggle-btn" data-theme-choice="dark" title="Dunkel" aria-label="Dunkles Design">
+        <svg class="theme-toggle-icon" aria-hidden="true"><use href="#icon-theme-moon"/></svg>
+    </button>
+    <button type="button" class="theme-toggle-btn" data-theme-choice="system" title="System" aria-label="Systemeinstellung">
+        <svg class="theme-toggle-icon" aria-hidden="true"><use href="#icon-theme-monitor"/></svg>
+    </button>
+</div>
+<script>
+(function () {
+    var container = document.getElementById('theme-toggle');
+    if (!container) return;
+    var buttons = container.querySelectorAll('.theme-toggle-btn');
+
+    function currentChoice() {
+        return localStorage.theme || 'system';
+    }
+
+    function markActive() {
+        var choice = currentChoice();
+        buttons.forEach(function (btn) {
+            btn.classList.toggle('active', btn.dataset.themeChoice === choice);
+        });
+    }
+
+    // Suppresses every CSS transition for one frame so the theme switch is
+    // instant rather than every color on the page cross-fading at once.
+    function applyWithoutTransitions(isDark) {
+        var style = document.createElement('style');
+        style.textContent = '* { transition: none !important; }';
+        document.head.appendChild(style);
+        window.applyTheme(isDark);
+        window.getComputedStyle(style).opacity;
+        document.head.removeChild(style);
+    }
+
+    buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var choice = btn.dataset.themeChoice;
+            localStorage.theme = choice;
+            var isDark = choice === 'dark' ||
+                (choice === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            applyWithoutTransitions(isDark);
+            markActive();
+        });
+    });
+
+    markActive();
+})();
+</script>

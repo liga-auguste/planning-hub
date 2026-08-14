@@ -5,13 +5,13 @@
 {% block extra_css %}
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 28px; }
     h2 { font-size: 13px; font-weight: 600; text-transform: uppercase;
-         letter-spacing: 0.06em; color: #888; margin: 28px 0 8px; }
-    p { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 8px; max-width: 640px; }
+         letter-spacing: 0.06em; color: var(--color-text-quaternary); margin: 28px 0 8px; }
+    p { font-size: 14px; line-height: 1.7; color: var(--color-text-secondary); margin-bottom: 8px; max-width: 640px; }
     ul { margin: 6px 0 8px 18px; max-width: 640px; }
-    li { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 2px; }
-    a { color: #1a1a1a; }
-    .back { display: inline-block; margin-top: 36px; font-size: 13px; color: #888; text-decoration: none; }
-    .back:hover { color: #1a1a1a; }
+    li { font-size: 14px; line-height: 1.7; color: var(--color-text-secondary); margin-bottom: 2px; }
+    a { color: var(--color-text-primary); }
+    .back { display: inline-block; margin-top: 36px; font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    .back:hover { color: var(--color-text-primary); }
 {% endblock %}
 
 {% block content %}
@@ -38,8 +38,10 @@
     erforderlich ist.</p>
 
     <h2>localStorage</h2>
-    <p>Im Browser-localStorage wird ausschließlich der Zustand der Sidebar-Navigation
-    (auf- oder zugeklappt) gespeichert. Dieser Wert verlässt deinen Browser nicht.</p>
+    <p>Im Browser-localStorage werden folgende Werte gespeichert: der Zustand der
+    Sidebar-Navigation (auf- oder zugeklappt sowie ihre Breite), ob der Cookie-Hinweis
+    bereits bestätigt wurde, und die gewählte Design-Einstellung (hell, dunkel oder
+    System). Diese Werte verlassen deinen Browser nicht.</p>
 
     <h2>KI-Verarbeitung (Anthropic Claude API)</h2>
     <p>Wenn du im Planner ein Projekt beschreibst, wird dieser Text zur Verarbeitung an
@@ -64,7 +66,7 @@
     (Art. 15–21 DSGVO). Wende dich dafür an:
     <a href="mailto:dev@ligaauguste.de">dev@ligaauguste.de</a></p>
 
-    <p style="margin-top:24px; font-size:12px; color:#aaa;">Stand: August 2026</p>
+    <p style="margin-top:24px; font-size:12px; color:var(--color-text-quaternary);">Stand: August 2026</p>
 
     <a class="back" href="/">← Zurück zur Startseite</a>
 {% endblock %}

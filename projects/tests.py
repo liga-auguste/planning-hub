@@ -300,8 +300,11 @@ class PlannerLoadingStateTest(DemoModeTestCase):
     isn't provable by a Django TestCase and gets a manual browser pass."""
 
     def test_base_template_defines_the_loading_css(self):
-        response = self.client.get(reverse("impressum"))
-        self.assertContains(response, ".btn-primary.is-loading")
+        # #32 moved this rule from the inline <style> into public.css.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".btn-primary.is-loading", css)
 
     def test_base_template_ships_the_double_submit_script(self):
         response = self.client.get(reverse("impressum"))
@@ -355,8 +358,13 @@ class BaseResetParityTest(DemoModeTestCase):
     RESET = "* { box-sizing: border-box; margin: 0; padding: 0; }"
 
     def test_both_bases_reset_the_same_way(self):
-        self.assertContains(self.client.get("/dashboard/"), self.RESET)
-        self.assertContains(self.client.get("/impressum/"), self.RESET)
+        # #32 moved this rule from an inline <style> block (rendered in every
+        # response) into a linked stylesheet, so the assertion now reads the
+        # served file's source directly rather than the rendered HTML.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        self.assertIn(self.RESET, css)
 
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
@@ -401,12 +409,77 @@ class BaseResetParityTest(DemoModeTestCase):
         response = self.client.get("/stats/")
         self.assertContains(
             response,
-            ".empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
+            ".empty { color: var(--color-text-quaternary); font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
         )
 
     def test_datenschutz_lists_are_untouched(self):
         response = self.client.get("/datenschutz/")
         self.assertContains(response, "ul { margin: 6px 0 8px 18px;")
+
+
+class DesignTokenTest(DemoModeTestCase):
+    """#11: a :root block of custom properties replaces hardcoded hex
+    literals, so both base templates need to serve the same token names."""
+
+    TOKENS = (
+        "--color-bg-primary",
+        "--color-accent",
+        "--color-overdue",
+        "--color-urgent",
+    )
+    RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
+
+    def test_both_bases_serve_the_design_tokens(self):
+        # #32 moved the :root block out of the inline <style> both base
+        # templates used to render and into the linked base.css, so the
+        # tokens are checked at their source rather than in every response.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        for token in self.TOKENS:
+            self.assertIn(token, css)
+
+    def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
+        response = self.client.get("/dashboard/")
+        for literal in self.RETIRED_LITERALS:
+            self.assertNotContains(response, literal)
+
+
+class DarkThemeTest(DemoModeTestCase):
+    """#12: the dark palette lives in base.css as a [data-theme="dark"]
+    block, and the preload script that switches the attribute runs before
+    either stylesheet loads, on every page that extends a base template."""
+
+    def test_base_css_defines_the_dark_theme_block(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        self.assertIn('[data-theme="dark"]', css)
+        self.assertIn("--color-bg-primary: #08090a", css)
+
+    def test_both_bases_run_the_preload_script_before_any_stylesheet(self):
+        for url in ("/dashboard/", "/impressum/"):
+            with self.subTest(url=url):
+                html = self.client.get(url).content.decode()
+                self.assertLess(
+                    html.index("setAttribute('data-theme'"),
+                    html.index('rel="stylesheet"'),
+                )
+
+    def test_preload_script_sets_both_theme_attributes(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "setAttribute('data-theme', theme)")
+        self.assertContains(response, "setAttribute('data-bs-theme', theme)")
+
+    def test_both_bases_render_the_theme_toggle(self):
+        for url in ("/dashboard/", "/impressum/"):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), 'id="theme-toggle"')
+
+    def test_the_toggle_offers_all_three_choices(self):
+        response = self.client.get("/dashboard/")
+        for choice in ("light", "dark", "system"):
+            self.assertContains(response, f'data-theme-choice="{choice}"')
 
 
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):
@@ -416,8 +489,10 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
 
     def test_stats_tiles_feed_their_values_in(self):
         response = self.client.get("/stats/")
-        self.assertContains(response, "--bs-card-bg: #fff")
-        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-bg: var(--color-bg-primary)")
+        self.assertContains(
+            response, "--bs-card-border-color: var(--color-border-primary)"
+        )
         self.assertContains(response, "--bs-card-border-radius: 10px")
         self.assertContains(response, "--bs-card-spacer-x: 20px")
         self.assertContains(response, "--bs-card-spacer-y: 20px")
@@ -435,8 +510,10 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
 
     def test_rules_card_feeds_its_values_in(self):
         response = self.client.get(reverse("rules_list"))
-        self.assertContains(response, "--bs-card-bg: #fff")
-        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-bg: var(--color-bg-primary)")
+        self.assertContains(
+            response, "--bs-card-border-color: var(--color-border-primary)"
+        )
         self.assertContains(response, "--bs-card-border-radius: 8px")
         self.assertContains(response, "--bs-card-spacer-x: 40px")
         self.assertContains(response, "--bs-card-spacer-y: 40px")
@@ -460,7 +537,9 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
         # inheriting ours, so .card-body has to be told the real value.
         for url in ("/stats/", reverse("rules_list")):
             with self.subTest(url=url):
-                self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
+                self.assertContains(
+                    self.client.get(url), "--bs-card-color: var(--color-text-primary)"
+                )
 
 
 class PlannerStepsMixin:
@@ -498,8 +577,10 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
     def test_every_step_feeds_the_colours_in_as_variables(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-bg: #1a1a1a")
-                self.assertContains(response, "--bs-btn-hover-bg: #333")
+                self.assertContains(response, "--bs-btn-bg: var(--color-text-primary)")
+                self.assertContains(
+                    response, "--bs-btn-hover-bg: var(--color-text-secondary)"
+                )
 
     def test_every_step_keeps_the_borderless_box(self):
         # `border: none` before; .btn's 1px default would grow the button by
@@ -514,9 +595,16 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
         # the disabled attribute -- this pins the colour before that changes.
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-disabled-bg: #1a1a1a")
-                self.assertContains(response, "--bs-btn-disabled-color: #fff")
-                self.assertContains(response, "--bs-btn-disabled-border-color: #1a1a1a")
+                self.assertContains(
+                    response, "--bs-btn-disabled-bg: var(--color-text-primary)"
+                )
+                self.assertContains(
+                    response, "--bs-btn-disabled-color: var(--color-bg-primary)"
+                )
+                self.assertContains(
+                    response,
+                    "--bs-btn-disabled-border-color: var(--color-text-primary)",
+                )
 
     def test_no_step_paints_over_bootstrap_any_more(self):
         for step, response in self.steps().items():
@@ -575,7 +663,9 @@ class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
     def test_the_subtitle_is_body_text_not_label_grey(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, ".subtitle { color: #6b6b6b")
+                self.assertContains(
+                    response, ".subtitle { color: var(--color-text-tertiary)"
+                )
 
 
 class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
@@ -595,33 +685,45 @@ class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
                     )
 
     def test_the_active_dot_wears_the_landing_halo_held_still(self):
-        response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, "box-shadow: 0 0 0 3px rgba(26,26,26,0.10)")
+        # #32 moved this rule from the inline <style> into public.css.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn("box-shadow: 0 0 0 3px rgba(26,26,26,0.10)", css)
 
     def test_the_track_takes_its_own_row_on_a_phone(self):
-        response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, ".top-bar { flex-wrap: wrap;")
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".top-bar { flex-wrap: wrap;", css)
 
 
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the
-    footer floating mid-viewport. They belong in base_public.html."""
+    footer floating mid-viewport. They belong in base_public.html.
+
+    #32 later moved these rules out of the base templates' inline <style>
+    into base.css/public.css, so they're checked at the source rather than
+    in the rendered response."""
 
     def test_base_template_makes_body_a_flex_column(self):
-        response = self.client.get("/impressum/")
-        self.assertContains(
-            response, "min-height: 100vh; display: flex; flex-direction: column;"
-        )
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        self.assertIn("min-height: 100vh; display: flex; flex-direction: column;", css)
 
     def test_base_template_pins_the_footer(self):
-        response = self.client.get("/impressum/")
-        self.assertContains(response, "margin-top: auto; padding-top: 20px;")
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn("margin-top: auto; padding-top: 20px;", css)
 
     def test_landing_page_no_longer_duplicates_the_override(self):
-        # Exactly one occurrence: the base rule, not a second copy in extra_css.
+        # The base rule lives in public.css now, not in any rendered <style>,
+        # so the page's own inline extra_css should carry no copy of it.
         response = self.client.get("/")
-        self.assertContains(response, "margin-top: auto", count=1)
+        self.assertNotContains(response, "margin-top: auto")
 
     def test_wrapper_padding_for_the_floating_footer_is_gone(self):
         # The 80px bottom padding only existed to keep content clear of the
@@ -736,9 +838,11 @@ class TileIconsTest(DemoModeTestCase):
                 self.assertNotContains(response, emoji)
 
     def test_nine_references_and_nine_definitions(self):
+        # 9 tile icons plus the 3 sun/moon/monitor icons _theme_toggle.html
+        # (#12) now renders on every public page, this one included.
         response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, '<use href="#icon-', count=9)
-        self.assertContains(response, '<symbol id="icon-', count=9)
+        self.assertContains(response, '<use href="#icon-', count=12)
+        self.assertContains(response, '<symbol id="icon-', count=12)
 
     def test_the_icons_inherit_the_tiles_colour(self):
         response = self.client.get(reverse("planner_start"))
@@ -752,9 +856,13 @@ class TileIconsTest(DemoModeTestCase):
         self.assertContains(response, '<symbol id="icon-pencil"')
         self.assertContains(response, '<use href="#icon-pencil"')
 
-    def test_step_two_ships_no_sprite(self):
+    def test_step_two_ships_no_tile_icon_sprite(self):
+        # The theme toggle's own icon-theme-* sprite (#12) still renders here
+        # — it's a base-template fixture on every public page — but none of
+        # step one's nine tile icons should follow the user to step two.
         response = self.client.get(reverse("planner_start") + "?type=eigenes")
-        self.assertNotContains(response, '<symbol id="icon-')
+        self.assertContains(response, '<symbol id="icon-theme-')
+        self.assertNotContains(response, '<symbol id="icon-pencil"')
 
 
 class ReviewLayoutTest(DemoModeTestCase):
@@ -823,7 +931,8 @@ class ReviewLayoutTest(DemoModeTestCase):
     def test_the_sofort_marker_moved_to_the_classed_cell(self):
         response = self.review_page()
         self.assertContains(
-            response, "tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }"
+            response,
+            "tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }",
         )
         self.assertNotContains(response, "td:first-child")
 
@@ -902,7 +1011,7 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
         self.assertContains(
-            response, "tr.sofort { box-shadow: inset 3px 0 0 #e86600; }"
+            response, "tr.sofort { box-shadow: inset 3px 0 0 var(--color-urgent); }"
         )
 
     def test_the_delete_button_leaves_the_flow(self):
@@ -1025,7 +1134,10 @@ class QuestionsLayoutTest(DemoModeTestCase):
 
     def test_the_grey_panel_became_a_left_rule(self):
         response = self.questions_page()
-        self.assertContains(response, ".questions-box { border-left: 2px solid #e5e5e5")
+        self.assertContains(
+            response,
+            ".questions-box { border-left: 2px solid var(--color-border-primary)",
+        )
         self.assertNotContains(response, ".questions-box { background")
 
     def test_markdown_output_survives_the_global_reset(self):

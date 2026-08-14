@@ -1,0 +1,27 @@
+<script>
+(function () {
+    function applyTheme(isDark) {
+        var theme = isDark ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        /* Bootstrap 5.3 keys its own dark-mode component styles off
+           data-bs-theme, not data-theme — both have to be set together or
+           Bootstrap-styled elements stay light while everything else
+           follows our tokens (#12). */
+        document.documentElement.setAttribute('data-bs-theme', theme);
+    }
+    function prefersDark() {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    // Exposed so _theme_toggle.html's click handler can reuse the exact same
+    // attribute-setting logic instead of a second copy of it.
+    window.applyTheme = applyTheme;
+    var stored = localStorage.theme;
+    applyTheme(stored === 'dark' || (stored !== 'light' && prefersDark()));
+    /* A first-time visitor has no stored preference yet, which behaves the
+       same as an explicit "system" choice — both should keep following the
+       OS setting live, not just at load time. */
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+        if (!localStorage.theme || localStorage.theme === 'system') applyTheme(e.matches);
+    });
+})();
+</script>

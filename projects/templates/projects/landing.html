@@ -31,8 +31,8 @@
        It sits above the headline and wears a shape, because as loose grey text
        below it there was nothing for the eye to hold on to — small, uncontained
        and followed by the emptiest part of the page. As a chip it braces the
-       claim from above instead of trailing after it. White on the #f7f7f8 page
-       ground with the project's own 99px radius, which is the same figure the
+       claim from above instead of trailing after it. White on the page's
+       background-tint ground with the project's own 99px radius, which is the same figure the
        buttons below cut — the page opens and closes on the same shape.
        fit-content is what keeps it a chip: without it the flex box would
        stretch to the full column and the background would become a band. */
@@ -40,10 +40,10 @@
         display: flex; width: fit-content;
         align-items: center; gap: 8px; flex-wrap: wrap;
         padding: 7px 16px 7px 13px; border-radius: 99px;
-        background: #fff; border: 1px solid #e5e5e5;
-        font-size: 13px; color: #6b6b6b; margin-bottom: 24px;
+        background: var(--color-bg-primary); border: 1px solid var(--color-border-primary);
+        font-size: 13px; color: var(--color-text-tertiary); margin-bottom: 24px;
     }
-    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-done); flex-shrink: 0; }
     /* The claim leads, the brand stays quiet: the wordmark keeps base_public's
        size and the headline is what carries the page. Large type needs tighter
        tracking and leading than body copy — the inverse of what small uppercase
@@ -114,7 +114,7 @@
     /* pointer-events:none hands the hover to the step columns laid over it, so
        the line itself is hoverable without needing its own hit targets. */
     .flow-line { display: block; width: 100%; height: auto; overflow: visible; pointer-events: none; }
-    .flow-track { fill: none; stroke: #e5e5e5; stroke-width: 2; }
+    .flow-track { fill: none; stroke: var(--color-border-primary); stroke-width: 2; }
     /* The progress line. Its dash pattern is one segment as long as the whole
        path (3252.3 units, from integrating the curve and adding the two
        straight tails), pushed entirely out of view; pulling the offset back to 2102.0,
@@ -126,12 +126,12 @@
        off-screen in the lead-in, and a curve that covers most ground early gets
        through that quickly, then decelerates into the dot where it is seen. */
     .flow-fill {
-        fill: none; stroke: #1a1a1a; stroke-width: 2; stroke-linecap: round;
+        fill: none; stroke: var(--color-text-primary); stroke-width: 2; stroke-linecap: round;
         stroke-dasharray: 3252.3; stroke-dashoffset: 3252.3;
         transition: stroke-dashoffset 0.9s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .flow-dot { fill: #fff; stroke: #c0c0c0; stroke-width: 2; transition: fill 0.3s, stroke 0.3s; }
-    .flow-halo { fill: none; stroke: #1a1a1a; stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
+    .flow-dot { fill: var(--color-bg-primary); stroke: var(--color-text-quaternary); stroke-width: 2; transition: fill 0.3s, stroke 0.3s; }
+    .flow-halo { fill: none; stroke: var(--color-text-primary); stroke-width: 2; opacity: 0; transform-box: fill-box; transform-origin: center; }
 
     /* The step columns are pulled up over the drawing by exactly its height
        (112/900 of the container width) and each is then pushed back down by its
@@ -182,14 +182,14 @@
        and grows upward from its fixed bottom. */
     .step-label {
         display: block;
-        font-size: 14px; font-weight: 600; color: #9b9b9b; line-height: 1.4;
+        font-size: 14px; font-weight: 600; color: var(--color-text-quaternary); line-height: 1.4;
         transform: scale(1.7); transform-origin: top center;
         transition: color 0.3s, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     }
     .step:nth-child(2) .step-label { transform-origin: bottom center; }
     /* The hover half is the no-JS fallback; .is-open is what makes it stick. */
     .step:is(:hover, :focus-within) .step-label,
-    .step.is-open .step-label { color: #1a1a1a; transform: scale(1); }
+    .step.is-open .step-label { color: var(--color-text-primary); transform: scale(1); }
     /* Absolute, so revealing it can never reflow the page; anchored to the
        label so it travels with the staggered heights. The short delay lets the
        label finish shrinking before the text arrives — while the label is still
@@ -198,7 +198,7 @@
        heading gives way, then the explanation takes the room. */
     .step-desc {
         position: absolute; top: calc(100% + 14px); left: 0; right: 0;
-        font-size: 13px; line-height: 1.65; color: #6b6b6b;
+        font-size: 13px; line-height: 1.65; color: var(--color-text-tertiary);
         opacity: 0; transform: translateY(5px);
         transition: opacity 0.3s ease 0.15s, transform 0.3s ease 0.15s;
     }
@@ -233,7 +233,7 @@
     }
     .flow[data-reached="1"] .flow-dot-1,
     .flow[data-reached="2"] :is(.flow-dot-1, .flow-dot-2),
-    .flow[data-reached="3"] .flow-dot { fill: #1a1a1a; stroke: #1a1a1a; }
+    .flow[data-reached="3"] .flow-dot { fill: var(--color-text-primary); stroke: var(--color-text-primary); }
 
     /* The invitation: whichever station comes next quietly pulses. Untouched,
        that is the first one, so the page shows where to start on its own. */
@@ -281,7 +281,7 @@
        for the width.
        As pills the paths read as the next step rather than as a second
        headline. 99px is the radius the project already uses for its pills and
-       progress tracks, #333 the hover its dark buttons already use. flex-wrap
+       progress tracks, the same hover shade its dark buttons already use. flex-wrap
        handles narrow screens, so these need no breakpoint of their own. */
     .actions {
         display: flex; gap: 12px; flex-wrap: wrap;
@@ -291,12 +291,12 @@
         display: inline-flex; align-items: center; gap: 8px;
         padding: 12px 22px; border-radius: 99px;
         font-size: 14px; font-weight: 600; text-decoration: none;
-        background: #fff; border: 1px solid #e5e5e5; color: #1a1a1a;
+        background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); color: var(--color-text-primary);
         transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
     }
-    .action:hover { border-color: #aaa; box-shadow: 0 2px 10px rgba(0,0,0,0.07); color: #1a1a1a; }
-    .action.primary { background: #1a1a1a; border-color: #1a1a1a; color: #fff; }
-    .action.primary:hover { background: #333; border-color: #333; color: #fff; }
+    .action:hover { border-color: var(--color-text-quaternary); box-shadow: var(--shadow-low); color: var(--color-text-primary); }
+    .action.primary { background: var(--color-text-primary); border-color: var(--color-text-primary); color: var(--color-bg-primary); }
+    .action.primary:hover { background: var(--color-text-secondary); border-color: var(--color-text-secondary); color: var(--color-bg-primary); }
     .action-arrow { transition: transform 0.15s; }
     .action:hover .action-arrow { transform: translateX(3px); }
     /* One meta line under the paths: what this is built with, and where the
@@ -315,7 +315,7 @@
        the whole centred block up a little, which is where the spare height
        was anyway. */
     .tech-badge {
-        font-size: 11px; color: #9b9b9b;
+        font-size: 11px; color: var(--color-text-quaternary);
         font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
         margin-top: 36px; margin-bottom: 28px;
         letter-spacing: 0.01em; text-align: center;
@@ -323,7 +323,7 @@
     /* currentColor ties the mark to the text, so it darkens with the link
        instead of needing its own hover rule. */
     .tech-link { color: inherit; text-decoration: none; transition: color 0.15s; }
-    .tech-link:hover { color: #1a1a1a; }
+    .tech-link:hover { color: var(--color-text-primary); }
     .tech-icon { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; margin-right: 4px; }
     /* Below 769px three columns have no room to hold a label and its text side
        by side, so the curve is dropped and the steps become a plain stacked
@@ -340,7 +340,7 @@
         }
         /* Everything back to the left, in step with the stacked steps. */
         .actions { justify-content: flex-start; margin-top: 40px; }
-        .step-label { color: #1a1a1a; display: block; margin-bottom: 4px; transform: none; }
+        .step-label { color: var(--color-text-primary); display: block; margin-bottom: 4px; transform: none; }
         .tech-badge { text-align: left; }
         .step-desc { position: static; opacity: 1; transform: none; }
     }

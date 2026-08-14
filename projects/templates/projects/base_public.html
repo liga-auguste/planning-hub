@@ -5,102 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Planning Hub{% endblock %}</title>
+    {% include 'projects/_theme_preload.html' %}
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
+    <link href="{% static 'projects/css/base.css' %}" rel="stylesheet">
+    <link href="{% static 'projects/css/public.css' %}" rel="stylesheet">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: #f7f7f8;
-            color: #1a1a1a;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 14px;
-            min-height: 100vh; display: flex; flex-direction: column;
-        }
-        .wrapper {
-            width: 100%;
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 32px 20px 0;
-            flex: 1; display: flex; flex-direction: column;
-        }
-        .top-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding-bottom: 32px;
-        }
-        .wordmark {
-            display: flex; align-items: center; gap: 8px; text-decoration: none;
-        }
-        .wordmark img { height: 40px; width: auto; display: block; }
-        .wordmark span {
-            font-size: 11px; font-weight: 700; color: #1a1a1a;
-            letter-spacing: 0.08em; text-transform: uppercase;
-        }
-        .wordmark:hover span { color: #555; }
-        .page-footer {
-            margin-top: auto; padding-top: 20px; padding-bottom: 32px;
-            border-top: 1px solid #e5e5e5;
-            display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
-        }
-        .page-footer a { font-size: 12px; color: #bbb; text-decoration: none; }
-        .page-footer a:hover { color: #555; }
-        .page-footer .footer-copy { font-size: 12px; color: #d0d0d0; margin-left: auto; }
-        .ps-track { display: flex; align-items: flex-start; width: 300px; }
-        .ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
-        .ps-step + .ps-step::before {
-            content: ''; position: absolute; top: 4px;
-            left: -50%; right: 50%; height: 2px; background: #e5e5e5;
-        }
-        .ps-step.done + .ps-step::before { background: #1a1a1a; }
-        .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5e5e5; margin-bottom: 6px; position: relative; z-index: 1; }
-        .ps-step.done .ps-dot, .ps-step.active .ps-dot { background: #1a1a1a; }
-        /* The landing page's halo, held still: a marker on the current step,
-           not a loop that never resolves. */
-        .ps-step.active .ps-dot { box-shadow: 0 0 0 3px rgba(26,26,26,0.10); }
-        .ps-label { font-size: 10px; color: #ccc; text-align: center; white-space: nowrap; }
-        .ps-step.done .ps-label { color: #aaa; }
-        .ps-step.active .ps-label { color: #1a1a1a; font-weight: 600; }
-        /* Only the planner fills topbar_right; on a phone the track takes
-           its own row instead of squeezing beside the wordmark. */
-        @media (max-width: 560px) {
-            .top-bar { flex-wrap: wrap; row-gap: 14px; }
-            .ps-track { width: 100%; max-width: 320px; }
-        }
-        #cookie-banner {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background: #1a1a1a;
-            color: #e0e0e0;
-            font-size: 13px;
-            padding: 14px 20px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-            z-index: 9999;
-        }
-        #cookie-banner p { margin: 0; flex: 1; line-height: 1.5; }
-        #cookie-banner a { color: #aaa; text-underline-offset: 2px; }
-        #cookie-banner button {
-            background: #fff;
-            color: #1a1a1a;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            white-space: nowrap;
-        }
-        .btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }
-        .btn-primary .spinner {
-            display: none; width: 10px; height: 10px;
-            border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
-            border-radius: 50%; animation: spin 0.7s linear infinite;
-            margin-left: 8px; vertical-align: middle;
-        }
-        .btn-primary.is-loading .spinner { display: inline-block; }
-        @keyframes spin { to { transform: rotate(360deg); } }
         {% block extra_css %}{% endblock %}
     </style>
 </head>
@@ -108,10 +17,14 @@
 <div class="wrapper">
     <div class="top-bar">
         <a class="wordmark" href="{% url 'index' %}">
-            <img src="{% static 'projects/logo_schwarz.png' %}" alt="">
+            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light">
+            <img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark">
             <span>Planning Hub</span>
         </a>
-        {% block topbar_right %}{% endblock %}
+        <div class="top-bar-right">
+            {% block topbar_right %}{% endblock %}
+            {% include 'projects/_theme_toggle.html' %}
+        </div>
     </div>
 
     {% block content %}{% endblock %}

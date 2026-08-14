@@ -11,14 +11,14 @@
     /* Project name and target date as one labelled row instead of three
        unrelated slabs of inline style. */
     .plan-head { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
-    .plan-head label { display: block; font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
+    .plan-head label { display: block; font-size: 12px; color: var(--color-text-quaternary); margin-bottom: 4px; }
     .plan-head-name { flex: 1 1 280px; }
-    .plan-head-name input { width: 100%; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px 12px; font-size: 16px; font-weight: 500; }
-    .plan-head-name input:focus { outline: none; border-color: #1a1a1a; }
-    .plan-head-date input { border: 1px solid #e5e5e5; border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: #1a1a1a; background: #fff; }
+    .plan-head-name input { width: 100%; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 8px 12px; font-size: 16px; font-weight: 500; }
+    .plan-head-name input:focus { outline: none; border-color: var(--color-text-primary); }
+    .plan-head-date input { border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: var(--color-text-primary); background: var(--color-bg-primary); }
     .task-table { width: 100%; border-collapse: collapse; }
-    .task-table th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
-    .task-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    .task-table th { font-size: 11px; color: var(--color-text-quaternary); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--color-border-primary); }
+    .task-table td { padding: 4px 8px; border-bottom: 1px solid var(--color-border-primary); vertical-align: middle; }
     /* The name takes every spare pixel and the other columns shrink to their
        content — width: 1% on a nowrap cell rests on table-layout: auto — so a
        task and its date stop drifting hundreds of pixels apart. */
@@ -29,17 +29,17 @@
     /* Transparent so tr.sofort's inset bar stays visible now that .col-name
        has no left padding under the textarea. */
     .task-table textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; background: transparent; }
-    .task-table input[type="date"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; color: #6b6b6b; background: transparent; font-family: inherit; }
+    .task-table input[type="date"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; color: var(--color-text-tertiary); background: transparent; font-family: inherit; }
     .task-table input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.35; }
-    .task-table select { border: 1px solid transparent; border-radius: 99px; padding: 4px 12px; font-size: 12px; background: #f0f0f0; font-family: inherit; }
+    .task-table select { border: 1px solid transparent; border-radius: 99px; padding: 4px 12px; font-size: 12px; background: var(--color-bg-tertiary); font-family: inherit; }
     .task-table textarea:hover, .task-table textarea:focus,
     .task-table input:hover, .task-table input:focus,
-    .task-table select:hover, .task-table select:focus { border-color: #e5e5e5; outline: none; }
-    .btn-delete { background: none; border: none; color: #ccc; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
-    .btn-delete:hover { color: #e00; }
+    .task-table select:hover, .task-table select:focus { border-color: var(--color-border-primary); outline: none; }
+    .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+    .btn-delete:hover { color: var(--color-overdue); }
     .btn-primary { margin-top: 24px; }
-    tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }
-    tr.sofort input[name="task_date"] { color: #e86600; font-weight: 500; }
+    tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }
+    tr.sofort input[name="task_date"] { color: var(--color-urgent); font-weight: 500; }
     /* Below 768px the table is the wrong shape for this content (#71): the
        fixed columns left the name ~60px and cut every task. Each row becomes
        a block — name on its own line, the controls underneath, the delete
@@ -49,7 +49,7 @@
     @media (max-width: 768px) {
         .task-table thead { display: none; }
         .task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }
-        .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid #f0f0f0; }
+        .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid var(--color-border-primary); }
         .task-table td { width: auto; padding: 0; border: none; white-space: normal; }
         .task-table .col-name { margin-bottom: 8px; padding-right: 32px; }
         /* width: auto must repeat the two-class specificity: the td rule
@@ -65,7 +65,7 @@
            the marker sat on the first cell. As a block the row paints it,
            and the bar spans the whole stacked task. */
         tr.sofort .col-name { box-shadow: none; }
-        tr.sofort { box-shadow: inset 3px 0 0 #e86600; }
+        tr.sofort { box-shadow: inset 3px 0 0 var(--color-urgent); }
     }
 {% endblock %}
 
