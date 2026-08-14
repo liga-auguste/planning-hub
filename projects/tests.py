@@ -1,6 +1,11 @@
+import importlib
 import json
 import os
+import shutil
+import sys
+import tempfile
 from datetime import date, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import anthropic
@@ -9,6 +14,7 @@ import markdown
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
+from django.core.management import call_command
 from django.test import (
     Client,
     RequestFactory,
@@ -141,6 +147,119 @@ class BootstrapVendoredVersionTest(SimpleTestCase):
 
     def test_no_bootstrap_javascript_is_vendored(self):
         self.assertEqual(sorted(p.name for p in self.js_dir.glob("bootstrap*")), [])
+
+
+class VendoredCssSourceMapTest(SimpleTestCase):
+    """#74 groundwork: bootstrap.min.css ended with a sourceMappingURL comment
+    although the .map file is deliberately not vendored (#64). Harmless while
+    nothing resolved the name — but ManifestStaticFilesStorage rewrites
+    source-map references, so collectstatic would fail loudly on the dangling
+    file the moment the hashed storage goes live."""
+
+    def test_the_stylesheet_names_no_source_map(self):
+        css_path = settings.BASE_DIR / "projects/static/projects/css/bootstrap.min.css"
+        self.assertNotIn("sourceMappingURL", css_path.read_text())
+
+
+class StaticCacheHeadersConfTest(SimpleTestCase):
+    """#74: with hashed filenames the far-future cache header is safe — and
+    only with them, which is why the two land together and are pinned
+    together, following BootstrapVendoredVersionTest's read-the-disk
+    precedent."""
+
+    def test_both_deployments_cache_static_files_immutably(self):
+        for name in ("nginx.conf", "nginx-demo.conf"):
+            with self.subTest(conf=name):
+                conf = (settings.BASE_DIR / name).read_text()
+                self.assertIn('add_header Cache-Control "public, immutable";', conf)
+                self.assertIn("expires 1y;", conf)
+
+
+class StaticStorageConfigTest(SimpleTestCase):
+    """#74: settings.py picks the staticfiles backend by process type —
+    ManifestStaticFilesStorage for the server, the plain storage under the
+    test runner, which forces DEBUG = False without ever running
+    collectstatic and would otherwise trip over the missing manifest (the
+    arrangement the Django docs recommend for testing)."""
+
+    def test_the_suite_itself_runs_on_the_plain_storage(self):
+        self.assertEqual(
+            settings.STORAGES["staticfiles"]["BACKEND"],
+            "django.contrib.staticfiles.storage.StaticFilesStorage",
+        )
+
+    def test_the_server_process_gets_the_manifest_storage(self):
+        # The suite runs on the plain storage (see above), so the server
+        # branch is pinned by re-executing the module the way gunicorn sees
+        # it. django.conf.settings copied its values at startup — reloading
+        # the module object touches nothing the running suite reads.
+        import planning_hub.settings as settings_module
+
+        with patch.object(sys, "argv", ["gunicorn", "planning_hub.wsgi"]):
+            backend = importlib.reload(settings_module).STORAGES["staticfiles"][
+                "BACKEND"
+            ]
+        importlib.reload(settings_module)  # re-derive the test-run state
+        self.assertEqual(
+            backend,
+            "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+        )
+
+    def test_the_default_file_storage_survives_the_override(self):
+        # Defining STORAGES replaces Django's whole default dict — dropping
+        # the "default" key would leave the app without a file storage.
+        self.assertEqual(
+            settings.STORAGES["default"]["BACKEND"],
+            "django.core.files.storage.FileSystemStorage",
+        )
+
+
+class HashedStaticFilesTest(DemoModeTestCase):
+    """#74 end to end: under ManifestStaticFilesStorage, collectstatic writes
+    a content-hashed twin of every file plus the manifest that maps plain
+    names to hashed ones, and {% static %} resolves through that manifest —
+    so a changed file is a new URL and no browser cache can pin a stale copy,
+    the failure mode the #64 bootstrap swap exposed."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.static_root = tempfile.mkdtemp()
+        cls.addClassCleanup(shutil.rmtree, cls.static_root, ignore_errors=True)
+        storage_override = override_settings(
+            STATIC_ROOT=cls.static_root,
+            STORAGES={
+                "default": {
+                    "BACKEND": "django.core.files.storage.FileSystemStorage",
+                },
+                "staticfiles": {
+                    "BACKEND": (
+                        "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+                    ),
+                },
+            },
+        )
+        storage_override.enable()
+        cls.addClassCleanup(storage_override.disable)
+        # Would raise on any dangling reference inside the collected files —
+        # the loud failure VendoredCssSourceMapTest clears the way for.
+        call_command("collectstatic", interactive=False, verbosity=0)
+        manifest_path = Path(cls.static_root) / "staticfiles.json"
+        cls.manifest = json.loads(manifest_path.read_text())["paths"]
+
+    def test_collectstatic_writes_a_hashed_twin_and_the_manifest(self):
+        hashed = self.manifest["projects/css/bootstrap.min.css"]
+        self.assertRegex(hashed, r"^projects/css/bootstrap\.min\.[0-9a-f]{12}\.css$")
+        self.assertTrue((Path(self.static_root) / hashed).exists())
+
+    def test_a_rendered_page_links_the_hashed_stylesheet(self):
+        # Tests run with DEBUG = False, so {% static %} resolves through the
+        # manifest just as it does behind gunicorn.
+        html = self.client.get(reverse("index")).content.decode()
+        self.assertNotIn("bootstrap.min.css", html)
+        self.assertRegex(
+            html, r"/static/projects/css/bootstrap\.min\.[0-9a-f]{12}\.css"
+        )
 
 
 class BootstrapJsBundleDroppedTest(DemoModeTestCase):
