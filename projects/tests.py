@@ -455,7 +455,7 @@ class DarkThemeTest(DemoModeTestCase):
             Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
         ).read_text()
         self.assertIn('[data-theme="dark"]', css)
-        self.assertIn("--color-bg-primary: #08090a", css)
+        self.assertIn("--color-bg-secondary: #1e1e1e", css)
 
     def test_both_bases_run_the_preload_script_before_any_stylesheet(self):
         for url in ("/dashboard/", "/impressum/"):
@@ -577,9 +577,9 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
     def test_every_step_feeds_the_colours_in_as_variables(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-bg: var(--color-text-primary)")
+                self.assertContains(response, "--bs-btn-bg: var(--color-solid-bg)")
                 self.assertContains(
-                    response, "--bs-btn-hover-bg: var(--color-text-secondary)"
+                    response, "--bs-btn-hover-bg: var(--color-solid-bg)"
                 )
 
     def test_every_step_keeps_the_borderless_box(self):
@@ -596,14 +596,14 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
         for step, response in self.steps().items():
             with self.subTest(step=step):
                 self.assertContains(
-                    response, "--bs-btn-disabled-bg: var(--color-text-primary)"
+                    response, "--bs-btn-disabled-bg: var(--color-solid-bg)"
                 )
                 self.assertContains(
-                    response, "--bs-btn-disabled-color: var(--color-bg-primary)"
+                    response, "--bs-btn-disabled-color: var(--color-solid-text)"
                 )
                 self.assertContains(
                     response,
-                    "--bs-btn-disabled-border-color: var(--color-text-primary)",
+                    "--bs-btn-disabled-border-color: var(--color-solid-bg)",
                 )
 
     def test_no_step_paints_over_bootstrap_any_more(self):

@@ -19,6 +19,20 @@
     --color-urgent-tint: #fff3e8;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
+    /* Solid CTA fills (buttons, active states, progress fills) that reuse
+       the "ink" look rather than the accent colour. Deliberately its own
+       token instead of --color-text-primary: that one has to invert to a
+       near-white value for body-text readability in dark mode, which reads
+       as glaring when reused as a large fill rather than as text — this
+       one gets its own, calmer dark-mode grey instead. */
+    --color-solid-bg: #282a30;
+    --color-solid-text: #fff;
+    /* A banner/toast surface (cookie notice, simulated-date banner) that's
+       deliberately dark in both themes, the way it was before dark mode
+       existed — not defined again under [data-theme="dark"] below, on
+       purpose, so it never inverts to a glaring white bar. */
+    --color-notice-bg: #282a30;
+    --color-notice-text: #e4e2e4;
 }
 /* #12: the dark values are Linear's own palette; the three status colors
    are the app's own addition (Linear has none) — lighter than their light-
@@ -28,6 +42,15 @@
    status hue rather than light tints, since a light tint would fight the
    surrounding dark surface.
 
+   --color-bg-primary is the lighter of the two surface tones and
+   --color-bg-secondary the darker: cards/tiles/panels use --color-bg-primary
+   (elevated above the page), and the page itself uses --color-bg-secondary
+   (recessed) — matching how they're already used throughout the templates.
+   That's the reverse of which literal hex is "lighter" in light mode
+   (there --color-bg-primary is white, the lightest tone overall), but the
+   elevation relationship — cards read as lighter than the page around them
+   — has to hold in both themes, or every card/tile reads as a sunken void.
+
    No `@media (prefers-color-scheme: dark)` companion: the preload script
    (base_public.html/base_dashboard.html, before this stylesheet loads)
    always resolves "system" to an explicit data-theme="light"/"dark"
@@ -36,15 +59,15 @@
    scope for #12, which assumes the toggle exists. */
 [data-theme="dark"] {
     color-scheme: dark;
-    --color-bg-primary: #08090a;
-    --color-bg-secondary: #1c1c1f;
-    --color-bg-tertiary: #232326;
-    --color-border-primary: #23252a;
-    --color-border-secondary: #34343a;
+    --color-bg-primary: #2c2c2e;
+    --color-bg-secondary: #1e1e1e;
+    --color-bg-tertiary: #363638;
+    --color-border-primary: #3a3a3c;
+    --color-border-secondary: #48484a;
     --color-text-primary: #f7f8f8;
     --color-text-secondary: #d0d6e0;
-    --color-text-tertiary: #8a8f98;
-    --color-text-quaternary: #62666d;
+    --color-text-tertiary: #aeb1b8;
+    --color-text-quaternary: #83868d;
     --color-accent: #7170ff;
     --color-accent-hover: #828fff;
     --color-accent-tint: #18182f;
@@ -55,6 +78,11 @@
     --color-urgent-tint: #2d1f12;
     --shadow-low: 0px 2px 4px #0000001a;
     --shadow-medium: 0px 4px 24px #0003;
+    /* A lighter grey than a straight text-primary invert would give (that
+       reads as glaring on a large button fill) — reuses the palette's own
+       text-secondary/bg-secondary values rather than a new hex. */
+    --color-solid-bg: #d0d6e0;
+    --color-solid-text: #08090a;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -70,8 +98,8 @@ body {
 #cookie-banner {
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    background: var(--color-text-primary);
-    color: var(--color-border-secondary);
+    background: var(--color-notice-bg);
+    color: var(--color-notice-text);
     font-size: 13px;
     padding: 14px 20px;
     display: flex;
@@ -81,10 +109,10 @@ body {
     z-index: 9999;
 }
 #cookie-banner p { margin: 0; flex: 1; line-height: 1.5; }
-#cookie-banner a { color: var(--color-text-quaternary); text-underline-offset: 2px; }
+#cookie-banner a { color: var(--color-notice-text); text-underline-offset: 2px; }
 #cookie-banner button {
-    background: var(--color-bg-primary);
-    color: var(--color-text-primary);
+    background: var(--color-notice-text);
+    color: var(--color-notice-bg);
     border: none;
     border-radius: 6px;
     padding: 6px 16px;

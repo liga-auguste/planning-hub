@@ -16,25 +16,29 @@
     /* Bootstrap's .btn reads these; margin has no variable, so each step
        keeps its own margin-top rule. */
     .btn-primary {
-        --bs-btn-color: var(--color-bg-primary);
-        --bs-btn-bg: var(--color-text-primary);
-        --bs-btn-border-color: var(--color-text-primary);
-        --bs-btn-hover-color: var(--color-bg-primary);
-        --bs-btn-hover-bg: var(--color-text-secondary);
-        --bs-btn-hover-border-color: var(--color-text-secondary);
-        --bs-btn-active-color: var(--color-bg-primary);
-        --bs-btn-active-bg: var(--color-text-secondary);
-        --bs-btn-active-border-color: var(--color-text-secondary);
+        --bs-btn-color: var(--color-solid-text);
+        --bs-btn-bg: var(--color-solid-bg);
+        --bs-btn-border-color: var(--color-solid-bg);
+        /* Hover/active feedback is opacity (below), not a second colour: in
+           dark mode --color-solid-bg is already the same value
+           --color-text-secondary would give, so that swap alone wouldn't be
+           visible there the way it is in light mode. */
+        --bs-btn-hover-color: var(--color-solid-text);
+        --bs-btn-hover-bg: var(--color-solid-bg);
+        --bs-btn-hover-border-color: var(--color-solid-bg);
+        --bs-btn-active-color: var(--color-solid-text);
+        --bs-btn-active-bg: var(--color-solid-bg);
+        --bs-btn-active-border-color: var(--color-solid-bg);
         /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
            loading state is a class (.is-loading), not the disabled attribute,
            so nothing reaches these today — they close the set so that a later
            switch to `disabled` can't turn the button blue. */
-        --bs-btn-disabled-color: var(--color-bg-primary);
-        --bs-btn-disabled-bg: var(--color-text-primary);
-        --bs-btn-disabled-border-color: var(--color-text-primary);
+        --bs-btn-disabled-color: var(--color-solid-text);
+        --bs-btn-disabled-bg: var(--color-solid-bg);
+        --bs-btn-disabled-border-color: var(--color-solid-bg);
         /* Bootstrap builds its focus-ring rgba() from this triple, so it has
-           to stay a literal RGB decomposition of --color-text-primary
-           (#282a30) rather than a var() — rgba() can't take a custom
+           to stay a literal RGB decomposition of --color-solid-bg's light
+           value (#282a30) rather than a var() — rgba() can't take a custom
            property that is itself a hex color. */
         --bs-btn-focus-shadow-rgb: 40, 42, 48;
         /* The hand-rolled button had `border: none`; .btn would otherwise add
@@ -49,6 +53,7 @@
         --bs-btn-font-size: 14px;
         --bs-btn-font-weight: 600;
     }
+    .btn-primary:hover, .btn-primary:active { opacity: 0.85; }
     @media (max-width: 768px) {
         h1 { font-size: 24px; }
         .planner-card { padding: 28px; }
