@@ -379,6 +379,27 @@ class SidebarProgressRingTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(response, "progress-ring-fill ok")
 
+    def test_the_old_sidebar_item_urgency_classes_are_gone(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Überfällig",
+                    "date": (date.today() - timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, 'class="sidebar-item overdue"')
+        self.assertNotContains(response, 'class="sidebar-item urgent"')
+
+    def test_the_old_status_dot_no_longer_renders_for_projects(self):
+        self.given_session_plan()
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, '<span class="dot default">')
+
 
 class SidebarProgressRingCssTest(DemoModeTestCase):
     def test_ring_css_references_the_status_tokens(self):
@@ -389,6 +410,15 @@ class SidebarProgressRingCssTest(DemoModeTestCase):
         self.assertContains(
             response, ".progress-ring-fill.urgent { stroke: var(--color-urgent)"
         )
+
+    def test_the_old_sidebar_item_urgency_css_is_gone(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, ".sidebar-item.overdue")
+        self.assertNotContains(response, ".sidebar-item.urgent")
+
+    def test_the_dead_multi_colour_dot_block_is_gone(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, ".dot.gray, .dot.blue")
 
 
 class PlannerLoadingStateTest(DemoModeTestCase):
