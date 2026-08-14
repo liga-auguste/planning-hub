@@ -1,4 +1,4 @@
-:root {
+:root, [data-theme="light"] {
     color-scheme: light;
     --color-bg-primary: #fff;
     --color-bg-secondary: #f9f8f9;
@@ -19,6 +19,42 @@
     --color-urgent-tint: #fff3e8;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
+}
+/* #12: the dark values are Linear's own palette; the three status colors
+   are the app's own addition (Linear has none) — lighter than their light-
+   mode values since #ef4444/#f97316 read too low-contrast on #08090a.
+   --color-*-tint likewise has no Linear equivalent (the app's own badge/
+   notice backgrounds, #11's addition) — dark, desaturated versions of the
+   status hue rather than light tints, since a light tint would fight the
+   surrounding dark surface.
+
+   No `@media (prefers-color-scheme: dark)` companion: the preload script
+   (base_public.html/base_dashboard.html, before this stylesheet loads)
+   always resolves "system" to an explicit data-theme="light"/"dark"
+   synchronously, so [data-theme] is present before first paint and a
+   media-query fallback would only ever apply with JS disabled — out of
+   scope for #12, which assumes the toggle exists. */
+[data-theme="dark"] {
+    color-scheme: dark;
+    --color-bg-primary: #08090a;
+    --color-bg-secondary: #1c1c1f;
+    --color-bg-tertiary: #232326;
+    --color-border-primary: #23252a;
+    --color-border-secondary: #34343a;
+    --color-text-primary: #f7f8f8;
+    --color-text-secondary: #d0d6e0;
+    --color-text-tertiary: #8a8f98;
+    --color-text-quaternary: #62666d;
+    --color-accent: #7170ff;
+    --color-accent-hover: #828fff;
+    --color-accent-tint: #18182f;
+    --color-overdue: #f87171;
+    --color-urgent: #fb923c;
+    --color-done: #4ade80;
+    --color-overdue-tint: #2d1517;
+    --color-urgent-tint: #2d1f12;
+    --shadow-low: 0px 2px 4px #0000001a;
+    --shadow-medium: 0px 4px 24px #0003;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -57,3 +93,10 @@ body {
     cursor: pointer;
     white-space: nowrap;
 }
+/* The two-<img> logo swap (#12): base_public.html's wordmark, dashboard.html's
+   about-overlay and overview header, and my_plan.html's own header all pair
+   a .logo-light and a .logo-dark <img> for the same mark, toggled here so
+   every call site gets the swap for free. */
+.logo-dark { display: none; }
+[data-theme="dark"] .logo-dark { display: inline-block; }
+[data-theme="dark"] .logo-light { display: none; }

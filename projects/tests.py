@@ -362,27 +362,6 @@ class BaseResetParityTest(DemoModeTestCase):
         css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
         self.assertIn(self.RESET, css)
 
-
-class DesignTokenTest(DemoModeTestCase):
-    """#11: a :root block of custom properties replaces hardcoded hex
-    literals, so both base templates need to serve the same token names."""
-
-    TOKENS = ("--color-bg-primary", "--color-accent", "--color-overdue", "--color-urgent")
-    RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
-
-    def test_both_bases_serve_the_design_tokens(self):
-        # #32 moved the :root block out of the inline <style> both base
-        # templates used to render and into the linked base.css, so the
-        # tokens are checked at their source rather than in every response.
-        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
-        for token in self.TOKENS:
-            self.assertIn(token, css)
-
-    def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
-        response = self.client.get("/dashboard/")
-        for literal in self.RETIRED_LITERALS:
-            self.assertNotContains(response, literal)
-
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
         self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
@@ -432,6 +411,52 @@ class DesignTokenTest(DemoModeTestCase):
     def test_datenschutz_lists_are_untouched(self):
         response = self.client.get("/datenschutz/")
         self.assertContains(response, "ul { margin: 6px 0 8px 18px;")
+
+
+class DesignTokenTest(DemoModeTestCase):
+    """#11: a :root block of custom properties replaces hardcoded hex
+    literals, so both base templates need to serve the same token names."""
+
+    TOKENS = ("--color-bg-primary", "--color-accent", "--color-overdue", "--color-urgent")
+    RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
+
+    def test_both_bases_serve_the_design_tokens(self):
+        # #32 moved the :root block out of the inline <style> both base
+        # templates used to render and into the linked base.css, so the
+        # tokens are checked at their source rather than in every response.
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
+        for token in self.TOKENS:
+            self.assertIn(token, css)
+
+    def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
+        response = self.client.get("/dashboard/")
+        for literal in self.RETIRED_LITERALS:
+            self.assertNotContains(response, literal)
+
+
+class DarkThemeTest(DemoModeTestCase):
+    """#12: the dark palette lives in base.css as a [data-theme="dark"]
+    block, and the preload script that switches the attribute runs before
+    either stylesheet loads, on every page that extends a base template."""
+
+    def test_base_css_defines_the_dark_theme_block(self):
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
+        self.assertIn('[data-theme="dark"]', css)
+        self.assertIn("--color-bg-primary: #08090a", css)
+
+    def test_both_bases_run_the_preload_script_before_any_stylesheet(self):
+        for url in ("/dashboard/", "/impressum/"):
+            with self.subTest(url=url):
+                html = self.client.get(url).content.decode()
+                self.assertLess(
+                    html.index("setAttribute('data-theme'"),
+                    html.index('rel="stylesheet"'),
+                )
+
+    def test_preload_script_sets_both_theme_attributes(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "setAttribute('data-theme', theme)")
+        self.assertContains(response, "setAttribute('data-bs-theme', theme)")
 
 
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):

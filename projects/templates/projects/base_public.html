@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Planning Hub{% endblock %}</title>
+    {% include 'projects/_theme_preload.html' %}
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/base.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/public.css' %}" rel="stylesheet">
@@ -16,7 +17,8 @@
 <div class="wrapper">
     <div class="top-bar">
         <a class="wordmark" href="{% url 'index' %}">
-            <img src="{% static 'projects/logo_schwarz.png' %}" alt="">
+            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light">
+            <img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark">
             <span>Planning Hub</span>
         </a>
         {% block topbar_right %}{% endblock %}
