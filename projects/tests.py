@@ -300,8 +300,9 @@ class PlannerLoadingStateTest(DemoModeTestCase):
     isn't provable by a Django TestCase and gets a manual browser pass."""
 
     def test_base_template_defines_the_loading_css(self):
-        response = self.client.get(reverse("impressum"))
-        self.assertContains(response, ".btn-primary.is-loading")
+        # #32 moved this rule from the inline <style> into public.css.
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/public.css").read_text()
+        self.assertIn(".btn-primary.is-loading", css)
 
     def test_base_template_ships_the_double_submit_script(self):
         response = self.client.get(reverse("impressum"))
@@ -355,8 +356,11 @@ class BaseResetParityTest(DemoModeTestCase):
     RESET = "* { box-sizing: border-box; margin: 0; padding: 0; }"
 
     def test_both_bases_reset_the_same_way(self):
-        self.assertContains(self.client.get("/dashboard/"), self.RESET)
-        self.assertContains(self.client.get("/impressum/"), self.RESET)
+        # #32 moved this rule from an inline <style> block (rendered in every
+        # response) into a linked stylesheet, so the assertion now reads the
+        # served file's source directly rather than the rendered HTML.
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
+        self.assertIn(self.RESET, css)
 
 
 class DesignTokenTest(DemoModeTestCase):
@@ -367,9 +371,12 @@ class DesignTokenTest(DemoModeTestCase):
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
     def test_both_bases_serve_the_design_tokens(self):
+        # #32 moved the :root block out of the inline <style> both base
+        # templates used to render and into the linked base.css, so the
+        # tokens are checked at their source rather than in every response.
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
         for token in self.TOKENS:
-            self.assertContains(self.client.get("/dashboard/"), token)
-            self.assertContains(self.client.get("/impressum/"), token)
+            self.assertIn(token, css)
 
     def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
         response = self.client.get("/dashboard/")
@@ -613,33 +620,37 @@ class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
                     )
 
     def test_the_active_dot_wears_the_landing_halo_held_still(self):
-        response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, "box-shadow: 0 0 0 3px rgba(26,26,26,0.10)")
+        # #32 moved this rule from the inline <style> into public.css.
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/public.css").read_text()
+        self.assertIn("box-shadow: 0 0 0 3px rgba(26,26,26,0.10)", css)
 
     def test_the_track_takes_its_own_row_on_a_phone(self):
-        response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, ".top-bar { flex-wrap: wrap;")
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/public.css").read_text()
+        self.assertIn(".top-bar { flex-wrap: wrap;", css)
 
 
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the
-    footer floating mid-viewport. They belong in base_public.html."""
+    footer floating mid-viewport. They belong in base_public.html.
+
+    #32 later moved these rules out of the base templates' inline <style>
+    into base.css/public.css, so they're checked at the source rather than
+    in the rendered response."""
 
     def test_base_template_makes_body_a_flex_column(self):
-        response = self.client.get("/impressum/")
-        self.assertContains(
-            response, "min-height: 100vh; display: flex; flex-direction: column;"
-        )
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/base.css").read_text()
+        self.assertIn("min-height: 100vh; display: flex; flex-direction: column;", css)
 
     def test_base_template_pins_the_footer(self):
-        response = self.client.get("/impressum/")
-        self.assertContains(response, "margin-top: auto; padding-top: 20px;")
+        css = (Path(settings.BASE_DIR) / "projects/static/projects/css/public.css").read_text()
+        self.assertIn("margin-top: auto; padding-top: 20px;", css)
 
     def test_landing_page_no_longer_duplicates_the_override(self):
-        # Exactly one occurrence: the base rule, not a second copy in extra_css.
+        # The base rule lives in public.css now, not in any rendered <style>,
+        # so the page's own inline extra_css should carry no copy of it.
         response = self.client.get("/")
-        self.assertContains(response, "margin-top: auto", count=1)
+        self.assertNotContains(response, "margin-top: auto")
 
     def test_wrapper_padding_for_the_floating_footer_is_gone(self):
         # The 80px bottom padding only existed to keep content clear of the

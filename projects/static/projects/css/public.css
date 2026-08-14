@@ -1,0 +1,60 @@
+.wrapper {
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 32px 20px 0;
+    flex: 1; display: flex; flex-direction: column;
+}
+.top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 32px;
+}
+.wordmark {
+    display: flex; align-items: center; gap: 8px; text-decoration: none;
+}
+.wordmark img { height: 40px; width: auto; display: block; }
+.wordmark span {
+    font-size: 11px; font-weight: 700; color: var(--color-text-primary);
+    letter-spacing: 0.08em; text-transform: uppercase;
+}
+.wordmark:hover span { color: var(--color-text-secondary); }
+.page-footer {
+    margin-top: auto; padding-top: 20px; padding-bottom: 32px;
+    border-top: 1px solid var(--color-border-primary);
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+}
+.page-footer a { font-size: 12px; color: var(--color-text-quaternary); text-decoration: none; }
+.page-footer a:hover { color: var(--color-text-secondary); }
+.page-footer .footer-copy { font-size: 12px; color: var(--color-text-quaternary); margin-left: auto; }
+.ps-track { display: flex; align-items: flex-start; width: 300px; }
+.ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
+.ps-step + .ps-step::before {
+    content: ''; position: absolute; top: 4px;
+    left: -50%; right: 50%; height: 2px; background: var(--color-border-primary);
+}
+.ps-step.done + .ps-step::before { background: var(--color-text-primary); }
+.ps-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-border-primary); margin-bottom: 6px; position: relative; z-index: 1; }
+.ps-step.done .ps-dot, .ps-step.active .ps-dot { background: var(--color-text-primary); }
+/* The landing page's halo, held still: a marker on the current step,
+   not a loop that never resolves. */
+.ps-step.active .ps-dot { box-shadow: 0 0 0 3px rgba(26,26,26,0.10); }
+.ps-label { font-size: 10px; color: var(--color-text-quaternary); text-align: center; white-space: nowrap; }
+.ps-step.done .ps-label { color: var(--color-text-quaternary); }
+.ps-step.active .ps-label { color: var(--color-text-primary); font-weight: 600; }
+/* Only the planner fills topbar_right; on a phone the track takes
+   its own row instead of squeezing beside the wordmark. */
+@media (max-width: 560px) {
+    .top-bar { flex-wrap: wrap; row-gap: 14px; }
+    .ps-track { width: 100%; max-width: 320px; }
+}
+.btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }
+.btn-primary .spinner {
+    display: none; width: 10px; height: 10px;
+    border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--color-bg-primary);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    margin-left: 8px; vertical-align: middle;
+}
+.btn-primary.is-loading .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
