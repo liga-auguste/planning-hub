@@ -12,6 +12,9 @@
     function prefersDark() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches;
     }
+    // Exposed so _theme_toggle.html's click handler can reuse the exact same
+    // attribute-setting logic instead of a second copy of it.
+    window.applyTheme = applyTheme;
     var stored = localStorage.theme;
     applyTheme(stored === 'dark' || (stored !== 'light' && prefersDark()));
     /* A first-time visitor has no stored preference yet, which behaves the

@@ -12,6 +12,15 @@
 }
 .sidebar.collapsed { width: 48px; }
 .sidebar.collapsed .sidebar-content { display: none; }
+/* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
+   above doesn't take the toggle down with it (#12). */
+.sidebar .theme-toggle {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+}
+.sidebar.collapsed .theme-toggle { flex-direction: column; bottom: 8px; }
 .sidebar-resize {
     position: absolute;
     top: 0; right: 0;

@@ -21,7 +21,10 @@
             <img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark">
             <span>Planning Hub</span>
         </a>
-        {% block topbar_right %}{% endblock %}
+        <div class="top-bar-right">
+            {% block topbar_right %}{% endblock %}
+            {% include 'projects/_theme_toggle.html' %}
+        </div>
     </div>
 
     {% block content %}{% endblock %}

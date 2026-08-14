@@ -20,6 +20,10 @@
     letter-spacing: 0.08em; text-transform: uppercase;
 }
 .wordmark:hover span { color: var(--color-text-secondary); }
+/* Groups whatever topbar_right renders (nothing, or the planner stepper)
+   with the theme toggle (#12), so .top-bar itself always has exactly two
+   children and its space-between rule needs no 3-child special case. */
+.top-bar-right { display: flex; align-items: center; gap: 16px; }
 .page-footer {
     margin-top: auto; padding-top: 20px; padding-bottom: 32px;
     border-top: 1px solid var(--color-border-primary);
@@ -47,6 +51,7 @@
    its own row instead of squeezing beside the wordmark. */
 @media (max-width: 560px) {
     .top-bar { flex-wrap: wrap; row-gap: 14px; }
+    .top-bar-right { flex-wrap: wrap; width: 100%; row-gap: 10px; }
     .ps-track { width: 100%; max-width: 320px; }
 }
 .btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }

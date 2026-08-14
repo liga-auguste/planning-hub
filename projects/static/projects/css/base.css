@@ -100,3 +100,35 @@ body {
 .logo-dark { display: none; }
 [data-theme="dark"] .logo-dark { display: inline-block; }
 [data-theme="dark"] .logo-light { display: none; }
+/* The light/dark/system toggle (#12) — generic look, shared by both bases;
+   where it sits in each layout is public.css's/dashboard.css's concern. */
+.theme-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--color-bg-tertiary);
+    border-radius: 8px;
+    padding: 2px;
+}
+.theme-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-text-quaternary);
+    cursor: pointer;
+}
+.theme-toggle-btn:hover { color: var(--color-text-primary); }
+.theme-toggle-btn.active {
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    box-shadow: var(--shadow-low);
+}
+.theme-toggle-icon {
+    width: 15px; height: 15px;
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+}

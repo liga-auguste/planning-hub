@@ -458,6 +458,16 @@ class DarkThemeTest(DemoModeTestCase):
         self.assertContains(response, "setAttribute('data-theme', theme)")
         self.assertContains(response, "setAttribute('data-bs-theme', theme)")
 
+    def test_both_bases_render_the_theme_toggle(self):
+        for url in ("/dashboard/", "/impressum/"):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(url), 'id="theme-toggle"')
+
+    def test_the_toggle_offers_all_three_choices(self):
+        response = self.client.get("/dashboard/")
+        for choice in ("light", "dark", "system"):
+            self.assertContains(response, f'data-theme-choice="{choice}"')
+
 
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):
     """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
@@ -790,9 +800,11 @@ class TileIconsTest(DemoModeTestCase):
                 self.assertNotContains(response, emoji)
 
     def test_nine_references_and_nine_definitions(self):
+        # 9 tile icons plus the 3 sun/moon/monitor icons _theme_toggle.html
+        # (#12) now renders on every public page, this one included.
         response = self.client.get(reverse("planner_start"))
-        self.assertContains(response, '<use href="#icon-', count=9)
-        self.assertContains(response, '<symbol id="icon-', count=9)
+        self.assertContains(response, '<use href="#icon-', count=12)
+        self.assertContains(response, '<symbol id="icon-', count=12)
 
     def test_the_icons_inherit_the_tiles_colour(self):
         response = self.client.get(reverse("planner_start"))
@@ -806,9 +818,13 @@ class TileIconsTest(DemoModeTestCase):
         self.assertContains(response, '<symbol id="icon-pencil"')
         self.assertContains(response, '<use href="#icon-pencil"')
 
-    def test_step_two_ships_no_sprite(self):
+    def test_step_two_ships_no_tile_icon_sprite(self):
+        # The theme toggle's own icon-theme-* sprite (#12) still renders here
+        # — it's a base-template fixture on every public page — but none of
+        # step one's nine tile icons should follow the user to step two.
         response = self.client.get(reverse("planner_start") + "?type=eigenes")
-        self.assertNotContains(response, '<symbol id="icon-')
+        self.assertContains(response, '<symbol id="icon-theme-')
+        self.assertNotContains(response, '<symbol id="icon-pencil"')
 
 
 class ReviewLayoutTest(DemoModeTestCase):
