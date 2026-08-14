@@ -67,7 +67,7 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 - **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date
 - **Kanban view** — Open / Urgent / Done columns with progress bar
 - **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
-- **Urgency system** — overdue / urgent / on track per task and project, colour-coded in sidebar
+- **Urgency system** — overdue / urgent / on track per task and project, shown as a colour-coded progress ring in the sidebar
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
