@@ -109,7 +109,11 @@
         .ot-date { font-size: 11px; color: var(--color-text-quaternary); white-space: nowrap; }
         .ot-date.urgent { color: var(--color-urgent); }
         .ot-date.overdue { color: var(--color-overdue); }
-        .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 36px; }
+        /* minmax() floor keeps a column from being forced wider than its
+           container by an unshrinkable card (long project name + due date on
+           one nowrap line, see .kanban-card-meta below) — plain 1fr's auto
+           minimum resolves to that min-content width instead (#25). */
+        .kanban { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-top: 36px; overflow-x: auto; }
         .kanban-col { background: var(--color-bg-secondary); border-radius: 8px; padding: 12px; min-height: 120px; }
         .kanban-col-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 7px; font-size: 10px; font-weight: 500; }
