@@ -143,6 +143,20 @@ class BootstrapVendoredVersionTest(SimpleTestCase):
         self.assertEqual(sorted(p.name for p in self.js_dir.glob("bootstrap*")), [])
 
 
+class VendoredCssSourceMapTest(SimpleTestCase):
+    """#74 groundwork: bootstrap.min.css ended with a sourceMappingURL comment
+    although the .map file is deliberately not vendored (#64). Harmless while
+    nothing resolved the name — but ManifestStaticFilesStorage rewrites
+    source-map references, so collectstatic would fail loudly on the dangling
+    file the moment the hashed storage goes live."""
+
+    def test_the_stylesheet_names_no_source_map(self):
+        css_path = (
+            settings.BASE_DIR / "projects/static/projects/css/bootstrap.min.css"
+        )
+        self.assertNotIn("sourceMappingURL", css_path.read_text())
+
+
 class BootstrapJsBundleDroppedTest(DemoModeTestCase):
     """#64 unit 1: nothing initialises a Bootstrap JS component (zero
     data-bs-* attributes), so the bundle was dropped rather than upgraded."""
