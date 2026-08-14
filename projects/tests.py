@@ -293,6 +293,104 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
+class SidebarProgressRingTest(DemoModeTestCase):
+    """#76: the sidebar's per-project status dot becomes a progress ring —
+    fill from done/total, stroke colour from the project's urgency."""
+
+    def test_ring_dashoffset_reflects_a_known_ratio(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Erledigt",
+                    "date": None,
+                    "kontext": "",
+                    "done": True,
+                },
+                {
+                    "id": "t2",
+                    "name": "Offen",
+                    "date": (date.today() + timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'stroke-dashoffset="21.99"')
+
+    def test_fully_done_project_renders_a_fully_filled_ring(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Erledigt",
+                    "date": None,
+                    "kontext": "",
+                    "done": True,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'stroke-dashoffset="0.00"')
+
+    def test_overdue_project_gets_the_overdue_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Überfällig",
+                    "date": (date.today() - timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill overdue")
+
+    def test_urgent_project_gets_the_urgent_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Bald fällig",
+                    "date": date.today().isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill urgent")
+
+    def test_on_track_project_gets_the_ok_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Weit weg",
+                    "date": (date.today() + timedelta(days=30)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill ok")
+
+
+class SidebarProgressRingCssTest(DemoModeTestCase):
+    def test_ring_css_references_the_status_tokens(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response, ".progress-ring-fill.overdue { stroke: var(--color-overdue)"
+        )
+        self.assertContains(
+            response, ".progress-ring-fill.urgent { stroke: var(--color-urgent)"
+        )
+
+
 class PlannerLoadingStateTest(DemoModeTestCase):
     """#6: markup-contract tests for the shared loading-state CSS/JS in
     base_public.html, and the per-form data-loading-text attribute. Runtime
