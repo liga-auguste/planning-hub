@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -135,6 +136,34 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Hashed static filenames (#74): collectstatic renames every file
+# {% static %} references to name.<contenthash>.ext and records the mapping
+# in a manifest, so a changed file is a new URL and no browser cache can pin
+# a stale copy — the pre-#64 bootstrap.min.css survived its own replacement
+# in visitors' caches exactly that way. Hashing only applies with
+# DEBUG = False; runserver keeps plain names.
+#
+# The test runner forces DEBUG = False but never runs collectstatic, so the
+# suite would trip over the missing manifest — it keeps the plain storage,
+# the arrangement the Django docs recommend for testing under
+# ManifestStaticFilesStorage.
+#
+# Overriding STORAGES replaces Django's whole default dict, so the "default"
+# file storage has to be restated even though it just repeats the default.
+_TESTING = sys.argv[1:2] == ["test"]
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if _TESTING
+            else "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
+        ),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
