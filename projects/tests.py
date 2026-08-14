@@ -157,10 +157,22 @@ class VendoredCssSourceMapTest(SimpleTestCase):
     file the moment the hashed storage goes live."""
 
     def test_the_stylesheet_names_no_source_map(self):
-        css_path = (
-            settings.BASE_DIR / "projects/static/projects/css/bootstrap.min.css"
-        )
+        css_path = settings.BASE_DIR / "projects/static/projects/css/bootstrap.min.css"
         self.assertNotIn("sourceMappingURL", css_path.read_text())
+
+
+class StaticCacheHeadersConfTest(SimpleTestCase):
+    """#74: with hashed filenames the far-future cache header is safe — and
+    only with them, which is why the two land together and are pinned
+    together, following BootstrapVendoredVersionTest's read-the-disk
+    precedent."""
+
+    def test_both_deployments_cache_static_files_immutably(self):
+        for name in ("nginx.conf", "nginx-demo.conf"):
+            with self.subTest(conf=name):
+                conf = (settings.BASE_DIR / name).read_text()
+                self.assertIn('add_header Cache-Control "public, immutable";', conf)
+                self.assertIn("expires 1y;", conf)
 
 
 class StaticStorageConfigTest(SimpleTestCase):
@@ -222,8 +234,7 @@ class HashedStaticFilesTest(DemoModeTestCase):
                 },
                 "staticfiles": {
                     "BACKEND": (
-                        "django.contrib.staticfiles.storage"
-                        ".ManifestStaticFilesStorage"
+                        "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
                     ),
                 },
             },
@@ -238,9 +249,7 @@ class HashedStaticFilesTest(DemoModeTestCase):
 
     def test_collectstatic_writes_a_hashed_twin_and_the_manifest(self):
         hashed = self.manifest["projects/css/bootstrap.min.css"]
-        self.assertRegex(
-            hashed, r"^projects/css/bootstrap\.min\.[0-9a-f]{12}\.css$"
-        )
+        self.assertRegex(hashed, r"^projects/css/bootstrap\.min\.[0-9a-f]{12}\.css$")
         self.assertTrue((Path(self.static_root) / hashed).exists())
 
     def test_a_rendered_page_links_the_hashed_stylesheet(self):
