@@ -358,6 +358,18 @@ class BaseResetParityTest(DemoModeTestCase):
         self.assertContains(self.client.get("/dashboard/"), self.RESET)
         self.assertContains(self.client.get("/impressum/"), self.RESET)
 
+
+class DesignTokenTest(DemoModeTestCase):
+    """#11: a :root block of custom properties replaces hardcoded hex
+    literals, so both base templates need to serve the same token names."""
+
+    TOKENS = ("--color-bg-primary", "--color-accent", "--color-overdue", "--color-urgent")
+
+    def test_both_bases_serve_the_design_tokens(self):
+        for token in self.TOKENS:
+            self.assertContains(self.client.get("/dashboard/"), token)
+            self.assertContains(self.client.get("/impressum/"), token)
+
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
         self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
