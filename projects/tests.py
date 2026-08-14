@@ -419,7 +419,7 @@ class DesignTokenTest(DemoModeTestCase):
         response = self.client.get("/stats/")
         self.assertContains(
             response,
-            ".empty { color: #bbb; font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
+            ".empty { color: var(--color-text-quaternary); font-size: 13px; padding: 8px 0; margin-bottom: 16px; }",
         )
 
     def test_datenschutz_lists_are_untouched(self):
@@ -434,8 +434,8 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
 
     def test_stats_tiles_feed_their_values_in(self):
         response = self.client.get("/stats/")
-        self.assertContains(response, "--bs-card-bg: #fff")
-        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-bg: var(--color-bg-primary)")
+        self.assertContains(response, "--bs-card-border-color: var(--color-border-primary)")
         self.assertContains(response, "--bs-card-border-radius: 10px")
         self.assertContains(response, "--bs-card-spacer-x: 20px")
         self.assertContains(response, "--bs-card-spacer-y: 20px")
@@ -453,8 +453,8 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
 
     def test_rules_card_feeds_its_values_in(self):
         response = self.client.get(reverse("rules_list"))
-        self.assertContains(response, "--bs-card-bg: #fff")
-        self.assertContains(response, "--bs-card-border-color: #e5e5e5")
+        self.assertContains(response, "--bs-card-bg: var(--color-bg-primary)")
+        self.assertContains(response, "--bs-card-border-color: var(--color-border-primary)")
         self.assertContains(response, "--bs-card-border-radius: 8px")
         self.assertContains(response, "--bs-card-spacer-x: 40px")
         self.assertContains(response, "--bs-card-spacer-y: 40px")
@@ -478,7 +478,7 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
         # inheriting ours, so .card-body has to be told the real value.
         for url in ("/stats/", reverse("rules_list")):
             with self.subTest(url=url):
-                self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
+                self.assertContains(self.client.get(url), "--bs-card-color: var(--color-text-primary)")
 
 
 class PlannerStepsMixin:
@@ -516,8 +516,8 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
     def test_every_step_feeds_the_colours_in_as_variables(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-bg: #1a1a1a")
-                self.assertContains(response, "--bs-btn-hover-bg: #333")
+                self.assertContains(response, "--bs-btn-bg: var(--color-text-primary)")
+                self.assertContains(response, "--bs-btn-hover-bg: var(--color-text-secondary)")
 
     def test_every_step_keeps_the_borderless_box(self):
         # `border: none` before; .btn's 1px default would grow the button by
@@ -532,9 +532,9 @@ class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCas
         # the disabled attribute -- this pins the colour before that changes.
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-disabled-bg: #1a1a1a")
-                self.assertContains(response, "--bs-btn-disabled-color: #fff")
-                self.assertContains(response, "--bs-btn-disabled-border-color: #1a1a1a")
+                self.assertContains(response, "--bs-btn-disabled-bg: var(--color-text-primary)")
+                self.assertContains(response, "--bs-btn-disabled-color: var(--color-bg-primary)")
+                self.assertContains(response, "--bs-btn-disabled-border-color: var(--color-text-primary)")
 
     def test_no_step_paints_over_bootstrap_any_more(self):
         for step, response in self.steps().items():
@@ -593,7 +593,7 @@ class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
     def test_the_subtitle_is_body_text_not_label_grey(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, ".subtitle { color: #6b6b6b")
+                self.assertContains(response, ".subtitle { color: var(--color-text-tertiary)")
 
 
 class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
@@ -841,7 +841,7 @@ class ReviewLayoutTest(DemoModeTestCase):
     def test_the_sofort_marker_moved_to_the_classed_cell(self):
         response = self.review_page()
         self.assertContains(
-            response, "tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }"
+            response, "tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }"
         )
         self.assertNotContains(response, "td:first-child")
 
@@ -920,7 +920,7 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
         self.assertContains(
-            response, "tr.sofort { box-shadow: inset 3px 0 0 #e86600; }"
+            response, "tr.sofort { box-shadow: inset 3px 0 0 var(--color-urgent); }"
         )
 
     def test_the_delete_button_leaves_the_flow(self):
@@ -1043,7 +1043,7 @@ class QuestionsLayoutTest(DemoModeTestCase):
 
     def test_the_grey_panel_became_a_left_rule(self):
         response = self.questions_page()
-        self.assertContains(response, ".questions-box { border-left: 2px solid #e5e5e5")
+        self.assertContains(response, ".questions-box { border-left: 2px solid var(--color-border-primary)")
         self.assertNotContains(response, ".questions-box { background")
 
     def test_markdown_output_survives_the_global_reset(self):

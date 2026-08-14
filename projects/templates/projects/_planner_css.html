@@ -5,34 +5,38 @@
        equal specificity, and base CSS is declared before extra_css, so a
        hoisted rule would silently land under theirs. Maps 1:1 onto a future
        planner stylesheet once the inline CSS moves out (#32). */
-    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 40px; }
+    .planner-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 12px; padding: 40px; }
     /* The landing page's headline treatment at working-surface size: same
        weight, tracking and tight leading, not the 42px poster cut. */
     h1 { font-size: 28px; font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; margin-bottom: 8px; }
-    .subtitle { color: #6b6b6b; line-height: 1.65; margin-bottom: 28px; }
-    .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
-    .back:hover { color: #1a1a1a; }
-    .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+    .subtitle { color: var(--color-text-tertiary); line-height: 1.65; margin-bottom: 28px; }
+    .back { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
+    .back:hover { color: var(--color-text-primary); }
+    .error-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
     /* Bootstrap's .btn reads these; margin has no variable, so each step
        keeps its own margin-top rule. */
     .btn-primary {
-        --bs-btn-color: #fff;
-        --bs-btn-bg: #1a1a1a;
-        --bs-btn-border-color: #1a1a1a;
-        --bs-btn-hover-color: #fff;
-        --bs-btn-hover-bg: #333;
-        --bs-btn-hover-border-color: #333;
-        --bs-btn-active-color: #fff;
-        --bs-btn-active-bg: #333;
-        --bs-btn-active-border-color: #333;
+        --bs-btn-color: var(--color-bg-primary);
+        --bs-btn-bg: var(--color-text-primary);
+        --bs-btn-border-color: var(--color-text-primary);
+        --bs-btn-hover-color: var(--color-bg-primary);
+        --bs-btn-hover-bg: var(--color-text-secondary);
+        --bs-btn-hover-border-color: var(--color-text-secondary);
+        --bs-btn-active-color: var(--color-bg-primary);
+        --bs-btn-active-bg: var(--color-text-secondary);
+        --bs-btn-active-border-color: var(--color-text-secondary);
         /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
            loading state is a class (.is-loading), not the disabled attribute,
            so nothing reaches these today — they close the set so that a later
            switch to `disabled` can't turn the button blue. */
-        --bs-btn-disabled-color: #fff;
-        --bs-btn-disabled-bg: #1a1a1a;
-        --bs-btn-disabled-border-color: #1a1a1a;
-        --bs-btn-focus-shadow-rgb: 26, 26, 26;
+        --bs-btn-disabled-color: var(--color-bg-primary);
+        --bs-btn-disabled-bg: var(--color-text-primary);
+        --bs-btn-disabled-border-color: var(--color-text-primary);
+        /* Bootstrap builds its focus-ring rgba() from this triple, so it has
+           to stay a literal RGB decomposition of --color-text-primary
+           (#282a30) rather than a var() — rgba() can't take a custom
+           property that is itself a hex color. */
+        --bs-btn-focus-shadow-rgb: 40, 42, 48;
         /* The hand-rolled button had `border: none`; .btn would otherwise add
            1px and grow the box by 2px in each direction. */
         --bs-btn-border-width: 0;

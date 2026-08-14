@@ -14,30 +14,30 @@
     {% include 'projects/_planner_css.html' %}
     /* Step 1: tile grid */
     .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    .tile { display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px 14px; text-decoration: none; color: #1a1a1a; transition: border-color 0.15s, box-shadow 0.15s; }
-    /* The landing page's hover — #1a1a1a on a resting border reads as
-       "selected", not as "hoverable". */
-    .tile:hover { border-color: #aaa; box-shadow: 0 2px 10px rgba(0,0,0,0.07); color: #1a1a1a; }
+    .tile { display: block; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 12px; padding: 16px 14px; text-decoration: none; color: var(--color-text-primary); transition: border-color 0.15s, box-shadow 0.15s; }
+    /* The landing page's hover — --color-text-primary on a resting border
+       reads as "selected", not as "hoverable". */
+    .tile:hover { border-color: var(--color-text-quaternary); box-shadow: var(--shadow-low); color: var(--color-text-primary); }
     /* Presentation lives here, not on the <symbol>: fill/stroke inherit into
        the <use> shadow tree, so currentColor resolves against the tile's
        colour and the icons follow a later token or dark pass for free. */
-    .tile-icon { display: block; width: 20px; height: 20px; margin-bottom: 10px; color: #9b9b9b; transition: color 0.15s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .tile:hover .tile-icon { color: #1a1a1a; }
+    .tile-icon { display: block; width: 20px; height: 20px; margin-bottom: 10px; color: var(--color-text-quaternary); transition: color 0.15s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .tile:hover .tile-icon { color: var(--color-text-primary); }
     .tile-label { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
-    .tile-example { font-size: 12px; color: #9b9b9b; line-height: 1.4; }
+    .tile-example { font-size: 12px; color: var(--color-text-quaternary); line-height: 1.4; }
     .tile-custom { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
     .tile-custom .tile-icon { margin-bottom: 0; }
     .tile-custom .tile-label { margin-bottom: 0; }
-    .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; transition: transform 0.15s, color 0.15s; }
-    .tile-custom:hover .arrow { transform: translateX(3px); color: #1a1a1a; }
+    .tile-custom .arrow { margin-left: auto; color: var(--color-text-quaternary); font-size: 14px; transition: transform 0.15s, color 0.15s; }
+    .tile-custom:hover .arrow { transform: translateX(3px); color: var(--color-text-primary); }
     @media (max-width: 768px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
     /* Step 2: describe form */
-    textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
-    textarea:focus { outline: none; border-color: #1a1a1a; }
+    textarea { width: 100%; border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
+    textarea:focus { outline: none; border-color: var(--color-text-primary); }
     .btn-primary { margin-top: 8px; }
-    .rules-link-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0; }
-    .rules-link { color: #9b9b9b; font-size: 13px; text-decoration: none; }
-    .rules-link:hover { color: #1a1a1a; }
+    .rules-link-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--color-border-primary); }
+    .rules-link { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; }
+    .rules-link:hover { color: var(--color-text-primary); }
     @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 {% endblock %}
 

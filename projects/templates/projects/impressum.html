@@ -5,17 +5,17 @@
 {% block extra_css %}
     h1 { font-size: 22px; font-weight: 600; margin-bottom: 28px; }
     h2 { font-size: 13px; font-weight: 600; text-transform: uppercase;
-         letter-spacing: 0.06em; color: #888; margin: 28px 0 8px; }
-    p { font-size: 14px; line-height: 1.7; color: #3a3a3a; margin-bottom: 6px; max-width: 640px; }
-    a { color: #1a1a1a; }
-    .back { display: inline-block; margin-top: 36px; font-size: 13px; color: #888; text-decoration: none; }
-    .back:hover { color: #1a1a1a; }
+         letter-spacing: 0.06em; color: var(--color-text-quaternary); margin: 28px 0 8px; }
+    p { font-size: 14px; line-height: 1.7; color: var(--color-text-secondary); margin-bottom: 6px; max-width: 640px; }
+    a { color: var(--color-text-primary); }
+    .back { display: inline-block; margin-top: 36px; font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    .back:hover { color: var(--color-text-primary); }
 {% endblock %}
 
 {% block content %}
     <h1>Impressum</h1>
 
-    <p style="font-size:13px;color:#888;margin-bottom:24px;">
+    <p style="font-size:13px;color:var(--color-text-quaternary);margin-bottom:24px;">
         Diese Website ist ein nicht-kommerzielles Portfolio-Demoprojekt ohne Verkauf oder Bezahlangebot.
     </p>
 
