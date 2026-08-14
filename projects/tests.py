@@ -293,6 +293,134 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
+class SidebarProgressRingTest(DemoModeTestCase):
+    """#76: the sidebar's per-project status dot becomes a progress ring —
+    fill from done/total, stroke colour from the project's urgency."""
+
+    def test_ring_dashoffset_reflects_a_known_ratio(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Erledigt",
+                    "date": None,
+                    "kontext": "",
+                    "done": True,
+                },
+                {
+                    "id": "t2",
+                    "name": "Offen",
+                    "date": (date.today() + timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'stroke-dashoffset="21.99"')
+
+    def test_fully_done_project_renders_a_fully_filled_ring(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Erledigt",
+                    "date": None,
+                    "kontext": "",
+                    "done": True,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'stroke-dashoffset="0.00"')
+
+    def test_overdue_project_gets_the_overdue_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Überfällig",
+                    "date": (date.today() - timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill overdue")
+
+    def test_urgent_project_gets_the_urgent_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Bald fällig",
+                    "date": date.today().isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill urgent")
+
+    def test_on_track_project_gets_the_ok_ring_class(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Weit weg",
+                    "date": (date.today() + timedelta(days=30)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill ok")
+
+    def test_the_old_sidebar_item_urgency_classes_are_gone(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Überfällig",
+                    "date": (date.today() - timedelta(days=1)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, 'class="sidebar-item overdue"')
+        self.assertNotContains(response, 'class="sidebar-item urgent"')
+
+    def test_the_old_status_dot_no_longer_renders_for_projects(self):
+        self.given_session_plan()
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, '<span class="dot default">')
+
+
+class SidebarProgressRingCssTest(DemoModeTestCase):
+    def test_ring_css_references_the_status_tokens(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response, ".progress-ring-fill.overdue { stroke: var(--color-overdue)"
+        )
+        self.assertContains(
+            response, ".progress-ring-fill.urgent { stroke: var(--color-urgent)"
+        )
+
+    def test_the_old_sidebar_item_urgency_css_is_gone(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, ".sidebar-item.overdue")
+        self.assertNotContains(response, ".sidebar-item.urgent")
+
+    def test_the_dead_multi_colour_dot_block_is_gone(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, ".dot.gray, .dot.blue")
+
+
 class PlannerLoadingStateTest(DemoModeTestCase):
     """#6: markup-contract tests for the shared loading-state CSS/JS in
     base_public.html, and the per-form data-loading-text attribute. Runtime
@@ -1779,6 +1907,42 @@ class AnnotateTasksTest(SimpleTestCase):
         task = self.annotate({"name": "GEMA-Meldung", "kontext": ""})["tasks"][0]
         self.assertEqual(task["kontext"], ["Büro"])
 
+    def test_done_count_and_total_count_for_a_mixed_set(self):
+        project = self.annotate(
+            {"done": True, "due": None},
+            {"done": False, "due": self.TODAY + timedelta(days=1)},
+            {"done": False, "due": self.TODAY - timedelta(days=1)},
+        )
+        self.assertEqual(project["done_count"], 1)
+        self.assertEqual(project["total_count"], 3)
+
+    def test_a_dateless_undone_task_does_not_count_as_done(self):
+        # It's annotated urgency="done" above (no due date), but done_count
+        # has to come from task["done"] directly or this would miscount it.
+        project = self.annotate({"done": False, "due": None})
+        self.assertEqual(project["done_count"], 0)
+        self.assertEqual(project["total_count"], 1)
+
+    def test_ring_dashoffset_at_half_done(self):
+        project = self.annotate(
+            {"done": True, "due": None},
+            {"done": False, "due": self.TODAY + timedelta(days=1)},
+        )
+        self.assertEqual(project["ring_dashoffset"], "21.99")
+
+    def test_ring_dashoffset_fully_done(self):
+        project = self.annotate({"done": True, "due": None})
+        self.assertEqual(project["ring_dashoffset"], "0.00")
+
+    def test_ring_dashoffset_nothing_done(self):
+        project = self.annotate({"done": False, "due": self.TODAY + timedelta(days=1)})
+        self.assertEqual(project["ring_dashoffset"], "43.98")
+
+    def test_ring_dashoffset_with_no_tasks_is_a_full_empty_ring(self):
+        project = self.annotate()
+        self.assertEqual(project["total_count"], 0)
+        self.assertEqual(project["ring_dashoffset"], "43.98")
+
 
 class FixAiMarkdownTest(SimpleTestCase):
     """Claude returns task lines under a project bullet without list markers."""
@@ -2356,6 +2520,31 @@ class DashboardNotionFailureTest(TestCase):
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, "evtl. nicht")
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarProgressRingZeroTasksTest(TestCase):
+    """#76: a project with no tasks yet must render an empty ring, not
+    crash with a ZeroDivisionError."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_a_project_with_no_tasks_renders_an_empty_ring(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'stroke-dashoffset="43.98"')
 
 
 @override_settings(DEMO_MODE=False)
