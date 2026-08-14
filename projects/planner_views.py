@@ -2,12 +2,14 @@ import json
 import logging
 import re
 from datetime import date
+from urllib.parse import urlencode
 
 import markdown as md
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 
 from . import rules as rules_store
 from .ai import AIUnavailableError, generate_timelapse_moments
@@ -46,6 +48,91 @@ HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 hours
 # Also defined, disagreeing, in ai.py's KONTEXTE ("Graphiker" vs. "Extern")
 # — a known inconsistency (#17), not touched here.
 KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
+
+DEFAULT_PLACEHOLDER = (
+    "z.B. Konzert am 15. September, Violine und Orgel — "
+    "oder: Kandidat einstellen bis 1. Oktober"
+)
+
+# One entry per tile on the planner's first step; planner_start builds each
+# href with urlencode() (#5), and the icon names a <symbol> in the Lucide
+# sprite planner_start.html defines (#44). The placeholder is ghost text the
+# empty describe field shows once a type is chosen — the old prefill wrote "[Datum]"-style
+# templates into the field itself, and deleting the square brackets was the
+# first thing every visitor had to do (#72).
+PLANNER_TILES = [
+    {
+        "type": "konzert",
+        "icon": "music",
+        "label": "Konzert / Event",
+        "example": "Musikveranstaltung, Gottesdienst, Vereinsabend",
+        "placeholder": "z.B. Konzert am 15. September, Violine und Orgel, in der Stadtkirche",
+    },
+    {
+        "type": "hochzeit",
+        "icon": "heart",
+        "label": "Hochzeit / Feier",
+        "example": "Hochzeit, Geburtstag, Jubiläum",
+        "placeholder": "z.B. Hochzeit am 20. Juni in Potsdam, ca. 80 Gäste",
+    },
+    {
+        "type": "recruiting",
+        "icon": "user-plus",
+        "label": "Recruiting",
+        "example": "Stelle besetzen, Bewerbungsprozess",
+        "placeholder": "z.B. Kandidat einstellen bis 1. Oktober, Position: Frontend-Entwicklung",
+    },
+    {
+        "type": "launch",
+        "icon": "rocket",
+        "label": "Produktlaunch",
+        "example": "Software-Release, neue Kollektion",
+        "placeholder": "z.B. Produktlaunch am 3. November: neue Herbstkollektion",
+    },
+    {
+        "type": "workshop",
+        "icon": "graduation-cap",
+        "label": "Workshop / Schulung",
+        "example": "Seminar, Trainingsday, Webinar",
+        "placeholder": "z.B. Workshop am 10. Oktober, Thema: Zeitmanagement, ca. 15 Teilnehmer",
+    },
+    {
+        "type": "kampagne",
+        "icon": "megaphone",
+        "label": "Kampagne",
+        "example": "Launch-Kampagne, Mailing, Social Media",
+        "placeholder": "z.B. Marketing-Kampagne für das Weihnachtsgeschäft, Start: 1. November",
+    },
+    {
+        "type": "konferenz",
+        "icon": "users",
+        "label": "Konferenz / Tagung",
+        "example": "Fachtagung, Firmenevent, Meetup",
+        "placeholder": "z.B. Fachtagung am 12. März in Leipzig, ca. 120 Teilnehmer",
+    },
+    {
+        "type": "umzug",
+        "icon": "truck",
+        "label": "Umzug / Umbau",
+        "example": "Büroumzug, Renovierung, neue Räume",
+        "placeholder": "z.B. Büroumzug am 1. Dezember: neue Räume am Marktplatz",
+    },
+    {
+        "type": "eigenes",
+        "icon": "pencil",
+        "custom": True,
+        "label": "Eigenes Projekt",
+        "example": "Freie Beschreibung — für alles andere",
+        "placeholder": DEFAULT_PLACEHOLDER,
+    },
+]
+
+
+def _tile_placeholder(project_type):
+    for tile in PLANNER_TILES:
+        if tile["type"] == project_type:
+            return tile["placeholder"]
+    return DEFAULT_PLACEHOLDER
 
 
 def _get_history():
@@ -110,6 +197,9 @@ def planner_start(request):
                         "prefill": description,
                         "show_tiles": False,
                         "error": True,
+                        "placeholder": _tile_placeholder(
+                            request.session.get("demo_project_type", "")
+                        ),
                     },
                 )
             questions_html = md.markdown(questions)
@@ -121,17 +211,23 @@ def planner_start(request):
                     "questions": questions_html,
                 },
             )
-    prefill = request.GET.get("prefill", "")
     project_type = request.GET.get("type", "")
     if project_type:
         request.session["demo_project_type"] = project_type
     show_tiles = not bool(project_type)
+    base = reverse("planner_start")
+    tiles = [
+        {**tile, "href": f"{base}?{urlencode({'type': tile['type']})}"}
+        for tile in PLANNER_TILES
+    ]
     return render(
         request,
         "projects/planner_start.html",
         {
-            "prefill": prefill,
+            "prefill": "",
             "show_tiles": show_tiles,
+            "tiles": tiles,
+            "placeholder": _tile_placeholder(project_type),
         },
     )
 

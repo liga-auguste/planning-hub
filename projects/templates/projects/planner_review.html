@@ -7,56 +7,66 @@
 {% endblock %}
 
 {% block extra_css %}
-    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 40px; }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .subtitle { color: #9b9b9b; margin-bottom: 28px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
-    td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
-    td:nth-child(2) { width: 150px; white-space: nowrap; }
-    td:last-child { width: 36px; }
-    td textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; }
-    td input[type="number"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 80px; }
-    td select { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; background: #f0f0f0; }
-    td input:hover, td input:focus, td select:hover, td select:focus { border-color: #e5e5e5; outline: none; }
+    {% include 'projects/_planner_css.html' %}
+    /* Project name and target date as one labelled row instead of three
+       unrelated slabs of inline style. */
+    .plan-head { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
+    .plan-head label { display: block; font-size: 12px; color: #9b9b9b; margin-bottom: 4px; }
+    .plan-head-name { flex: 1 1 280px; }
+    .plan-head-name input { width: 100%; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px 12px; font-size: 16px; font-weight: 500; }
+    .plan-head-name input:focus { outline: none; border-color: #1a1a1a; }
+    .plan-head-date input { border: 1px solid #e5e5e5; border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: #1a1a1a; background: #fff; }
+    .task-table { width: 100%; border-collapse: collapse; }
+    .task-table th { font-size: 11px; color: #9b9b9b; text-align: left; padding: 8px 12px; border-bottom: 1px solid #e5e5e5; }
+    .task-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    /* The name takes every spare pixel and the other columns shrink to their
+       content — width: 1% on a nowrap cell rests on table-layout: auto — so a
+       task and its date stop drifting hundreds of pixels apart. */
+    .task-table .col-name { width: 100%; padding-left: 0; }
+    .task-table .col-date,
+    .task-table .col-kontext,
+    .task-table .col-actions { width: 1%; white-space: nowrap; }
+    /* Transparent so tr.sofort's inset bar stays visible now that .col-name
+       has no left padding under the textarea. */
+    .task-table textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; background: transparent; }
+    .task-table input[type="date"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; color: #6b6b6b; background: transparent; font-family: inherit; }
+    .task-table input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.35; }
+    .task-table select { border: 1px solid transparent; border-radius: 99px; padding: 4px 12px; font-size: 12px; background: #f0f0f0; font-family: inherit; }
+    .task-table textarea:hover, .task-table textarea:focus,
+    .task-table input:hover, .task-table input:focus,
+    .task-table select:hover, .task-table select:focus { border-color: #e5e5e5; outline: none; }
     .btn-delete { background: none; border: none; color: #ccc; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: #e00; }
-    /* Bootstrap's .btn reads these; margin has no variable, so it stays a rule. */
-    .btn-primary {
-        --bs-btn-color: #fff;
-        --bs-btn-bg: #1a1a1a;
-        --bs-btn-border-color: #1a1a1a;
-        --bs-btn-hover-color: #fff;
-        --bs-btn-hover-bg: #333;
-        --bs-btn-hover-border-color: #333;
-        --bs-btn-active-color: #fff;
-        --bs-btn-active-bg: #333;
-        --bs-btn-active-border-color: #333;
-        /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
-           loading state is a class (.is-loading), not the disabled attribute,
-           so nothing reaches these today — they close the set so that a later
-           switch to `disabled` can't turn the button blue. */
-        --bs-btn-disabled-color: #fff;
-        --bs-btn-disabled-bg: #1a1a1a;
-        --bs-btn-disabled-border-color: #1a1a1a;
-        --bs-btn-focus-shadow-rgb: 26, 26, 26;
-        /* The hand-rolled button had `border: none`; .btn would otherwise add
-           1px and grow the box by 2px in each direction. */
-        --bs-btn-border-width: 0;
-        --bs-btn-border-radius: 6px;
-        --bs-btn-padding-x: 24px;
-        --bs-btn-padding-y: 10px;
-        --bs-btn-font-size: 14px;
-        margin-top: 24px;
-    }
-    .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
-    .date-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
-    .date-header label { font-size: 12px; color: #9b9b9b; white-space: nowrap; }
-    .date-header input[type="date"] { border: 1px solid #e5e5e5; border-radius: 6px; padding: 6px 10px; font-size: 14px; }
-    .task-date { color: #9b9b9b; font-size: 13px; white-space: nowrap; }
-    tr.sofort td:first-child { box-shadow: inset 3px 0 0 #e86600; }
+    .btn-primary { margin-top: 24px; }
+    tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }
     tr.sofort input[name="task_date"] { color: #e86600; font-weight: 500; }
-    .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+    /* Below 768px the table is the wrong shape for this content (#71): the
+       fixed columns left the name ~60px and cut every task. Each row becomes
+       a block — name on its own line, the controls underneath, the delete
+       pinned top-right so a long kontext can never push it to a third line.
+       The header row goes: once the cells stop being columns there is
+       nothing left for it to align with. */
+    @media (max-width: 768px) {
+        .task-table thead { display: none; }
+        .task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }
+        .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid #f0f0f0; }
+        .task-table td { width: auto; padding: 0; border: none; white-space: normal; }
+        .task-table .col-name { margin-bottom: 8px; padding-right: 32px; }
+        /* width: auto must repeat the two-class specificity: the td rule
+           above sits at (0,1,1) and loses to the 1% column widths, which
+           kept these cells 5px wide and painted the kontext pill over the
+           date. .col-actions below already does the same. */
+        .task-table .col-date,
+        .task-table .col-kontext { display: inline-flex; align-items: center; margin-right: 8px; width: auto; }
+        .task-table .col-actions { position: absolute; top: 8px; right: 0; width: auto; padding: 0; }
+        /* ~28px touch target */
+        .btn-delete { padding: 4px 8px; font-size: 20px; }
+        /* box-shadow on a display: table-row is not reliably painted — why
+           the marker sat on the first cell. As a block the row paints it,
+           and the bar spans the whole stacked task. */
+        tr.sofort .col-name { box-shadow: none; }
+        tr.sofort { box-shadow: inset 3px 0 0 #e86600; }
+    }
 {% endblock %}
 
 {% block content %}
@@ -69,40 +79,41 @@
     <p class="error-notice">Der Plan konnte nicht gespeichert werden. Deine Aufgaben sind unten erhalten geblieben — bitte versuche es gleich noch einmal.</p>
     {% endif %}
 
-    <div style="margin-bottom: 20px;">
-        <div style="font-size:12px; color:#9b9b9b; margin-bottom:4px;">Projektname</div>
-        <input type="text" name="project_name" form="create-form"
-               style="width:100%; border:1px solid #e5e5e5; border-radius:6px; padding:8px 12px; font-size:16px; font-weight:500;"
-               value="{{ project_name }}">
-    </div>
-
-    <div class="date-header">
-        <label>Zieldatum</label>
-        <input type="date" id="event-date" value="{{ event_date_iso }}">
+    <div class="plan-head">
+        <div class="plan-head-name">
+            <label for="project-name">Projektname</label>
+            <input type="text" id="project-name" name="project_name" form="create-form"
+                   value="{{ project_name }}">
+        </div>
+        <div class="plan-head-date">
+            <label for="event-date">Zieldatum</label>
+            <input type="date" id="event-date" value="{{ event_date_iso }}">
+        </div>
     </div>
 
     <form method="post" action="{% url 'planner_create' %}" id="create-form">
         {% csrf_token %}
         <input type="hidden" name="description" value="{{ description }}">
         <input type="hidden" name="event_date" id="event-date-hidden" value="{{ event_date_iso }}">
-        <table>
+        <table class="task-table">
             <thead>
                 <tr>
-                    <th>Aufgabe</th>
-                    <th>Datum</th>
-                    {% if not demo_mode %}<th>Kontext</th>{% endif %}
-                    <th></th>
+                    <th class="col-name">Aufgabe</th>
+                    <th class="col-date">Datum</th>
+                    {% if not demo_mode %}<th class="col-kontext">Kontext</th>{% endif %}
+                    <th class="col-actions"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for task in tasks %}
                 <tr data-days="{{ task.days_before }}">
-                    <td><textarea name="task_name" rows="1">{{ task.name }}</textarea></td>
-                    <td><input type="date" name="task_date"></td>
-                    {% if demo_mode %}
-                    <input type="hidden" name="task_kontext" value="">
-                    {% else %}
-                    <td>
+                    <td class="col-name">
+                        {% if demo_mode %}<input type="hidden" name="task_kontext" value="">{% endif %}
+                        <textarea name="task_name" rows="1">{{ task.name }}</textarea>
+                    </td>
+                    <td class="col-date"><input type="date" name="task_date"></td>
+                    {% if not demo_mode %}
+                    <td class="col-kontext">
                         <select name="task_kontext">
                             {% for k in kontexte %}
                             <option value="{{ k }}" {% if k == task.kontext %}selected{% endif %}>{{ k }}</option>
@@ -110,7 +121,7 @@
                         </select>
                     </td>
                     {% endif %}
-                    <td><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
+                    <td class="col-actions"><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
                 </tr>
                 {% endfor %}
             </tbody>

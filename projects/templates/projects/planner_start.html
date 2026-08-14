@@ -11,111 +11,73 @@
 {% endblock %}
 
 {% block extra_css %}
+    {% include 'projects/_planner_css.html' %}
     /* Step 1: tile grid */
-    .tile-page h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
-    .tile-page .subtitle { color: #9b9b9b; margin-bottom: 28px; }
-    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-    .tile { display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 14px; text-decoration: none; color: #1a1a1a; transition: border-color 0.15s, box-shadow 0.15s; }
-    .tile:hover { border-color: #1a1a1a; box-shadow: 0 2px 8px rgba(0,0,0,0.06); color: #1a1a1a; }
-    .tile-icon { font-size: 16px; margin-bottom: 7px; line-height: 1; }
-    .tile-label { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-    .tile-example { font-size: 11px; color: #aaa; line-height: 1.4; }
-    .tile-custom { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: #f7f7f8; }
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .tile { display: block; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px 14px; text-decoration: none; color: #1a1a1a; transition: border-color 0.15s, box-shadow 0.15s; }
+    /* The landing page's hover — #1a1a1a on a resting border reads as
+       "selected", not as "hoverable". */
+    .tile:hover { border-color: #aaa; box-shadow: 0 2px 10px rgba(0,0,0,0.07); color: #1a1a1a; }
+    /* Presentation lives here, not on the <symbol>: fill/stroke inherit into
+       the <use> shadow tree, so currentColor resolves against the tile's
+       colour and the icons follow a later token or dark pass for free. */
+    .tile-icon { display: block; width: 20px; height: 20px; margin-bottom: 10px; color: #9b9b9b; transition: color 0.15s; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .tile:hover .tile-icon { color: #1a1a1a; }
+    .tile-label { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+    .tile-example { font-size: 12px; color: #9b9b9b; line-height: 1.4; }
+    .tile-custom { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+    .tile-custom .tile-icon { margin-bottom: 0; }
     .tile-custom .tile-label { margin-bottom: 0; }
-    .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; }
+    .tile-custom .arrow { margin-left: auto; color: #c0c0c0; font-size: 14px; transition: transform 0.15s, color 0.15s; }
+    .tile-custom:hover .arrow { transform: translateX(3px); color: #1a1a1a; }
+    @media (max-width: 768px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
     /* Step 2: describe form */
-    .planner-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 40px; }
-    .planner-card h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .planner-card .subtitle { color: #9b9b9b; margin-bottom: 32px; }
     textarea { width: 100%; border: 1px solid #e5e5e5; border-radius: 6px; padding: 12px; font-size: 14px; resize: vertical; }
     textarea:focus { outline: none; border-color: #1a1a1a; }
-    /* Bootstrap's .btn reads these; margin has no variable, so it stays a rule. */
-    .btn-primary {
-        --bs-btn-color: #fff;
-        --bs-btn-bg: #1a1a1a;
-        --bs-btn-border-color: #1a1a1a;
-        --bs-btn-hover-color: #fff;
-        --bs-btn-hover-bg: #333;
-        --bs-btn-hover-border-color: #333;
-        --bs-btn-active-color: #fff;
-        --bs-btn-active-bg: #333;
-        --bs-btn-active-border-color: #333;
-        /* Bootstrap's .btn-primary would paint a disabled button #0d6efd. The
-           loading state is a class (.is-loading), not the disabled attribute,
-           so nothing reaches these today — they close the set so that a later
-           switch to `disabled` can't turn the button blue. */
-        --bs-btn-disabled-color: #fff;
-        --bs-btn-disabled-bg: #1a1a1a;
-        --bs-btn-disabled-border-color: #1a1a1a;
-        --bs-btn-focus-shadow-rgb: 26, 26, 26;
-        /* The hand-rolled button had `border: none`; .btn would otherwise add
-           1px and grow the box by 2px in each direction. */
-        --bs-btn-border-width: 0;
-        --bs-btn-border-radius: 6px;
-        --bs-btn-padding-x: 24px;
-        --bs-btn-padding-y: 10px;
-        --bs-btn-font-size: 14px;
-        margin-top: 16px;
-    }
-    .back { color: #9b9b9b; font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
-    .error-notice { background: #fdf0ef; color: #b3261e; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+    .btn-primary { margin-top: 8px; }
+    .rules-link-row { margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0; }
+    .rules-link { color: #9b9b9b; font-size: 13px; text-decoration: none; }
+    .rules-link:hover { color: #1a1a1a; }
     @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 {% endblock %}
 
 {% block content %}
 {% if show_tiles %}
-    <div class="tile-page" style="padding: 0 0 80px;">
+    <div class="tile-page">
+        {# Lucide icons (https://lucide.dev) — ISC License, Copyright (c) Lucide Contributors. #}
+        <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+            <symbol id="icon-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+            <symbol id="icon-heart" viewBox="0 0 24 24"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/></symbol>
+            <symbol id="icon-user-plus" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></symbol>
+            <symbol id="icon-rocket" viewBox="0 0 24 24"><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09"/><path d="M9 12a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 .05 5 .05"/></symbol>
+            <symbol id="icon-graduation-cap" viewBox="0 0 24 24"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></symbol>
+            <symbol id="icon-megaphone" viewBox="0 0 24 24"><path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/></symbol>
+            <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></symbol>
+            <symbol id="icon-truck" viewBox="0 0 24 24"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+            <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
+        </svg>
         <a href="{% url 'index' %}" class="back">← Startseite</a>
         <h1>Welche Art von Projekt?</h1>
         <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
         <div class="tiles">
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Konzert am [Datum], [Besetzung / Ort]&type=konzert">
-                <div class="tile-icon">🎵</div>
-                <div class="tile-label">Konzert / Event</div>
-                <div class="tile-example">Musikveranstaltung, Gottesdienst, Vereinsabend</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Hochzeit am [Datum], [Ort], ca. [Anzahl] Gäste&type=hochzeit">
-                <div class="tile-icon">💍</div>
-                <div class="tile-label">Hochzeit / Feier</div>
-                <div class="tile-example">Hochzeit, Geburtstag, Jubiläum</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Kandidat einstellen bis [Datum], Position: [Stelle]&type=recruiting">
-                <div class="tile-icon">👤</div>
-                <div class="tile-label">Recruiting</div>
-                <div class="tile-example">Stelle besetzen, Bewerbungsprozess</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Produktlaunch am [Datum]: [Produkt / Feature / Kollektion]&type=launch">
-                <div class="tile-icon">🚀</div>
-                <div class="tile-label">Produktlaunch</div>
-                <div class="tile-example">Software-Release, neue Kollektion</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Workshop am [Datum], Thema: [Thema], ca. [Anzahl] Teilnehmer&type=workshop">
-                <div class="tile-icon">🎓</div>
-                <div class="tile-label">Workshop / Schulung</div>
-                <div class="tile-example">Seminar, Trainingsday, Webinar</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Marketing-Kampagne für [Produkt / Anlass], Start: [Datum]&type=kampagne">
-                <div class="tile-icon">📣</div>
-                <div class="tile-label">Kampagne</div>
-                <div class="tile-example">Launch-Kampagne, Mailing, Social Media</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Konferenz / Tagung am [Datum], [Ort], ca. [Anzahl] Teilnehmer&type=konferenz">
-                <div class="tile-icon">🤝</div>
-                <div class="tile-label">Konferenz / Tagung</div>
-                <div class="tile-example">Fachtagung, Firmenevent, Meetup</div>
-            </a>
-            <a class="tile" href="{% url 'planner_start' %}?prefill=Umzug / Einrichtung am [Datum]: [Büro / Wohnung / Standort]&type=umzug">
-                <div class="tile-icon">🏗️</div>
-                <div class="tile-label">Umzug / Umbau</div>
-                <div class="tile-example">Büroumzug, Renovierung, neue Räume</div>
-            </a>
-            <a class="tile tile-custom" href="{% url 'planner_start' %}?type=eigenes">
+            {% for tile in tiles %}
+            {% if tile.custom %}
+            <a class="tile tile-custom" href="{{ tile.href }}">
+                <svg class="tile-icon" aria-hidden="true"><use href="#icon-{{ tile.icon }}"/></svg>
                 <div>
-                    <div class="tile-label">Eigenes Projekt</div>
-                    <div class="tile-example">Freie Beschreibung — für alles andere</div>
+                    <div class="tile-label">{{ tile.label }}</div>
+                    <div class="tile-example">{{ tile.example }}</div>
                 </div>
                 <span class="arrow">→</span>
             </a>
+            {% else %}
+            <a class="tile" href="{{ tile.href }}">
+                <svg class="tile-icon" aria-hidden="true"><use href="#icon-{{ tile.icon }}"/></svg>
+                <div class="tile-label">{{ tile.label }}</div>
+                <div class="tile-example">{{ tile.example }}</div>
+            </a>
+            {% endif %}
+            {% endfor %}
         </div>
     </div>
 
@@ -129,14 +91,12 @@
         {% endif %}
         <form method="post">
             {% csrf_token %}
-            <textarea name="description" rows="4"
-                placeholder="z.B. Konzert am 15. September 2026, Violine und Orgel — oder: Kandidat einstellen bis 1. Oktober">{{ prefill }}</textarea>
+            <textarea name="description" rows="6"
+                placeholder="{{ placeholder }}">{{ prefill }}</textarea>
             <button type="submit" class="btn btn-primary" data-loading-text="Fragen werden erstellt...">Weiter →</button>
         </form>
-        <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f0f0f0;">
-            <a href="{% url 'rules_list' %}" style="color: #9b9b9b; font-size: 13px; text-decoration: none;">
-                ⚙ Planungsregeln verwalten
-            </a>
+        <div class="rules-link-row">
+            <a href="{% url 'rules_list' %}" class="rules-link">⚙ Planungsregeln verwalten</a>
         </div>
     </div>
 {% endif %}

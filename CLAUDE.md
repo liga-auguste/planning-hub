@@ -32,3 +32,11 @@ These are German by decision. Do not "fix" them:
 ### Hard constraint
 
 `impressum.html`, `datenschutz.html` and the cookie banner must stay German. This is a legal requirement (GDPR / §5 TMG), not a stylistic choice.
+
+## Emoji and symbols
+
+**Pictographic emoji are not part of the design language — not in templates and not in Claude prompts.** Prompts count as UI here for the same reason the language convention treats them as user-facing: their output renders straight into the interface, and Claude echoes the register of its input. Where an icon is warranted, it is a Lucide SVG (ISC, see `README.md`), the way the planner tiles do it.
+
+### Deliberate exception
+
+- **Typographic symbols are part of the visual language.** The arrows (`←` `→` `↓`), `⚙` on the rules link, `⠿` as the drag handle, `×` on delete buttons. They render in the text colour and follow `color`, which pictographic emoji ignore. Do not "fix" them into icons.

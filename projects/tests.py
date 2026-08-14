@@ -22,6 +22,7 @@ from notion_client.errors import HTTPResponseError, RequestTimeoutError
 from .ai import (
     AIUnavailableError,
     _valid_moments,
+    build_prompt,
     derive_kontext,
     generate_timelapse_moments,
     generate_weekly_summary,
@@ -343,14 +344,10 @@ class CardUsesBootstrapVariablesTest(DemoModeTestCase):
                 self.assertContains(self.client.get(url), "--bs-card-color: #1a1a1a")
 
 
-class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
-    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
-    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
-    what reads them, so setting variables without adding `.btn` would have
-    looked like adoption and changed nothing."""
+class PlannerStepsMixin:
+    """Fetches the three planner steps that carry a submit button."""
 
     def steps(self):
-        """The three planner steps that carry a submit button."""
         return {
             "start": self.client.get(reverse("planner_start") + "?type=eigenes"),
             "questions": self.client.post(
@@ -365,6 +362,14 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
                 },
             ),
         }
+
+
+class PlannerButtonUsesBootstrapVariablesTest(PlannerStepsMixin, DemoModeTestCase):
+    """#64 unit 2: the buttons were `class="btn-primary"` without `.btn`.
+    In 5.3 `.btn-primary` only *sets* the --bs-btn-* variables and `.btn` is
+    what reads them, so setting variables without adding `.btn` would have
+    looked like adoption and changed nothing. Since #72 the variable block
+    itself lives in _planner_css.html — one copy served to all three steps."""
 
     def test_every_submit_button_carries_both_classes(self):
         for step, response in self.steps().items():
@@ -401,6 +406,82 @@ class PlannerButtonUsesBootstrapVariablesTest(DemoModeTestCase):
                 self.assertNotContains(
                     response, ".btn-primary:hover { background: #333"
                 )
+
+
+class PlannerSharedCssTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72: the .btn-primary variable block, .planner-card, .back and
+    .error-notice used to be copy-pasted into all three planner templates —
+    28 lines, comments included, three times. They live in _planner_css.html
+    now, included by the three steps and by nothing else."""
+
+    def test_every_step_serves_the_shared_block_exactly_once(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-width: 0", count=1)
+                self.assertContains(response, ".planner-card")
+                self.assertContains(response, ".error-notice")
+
+    def test_the_legal_pages_do_not_inherit_planner_css(self):
+        # The guard against a later "just hoist it into the base": base CSS is
+        # declared before extra_css at equal specificity, so hoisting would
+        # silently override the legal pages' own .back flavour.
+        for url in ("/impressum/", "/datenschutz/"):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertNotContains(response, ".planner-card")
+                self.assertNotContains(response, "--bs-btn-border-width")
+
+
+class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72: the planner steps wore a different product than the landing page
+    one click earlier — a 6px near-square button against the landing pill,
+    20px headlines with default leading against tracked display type. The
+    shared partial now carries the landing figures at working-surface size."""
+
+    def test_every_step_wears_the_landing_pill(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "--bs-btn-border-radius: 99px")
+                self.assertContains(response, "--bs-btn-padding-x: 22px")
+                self.assertContains(response, "--bs-btn-padding-y: 11px")
+                self.assertContains(response, "--bs-btn-font-weight: 600")
+                self.assertNotContains(response, "--bs-btn-border-radius: 6px")
+
+    def test_every_step_carries_the_landing_headline_treatment(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, "letter-spacing: -0.02em")
+                self.assertContains(response, "text-wrap: balance")
+
+    def test_the_subtitle_is_body_text_not_label_grey(self):
+        for step, response in self.steps().items():
+            with self.subTest(step=step):
+                self.assertContains(response, ".subtitle { color: #6b6b6b")
+
+
+class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
+    """#72 decision 1: the four step labels stay as they are — the naming
+    question against the landing page's three terms is deliberately deferred,
+    and this pins the labels so a later pass cannot rename them silently."""
+
+    LABELS = ["Projekttyp", "Beschreiben", "Klärung", "Review"]
+
+    def test_all_four_labels_render_on_every_step(self):
+        pages = {"tiles": self.client.get(reverse("planner_start")), **self.steps()}
+        for step, response in pages.items():
+            for label in self.LABELS:
+                with self.subTest(step=step, label=label):
+                    self.assertContains(
+                        response, f'<span class="ps-label">{label}</span>'
+                    )
+
+    def test_the_active_dot_wears_the_landing_halo_held_still(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "box-shadow: 0 0 0 3px rgba(26,26,26,0.10)")
+
+    def test_the_track_takes_its_own_row_on_a_phone(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, ".top-bar { flex-wrap: wrap;")
 
 
 class FooterPinningTest(DemoModeTestCase):
@@ -477,6 +558,238 @@ class PlannerGetFallthroughTest(DemoModeTestCase):
     def test_questions_route_is_gone(self):
         # Literal path: the URL name no longer exists, so reverse() cannot be used.
         self.assertEqual(self.client.get("/planner/questions/").status_code, 404)
+
+
+class PlannerTileLinksTest(DemoModeTestCase):
+    """#5 / #72: the tile links used to carry a raw-text prefill query
+    parameter ("?prefill=Konzert am [Datum], ..."), unencoded and written
+    straight into the textarea — deleting the square brackets was the
+    visitor's first job on step 2. The links now carry only the
+    urlencode()-built type; the field starts empty and a type-specific
+    placeholder shows the example instead. The prefill context key stays:
+    it restores typed text on an AIUnavailableError re-render (see
+    PlannerStartAiFailureTest)."""
+
+    def test_the_nine_tile_links_carry_only_the_encoded_type(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "?type=", count=9)
+        self.assertContains(response, 'href="/planner/?type=konzert"')
+        self.assertContains(response, 'href="/planner/?type=eigenes"')
+        self.assertNotContains(response, "prefill=")
+
+    def test_a_chosen_type_shows_its_placeholder_in_an_empty_field(self):
+        response = self.client.get(reverse("planner_start") + "?type=konzert")
+        self.assertContains(response, 'placeholder="z.B. Konzert am 15. September')
+        self.assertContains(response, "></textarea>")
+        self.assertNotContains(response, "[Datum]")
+
+    def test_an_unknown_type_falls_back_to_the_generic_placeholder(self):
+        response = self.client.get(reverse("planner_start") + "?type=quatsch")
+        self.assertContains(response, "oder: Kandidat einstellen bis 1. Oktober")
+
+    def test_the_error_rerender_keeps_the_chosen_types_placeholder(self):
+        self.client.get(reverse("planner_start") + "?type=hochzeit")
+        self.ai_mocks[
+            "projects.planner_views.get_clarifying_questions"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_start"), data={"description": "Hochzeit am 20. Juni"}
+        )
+        self.assertContains(
+            response, 'placeholder="z.B. Hochzeit am 20. Juni in Potsdam'
+        )
+        self.assertContains(response, "Hochzeit am 20. Juni</textarea>")
+
+
+class TileIconsTest(DemoModeTestCase):
+    """#44: the eight emoji tile icons become Lucide line icons, delivered as
+    one <symbol> sprite referenced by <use> — currentColor resolves through
+    the <use> shadow tree, so the icons inherit the tile's colour. What no
+    assertion can catch: a wrong viewBox or a leftover fill attribute shows
+    up as a black blob only in a browser."""
+
+    EMOJI = ["🎵", "💍", "👤", "🚀", "🎓", "📣", "🤝", "🏗"]
+
+    def test_no_tile_emoji_renders_on_step_one(self):
+        response = self.client.get(reverse("planner_start"))
+        for emoji in self.EMOJI:
+            with self.subTest(emoji=emoji):
+                self.assertNotContains(response, emoji)
+
+    def test_nine_references_and_nine_definitions(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, '<use href="#icon-', count=9)
+        self.assertContains(response, '<symbol id="icon-', count=9)
+
+    def test_the_icons_inherit_the_tiles_colour(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "stroke: currentColor")
+
+    def test_the_ninth_tile_gets_the_pencil(self):
+        # The one reference no other assertion would catch: "Eigenes Projekt"
+        # had no icon at all before, so a count of nine could also mean a
+        # duplicate on the eight.
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, '<symbol id="icon-pencil"')
+        self.assertContains(response, '<use href="#icon-pencil"')
+
+    def test_step_two_ships_no_sprite(self):
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertNotContains(response, '<symbol id="icon-')
+
+
+class ReviewLayoutTest(DemoModeTestCase):
+    """#72 step 4: the review table's cells carry explicit column classes now.
+    td:nth-child was unusable — in demo mode the row is name/date/delete, in
+    production name/date/kontext/delete, so nth-child(3) named a different
+    column per deployment; its fixed 150px date width was also the direct
+    cause of #71. The name column takes every spare pixel, the rest shrink to
+    their content, and the head becomes one labelled row."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_every_cell_carries_its_column_class(self):
+        html = self.review_page().content.decode()
+        for cls in ("col-name", "col-date", "col-actions"):
+            with self.subTest(cls=cls):
+                self.assertIn(f'<th class="{cls}"', html)
+                self.assertIn(f'<td class="{cls}"', html)
+
+    def test_the_name_column_takes_the_spare_width(self):
+        response = self.review_page()
+        self.assertContains(
+            response, ".task-table .col-name { width: 100%; padding-left: 0; }"
+        )
+        self.assertContains(response, "width: 1%; white-space: nowrap;")
+
+    def test_the_nth_child_widths_are_gone(self):
+        response = self.review_page()
+        self.assertNotContains(response, "td:nth-child(2)")
+        self.assertNotContains(response, "td:last-child")
+
+    def test_the_head_is_one_labelled_row(self):
+        response = self.review_page()
+        self.assertContains(response, 'class="plan-head"')
+        self.assertContains(response, "Projektname")
+        self.assertContains(response, "Zieldatum")
+        self.assertNotContains(response, "date-header")
+        self.assertNotContains(response, 'style="margin-bottom: 20px;"')
+
+    def test_the_demo_hidden_kontext_sits_inside_the_first_cell(self):
+        # It used to sit directly under <tr>, outside any cell — invalid HTML
+        # that browsers foster-parent out of the table.
+        html = self.review_page().content.decode()
+        self.assertRegex(
+            html, r'<td class="col-name">\s*<input type="hidden" name="task_kontext"'
+        )
+
+    def test_the_date_control_is_governed(self):
+        response = self.review_page()
+        self.assertContains(response, '.task-table input[type="date"]')
+        self.assertContains(response, "::-webkit-calendar-picker-indicator")
+
+    def test_the_sofort_marker_moved_to_the_classed_cell(self):
+        response = self.review_page()
+        self.assertContains(
+            response, "tr.sofort .col-name { box-shadow: inset 3px 0 0 #e86600; }"
+        )
+        self.assertNotContains(response, "td:first-child")
+
+
+@override_settings(DEMO_MODE=False)
+class ReviewKontextColumnTest(DemoModeTestCase):
+    """The four-column layout never renders in a demo browser pass, so its
+    markup contract is pinned here: the kontext select gets its own classed
+    cell and wears the chip the design language gives a tag."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        with patch("projects.planner_views.get_historical_projects", return_value=[]):
+            return self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 5. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            )
+
+    def test_the_kontext_cell_is_classed(self):
+        html = self.review_page().content.decode()
+        self.assertIn('<th class="col-kontext">Kontext</th>', html)
+        self.assertRegex(
+            html, r'<td class="col-kontext">\s*<select name="task_kontext"'
+        )
+
+    def test_the_select_wears_the_chip(self):
+        response = self.review_page()
+        self.assertContains(
+            response,
+            ".task-table select { border: 1px solid transparent; border-radius: 99px;",
+        )
+
+
+class ReviewStacksOnMobileTest(DemoModeTestCase):
+    """#71: on a 390px viewport the fixed column widths left the task name
+    ~60px and cut every task after a few characters — on the one screen where
+    the plan is checked before it is written anywhere. Below 768px each row
+    becomes a block. These assert the rules are served; that they actually
+    reflow is the browser pass at 390px."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_the_rows_become_blocks_below_the_breakpoint(self):
+        response = self.review_page()
+        self.assertContains(response, "@media (max-width: 768px)")
+        self.assertContains(
+            response,
+            ".task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }",
+        )
+
+    def test_the_header_row_is_dropped(self):
+        self.assertContains(self.review_page(), ".task-table thead { display: none; }")
+
+    def test_the_sofort_marker_moves_from_the_cell_to_the_row(self):
+        response = self.review_page()
+        self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
+        self.assertContains(
+            response, "tr.sofort { box-shadow: inset 3px 0 0 #e86600; }"
+        )
+
+    def test_the_delete_button_leaves_the_flow(self):
+        self.assertContains(
+            self.review_page(), ".task-table .col-actions { position: absolute;"
+        )
 
 
 class PlannerReviewHappyPathTest(DemoModeTestCase):
@@ -563,6 +876,62 @@ class PlannerReviewAiFailureTest(DemoModeTestCase):
         self.assertContains(response, "Konzert am 5. September")
         self.assertContains(response, "20 Gäste, in der Kirche")
         self.assertContains(response, "nicht erstellt werden")
+
+
+class QuestionsLayoutTest(DemoModeTestCase):
+    """#72 step 3: four questions used to sit in a grey box above a single
+    free-text field, so anyone answering the later questions typed against a
+    list they had scrolled past. The form is now the grid — questions sticky
+    on the left, answers on the right — and the answers stay one free-text
+    field (decision 4: no parsing of Claude's markdown into per-question
+    fields)."""
+
+    def questions_page(self):
+        return self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+
+    def test_the_form_is_the_grid(self):
+        response = self.questions_page()
+        self.assertContains(response, 'class="qa-form"')
+        self.assertContains(
+            response, "grid-template-columns: repeat(2, minmax(0, 1fr))"
+        )
+        self.assertContains(response, "position: sticky")
+
+    def test_the_questions_render_inside_the_form(self):
+        html = self.questions_page().content.decode()
+        self.assertLess(html.index("<form"), html.index('class="questions-box"'))
+
+    def test_the_grey_panel_became_a_left_rule(self):
+        response = self.questions_page()
+        self.assertContains(response, ".questions-box { border-left: 2px solid #e5e5e5")
+        self.assertNotContains(response, ".questions-box { background")
+
+    def test_markdown_output_survives_the_global_reset(self):
+        response = self.questions_page()
+        self.assertContains(
+            response,
+            ".questions-box ul, .questions-box ol { margin: 0 0 8px; padding-left: 20px; }",
+        )
+
+    def test_the_error_moved_to_the_shared_notice(self):
+        self.ai_mocks[
+            "projects.planner_views.generate_plan"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(
+            reverse("planner_review"),
+            data={"description": "Konzert am 5. September", "answers": "20 Gäste"},
+        )
+        self.assertContains(response, 'class="error-notice"')
+        self.assertContains(response, "nicht erstellt werden")
+        self.assertNotContains(response, ".questions-box.error")
+
+    def test_the_dead_field_rules_are_gone(self):
+        response = self.questions_page()
+        self.assertNotContains(response, ".field-label")
+        self.assertNotContains(response, 'input[type="text"]')
 
 
 class DashboardAiFailureTest(DemoModeTestCase):
@@ -1001,6 +1370,41 @@ class KontextBadgeTest(DemoModeTestCase):
     def test_my_plan_renders_a_kontext_as_a_word(self):
         self.given_session_plan()
         self.assertRendersBadge(self.client.get(reverse("my_plan")), "Planung")
+
+
+class PictographicEmojiTest(DemoModeTestCase):
+    """#23: pictographic emoji are not part of the design language. The prompt
+    symbols count as UI too — the language convention already treats prompts
+    and their output as user-facing, and Claude echoes their register back
+    into what renders on screen."""
+
+    def test_the_summary_prompt_carries_no_pictographic_emoji(self):
+        project = {
+            "name": "Sommerkonzert",
+            "event_date": date.today() + timedelta(days=10),
+            "performers": "",
+            "tasks": [
+                {
+                    "name": "Plakate aushängen",
+                    "done": False,
+                    "due": date.today(),
+                    "kontext": ["Unterwegs"],
+                },
+                {
+                    "name": "Programm festlegen",
+                    "done": True,
+                    "due": None,
+                    "kontext": [],
+                },
+            ],
+        }
+        prompt = build_prompt([project], date.today())
+        for glyph in ("✅", "⚠", "☐"):
+            self.assertNotIn(glyph, prompt)
+
+    def test_my_plan_decorates_no_date_with_an_emoji(self):
+        self.given_session_plan()
+        self.assertNotContains(self.client.get(reverse("my_plan")), "📅")
 
 
 # --- Unit tests for the logic that is not a view ---
