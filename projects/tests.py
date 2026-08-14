@@ -455,7 +455,7 @@ class DarkThemeTest(DemoModeTestCase):
             Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
         ).read_text()
         self.assertIn('[data-theme="dark"]', css)
-        self.assertIn("--color-bg-secondary: #08090a", css)
+        self.assertIn("--color-bg-secondary: #1e1e1e", css)
 
     def test_both_bases_run_the_preload_script_before_any_stylesheet(self):
         for url in ("/dashboard/", "/impressum/"):

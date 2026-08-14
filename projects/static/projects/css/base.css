@@ -59,11 +59,11 @@
    scope for #12, which assumes the toggle exists. */
 [data-theme="dark"] {
     color-scheme: dark;
-    --color-bg-primary: #141416;
-    --color-bg-secondary: #08090a;
-    --color-bg-tertiary: #232326;
-    --color-border-primary: #191a1d;
-    --color-border-secondary: #34343a;
+    --color-bg-primary: #2c2c2e;
+    --color-bg-secondary: #1e1e1e;
+    --color-bg-tertiary: #363638;
+    --color-border-primary: #3a3a3c;
+    --color-border-secondary: #48484a;
     --color-text-primary: #f7f8f8;
     --color-text-secondary: #d0d6e0;
     --color-text-tertiary: #8a8f98;
