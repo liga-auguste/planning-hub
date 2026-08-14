@@ -244,17 +244,6 @@
             <img src="{% static 'projects/logo_weiss.png' %}" alt="" style="height:40px;width:auto;" class="logo-dark">
             <span style="font-size:11px;font-weight:700;color:var(--color-text-primary);letter-spacing:0.08em;text-transform:uppercase;">Planning Hub</span>
         </div>
-        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:4px;">
-            <div style="font-size: 22px; font-weight: 700;">Übersicht</div>
-            {% if demo_project_name %}
-            <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
-                {{ demo_project_name }}
-                <span style="font-weight:400; color:var(--color-text-quaternary); font-size:13px;">— {{ demo_project_date }}</span>
-            </div>
-            {% endif %}
-        </div>
-        <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 28px;">{{ today_display }}</div>
-
         {% if not demo_mode %}
         <form method="post" action="{% url 'refresh' %}" style="margin-bottom: 32px;">
             {% csrf_token %}
@@ -289,6 +278,16 @@
         {% endif %}
 
         <div class="ai-card">
+            <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:4px;">
+                <div style="font-size: 22px; font-weight: 700;">Übersicht</div>
+                {% if demo_project_name %}
+                <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
+                    {{ demo_project_name }}
+                    <span style="font-weight:400; color:var(--color-text-quaternary); font-size:13px;">— {{ demo_project_date }}</span>
+                </div>
+                {% endif %}
+            </div>
+            <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {% if summary %}
             {{ summary|safe }}
