@@ -1779,6 +1779,42 @@ class AnnotateTasksTest(SimpleTestCase):
         task = self.annotate({"name": "GEMA-Meldung", "kontext": ""})["tasks"][0]
         self.assertEqual(task["kontext"], ["Büro"])
 
+    def test_done_count_and_total_count_for_a_mixed_set(self):
+        project = self.annotate(
+            {"done": True, "due": None},
+            {"done": False, "due": self.TODAY + timedelta(days=1)},
+            {"done": False, "due": self.TODAY - timedelta(days=1)},
+        )
+        self.assertEqual(project["done_count"], 1)
+        self.assertEqual(project["total_count"], 3)
+
+    def test_a_dateless_undone_task_does_not_count_as_done(self):
+        # It's annotated urgency="done" above (no due date), but done_count
+        # has to come from task["done"] directly or this would miscount it.
+        project = self.annotate({"done": False, "due": None})
+        self.assertEqual(project["done_count"], 0)
+        self.assertEqual(project["total_count"], 1)
+
+    def test_ring_dashoffset_at_half_done(self):
+        project = self.annotate(
+            {"done": True, "due": None},
+            {"done": False, "due": self.TODAY + timedelta(days=1)},
+        )
+        self.assertEqual(project["ring_dashoffset"], "21.99")
+
+    def test_ring_dashoffset_fully_done(self):
+        project = self.annotate({"done": True, "due": None})
+        self.assertEqual(project["ring_dashoffset"], "0.00")
+
+    def test_ring_dashoffset_nothing_done(self):
+        project = self.annotate({"done": False, "due": self.TODAY + timedelta(days=1)})
+        self.assertEqual(project["ring_dashoffset"], "43.98")
+
+    def test_ring_dashoffset_with_no_tasks_is_a_full_empty_ring(self):
+        project = self.annotate()
+        self.assertEqual(project["total_count"], 0)
+        self.assertEqual(project["ring_dashoffset"], "43.98")
+
 
 class FixAiMarkdownTest(SimpleTestCase):
     """Claude returns task lines under a project bullet without list markers."""

@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import math
 import re
 from datetime import date
 
@@ -81,10 +82,16 @@ SUMMARY_KEY = "demo_plan_summary_v4"
 DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v1"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
+# The sidebar progress ring's geometry (#76): radius never varies, so the
+# circumference is a fixed stroke-dasharray and only stroke-dashoffset moves.
+RING_RADIUS = 7
+RING_CIRCUMFERENCE = round(2 * math.pi * RING_RADIUS, 2)  # 43.98
+
 
 def _annotate_tasks(projects, today):
     for project in projects:
         project_urgency = "ok"
+        done_count = 0
         for task in project["tasks"]:
             if task["done"] or not task["due"]:
                 task["urgency"] = "done"
@@ -100,7 +107,20 @@ def _annotate_tasks(projects, today):
             task["due_display"] = _format_date(task["due"])
             if not task["kontext"]:
                 task["kontext"] = derive_kontext(task["name"])
+            # Counted from task["done"] directly, not urgency == "done": a
+            # task with no due date is annotated "done" above even when it
+            # isn't, which would otherwise miscount it as complete.
+            if task["done"]:
+                done_count += 1
         project["urgency"] = project_urgency
+        total_count = len(project["tasks"])
+        project["done_count"] = done_count
+        project["total_count"] = total_count
+        fraction = done_count / total_count if total_count else 0
+        # An f-string, not Django's floatformat filter: USE_I18N = True could
+        # make floatformat emit a comma decimal separator and corrupt this
+        # SVG attribute.
+        project["ring_dashoffset"] = f"{RING_CIRCUMFERENCE * (1 - fraction):.2f}"
     return projects
 
 
