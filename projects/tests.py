@@ -2523,6 +2523,31 @@ class DashboardNotionFailureTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
+class SidebarProgressRingZeroTasksTest(TestCase):
+    """#76: a project with no tasks yet must render an empty ring, not
+    crash with a ZeroDivisionError."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_a_project_with_no_tasks_renders_an_empty_ring(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'stroke-dashoffset="43.98"')
+
+
+@override_settings(DEMO_MODE=False)
 class DashboardAiFailureCacheTest(TestCase):
     """A Claude failure while Notion is fine must not be remembered as a
     success: (projects, None) used to land in CACHE_KEY (blanking the AI
