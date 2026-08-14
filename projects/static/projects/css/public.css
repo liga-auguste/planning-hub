@@ -38,14 +38,14 @@
     content: ''; position: absolute; top: 4px;
     left: -50%; right: 50%; height: 2px; background: var(--color-border-primary);
 }
-.ps-step.done + .ps-step::before { background: var(--color-text-primary); }
+.ps-step.done + .ps-step::before { background: var(--color-solid-bg); }
 .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-border-primary); margin-bottom: 6px; position: relative; z-index: 1; }
-.ps-step.done .ps-dot, .ps-step.active .ps-dot { background: var(--color-text-primary); }
+.ps-step.done .ps-dot, .ps-step.active .ps-dot { background: var(--color-solid-bg); }
 /* The landing page's halo, held still: a marker on the current step,
    not a loop that never resolves. */
 .ps-step.active .ps-dot { box-shadow: 0 0 0 3px rgba(26,26,26,0.10); }
 .ps-label { font-size: 10px; color: var(--color-text-quaternary); text-align: center; white-space: nowrap; }
-.ps-step.done .ps-label { color: var(--color-text-quaternary); }
+.ps-step.done .ps-label { color: var(--color-text-tertiary); }
 .ps-step.active .ps-label { color: var(--color-text-primary); font-weight: 600; }
 /* Only the planner fills topbar_right; on a phone the track takes
    its own row instead of squeezing beside the wordmark. */
