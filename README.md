@@ -8,6 +8,24 @@ An AI-powered project planning assistant. Describe an event or project in plain 
 
 ---
 
+## Screenshots
+
+Captions are English; the screenshots themselves stay German, per the convention above. All taken in demo mode, so no real Notion data appears here.
+
+**The planner asks clarifying questions before generating a plan** — shaped by the actual project description, not a fixed form:
+
+![Clarifying questions, answered](docs/screenshots/planner-questions-answered.png)
+
+**Generated plan** — an editable, dated task list, ready to save or write to Notion:
+
+![Generated plan](docs/screenshots/mein-plan.png)
+
+**Dashboard** — multi-project Kanban board, dark mode:
+
+![Dashboard Kanban board in dark mode](docs/screenshots/dashboard-kanban-dark.png)
+
+---
+
 ## The problem it solves
 
 Running multiple parallel projects means repeating the same planning process each time: coordinating people, booking services, managing communication, hitting deadlines. Each project type has its own rules and timelines.
