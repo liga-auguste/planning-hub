@@ -364,11 +364,17 @@ class DesignTokenTest(DemoModeTestCase):
     literals, so both base templates need to serve the same token names."""
 
     TOKENS = ("--color-bg-primary", "--color-accent", "--color-overdue", "--color-urgent")
+    RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
     def test_both_bases_serve_the_design_tokens(self):
         for token in self.TOKENS:
             self.assertContains(self.client.get("/dashboard/"), token)
             self.assertContains(self.client.get("/impressum/"), token)
+
+    def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
+        response = self.client.get("/dashboard/")
+        for literal in self.RETIRED_LITERALS:
+            self.assertNotContains(response, literal)
 
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
