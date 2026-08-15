@@ -54,7 +54,9 @@
     .summary-box.ai-error { color: var(--color-text-quaternary); font-style: italic; }
     /* Toggle failed server-side — the click had no effect. */
     .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
-    @keyframes flash-failed { 50% { color: var(--color-overdue); } }
+    /* outline, not color: .dot has no text and fills entirely via
+       background, so a color animation is invisible on it (#83 review). */
+    @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
 {% endblock %}
 
 {% block body %}
