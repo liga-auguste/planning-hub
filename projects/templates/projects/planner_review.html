@@ -108,7 +108,6 @@
                 {% for task in tasks %}
                 <tr data-days="{{ task.days_before }}">
                     <td class="col-name">
-                        {% if demo_mode %}<input type="hidden" name="task_kontext" value="">{% endif %}
                         <textarea name="task_name" rows="1">{{ task.name }}</textarea>
                     </td>
                     <td class="col-date"><input type="date" name="task_date"></td>

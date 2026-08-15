@@ -11,7 +11,7 @@ from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 
-from .ai import AIUnavailableError, derive_kontext, generate_weekly_summary
+from .ai import AIUnavailableError, generate_weekly_summary
 from .demo_data import get_demo_projects
 from .models import DemoEvent
 from .notion import (
@@ -114,8 +114,6 @@ def _annotate_tasks(projects, today):
             else:
                 task["urgency"] = "ok"
             task["due_display"] = _format_date(task["due"])
-            if not task["kontext"]:
-                task["kontext"] = derive_kontext(task["name"])
             # Counted from task["done"] directly, not urgency == "done": a
             # task with no due date is annotated "done" above even when it
             # isn't, which would otherwise miscount it as complete.
@@ -211,9 +209,9 @@ def _build_session_project(session_plan):
             "name": t["name"],
             "due": date.fromisoformat(t["date"]) if t.get("date") else None,
             "done": t["done"],
-            # A list, like Notion and derive_kontext produce, so every consumer
-            # sees one shape — my_plan builds its own copy of this task the
-            # same way (#9).
+            # A list, like Notion's, so every consumer sees one shape (#9).
+            # Demo-mode tasks carry no "kontext" key at all (#18) — this
+            # only wraps a value for a session written before that change.
             "kontext": [t["kontext"]] if t.get("kontext") else [],
         }
         for t in session_plan["tasks"]
@@ -616,32 +614,11 @@ def my_plan(request):
         return redirect("index")
 
     today = date.today()
-    event_date = date.fromisoformat(plan["event_date"])
-
-    tasks = []
-    for t in plan["tasks"]:
-        due = date.fromisoformat(t["date"]) if t.get("date") else None
-        tasks.append(
-            {
-                "id": t["id"],
-                "name": t["name"],
-                "due": due,
-                "done": t["done"],
-                "kontext": [t["kontext"]] if t.get("kontext") else [],
-            }
-        )
-
-    project = {
-        "id": "session-plan",
-        "name": plan["name"],
-        "event_date": event_date,
-        "event_date_display": _format_date(event_date),
-        "performers": "",
-        "tasks": tasks,
-        "status": "in Vorbereitung",
-    }
+    project = _build_session_project(plan)
+    project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
 
+    tasks = project["tasks"]
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
 
@@ -696,8 +673,7 @@ def download_plan(request):
         checkbox = "[x]" if t["done"] else "[ ]"
         due = date.fromisoformat(t["date"]) if t.get("date") else None
         due_str = f" — {_format_date(due)}" if due else ""
-        kontext = f" *({t['kontext']})*" if t.get("kontext") else ""
-        lines.append(f"- {checkbox} {t['name']}{kontext}{due_str}")
+        lines.append(f"- {checkbox} {t['name']}{due_str}")
 
     lines += [
         "",

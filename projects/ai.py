@@ -33,71 +33,6 @@ def translate_anthropic_errors():
 
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
 
-TASK_KONTEXT = {
-    # Planung — batched into planning sessions
-    "Eintrag in die Veranstaltungsdatenbank": "Planung",
-    "Eintrag iCal": "Planung",
-    "Eintrag Papierkalender": "Planung",
-    "Eintrag in den Veranstaltungskalender": "Planung",
-    "Eintrag in die Veranstaltungskalender": "Planung",
-    "Verbindliche Vereinbarung": "Planung",
-    "Eintrittspreis festlegen": "Planung",
-    "Programm festlegen": "Planung",
-    # Büro — desk work
-    "Pressetext": "Büro",
-    "GEMA-Meldung": "Büro",
-    "Musikervertrag": "Büro",
-    "Musikerverträge": "Büro",
-    "Programm machen": "Büro",
-    "Programm formatieren": "Büro",
-    "Kostenabrechnung": "Büro",
-    "Abrechnung": "Büro",
-    "Saalplan": "Büro",
-    "Vorverkauf vorbereiten": "Büro",
-    "Orgaplan": "Büro",
-    "Social Media": "Büro",
-    "Social-Media": "Büro",
-    "Info auf": "Büro",
-    "Website": "Büro",
-    "Antrag": "Büro",
-    # Graphiker — commissioned externally
-    "Plakat": "Graphiker",
-    "Lesezeichen": "Graphiker",
-    "Banner": "Graphiker",
-    "Eintrittskarten": "Graphiker",
-    "Graphik": "Graphiker",
-    # Kommunikation — messages and enquiries
-    "Nachricht": "Kommunikation",
-    "Mail": "Kommunikation",
-    "fragen": "Kommunikation",
-    "organisieren": "Kommunikation",
-    "vereinbaren": "Kommunikation",
-    "schicken": "Kommunikation",
-    "Aushilfen": "Kommunikation",
-    # Unterwegs — requires leaving the house
-    "Plakate aushängen": "Unterwegs",
-    "Plakate verteilen": "Unterwegs",
-    "Plakatverteilung": "Unterwegs",
-    "Blumen": "Unterwegs",
-    "Vorverkauf hinbringen": "Unterwegs",
-    # Vor Ort — on the event day only
-    "Kasse": "Vor Ort",
-    "Körbchen": "Vor Ort",
-    "Aufbau": "Vor Ort",
-    "Abbau": "Vor Ort",
-    "Besucher": "Vor Ort",
-    "Spenden": "Vor Ort",
-    "Einlass": "Vor Ort",
-    "Programme bereitlegen": "Vor Ort",
-}
-
-
-def derive_kontext(task_name: str) -> list:
-    for keyword, kontext in TASK_KONTEXT.items():
-        if keyword.lower() in task_name.lower():
-            return [kontext]
-    return []
-
 
 def build_prompt(projects: list, today: date, single_project_demo: bool = False) -> str:
     lines = [
@@ -139,16 +74,21 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
 
         lines.append("")
 
-    # Context overview across all projects
-    lines += ["---", "", "## Kontext-Übersicht (projektübergreifend)", ""]
+    # Context overview across all projects — omitted entirely when no task
+    # carries a kontext (kontext is production-only, see #18), rather than
+    # emitting the heading over an empty block.
     all_open = [t for p in projects for t in p["tasks"] if not t["done"]]
+    kontext_lines = []
     for kontext in KONTEXTE:
         tasks_im_kontext = [t for t in all_open if kontext in t["kontext"]]
         if tasks_im_kontext:
-            lines.append(
+            kontext_lines.append(
                 f"**{kontext}:** {', '.join(t['name'] for t in tasks_im_kontext)}"
             )
-    lines.append("")
+    if kontext_lines:
+        lines += ["---", "", "## Kontext-Übersicht (projektübergreifend)", ""]
+        lines += kontext_lines
+        lines.append("")
 
     if single_project_demo:
         lines += [

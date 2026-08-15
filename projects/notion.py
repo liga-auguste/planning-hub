@@ -208,6 +208,9 @@ def create_tasks(project_id: str, tasks: list) -> None:
                     "Aufgabe": {"title": [{"text": {"content": task["name"]}}]},
                     "Wann?": {"date": {"start": task["date"]}},
                     "Done": {"checkbox": False},
+                    "Kontext": {
+                        "multi_select": [{"name": k} for k in task.get("kontext", [])]
+                    },
                     "Related to Projekte": {"relation": [{"id": project_id}]},
                 },
             )

@@ -29,7 +29,6 @@ from .ai import (
     AIUnavailableError,
     _valid_moments,
     build_prompt,
-    derive_kontext,
     generate_timelapse_moments,
     generate_weekly_summary,
 )
@@ -100,7 +99,6 @@ class DemoModeTestCase(TestCase):
                     "id": "demo-session-0",
                     "name": "Programm festlegen",
                     "date": (date.today() + timedelta(days=7)).isoformat(),
-                    "kontext": "Planung",
                     "done": False,
                 },
             ],
@@ -1044,13 +1042,11 @@ class ReviewLayoutTest(DemoModeTestCase):
         self.assertNotContains(response, "date-header")
         self.assertNotContains(response, 'style="margin-bottom: 20px;"')
 
-    def test_the_demo_hidden_kontext_sits_inside_the_first_cell(self):
-        # It used to sit directly under <tr>, outside any cell — invalid HTML
-        # that browsers foster-parent out of the table.
+    def test_demo_mode_carries_no_kontext_field_at_all(self):
+        # #18: kontext is production-only — the earlier hidden input that
+        # discarded Claude's own suggestion on submit is gone, not disguised.
         html = self.review_page().content.decode()
-        self.assertRegex(
-            html, r'<td class="col-name">\s*<input type="hidden" name="task_kontext"'
-        )
+        self.assertNotIn("task_kontext", html)
 
     def test_the_date_control_is_governed(self):
         response = self.review_page()
@@ -1352,6 +1348,17 @@ class MyPlanAiFailureTest(DemoModeTestCase):
         response = self.client.get(reverse("my_plan"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "nicht verfügbar")
+
+
+class MyPlanEventDateDisplayTest(DemoModeTestCase):
+    """my_plan() built its own task dict inline instead of reusing
+    _build_session_project (#9) — this pins the one field that builder
+    doesn't set, so the refactor to reuse it can't quietly drop it."""
+
+    def test_my_plan_still_renders_the_formatted_event_date(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, _format_date(date.today() + timedelta(days=30)))
 
 
 class PreloadAiFailureTest(DemoModeTestCase):
@@ -1704,32 +1711,50 @@ class TemplateCommentTest(DemoModeTestCase):
 
 
 class KontextBadgeTest(DemoModeTestCase):
-    """Two builders assemble the same session project and disagree on the type
-    of kontext: _build_session_project passes the string through, my_plan wraps
-    it in a list. Each template was then written against one of them, so the
-    badge renders correctly only for the shape its own builder happens to
-    produce. Notion and derive_kontext both yield lists, which is the shape the
-    dashboard did not handle — hence the live [&#x27;Kommunikation&#x27;]."""
+    """kontext is a production-only concept (#18): demo mode neither collects
+    nor derives it anymore, on any of these three paths, so none of them may
+    render a .task-kontext badge."""
 
-    def assertRendersBadge(self, response, kontext):
-        self.assertContains(response, f'class="task-kontext">{kontext}<')
+    def assertRendersNoBadge(self, response):
+        # Not a bare "task-kontext" substring check: both templates define
+        # the .task-kontext CSS rule unconditionally in their <style> block,
+        # so only the rendered span markup tells the two cases apart.
+        self.assertNotContains(response, 'class="task-kontext">')
 
-    def test_the_multi_view_renders_a_derived_kontext_as_a_word(self):
-        # "Abendkasse organisieren" is an example project task; _annotate_tasks
-        # fills its empty kontext from derive_kontext, which returns a list.
+    def test_the_multi_view_renders_no_kontext_badge(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertRendersBadge(response, "Kommunikation")
+        self.assertRendersNoBadge(response)
+
+    def test_the_single_plan_view_renders_no_kontext_badge(self):
+        self.given_session_plan()
+        self.assertRendersNoBadge(self.client.get(reverse("dashboard")))
+
+    def test_my_plan_renders_no_kontext_badge(self):
+        self.given_session_plan()
+        self.assertRendersNoBadge(self.client.get(reverse("my_plan")))
+
+
+@override_settings(DEMO_MODE=False)
+class ProductionKontextBadgeTest(TestCase):
+    """The one path kontext still reaches after #18: real Notion data in
+    production. Pins that it renders as a word — the live [&#x27;Büro&#x27;]
+    bug _build_session_project used to cause elsewhere (#9) — now anchored
+    on the sole surviving path instead of on demo fixtures."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_dashboard_renders_kontext_as_a_word(self):
+        project = _fake_upcoming_project_with_task()
+        project["tasks"][0]["kontext"] = ["Büro"]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="task-kontext">Büro<')
         self.assertNotContains(response, "[&#x27;")
-
-    def test_the_single_plan_view_renders_a_kontext_as_a_word(self):
-        # Passes before the fix too: the dashboard printed the string builder's
-        # value unindexed. It pins that the fix does not break the other shape.
-        self.given_session_plan()
-        self.assertRendersBadge(self.client.get(reverse("dashboard")), "Planung")
-
-    def test_my_plan_renders_a_kontext_as_a_word(self):
-        self.given_session_plan()
-        self.assertRendersBadge(self.client.get(reverse("my_plan")), "Planung")
 
 
 class PictographicEmojiTest(DemoModeTestCase):
@@ -1770,21 +1795,45 @@ class PictographicEmojiTest(DemoModeTestCase):
 # --- Unit tests for the logic that is not a view ---
 
 
-class DeriveKontextTest(SimpleTestCase):
-    def test_keyword_match_returns_its_kontext(self):
-        self.assertEqual(derive_kontext("GEMA-Meldung"), ["Büro"])
+class BuildPromptKontextUebersichtTest(SimpleTestCase):
+    """kontext is production-only (#18): a demo prompt carries no per-project
+    kontext, so the cross-project overview it feeds has nothing to group —
+    the heading itself must then not appear, rather than render empty."""
 
-    def test_match_is_case_insensitive_and_partial(self):
-        self.assertEqual(
-            derive_kontext("Heute noch das Programm festlegen"), ["Planung"]
-        )
+    def test_single_project_demo_with_no_kontext_omits_the_heading(self):
+        project = {
+            "name": "Sommerkonzert",
+            "event_date": date.today() + timedelta(days=10),
+            "performers": "",
+            "tasks": [
+                {
+                    "name": "Programm festlegen",
+                    "done": False,
+                    "due": None,
+                    "kontext": [],
+                }
+            ],
+        }
+        prompt = build_prompt([project], date.today(), single_project_demo=True)
+        self.assertNotIn("Kontext-Übersicht", prompt)
 
-    def test_no_match_returns_empty(self):
-        self.assertEqual(derive_kontext("Irgendetwas Unbekanntes"), [])
-
-    def test_returns_a_list_not_a_string(self):
-        """_annotate_tasks writes this into a field that otherwise holds a string. See #9."""
-        self.assertIsInstance(derive_kontext("GEMA-Meldung"), list)
+    def test_production_prompt_with_kontext_keeps_the_heading(self):
+        project = {
+            "name": "Sommerkonzert",
+            "event_date": date.today() + timedelta(days=10),
+            "performers": "",
+            "tasks": [
+                {
+                    "name": "GEMA-Meldung",
+                    "done": False,
+                    "due": None,
+                    "kontext": ["Büro"],
+                }
+            ],
+        }
+        prompt = build_prompt([project], date.today())
+        self.assertIn("Kontext-Übersicht", prompt)
+        self.assertIn("**Büro:** GEMA-Meldung", prompt)
 
 
 class ValidMomentsTest(SimpleTestCase):
@@ -1903,10 +1952,6 @@ class AnnotateTasksTest(SimpleTestCase):
     def test_due_display_is_formatted_german(self):
         task = self.annotate({"due": date(2026, 6, 15)})["tasks"][0]
         self.assertEqual(task["due_display"], "Mo, 15. Juni")
-
-    def test_empty_kontext_is_derived_from_the_name(self):
-        task = self.annotate({"name": "GEMA-Meldung", "kontext": ""})["tasks"][0]
-        self.assertEqual(task["kontext"], ["Büro"])
 
     def test_done_count_and_total_count_for_a_mixed_set(self):
         project = self.annotate(
@@ -2240,6 +2285,23 @@ class GeneratePlanRetryTest(SimpleTestCase):
         self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
 
 
+class GeneratePlanKontextVocabularyTest(SimpleTestCase):
+    """planner.py hardcoded its own "Mögliche Kontexte" line with "Extern"
+    where ai.KONTEXTE says "Graphiker" — the actual Notion multi-select
+    option (#17). The prompt has to name the one canonical list."""
+
+    def test_prompt_names_the_canonical_kontext_and_not_the_old_one(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(
+                '{"project_name": "Testkonzert", "tasks": []}'
+            )
+            generate_plan("Konzert am 5. September", "keine weiteren Angaben", [])
+        prompt = create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("Graphiker", prompt)
+        self.assertNotIn("Extern", prompt)
+
+
 class GetClarifyingQuestionsTest(SimpleTestCase):
     def test_translates_an_sdk_failure(self):
         with patch("anthropic.Anthropic") as MockAnthropic:
@@ -2431,6 +2493,17 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
                 "project-id", [{"name": "Programm festlegen", "date": "2026-08-27"}]
             )
         self.assertEqual(instance.pages.create.call_count, 1)
+
+    def test_writes_kontext_as_a_multi_select_property(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {"results": []}
+            create_tasks(
+                "project-id",
+                [{"name": "GEMA-Meldung", "date": "2026-08-20", "kontext": ["Büro"]}],
+            )
+        created = instance.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(created["Kontext"], {"multi_select": [{"name": "Büro"}]})
 
 
 def _fake_upcoming_project(name="Testkonzert"):
@@ -2814,6 +2887,21 @@ class PlannerCreateNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Programm festlegen")
         self.assertContains(response, "nicht gespeichert")
+
+    def test_the_selected_kontext_is_passed_to_create_tasks(self):
+        """planner_views.py used to collect task_kontext via getlist() and
+        then silently drop it — the tasks list handed to create_tasks never
+        carried a "kontext" key, so the visitor's dropdown selection had no
+        effect at all (#17)."""
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks") as mock_create_tasks,
+        ):
+            self.post_plan()
+        mock_create_tasks.assert_called_once()
+        _, called_tasks = mock_create_tasks.call_args.args
+        self.assertEqual(called_tasks[0]["kontext"], ["Planung"])
 
     def test_a_retry_reuses_the_project_the_failed_attempt_created(self):
         """The error page invites the visitor to re-POST the same plan. If

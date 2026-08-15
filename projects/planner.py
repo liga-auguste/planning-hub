@@ -3,7 +3,7 @@ import logging
 
 import anthropic
 
-from .ai import AIUnavailableError, translate_anthropic_errors
+from .ai import KONTEXTE, AIUnavailableError, translate_anthropic_errors
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ Format:
   ]
 }}
 
-Mögliche Kontexte: Planung, Büro, Extern, Kommunikation, Unterwegs, Vor Ort"""
+Mögliche Kontexte: {", ".join(KONTEXTE)}"""
 
     last_error = None
     for attempt in (1, 2):

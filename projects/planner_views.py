@@ -12,7 +12,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 
 from . import rules as rules_store
-from .ai import AIUnavailableError, generate_timelapse_moments
+from .ai import KONTEXTE, AIUnavailableError, generate_timelapse_moments
 from .demo_data import get_demo_history
 from .models import DemoEvent
 from .notion import (
@@ -44,10 +44,6 @@ MONTHS_DE_REV = {
 
 HISTORY_CACHE_KEY = "historical_projects"
 HISTORY_CACHE_TTL = 60 * 60 * 24  # 24 hours
-
-# Also defined, disagreeing, in ai.py's KONTEXTE ("Graphiker" vs. "Extern")
-# — a known inconsistency (#17), not touched here.
-KONTEXTE = ["Planung", "Büro", "Extern", "Kommunikation", "Unterwegs", "Vor Ort"]
 
 DEFAULT_PLACEHOLDER = (
     "z.B. Konzert am 15. September, Violine und Orgel — "
@@ -286,10 +282,9 @@ def planner_create(request):
                     "id": f"demo-session-{i}",
                     "name": n,
                     "date": d,
-                    "kontext": k,
                     "done": False,
                 }
-                for i, (n, d, k) in enumerate(zip(names, dates, kontexte))
+                for i, (n, d) in enumerate(zip(names, dates))
                 if n and d
             ]
             request.session["demo_plan"] = {
@@ -330,7 +325,11 @@ def planner_create(request):
             project_id = find_project(project_name, event_date) or create_project(
                 project_name, event_date
             )
-            tasks = [{"name": n, "date": d} for n, d in zip(names, dates) if n and d]
+            tasks = [
+                {"name": n, "date": d, "kontext": [k] if k else []}
+                for n, d, k in zip(names, dates, kontexte)
+                if n and d
+            ]
             create_tasks(project_id, tasks)
         except NotionUnavailableError:
             # The visitor already reviewed and adjusted this exact task list —
