@@ -79,9 +79,9 @@ class DemoModeTestCase(TestCase):
     """Stubs the Claude API — no test may make a real call."""
 
     def setUp(self):
-        # The demo caches live process-wide (LocMemCache), so an entry a
-        # previous test left behind would make a later test skip the Claude
-        # call it asserts on — see AiStubTest.
+        # The demo caches live in the test database, shared across the whole
+        # run, so an entry a previous test left behind would make a later
+        # test skip the Claude call it asserts on — see AiStubTest.
         cache.clear()
         self.addCleanup(cache.clear)
         self.ai_mocks = {}

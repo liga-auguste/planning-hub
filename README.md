@@ -60,7 +60,7 @@ Historical events — several dozen completed projects since 2021 (the demo fixt
 
 Every Claude call runs inside the request — no task queue, no background workers. The Sonnet call blocks a gunicorn worker for its duration, and that is a deliberate choice: there is one user, the demo is nginx-rate-limited to 30 requests per minute (burst 10), and gunicorn runs two workers with a 120-second timeout. A task queue would add a broker, a worker process and a result store to solve a concurrency problem that does not exist. The trigger for revisiting: more than one user planning concurrently, i.e. requests regularly occupying both workers. While a call runs, the UI shows a loading state and blocks double submits.
 
-The one place where that blocking was worth removing is the multi-project demo view — where the landing-page CTA sends every first-time visitor. Its input is a pure function of `date.today()` with no per-visitor data, so its summary is cached for the day instead of being generated per request. The local-memory cache is per process and gunicorn runs two workers, so that means up to one call per worker per day rather than one per visit.
+The one place where that blocking was worth removing is the multi-project demo view — where the landing-page CTA sends every first-time visitor. Its input is a pure function of `date.today()` with no per-visitor data, so its summary is cached for the day instead of being generated per request. The cache (`DatabaseCache`, shared across both gunicorn workers) makes that one call per day, not one per worker.
 
 ### Domain rules in the prompt, not in code
 
@@ -89,7 +89,7 @@ Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
-- **8h caching with stale fallback** — Notion API responses cached locally; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual sync button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
+- **8h caching with stale fallback** — Notion API responses cached in a shared database backend; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual refresh button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
 - **DEMO_MODE** — runs on fixture data, no Notion credentials needed
 
 ---
