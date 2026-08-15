@@ -11,7 +11,10 @@ def create_cache_table(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0004_remove_task_project_remove_tasktemplate_project_type_and_more"),
+        (
+            "projects",
+            "0004_remove_task_project_remove_tasktemplate_project_type_and_more",
+        ),
     ]
 
     operations = [

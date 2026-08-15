@@ -738,9 +738,7 @@ def toggle_session_task(request, task_id):
     done = data["done"]
     plan = request.session.get("demo_plan")
     task = (
-        next((t for t in plan["tasks"] if t["id"] == task_id), None)
-        if plan
-        else None
+        next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None
     )
     if task is None:
         return JsonResponse({"error": "unknown task"}, status=404)
