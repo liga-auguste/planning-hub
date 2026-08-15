@@ -616,32 +616,11 @@ def my_plan(request):
         return redirect("index")
 
     today = date.today()
-    event_date = date.fromisoformat(plan["event_date"])
-
-    tasks = []
-    for t in plan["tasks"]:
-        due = date.fromisoformat(t["date"]) if t.get("date") else None
-        tasks.append(
-            {
-                "id": t["id"],
-                "name": t["name"],
-                "due": due,
-                "done": t["done"],
-                "kontext": [t["kontext"]] if t.get("kontext") else [],
-            }
-        )
-
-    project = {
-        "id": "session-plan",
-        "name": plan["name"],
-        "event_date": event_date,
-        "event_date_display": _format_date(event_date),
-        "performers": "",
-        "tasks": tasks,
-        "status": "in Vorbereitung",
-    }
+    project = _build_session_project(plan)
+    project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
 
+    tasks = project["tasks"]
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
 

@@ -1354,6 +1354,17 @@ class MyPlanAiFailureTest(DemoModeTestCase):
         self.assertContains(response, "nicht verfügbar")
 
 
+class MyPlanEventDateDisplayTest(DemoModeTestCase):
+    """my_plan() built its own task dict inline instead of reusing
+    _build_session_project (#9) — this pins the one field that builder
+    doesn't set, so the refactor to reuse it can't quietly drop it."""
+
+    def test_my_plan_still_renders_the_formatted_event_date(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, _format_date(date.today() + timedelta(days=30)))
+
+
 class PreloadAiFailureTest(DemoModeTestCase):
     def test_preload_reports_ok_false_and_writes_nothing_to_the_session(self):
         self.given_session_plan()
