@@ -23,7 +23,7 @@ Claude prompts are German on purpose — they carry explicit instructions such a
 
 These are German by decision. Do not "fix" them:
 
-- **`kontext` / `KONTEXTE` / `TASK_KONTEXT`** — a domain term. The values ("Büro", "Planung", "Vor Ort") appear in prompts, come back from Claude, are stored in the database and shown in the UI. Renaming the identifier would split it from its own values for no gain.
+- **`kontext` / `KONTEXTE`** — a domain term. The values ("Büro", "Planung", "Vor Ort") appear in prompts, come back from Claude, are stored in Notion and shown in the UI. Renaming the identifier would split it from its own values for no gain. Production-only (#18): a demo session never collects, derives, stores or displays it.
 - **`impressum()` / `datenschutz()`** — established legal terms, coupled to their URL paths and templates.
 - **`MONTHS_DE`, `MONTHS_SHORT`, `WEEKDAYS_SHORT`** — English identifier, German values. Correct as is.
 - **Notion property names** (`"Name der Veranstaltung"`, `"Wann?"`) — defined by the external database, not by us.

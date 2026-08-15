@@ -72,9 +72,9 @@ Where a rule lives depends on who owns it. In production it is a `PlannerRule` r
 
 Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database now holds only `PlannerRule` (the production planning rules) and `DemoEvent` (anonymous usage telemetry).
 
-### Context derivation in code, not in Notion
+### Context as Claude's own suggestion, not a keyword guess
 
-Each task belongs to a workflow context (e.g. planning, admin, on-site). Instead of requiring manual tagging in Notion for every task, `derive_kontext()` in `ai.py` infers context from task names via a keyword mapping. The Notion database stays clean; the AI prompt groups tasks by context across all active projects.
+Each production task belongs to a workflow context (e.g. planning, admin, on-site) — one of a fixed vocabulary Claude already suggests per task while generating the plan. The planner review screen offers it as an editable dropdown, and the confirmed value is persisted to Notion's `Kontext` property alongside the task. The AI weekly-summary prompt then groups open tasks by context across all active projects. An earlier version derived context after the fact from task-name keywords instead — that broke down the moment two maintainers' vocabularies disagreed, and produced no useful grouping for a demo visitor's one-off project, so context is a production-only concept: demo mode does not collect, derive, store or display it.
 
 ---
 

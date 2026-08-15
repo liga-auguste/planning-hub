@@ -282,10 +282,9 @@ def planner_create(request):
                     "id": f"demo-session-{i}",
                     "name": n,
                     "date": d,
-                    "kontext": k,
                     "done": False,
                 }
-                for i, (n, d, k) in enumerate(zip(names, dates, kontexte))
+                for i, (n, d) in enumerate(zip(names, dates))
                 if n and d
             ]
             request.session["demo_plan"] = {
