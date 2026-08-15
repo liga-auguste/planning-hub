@@ -497,13 +497,19 @@ def toggle_task_view(request, task_id):
     data = json.loads(request.body)
     done = data["done"]
     if settings.DEMO_MODE:
+        # Same collapse-to-404 rule as reschedule_task_view (#10 §5, #61):
+        # answering ok for a task that was never saved is worse than an
+        # honest miss.
         plan = request.session.get("demo_plan")
-        if plan:
-            for t in plan["tasks"]:
-                if t["id"] == task_id:
-                    t["done"] = done
-                    break
-            request.session["demo_plan"] = plan
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        task["done"] = done
+        request.session["demo_plan"] = plan
     else:
         try:
             toggle_task(task_id, done)
@@ -731,10 +737,13 @@ def toggle_session_task(request, task_id):
     data = json.loads(request.body)
     done = data["done"]
     plan = request.session.get("demo_plan")
-    if plan:
-        for t in plan["tasks"]:
-            if t["id"] == task_id:
-                t["done"] = done
-                break
-        request.session["demo_plan"] = plan
+    task = (
+        next((t for t in plan["tasks"] if t["id"] == task_id), None)
+        if plan
+        else None
+    )
+    if task is None:
+        return JsonResponse({"error": "unknown task"}, status=404)
+    task["done"] = done
+    request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})

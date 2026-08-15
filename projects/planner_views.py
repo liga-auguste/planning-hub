@@ -406,7 +406,8 @@ def rule_update(request, rule_id):
 def rule_delete(request, rule_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    rules_store.delete_rule(request, rule_id)
+    if not rules_store.delete_rule(request, rule_id):
+        return JsonResponse({"error": "not found"}, status=404)
     return JsonResponse({"ok": True})
 
 

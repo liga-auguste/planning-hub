@@ -2998,6 +2998,64 @@ class MyPlanProgressBarTest(DemoModeTestCase):
         self.assertContains(self.client.get(reverse("my_plan")), "width: 0%")
 
 
+class ToggleTaskDemoModeTest(DemoModeTestCase):
+    """#61: toggle_task_view's demo branch fell out of its lookup loop
+    silently on a miss and always answered {"ok": True} — indistinguishable
+    from a real toggle. It now uses the same next(...) lookup + 404 on a
+    miss that reschedule_task_view already established (#10 §5)."""
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_a_toggle_survives_a_reload(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-1-7", done=True)
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_no_session_plan_at_all_is_a_404(self):
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 404)
+
+
+class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
+    """#61: toggle_session_task (my_plan.html's own toggle endpoint) had the
+    same silent-miss shape as toggle_task_view's demo branch."""
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_session_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_a_toggle_survives_a_reload(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-1-7", done=True)
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_no_session_plan_at_all_is_a_404(self):
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 404)
+
+
 class RescheduleTaskDemoModeTest(DemoModeTestCase):
     """§5 of #10: reschedule_task_view answered {"ok": True} in demo mode
     without writing anything, so the date the JS had already moved optimistically
@@ -3205,6 +3263,10 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         response = self.client.post(reverse("rule_toggle", args=[9999]))
         self.assertEqual(response.status_code, 404)
 
+    def test_deleting_an_unknown_rule_is_a_404(self):
+        response = self.client.post(reverse("rule_delete", args=[9999]))
+        self.assertEqual(response.status_code, 404)
+
     def test_a_poisoned_session_re_seeds_instead_of_crashing(self):
         session = self.client.session
         session[DEMO_RULES_KEY] = "kaputt"
@@ -3265,6 +3327,11 @@ class PlannerRulesDatabaseModeTest(TestCase):
         self.client.post(reverse("rule_delete", args=[rule.pk]))
         self.assertFalse(PlannerRule.objects.filter(pk=rule.pk).exists())
         self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES) - 1)
+
+    def test_deleting_an_unknown_rule_is_a_404(self):
+        response = self.client.post(reverse("rule_delete", args=[9999]))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
 
     def test_reorder_writes_the_new_order_column(self):
         ids = list(PlannerRule.objects.values_list("pk", flat=True))
