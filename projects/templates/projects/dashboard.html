@@ -294,7 +294,7 @@
                 {% if not demo_mode %}
                 <form method="post" action="{% url 'refresh' %}" style="margin-left:auto; align-self:center;">
                     {% csrf_token %}
-                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Sync mit Notion</button>
+                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Aktualisieren</button>
                 </form>
                 {% endif %}
             </div>

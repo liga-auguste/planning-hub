@@ -2873,6 +2873,33 @@ class PlannerCreateNotionFailureTest(TestCase):
         self.assertIsNone(cache.get(STALE_CACHE_KEY))
 
 
+@override_settings(DEMO_MODE=False)
+class DashboardSyncButtonLabelTest(TestCase):
+    """#52: the button never synced anything — it only busts one cache key
+    and lets the following read re-fetch from Notion. Now that writes
+    invalidate the cache themselves, the label should say what the button
+    actually does."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_the_button_says_what_it_does(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Aktualisieren")
+        self.assertNotContains(response, "Sync mit Notion")
+
+
 class NginxDemoRateLimitTest(SimpleTestCase):
     """#36: guards the demo rate-limit sizing against config drift. rate=10r/m
     with burst=5 was fine for one request per page view, but the timelapse
