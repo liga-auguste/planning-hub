@@ -153,11 +153,16 @@ def update_rule(request, rule_id, text):
 
 
 def delete_rule(request, rule_id):
+    """Returns False if there is no such rule."""
     if settings.DEMO_MODE:
         rules = _session_rules(request)
-        _save_session_rules(request, [r for r in rules if r["id"] != rule_id])
-        return
-    PlannerRule.objects.filter(pk=rule_id).delete()
+        remaining = [r for r in rules if r["id"] != rule_id]
+        if len(remaining) == len(rules):
+            return False
+        _save_session_rules(request, remaining)
+        return True
+    deleted, _ = PlannerRule.objects.filter(pk=rule_id).delete()
+    return deleted > 0
 
 
 def reorder_rules(request, ids):

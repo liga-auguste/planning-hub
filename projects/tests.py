@@ -51,6 +51,7 @@ from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
     CACHE_KEY,
     DEMO_MULTI_SUMMARY_KEY,
+    STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
     _fix_ai_markdown,
@@ -78,9 +79,9 @@ class DemoModeTestCase(TestCase):
     """Stubs the Claude API — no test may make a real call."""
 
     def setUp(self):
-        # The demo caches live process-wide (LocMemCache), so an entry a
-        # previous test left behind would make a later test skip the Claude
-        # call it asserts on — see AiStubTest.
+        # The demo caches live in the test database, shared across the whole
+        # run, so an entry a previous test left behind would make a later
+        # test skip the Claude call it asserts on — see AiStubTest.
         cache.clear()
         self.addCleanup(cache.clear)
         self.ai_mocks = {}
@@ -2668,6 +2669,36 @@ class ToggleTaskNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_toggle.assert_called_once_with("task-1", True)
 
+    def test_success_busts_the_dashboard_cache(self):
+        """#52: with the cache shared across workers, a write that doesn't
+        invalidate it can hide a completed task as open for up to CACHE_TTL."""
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch("projects.views.toggle_task"):
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": true}',
+                content_type="application/json",
+            )
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+    def test_notion_failure_leaves_the_cache_untouched(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch(
+            "projects.views.toggle_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": true}',
+                content_type="application/json",
+            )
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        self.assertIsNotNone(cache.get(STALE_CACHE_KEY))
+
 
 @override_settings(DEMO_MODE=False)
 class RescheduleTaskNotionFailureTest(TestCase):
@@ -2693,6 +2724,35 @@ class RescheduleTaskNotionFailureTest(TestCase):
             )
         self.assertEqual(response.status_code, 200)
         mock_update.assert_called_once_with("task-1", "2026-09-05")
+
+    def test_success_busts_the_dashboard_cache(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch("projects.views.update_task_date"):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+    def test_notion_failure_leaves_the_cache_untouched(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch(
+            "projects.views.update_task_date",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        self.assertIsNotNone(cache.get(STALE_CACHE_KEY))
 
 
 @override_settings(DEMO_MODE=False)
@@ -2796,9 +2856,13 @@ class PlannerCreateNotionFailureTest(TestCase):
     def test_a_saved_plan_busts_the_dashboard_cache(self):
         """planner_create used to delete the cache by a hardcoded string —
         a key bump in views.py would silently turn that into a no-op and a
-        freshly saved project would hide behind the 8h TTL."""
+        freshly saved project would hide behind the 8h TTL. #37: the
+        never-expiring stale copy must go with it, or a Notion read that
+        fails right after this save would serve the dashboard as it looked
+        before the project existed."""
         self.addCleanup(cache.clear)
         cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
         with (
             patch("projects.planner_views.find_project", return_value=None),
             patch("projects.planner_views.create_project", return_value="page-id"),
@@ -2806,6 +2870,34 @@ class PlannerCreateNotionFailureTest(TestCase):
         ):
             self.post_plan()
         self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardSyncButtonLabelTest(TestCase):
+    """#52: the button never synced anything — it only busts one cache key
+    and lets the following read re-fetch from Notion. Now that writes
+    invalidate the cache themselves, the label should say what the button
+    actually does."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_the_button_says_what_it_does(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value="**Sommerkonzert**",
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Aktualisieren")
+        self.assertNotContains(response, "Sync mit Notion")
 
 
 class NginxDemoRateLimitTest(SimpleTestCase):
@@ -2904,6 +2996,64 @@ class MyPlanProgressBarTest(DemoModeTestCase):
     def test_nothing_done_is_zero_percent(self):
         self.given_plan_with(total=4, done=0)
         self.assertContains(self.client.get(reverse("my_plan")), "width: 0%")
+
+
+class ToggleTaskDemoModeTest(DemoModeTestCase):
+    """#61: toggle_task_view's demo branch fell out of its lookup loop
+    silently on a miss and always answered {"ok": True} — indistinguishable
+    from a real toggle. It now uses the same next(...) lookup + 404 on a
+    miss that reschedule_task_view already established (#10 §5)."""
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_a_toggle_survives_a_reload(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-1-7", done=True)
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_no_session_plan_at_all_is_a_404(self):
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 404)
+
+
+class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
+    """#61: toggle_session_task (my_plan.html's own toggle endpoint) had the
+    same silent-miss shape as toggle_task_view's demo branch."""
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_session_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_a_toggle_survives_a_reload(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        response = self.post_toggle("demo-1-7", done=True)
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_no_session_plan_at_all_is_a_404(self):
+        response = self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(response.status_code, 404)
 
 
 class RescheduleTaskDemoModeTest(DemoModeTestCase):
@@ -3113,6 +3263,10 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         response = self.client.post(reverse("rule_toggle", args=[9999]))
         self.assertEqual(response.status_code, 404)
 
+    def test_deleting_an_unknown_rule_is_a_404(self):
+        response = self.client.post(reverse("rule_delete", args=[9999]))
+        self.assertEqual(response.status_code, 404)
+
     def test_a_poisoned_session_re_seeds_instead_of_crashing(self):
         session = self.client.session
         session[DEMO_RULES_KEY] = "kaputt"
@@ -3173,6 +3327,11 @@ class PlannerRulesDatabaseModeTest(TestCase):
         self.client.post(reverse("rule_delete", args=[rule.pk]))
         self.assertFalse(PlannerRule.objects.filter(pk=rule.pk).exists())
         self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES) - 1)
+
+    def test_deleting_an_unknown_rule_is_a_404(self):
+        response = self.client.post(reverse("rule_delete", args=[9999]))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
 
     def test_reorder_writes_the_new_order_column(self):
         ids = list(PlannerRule.objects.values_list("pk", flat=True))

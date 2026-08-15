@@ -52,6 +52,11 @@
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     .summary-box hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 16px 0; }
     .summary-box.ai-error { color: var(--color-text-quaternary); font-style: italic; }
+    /* Toggle failed server-side — the click had no effect. */
+    .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
+    /* outline, not color: .dot has no text and fills entirely via
+       background, so a color animation is invisible on it (#83 review). */
+    @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
 {% endblock %}
 
 {% block body %}
@@ -138,7 +143,7 @@
 const CSRF = '{{ csrf_token }}';
 const total = {{ total }};
 
-function toggleTask(btn) {
+async function toggleTask(btn) {
     const taskId = btn.dataset.taskId;
     const currentDone = btn.dataset.done === 'true';
     const newDone = !currentDone;
@@ -147,11 +152,25 @@ function toggleTask(btn) {
     row.classList.toggle('done', newDone);
     btn.classList.toggle('done', newDone);
     updateProgress();
-    fetch(`/session-task/${taskId}/toggle/`, {
+    const response = await fetch(`/session-task/${taskId}/toggle/`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify({done: newDone}),
     });
+    if (!response.ok) {
+        // The session didn't have this task (stale tab, expired session) —
+        // undo the optimistic update rather than show a state that isn't saved.
+        btn.dataset.done = currentDone;
+        row.classList.toggle('done', currentDone);
+        btn.classList.toggle('done', currentDone);
+        updateProgress();
+        flashActionFailed(btn);
+    }
+}
+
+function flashActionFailed(el) {
+    el.classList.add('action-failed');
+    setTimeout(() => el.classList.remove('action-failed'), 1500);
 }
 
 function updateProgress() {

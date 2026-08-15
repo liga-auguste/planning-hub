@@ -68,7 +68,10 @@
         .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
         .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
-        @keyframes flash-failed { 50% { color: var(--color-overdue); } }
+        /* outline, not color: .dot buttons carry no text and fill entirely
+           via background, so a color animation is invisible on them (#83
+           review) — outline reads on both the dot and text targets. */
+        @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
         .today-btn { font-size: 11px; color: var(--color-text-quaternary); background: none; border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
         .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
         .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
@@ -294,7 +297,7 @@
                 {% if not demo_mode %}
                 <form method="post" action="{% url 'refresh' %}" style="margin-left:auto; align-self:center;">
                     {% csrf_token %}
-                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Sync mit Notion</button>
+                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Aktualisieren</button>
                 </form>
                 {% endif %}
             </div>

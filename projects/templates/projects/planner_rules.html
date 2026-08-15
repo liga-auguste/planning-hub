@@ -134,7 +134,7 @@ function saveRule(el) {
 function deleteRule(id, btn) {
     if (!confirm('Regel löschen?')) return;
     post(`/planner/regeln/delete/${id}/`, {})
-        .then(() => btn.closest('.rule-item').remove());
+        .then(r => { if (r.ok) btn.closest('.rule-item').remove(); });
 }
 
 new Sortable(document.getElementById('rules-list'), {

@@ -70,15 +70,24 @@ CACHE_TTL = 60 * 60 * 8  # 8 hours
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
 STALE_CACHE_KEY = "dashboard_data_stale_v2"
+
+
+def _bust_dashboard_cache():
+    """Called after every confirmed Notion write, so a completed task or a
+    freshly saved project never hides behind CACHE_TTL or the stale fallback."""
+    cache.delete(CACHE_KEY)
+    cache.delete(STALE_CACHE_KEY)
+
+
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v4"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # date.today() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
-# itself and the TTL only bounds how long one day's entry lives. LocMemCache is
-# per process (settings.py CACHES) and gunicorn runs two workers, so expect up
-# to one call per worker per day.
+# itself and the TTL only bounds how long one day's entry lives. The cache is
+# shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
+# so expect up to one call per day rather than one per worker.
 DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v1"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
@@ -488,13 +497,19 @@ def toggle_task_view(request, task_id):
     data = json.loads(request.body)
     done = data["done"]
     if settings.DEMO_MODE:
+        # Same collapse-to-404 rule as reschedule_task_view (#10 §5, #61):
+        # answering ok for a task that was never saved is worse than an
+        # honest miss.
         plan = request.session.get("demo_plan")
-        if plan:
-            for t in plan["tasks"]:
-                if t["id"] == task_id:
-                    t["done"] = done
-                    break
-            request.session["demo_plan"] = plan
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        task["done"] = done
+        request.session["demo_plan"] = plan
     else:
         try:
             toggle_task(task_id, done)
@@ -502,6 +517,7 @@ def toggle_task_view(request, task_id):
             # A non-200 so the caller knows not to apply its optimistic
             # update — see the dashboard.html JS changes in the same commit.
             return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 
@@ -539,6 +555,7 @@ def reschedule_task_view(request, task_id):
             update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 
@@ -720,10 +737,11 @@ def toggle_session_task(request, task_id):
     data = json.loads(request.body)
     done = data["done"]
     plan = request.session.get("demo_plan")
-    if plan:
-        for t in plan["tasks"]:
-            if t["id"] == task_id:
-                t["done"] = done
-                break
-        request.session["demo_plan"] = plan
+    task = (
+        next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None
+    )
+    if task is None:
+        return JsonResponse({"error": "unknown task"}, status=404)
+    task["done"] = done
+    request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})
