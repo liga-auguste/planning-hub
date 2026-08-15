@@ -2240,6 +2240,23 @@ class GeneratePlanRetryTest(SimpleTestCase):
         self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
 
 
+class GeneratePlanKontextVocabularyTest(SimpleTestCase):
+    """planner.py hardcoded its own "Mögliche Kontexte" line with "Extern"
+    where ai.KONTEXTE says "Graphiker" — the actual Notion multi-select
+    option (#17). The prompt has to name the one canonical list."""
+
+    def test_prompt_names_the_canonical_kontext_and_not_the_old_one(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(
+                '{"project_name": "Testkonzert", "tasks": []}'
+            )
+            generate_plan("Konzert am 5. September", "keine weiteren Angaben", [])
+        prompt = create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("Graphiker", prompt)
+        self.assertNotIn("Extern", prompt)
+
+
 class GetClarifyingQuestionsTest(SimpleTestCase):
     def test_translates_an_sdk_failure(self):
         with patch("anthropic.Anthropic") as MockAnthropic:
@@ -2431,6 +2448,17 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
                 "project-id", [{"name": "Programm festlegen", "date": "2026-08-27"}]
             )
         self.assertEqual(instance.pages.create.call_count, 1)
+
+    def test_writes_kontext_as_a_multi_select_property(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {"results": []}
+            create_tasks(
+                "project-id",
+                [{"name": "GEMA-Meldung", "date": "2026-08-20", "kontext": ["Büro"]}],
+            )
+        created = instance.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(created["Kontext"], {"multi_select": [{"name": "Büro"}]})
 
 
 def _fake_upcoming_project(name="Testkonzert"):
@@ -2814,6 +2842,21 @@ class PlannerCreateNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Programm festlegen")
         self.assertContains(response, "nicht gespeichert")
+
+    def test_the_selected_kontext_is_passed_to_create_tasks(self):
+        """planner_views.py used to collect task_kontext via getlist() and
+        then silently drop it — the tasks list handed to create_tasks never
+        carried a "kontext" key, so the visitor's dropdown selection had no
+        effect at all (#17)."""
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks") as mock_create_tasks,
+        ):
+            self.post_plan()
+        mock_create_tasks.assert_called_once()
+        _, called_tasks = mock_create_tasks.call_args.args
+        self.assertEqual(called_tasks[0]["kontext"], ["Planung"])
 
     def test_a_retry_reuses_the_project_the_failed_attempt_created(self):
         """The error page invites the visitor to re-POST the same plan. If
