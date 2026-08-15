@@ -51,6 +51,7 @@ from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
     CACHE_KEY,
     DEMO_MULTI_SUMMARY_KEY,
+    STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
     _fix_ai_markdown,
@@ -2668,6 +2669,36 @@ class ToggleTaskNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_toggle.assert_called_once_with("task-1", True)
 
+    def test_success_busts_the_dashboard_cache(self):
+        """#52: with the cache shared across workers, a write that doesn't
+        invalidate it can hide a completed task as open for up to CACHE_TTL."""
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch("projects.views.toggle_task"):
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": true}',
+                content_type="application/json",
+            )
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+    def test_notion_failure_leaves_the_cache_untouched(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch(
+            "projects.views.toggle_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": true}',
+                content_type="application/json",
+            )
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        self.assertIsNotNone(cache.get(STALE_CACHE_KEY))
+
 
 @override_settings(DEMO_MODE=False)
 class RescheduleTaskNotionFailureTest(TestCase):
@@ -2693,6 +2724,35 @@ class RescheduleTaskNotionFailureTest(TestCase):
             )
         self.assertEqual(response.status_code, 200)
         mock_update.assert_called_once_with("task-1", "2026-09-05")
+
+    def test_success_busts_the_dashboard_cache(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch("projects.views.update_task_date"):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+    def test_notion_failure_leaves_the_cache_untouched(self):
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with patch(
+            "projects.views.update_task_date",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        self.assertIsNotNone(cache.get(STALE_CACHE_KEY))
 
 
 @override_settings(DEMO_MODE=False)
@@ -2796,9 +2856,13 @@ class PlannerCreateNotionFailureTest(TestCase):
     def test_a_saved_plan_busts_the_dashboard_cache(self):
         """planner_create used to delete the cache by a hardcoded string —
         a key bump in views.py would silently turn that into a no-op and a
-        freshly saved project would hide behind the 8h TTL."""
+        freshly saved project would hide behind the 8h TTL. #37: the
+        never-expiring stale copy must go with it, or a Notion read that
+        fails right after this save would serve the dashboard as it looked
+        before the project existed."""
         self.addCleanup(cache.clear)
         cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
         with (
             patch("projects.planner_views.find_project", return_value=None),
             patch("projects.planner_views.create_project", return_value="page-id"),
@@ -2806,6 +2870,7 @@ class PlannerCreateNotionFailureTest(TestCase):
         ):
             self.post_plan()
         self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
 
 
 class NginxDemoRateLimitTest(SimpleTestCase):

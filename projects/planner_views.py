@@ -23,7 +23,7 @@ from .notion import (
     get_historical_projects,
 )
 from .planner import generate_plan, get_clarifying_questions
-from .views import CACHE_KEY
+from .views import _bust_dashboard_cache
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ def planner_create(request):
                     "error": True,
                 },
             )
-        cache.delete(CACHE_KEY)
+        _bust_dashboard_cache()
         return redirect("dashboard")
     return redirect("planner_start")
 

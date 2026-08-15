@@ -70,6 +70,15 @@ CACHE_TTL = 60 * 60 * 8  # 8 hours
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
 STALE_CACHE_KEY = "dashboard_data_stale_v2"
+
+
+def _bust_dashboard_cache():
+    """Called after every confirmed Notion write, so a completed task or a
+    freshly saved project never hides behind CACHE_TTL or the stale fallback."""
+    cache.delete(CACHE_KEY)
+    cache.delete(STALE_CACHE_KEY)
+
+
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v4"
@@ -502,6 +511,7 @@ def toggle_task_view(request, task_id):
             # A non-200 so the caller knows not to apply its optimistic
             # update — see the dashboard.html JS changes in the same commit.
             return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 
@@ -539,6 +549,7 @@ def reschedule_task_view(request, task_id):
             update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 
