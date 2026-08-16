@@ -1759,6 +1759,31 @@ class MultiViewSidebarLinkTest(DemoModeTestCase):
         self.assertNotContains(response, "Projekt selbst planen")
 
 
+class MyPlanSidebarLinkTest(DemoModeTestCase):
+    """#7: /mein-plan/ was fully built but linked from nowhere, reachable only
+    by typing the URL. The link belongs wherever a session plan exists —
+    both while looking at it (has_session_plan) and while looking at the
+    example projects instead (plan_exists, force_multi)."""
+
+    def test_no_link_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_no_link_without_a_session_plan_under_multi_view(self):
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertNotContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_shows_link_while_viewing_the_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_shows_link_while_viewing_the_example_projects(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, f'href="{reverse("my_plan")}"')
+
+
 class MultiViewSimDateTest(DemoModeTestCase):
     """#50: the simulated date used to be read before the mode was known, so a
     Zeitreise set on the visitor's own plan classified and narrated the example

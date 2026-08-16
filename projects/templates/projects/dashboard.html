@@ -161,6 +161,9 @@
         <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
             <span style="margin-right: 8px;">⊞</span>Mehrprojekt-Ansicht
         </a>
+        <a class="sidebar-item" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+            <span style="margin-right: 8px;">☰</span>Plan als Liste
+        </a>
         <a class="sidebar-item" href="{% url 'index' %}" style="color: var(--color-text-quaternary); font-size: 12px;">
             <span style="margin-right: 8px;">←</span>Zurück zur Startseite
         </a>
@@ -168,6 +171,9 @@
         {% if plan_exists %}
         <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
             <span style="margin-right: 8px;">←</span>Mein Plan
+        </a>
+        <a class="sidebar-item" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+            <span style="margin-right: 8px;">☰</span>Plan als Liste
         </a>
         {% else %}
         <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: var(--color-text-tertiary);">
