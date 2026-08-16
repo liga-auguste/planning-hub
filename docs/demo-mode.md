@@ -53,9 +53,13 @@ states share the same `dashboard.html` template; only the sidebar and the banner
 not the visitor's own plan, are what's rendered. The banner sits in `dashboard.html` between
 the existing time-lapse banner (`{% if sim_date %}`) and the stale-data notice
 (`{% if data_unavailable %}`); the two are mutually exclusive by construction, since one needs
-`has_session_plan` and the other needs its negation. It reuses the `.sim-banner` layout with a
-new `.sim-banner-cta` rule — an `<a>`, kept fully opaque rather than de-emphasized like
-`.sim-banner-reset`, since this CTA is the banner's main point rather than a dismiss action.
+`has_session_plan` and the other needs its negation. It does **not** reuse `.sim-banner` —
+that surface is deliberately dark in both themes (see its comment in `base.css`), the right
+weight for a cookie notice or an active time-lapse simulation, but too heavy for a banner that
+sits on screen through most of a demo visit. `.demo-banner` uses the same layout with the
+previously-unused `--color-accent-tint` token instead: a soft tinted background with
+`--color-accent` text, matching how `.stale-notice` already softens its own tone with
+`--color-overdue-tint`.
 
 ---
 

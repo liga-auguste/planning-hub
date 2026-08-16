@@ -144,7 +144,8 @@
         .sim-banner { display: flex; align-items: center; gap: 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
         .sim-banner-reset { margin-left: auto; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
         .sim-banner-reset:hover { opacity: 1; }
-        .sim-banner-cta { margin-left: auto; color: var(--color-notice-text); font-weight: 500; text-decoration: underline; white-space: nowrap; }
+        .demo-banner { display: flex; align-items: center; gap: 10px; background: var(--color-accent-tint); color: var(--color-accent); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
+        .demo-banner-cta { margin-left: auto; color: var(--color-accent); font-weight: 500; text-decoration: underline; white-space: nowrap; }
         .download-fab { position: fixed; bottom: 28px; right: 28px; background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow-medium); transition: background 0.15s, opacity 0.15s; }
         .download-fab:hover { opacity: 0.85; }
 {% endblock %}
@@ -292,9 +293,9 @@
         needs its opposite.
         {% endcomment %}
         {% if viewing_demo_data %}
-        <div class="sim-banner">
+        <div class="demo-banner">
             <span>Das sind <strong>Beispieldaten</strong> — fünf simulierte Projekte zeigen, wie Planning Hub im Betrieb aussieht.</span>
-            <a class="sim-banner-cta" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
+            <a class="demo-banner-cta" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
         </div>
         {% endif %}
 
