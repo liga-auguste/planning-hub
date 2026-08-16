@@ -15,6 +15,7 @@ import markdown
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.test import (
     Client,
@@ -214,6 +215,37 @@ class StaticStorageConfigTest(SimpleTestCase):
         )
 
 
+class SecretKeyConfTest(SimpleTestCase):
+    """Same principle #47 established for DEBUG, applied to SECRET_KEY: the
+    previous code fell back to a hardcoded string committed to this repo,
+    which is not a secret in any deployment that skips the documented `.env`
+    step — indistinguishable from running session signing and CSRF
+    protection on a publicly known key. Unlike DEBUG or ALLOWED_HOSTS, there
+    is no value that is both valid and safe to default to, so a missing
+    SECRET_KEY must fail closed by raising, not by falling back."""
+
+    def test_secret_key_raises_when_unset(self):
+        # django.conf.settings copied its values at process startup —
+        # reloading the module object touches nothing the running suite
+        # reads (see StaticStorageConfigTest).
+        import planning_hub.settings as settings_module
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaises(ImproperlyConfigured),
+        ):
+            importlib.reload(settings_module)
+        importlib.reload(settings_module)  # re-derive the test-run state
+
+    def test_secret_key_respected_when_set(self):
+        import planning_hub.settings as settings_module
+
+        with patch.dict(os.environ, {"SECRET_KEY": "test-key"}, clear=True):
+            secret_key = importlib.reload(settings_module).SECRET_KEY
+        importlib.reload(settings_module)
+        self.assertEqual(secret_key, "test-key")
+
+
 class DebugDefaultConfTest(SimpleTestCase):
     """#47: DEBUG must fail closed. An unset DEBUG env var previously
     defaulted to True, rendering full tracebacks (settings values, installed
@@ -226,10 +258,12 @@ class DebugDefaultConfTest(SimpleTestCase):
     def test_debug_defaults_to_false_when_env_var_unset(self):
         # django.conf.settings copied its values at process startup —
         # reloading the module object touches nothing the running suite
-        # reads (see StaticStorageConfigTest).
+        # reads (see StaticStorageConfigTest). SECRET_KEY has to ride along
+        # here too, now that it fails closed in the same reload (see
+        # SecretKeyConfTest) — this test isolates DEBUG, not SECRET_KEY.
         import planning_hub.settings as settings_module
 
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"SECRET_KEY": "test-key"}, clear=True):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)  # re-derive the test-run state
         self.assertFalse(debug)
@@ -237,7 +271,8 @@ class DebugDefaultConfTest(SimpleTestCase):
     def test_debug_true_still_respected_when_set(self):
         import planning_hub.settings as settings_module
 
-        with patch.dict(os.environ, {"DEBUG": "true"}, clear=True):
+        env = {"DEBUG": "true", "SECRET_KEY": "test-key"}
+        with patch.dict(os.environ, env, clear=True):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)
         self.assertTrue(debug)

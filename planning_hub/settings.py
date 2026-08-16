@@ -14,6 +14,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,9 +24,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "SECRET_KEY", "django-insecure-femd9i5-v0bmrf&k7=fc$gj#-rulmgj)gh#2tpd*6(w5+l@drj"
-)
+# No fallback: unlike DEBUG or ALLOWED_HOSTS (#47), there is no value here
+# that is both valid and safe to default to — any hardcoded string is public
+# the moment it ships in this repo. Missing it must fail closed, not run
+# signing and CSRF protection on a known key.
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "SECRET_KEY environment variable is not set. Set it in the "
+        "environment or .env file before starting the server."
+    )
 
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 

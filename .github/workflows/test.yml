@@ -52,3 +52,7 @@ jobs:
           # Django needs in order to create test_planning_hub.
           DB_USER: postgres
           DB_PASSWORD: postgres
+          # settings.py fails closed if this is unset (no insecure fallback
+          # is worth having); the value itself is throwaway, scoped to this
+          # job's process only.
+          SECRET_KEY: ci-test-key
