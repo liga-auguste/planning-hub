@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 
 from .ai import AIUnavailableError, generate_weekly_summary
 from .demo_data import get_demo_projects
@@ -23,6 +24,12 @@ from .notion import (
 
 logger = logging.getLogger(__name__)
 
+# #14: kept rather than switched to Django's l10n date formatting. Every date
+# display that reads LANGUAGE_CODE-dependent formatting (dashboard, kanban,
+# /mein-plan/, /stats/, planner review, Markdown export) goes through these
+# tables or _format_date(), not Django's |date filter — the one |date use in
+# dashboard.html is a fully numeric, locale-invariant format. Removing these
+# would buy nothing.
 MONTHS_DE = {
     1: "Januar",
     2: "Februar",
@@ -83,7 +90,7 @@ def _bust_dashboard_cache():
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v4"
 # The multi-project demo summary: get_demo_projects() is a pure function of
-# date.today() and holds no per-visitor data, so one Claude call per day serves
+# timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
@@ -289,7 +296,7 @@ def _parse_posted_date(request):
 
 
 def dashboard(request):
-    today = date.today()
+    today = timezone.localdate()
     has_session_plan = False
     plan_exists = False
     force_multi = request.GET.get("mode") == "multi"
@@ -459,7 +466,7 @@ def preload_timelapse_summary(request):
     if error:
         return error
 
-    today = date.today()
+    today = timezone.localdate()
     sim_date = date.fromisoformat(sim_date_str) if sim_date_str else None
     effective_today = sim_date or today
     summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
@@ -613,7 +620,7 @@ def my_plan(request):
     if not plan:
         return redirect("index")
 
-    today = date.today()
+    today = timezone.localdate()
     project = _build_session_project(plan)
     project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
@@ -655,7 +662,7 @@ def download_plan(request):
     if not plan:
         return redirect("index")
 
-    today = date.today()
+    today = timezone.localdate()
     event_date = date.fromisoformat(plan["event_date"])
     event_display = _format_date(event_date)
 

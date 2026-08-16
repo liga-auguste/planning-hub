@@ -4,9 +4,10 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx
@@ -32,7 +33,7 @@ from .ai import (
     generate_timelapse_moments,
     generate_weekly_summary,
 )
-from .models import PlannerRule
+from .models import DemoEvent, PlannerRule
 from .notion import (
     NotionUnavailableError,
     create_project,
@@ -240,6 +241,67 @@ class DebugDefaultConfTest(SimpleTestCase):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)
         self.assertTrue(debug)
+
+
+class LocaleAndTimeZoneConfTest(SimpleTestCase):
+    """#14: LANGUAGE_CODE and TIME_ZONE contradicted the German UI — both
+    base templates declare <html lang="de"> and the audience is in Germany,
+    but settings.py shipped Django's en-us/UTC defaults."""
+
+    def test_language_code_is_german(self):
+        self.assertEqual(settings.LANGUAGE_CODE, "de")
+
+    def test_time_zone_is_berlin(self):
+        self.assertEqual(settings.TIME_ZONE, "Europe/Berlin")
+
+    def test_use_i18n_stays_on_for_the_admin_chrome(self):
+        self.assertTrue(settings.USE_I18N)
+
+    def test_the_time_zone_name_resolves(self):
+        # python:3.12-slim ships without the IANA database, so this catches
+        # a missing tzdata dependency before it reaches production.
+        ZoneInfo(settings.TIME_ZONE)
+
+
+class AdminLoginRendersGermanTest(TestCase):
+    """#14: USE_I18N stays on specifically so Django translates its own
+    admin chrome, since the app itself has no {% trans %} of its own."""
+
+    def test_admin_login_page_is_german(self):
+        response = self.client.get(reverse("admin:login"))
+        self.assertContains(response, "Anmelden")
+        self.assertContains(response, "Benutzername")
+        self.assertContains(response, "Passwort")
+
+
+class NoDateTodayCallsTest(SimpleTestCase):
+    """#85: date.today() reads the container's system clock, not
+    settings.TIME_ZONE — near midnight, that can land "today" on the wrong
+    calendar day relative to Europe/Berlin. Pinned to timezone.localdate()
+    at all 4 call-site files so this can't quietly regress."""
+
+    FILES = ["views.py", "ai.py", "demo_data.py", "planner_views.py"]
+
+    def test_no_bare_date_today_remains(self):
+        for name in self.FILES:
+            with self.subTest(file=name):
+                source = (settings.BASE_DIR / "projects" / name).read_text()
+                self.assertNotIn("date.today()", source)
+
+
+class DemoEventLocalTimeTest(SimpleTestCase):
+    """#14: __str__ formatted created_at via a raw f-string, which bypasses
+    Django's timezone conversion — that only runs through template filters
+    or an explicit timezone.localtime() call."""
+
+    def test_str_renders_berlin_local_time_not_utc(self):
+        event = DemoEvent(
+            event_type="plan_started",
+            project_type="konzert",
+            created_at=datetime(2026, 1, 15, 23, 30, tzinfo=UTC),
+        )
+        self.assertIn("16.01.2026 00:30", str(event))
+        self.assertNotIn("15.01.2026 23:30", str(event))
 
 
 class HashedStaticFilesTest(DemoModeTestCase):
@@ -1408,6 +1470,39 @@ class MyPlanEventDateDisplayTest(DemoModeTestCase):
         self.assertContains(response, _format_date(date.today() + timedelta(days=30)))
 
 
+class MidnightBoundaryUsesLocalDateTest(DemoModeTestCase):
+    """#85: task urgency used to be computed from date.today(), which reads
+    the container's system clock rather than settings.TIME_ZONE."""
+
+    @patch("django.utils.timezone.now")
+    def test_my_plan_urgency_follows_the_berlin_date(self, mock_now):
+        # 23:30 UTC on 2026-01-15 is already 00:30 CET on 2026-01-16 — in
+        # winter Berlin runs UTC+1, so its "today" is one day ahead here.
+        mock_now.return_value = datetime(2026, 1, 15, 23, 30, tzinfo=UTC)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-berlin-yesterday",
+                    "name": "Gestern in Berlin fällig",
+                    "date": "2026-01-15",
+                    "kontext": "",
+                    "done": False,
+                },
+                {
+                    "id": "t-berlin-today",
+                    "name": "Heute in Berlin fällig",
+                    "date": "2026-01-16",
+                    "kontext": "",
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'class="dot overdue"')
+        self.assertContains(response, 'class="dot urgent"')
+        self.assertNotContains(response, 'class="dot ok"')
+
+
 class PreloadAiFailureTest(DemoModeTestCase):
     def test_preload_reports_ok_false_and_writes_nothing_to_the_session(self):
         self.given_session_plan()
@@ -2231,6 +2326,22 @@ class AnthropicFailureTranslationTest(SimpleTestCase):
 
 def _fake_response(text):
     return Mock(content=[Mock(text=text)])
+
+
+class TimelapseBaselineUsesLocalDateTest(SimpleTestCase):
+    """#85: generate_timelapse_moments used date.today() as the "Zeitraum"
+    start date fed into the Claude prompt — same day-boundary bug as task
+    urgency, just baked into a prompt instead of an urgency bucket."""
+
+    @patch("django.utils.timezone.now")
+    def test_prompt_zeitraum_start_is_the_berlin_date(self, mock_now):
+        mock_now.return_value = datetime(2026, 1, 15, 23, 30, tzinfo=UTC)
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response("[]")
+            generate_timelapse_moments("Test", date(2026, 2, 1), [])
+        prompt = create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("Zeitraum: 2026-01-16 bis", prompt)
 
 
 class GeneratePlanRetryTest(SimpleTestCase):

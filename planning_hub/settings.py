@@ -122,10 +122,13 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "de"
 
-TIME_ZONE = "UTC"
+TIME_ZONE = "Europe/Berlin"
 
+# No LOCALE_PATHS, no {% trans %} anywhere — the app's own strings are
+# hardcoded German. This stays on purely so Django translates its own
+# admin chrome (login form, model list) via its bundled de translations.
 USE_I18N = True
 
 USE_TZ = True

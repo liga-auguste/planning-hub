@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 # Project and task data lives in Notion (see projects/notion.py), not here.
 # What remains are the two things that are genuinely local: anonymous demo
@@ -26,7 +27,8 @@ class DemoEvent(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.event_type} / {self.project_type} / {self.created_at:%d.%m.%Y %H:%M}"
+        local_created_at = timezone.localtime(self.created_at)
+        return f"{self.event_type} / {self.project_type} / {local_created_at:%d.%m.%Y %H:%M}"
 
 
 class PlannerRule(models.Model):

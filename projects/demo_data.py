@@ -1,8 +1,10 @@
-from datetime import date, timedelta
+from datetime import timedelta
+
+from django.utils import timezone
 
 
 def get_demo_projects():
-    today = date.today()
+    today = timezone.localdate()
 
     def d(offset):
         return today + timedelta(days=offset)
@@ -363,7 +365,7 @@ def get_demo_projects():
 
 
 def get_demo_history():
-    today = date.today()
+    today = timezone.localdate()
 
     def d(offset):
         return today + timedelta(days=offset)

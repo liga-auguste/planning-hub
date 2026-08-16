@@ -5,3 +5,4 @@ Markdown==3.10.3
 notion-client==2.2.1
 psycopg2-binary==2.9.12
 python-dotenv==1.2.2
+tzdata==2026.3
