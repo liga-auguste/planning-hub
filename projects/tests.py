@@ -4,9 +4,10 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx
@@ -32,7 +33,7 @@ from .ai import (
     generate_timelapse_moments,
     generate_weekly_summary,
 )
-from .models import PlannerRule
+from .models import DemoEvent, PlannerRule
 from .notion import (
     NotionUnavailableError,
     create_project,
@@ -240,6 +241,52 @@ class DebugDefaultConfTest(SimpleTestCase):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)
         self.assertTrue(debug)
+
+
+class LocaleAndTimeZoneConfTest(SimpleTestCase):
+    """#14: LANGUAGE_CODE and TIME_ZONE contradicted the German UI — both
+    base templates declare <html lang="de"> and the audience is in Germany,
+    but settings.py shipped Django's en-us/UTC defaults."""
+
+    def test_language_code_is_german(self):
+        self.assertEqual(settings.LANGUAGE_CODE, "de")
+
+    def test_time_zone_is_berlin(self):
+        self.assertEqual(settings.TIME_ZONE, "Europe/Berlin")
+
+    def test_use_i18n_stays_on_for_the_admin_chrome(self):
+        self.assertTrue(settings.USE_I18N)
+
+    def test_the_time_zone_name_resolves(self):
+        # python:3.12-slim ships without the IANA database, so this catches
+        # a missing tzdata dependency before it reaches production.
+        ZoneInfo(settings.TIME_ZONE)
+
+
+class AdminLoginRendersGermanTest(TestCase):
+    """#14: USE_I18N stays on specifically so Django translates its own
+    admin chrome, since the app itself has no {% trans %} of its own."""
+
+    def test_admin_login_page_is_german(self):
+        response = self.client.get(reverse("admin:login"))
+        self.assertContains(response, "Anmelden")
+        self.assertContains(response, "Benutzername")
+        self.assertContains(response, "Passwort")
+
+
+class DemoEventLocalTimeTest(SimpleTestCase):
+    """#14: __str__ formatted created_at via a raw f-string, which bypasses
+    Django's timezone conversion — that only runs through template filters
+    or an explicit timezone.localtime() call."""
+
+    def test_str_renders_berlin_local_time_not_utc(self):
+        event = DemoEvent(
+            event_type="plan_started",
+            project_type="konzert",
+            created_at=datetime(2026, 1, 15, 23, 30, tzinfo=dt_timezone.utc),
+        )
+        self.assertIn("16.01.2026 00:30", str(event))
+        self.assertNotIn("15.01.2026 23:30", str(event))
 
 
 class HashedStaticFilesTest(DemoModeTestCase):

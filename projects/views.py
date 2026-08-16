@@ -23,6 +23,12 @@ from .notion import (
 
 logger = logging.getLogger(__name__)
 
+# #14: kept rather than switched to Django's l10n date formatting. Every date
+# display that reads LANGUAGE_CODE-dependent formatting (dashboard, kanban,
+# /mein-plan/, /stats/, planner review, Markdown export) goes through these
+# tables or _format_date(), not Django's |date filter — the one |date use in
+# dashboard.html is a fully numeric, locale-invariant format. Removing these
+# would buy nothing.
 MONTHS_DE = {
     1: "Januar",
     2: "Februar",
