@@ -213,6 +213,35 @@ class StaticStorageConfigTest(SimpleTestCase):
         )
 
 
+class DebugDefaultConfTest(SimpleTestCase):
+    """#47: DEBUG must fail closed. An unset DEBUG env var previously
+    defaulted to True, rendering full tracebacks (settings values, installed
+    apps, stack trace) on any unhandled exception — a fresh clone without
+    .env, an incomplete deploy step, or a misconfigured container all hit
+    this silently. .env.example already documents DEBUG=false for both
+    deployment paths; this pins the code to match when that step is
+    skipped."""
+
+    def test_debug_defaults_to_false_when_env_var_unset(self):
+        # django.conf.settings copied its values at process startup —
+        # reloading the module object touches nothing the running suite
+        # reads (see StaticStorageConfigTest).
+        import planning_hub.settings as settings_module
+
+        with patch.dict(os.environ, {}, clear=True):
+            debug = importlib.reload(settings_module).DEBUG
+        importlib.reload(settings_module)  # re-derive the test-run state
+        self.assertFalse(debug)
+
+    def test_debug_true_still_respected_when_set(self):
+        import planning_hub.settings as settings_module
+
+        with patch.dict(os.environ, {"DEBUG": "true"}, clear=True):
+            debug = importlib.reload(settings_module).DEBUG
+        importlib.reload(settings_module)
+        self.assertTrue(debug)
+
+
 class HashedStaticFilesTest(DemoModeTestCase):
     """#74 end to end: under ManifestStaticFilesStorage, collectstatic writes
     a content-hashed twin of every file plus the manifest that maps plain
