@@ -1937,7 +1937,8 @@ class TemplateCommentTest(DemoModeTestCase):
     parsed as a comment and renders literally. It shipped twice: caught by
     accident in #57, and live in production from #56 until this test existed.
     Both dashboard modes are covered — the second leak sat in the per-task
-    markup, which only the task rows render."""
+    markup, which only the task rows render. my_plan is covered too, since #7
+    added its own multi-line comment above {% block body %}."""
 
     def assertNoLeakedComment(self, response):
         for marker in ("{#", "#}"):
@@ -1951,6 +1952,10 @@ class TemplateCommentTest(DemoModeTestCase):
     def test_the_single_plan_view_renders_no_template_comment(self):
         self.given_session_plan()
         self.assertNoLeakedComment(self.client.get(reverse("dashboard")))
+
+    def test_my_plan_renders_no_template_comment(self):
+        self.given_session_plan()
+        self.assertNoLeakedComment(self.client.get(reverse("my_plan")))
 
 
 class KontextBadgeTest(DemoModeTestCase):
@@ -3524,9 +3529,7 @@ class PlannerRulesBackLinkTest(DemoModeTestCase):
     def test_back_link_carries_the_previously_chosen_type(self):
         self.client.get(reverse("planner_start") + "?type=konzert")
         response = self.client.get(reverse("rules_list"))
-        self.assertContains(
-            response, f'href="{reverse("planner_start")}?type=konzert"'
-        )
+        self.assertContains(response, f'href="{reverse("planner_start")}?type=konzert"')
 
 
 class PlannerRulesDemoModeTest(DemoModeTestCase):

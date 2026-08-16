@@ -59,6 +59,12 @@
     @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
 {% endblock %}
 
+{% comment %}
+Deliberately a standalone page: overrides {% block body %} entirely and
+inherits only the CSS shell from base_dashboard.html. A focused list view
+without a sidebar — navigation runs through the top-nav above instead. See
+docs/demo-mode.md.
+{% endcomment %}
 {% block body %}
 <div class="page">
     <div class="top-nav">

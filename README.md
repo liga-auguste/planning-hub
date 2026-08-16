@@ -90,7 +90,7 @@ Each production task belongs to a workflow context (e.g. planning, admin, on-sit
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
 - **8h caching with stale fallback** — Notion API responses cached in a shared database backend; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual refresh button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
-- **DEMO_MODE** — runs on fixture data, no Notion credentials needed
+- **DEMO_MODE** — runs on fixture data, no Notion credentials needed. Navigation between the visitor's own plan and the example projects is documented in [`docs/demo-mode.md`](docs/demo-mode.md)
 
 ---
 
@@ -229,6 +229,10 @@ projects/
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 15 templates, all JS inline
   management/commands/seed_rules.py  # Seed initial planner rules
+docs/
+  template-refactoring.md  # Base-template inheritance layout, as carried out
+  demo-mode.md              # Demo-mode navigation states, sidebar links, banner
+  screenshots/              # README images
 ```
 
 ---
