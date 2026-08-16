@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import date
 
 import anthropic
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ def generate_timelapse_moments(
     project_name: str, event_date: date, tasks: list
 ) -> list:
     """Returns 4 narrative key moments as [{date_iso, label, description}]."""
-    today = date.today()
+    today = timezone.localdate()
     client = anthropic.Anthropic()
     task_lines = "\n".join(
         f"- {t['name']} (fällig: {t['date']})" for t in tasks if t.get("date")

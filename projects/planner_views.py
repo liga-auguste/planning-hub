@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 
 from . import rules as rules_store
 from .ai import KONTEXTE, AIUnavailableError, generate_timelapse_moments
@@ -151,7 +152,7 @@ def _get_history():
 
 
 def _parse_event_date(description: str):
-    today = date.today()
+    today = timezone.localdate()
     # With a year
     m = re.search(r"(\d{1,2})\.\s+(\w+)\s+(\d{4})", description, re.IGNORECASE)
     if m:
