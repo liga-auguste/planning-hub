@@ -56,10 +56,9 @@ the existing time-lapse banner (`{% if sim_date %}`) and the stale-data notice
 `has_session_plan` and the other needs its negation. It does **not** reuse `.sim-banner` —
 that surface is deliberately dark in both themes (see its comment in `base.css`), the right
 weight for a cookie notice or an active time-lapse simulation, but too heavy for a banner that
-sits on screen through most of a demo visit. `.demo-banner` uses the same layout with the
-previously-unused `--color-accent-tint` token instead: a soft tinted background with
-`--color-accent` text, matching how `.stale-notice` already softens its own tone with
-`--color-overdue-tint`.
+sits on screen through most of a demo visit. `.demo-banner` copies `.sim-banner`'s layout with
+`--color-bg-tertiary`/`--color-text-secondary` instead — the same neutral grey the sidebar's
+active state and the task-context badges already use, rather than a new colour.
 
 ---
 
