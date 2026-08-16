@@ -1796,6 +1796,35 @@ class MyPlanSidebarLinkTest(DemoModeTestCase):
         self.assertContains(response, f'href="{reverse("my_plan")}"')
 
 
+class DemoDataBannerTest(DemoModeTestCase):
+    """#7: nothing on the dashboard told a visitor the 5 example projects are
+    sample data rather than something real. viewing_demo_data is true
+    whenever demo mode is showing the fixtures, i.e. whenever
+    has_session_plan is false."""
+
+    def test_banner_shows_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_shows_without_a_session_plan_under_multi_view(self):
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_hidden_while_viewing_the_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Beispieldaten")
+
+    def test_banner_shows_for_the_example_projects_with_a_session_plan_too(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_cta_links_to_the_planner(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("planner_start")}"')
+
+
 class MultiViewSimDateTest(DemoModeTestCase):
     """#50: the simulated date used to be read before the mode was known, so a
     Zeitreise set on the visitor's own plan classified and narrated the example

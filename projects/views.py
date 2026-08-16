@@ -374,6 +374,8 @@ def dashboard(request):
                     cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
                     cache.set(STALE_CACHE_KEY, (projects, summary), None)
 
+    viewing_demo_data = settings.DEMO_MODE and not has_session_plan
+
     for project in projects:
         project["display_name"] = _strip_year(project["name"])
         project["event_date_display"] = _format_date(project["event_date"])
@@ -426,6 +428,7 @@ def dashboard(request):
             "has_session_plan": has_session_plan,
             "plan_exists": plan_exists,
             "force_multi": force_multi,
+            "viewing_demo_data": viewing_demo_data,
             "demo_mode": settings.DEMO_MODE,
             "timelapse_moments": json.dumps(timelapse_moments),
             "precached_moments": json.dumps(precached_moments),
