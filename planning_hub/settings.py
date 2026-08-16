@@ -26,7 +26,7 @@ SECRET_KEY = os.environ.get(
     "SECRET_KEY", "django-insecure-femd9i5-v0bmrf&k7=fc$gj#-rulmgj)gh#2tpd*6(w5+l@drj"
 )
 
-DEBUG = os.environ.get("DEBUG", "true").lower() == "true"
+DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
