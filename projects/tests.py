@@ -1483,6 +1483,18 @@ class SummarySessionCacheTest(DemoModeTestCase):
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
+class MyPlanMultiViewCtaTest(DemoModeTestCase):
+    """#7: my_plan only ever renders with a session plan present, so its
+    "Mehrprojekt-Dashboard ansehen" CTA landing on plain {% url 'dashboard' %}
+    always bounced back into the single-project view instead of the example
+    projects it promises."""
+
+    def test_the_cta_links_to_the_multi_project_view(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, f'href="{reverse("dashboard")}?mode=multi"')
+
+
 class MyPlanAiFailureTest(DemoModeTestCase):
     def test_my_plan_degrades_without_a_summary(self):
         self.given_session_plan()
@@ -1759,6 +1771,60 @@ class MultiViewSidebarLinkTest(DemoModeTestCase):
         self.assertNotContains(response, "Projekt selbst planen")
 
 
+class MyPlanSidebarLinkTest(DemoModeTestCase):
+    """#7: /mein-plan/ was fully built but linked from nowhere, reachable only
+    by typing the URL. The link belongs wherever a session plan exists —
+    both while looking at it (has_session_plan) and while looking at the
+    example projects instead (plan_exists, force_multi)."""
+
+    def test_no_link_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_no_link_without_a_session_plan_under_multi_view(self):
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertNotContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_shows_link_while_viewing_the_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_shows_link_while_viewing_the_example_projects(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, f'href="{reverse("my_plan")}"')
+
+
+class DemoDataBannerTest(DemoModeTestCase):
+    """#7: nothing on the dashboard told a visitor the 5 example projects are
+    sample data rather than something real. viewing_demo_data is true
+    whenever demo mode is showing the fixtures, i.e. whenever
+    has_session_plan is false."""
+
+    def test_banner_shows_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_shows_without_a_session_plan_under_multi_view(self):
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_hidden_while_viewing_the_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Beispieldaten")
+
+    def test_banner_shows_for_the_example_projects_with_a_session_plan_too(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, "Beispieldaten")
+
+    def test_banner_cta_links_to_the_planner(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("planner_start")}"')
+
+
 class MultiViewSimDateTest(DemoModeTestCase):
     """#50: the simulated date used to be read before the mode was known, so a
     Zeitreise set on the visitor's own plan classified and narrated the example
@@ -1871,7 +1937,8 @@ class TemplateCommentTest(DemoModeTestCase):
     parsed as a comment and renders literally. It shipped twice: caught by
     accident in #57, and live in production from #56 until this test existed.
     Both dashboard modes are covered — the second leak sat in the per-task
-    markup, which only the task rows render."""
+    markup, which only the task rows render. my_plan is covered too, since #7
+    added its own multi-line comment above {% block body %}."""
 
     def assertNoLeakedComment(self, response):
         for marker in ("{#", "#}"):
@@ -1885,6 +1952,10 @@ class TemplateCommentTest(DemoModeTestCase):
     def test_the_single_plan_view_renders_no_template_comment(self):
         self.given_session_plan()
         self.assertNoLeakedComment(self.client.get(reverse("dashboard")))
+
+    def test_my_plan_renders_no_template_comment(self):
+        self.given_session_plan()
+        self.assertNoLeakedComment(self.client.get(reverse("my_plan")))
 
 
 class KontextBadgeTest(DemoModeTestCase):
@@ -3441,6 +3512,24 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'title="Datum ändern"')
         self.assertContains(response, 'data-task-id="task-1"')
+
+
+class PlannerRulesBackLinkTest(DemoModeTestCase):
+    """#7 (inherited from #22): the rules page's "← Planer" link always
+    returned to the empty tile step, discarding whatever project type the
+    visitor had already chosen — even though planner_start's ?type= handler
+    already writes it to the session unconditionally. Only the step is
+    restored, not unsaved free text (see PlannerTileLinksTest for why)."""
+
+    def test_back_link_is_bare_without_a_chosen_type(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, f'href="{reverse("planner_start")}"')
+        self.assertNotContains(response, "?type=")
+
+    def test_back_link_carries_the_previously_chosen_type(self):
+        self.client.get(reverse("planner_start") + "?type=konzert")
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, f'href="{reverse("planner_start")}?type=konzert"')
 
 
 class PlannerRulesDemoModeTest(DemoModeTestCase):

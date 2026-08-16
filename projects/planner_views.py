@@ -373,6 +373,7 @@ def rules_list(request):
         {
             "rules": rules_store.get_rules(request),
             "demo_mode": settings.DEMO_MODE,
+            "back_type": request.session.get("demo_project_type", ""),
         },
     )
 
