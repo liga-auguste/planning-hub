@@ -1483,6 +1483,18 @@ class SummarySessionCacheTest(DemoModeTestCase):
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
+class MyPlanMultiViewCtaTest(DemoModeTestCase):
+    """#7: my_plan only ever renders with a session plan present, so its
+    "Mehrprojekt-Dashboard ansehen" CTA landing on plain {% url 'dashboard' %}
+    always bounced back into the single-project view instead of the example
+    projects it promises."""
+
+    def test_the_cta_links_to_the_multi_project_view(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, f'href="{reverse("dashboard")}?mode=multi"')
+
+
 class MyPlanAiFailureTest(DemoModeTestCase):
     def test_my_plan_degrades_without_a_summary(self):
         self.given_session_plan()
