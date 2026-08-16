@@ -825,6 +825,24 @@ class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
         self.assertIn(".top-bar { flex-wrap: wrap;", css)
 
 
+class LandingFlowStepOrderTest(DemoModeTestCase):
+    """#86: nothing stopped a visitor from hovering step 2 or 3 before step 1,
+    and reveal() still fast-forwarded data-reached to match. The handler now
+    refuses to open a step until every step before it has been reached."""
+
+    def test_reveal_refuses_to_open_ahead_of_reached(self):
+        response = self.client.get("/")
+        self.assertContains(
+            response, "if (Number(flow.dataset.reached || 0) < i) return;"
+        )
+
+    def test_the_pulse_is_more_pronounced(self):
+        response = self.client.get("/")
+        self.assertContains(response, "opacity: 0.7; transform: scale(1);")
+        self.assertContains(response, "transform: scale(3.4);")
+        self.assertNotContains(response, "scale(2.8)")
+
+
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the

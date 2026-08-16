@@ -236,11 +236,13 @@
     .flow[data-reached="3"] .flow-dot { fill: var(--color-text-primary); stroke: var(--color-text-primary); }
 
     /* The invitation: whichever station comes next quietly pulses. Untouched,
-       that is the first one, so the page shows where to start on its own. */
+       that is the first one, so the page shows where to start on its own.
+       Now that reveal() blocks skipping ahead, this pulse is the only cue
+       for where to go next, so it runs bigger and brighter than before. */
     @keyframes flow-pulse {
-        0%   { opacity: 0.45; transform: scale(1); }
-        75%  { opacity: 0;    transform: scale(2.8); }
-        100% { opacity: 0;    transform: scale(2.8); }
+        0%   { opacity: 0.7; transform: scale(1); }
+        75%  { opacity: 0;    transform: scale(3.4); }
+        100% { opacity: 0;    transform: scale(3.4); }
     }
     .flow:not([data-reached]) .flow-halo-1,
     .flow[data-reached="1"] .flow-halo-2,
@@ -426,6 +428,9 @@
     // and data-reached only ever climbs, so the page fills up as it is explored.
     flow.querySelectorAll('.step').forEach(function (step, i) {
         function reveal() {
+            // Step i can only open once every step before it has: step 1 (i=0)
+            // always passes, since data-reached defaults to 0.
+            if (Number(flow.dataset.reached || 0) < i) return;
             step.classList.add('is-open');
             if (i + 1 > Number(flow.dataset.reached || 0)) {
                 flow.dataset.reached = i + 1;
