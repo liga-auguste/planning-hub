@@ -62,6 +62,10 @@ Every Claude call runs inside the request — no task queue, no background worke
 
 The one place where that blocking was worth removing is the multi-project demo view — where the landing-page CTA sends every first-time visitor. Its input is a pure function of `date.today()` with no per-visitor data, so its summary is cached for the day instead of being generated per request. The cache (`DatabaseCache`, shared across both gunicorn workers) makes that one call per day, not one per worker.
 
+### Structured logging over a hosted tracker
+
+Every Claude call goes through one wrapper (`log_claude_call` in `ai.py`) that already existed to translate SDK failures into the app's own `AIUnavailableError`; it now also times the call and logs the model, duration and token usage on success — or just the outcome on failure — as one plain key=value line (`claude_call call=... model=... duration_ms=... input_tokens=... output_tokens=... outcome=...`) via a dedicated `projects` logger. A `StreamHandler` writes it to the console: the Dockerfile already runs with `PYTHONUNBUFFERED=1`, and `docker compose logs` is what's reachable in this deployment, since neither compose file mounts a log volume. No Sentry or other hosted tracker — this is a project with one user, and the same questions (how long a call took, what it cost, whether it succeeded) are answered by grepping `docker compose logs` for `claude_call`, without a second account or dependency.
+
 ### Domain rules in the prompt, not in code
 
 Every domain has planning rules that Claude doesn't know by default — legal requirements, vendor workflows, internal conventions. These are encoded explicitly in the prompt as editable rules rather than as conditional logic, so planning heuristics stay readable, adjustable, and separate from application code.

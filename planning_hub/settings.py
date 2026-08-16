@@ -177,6 +177,27 @@ STORAGES = {
     },
 }
 
+# Structured logging for the Claude API calls (#31): duration, tokens and
+# outcome per call, since the Anthropic console can't attribute a call to a
+# view and the dashboard's 8h cache hides a slow or expensive call otherwise.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "{asctime} {levelname} {name} {message}", "style": "{"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+    },
+    "loggers": {
+        "projects": {
+            "handlers": ["console"],
+            "level": "CRITICAL" if _TESTING else "INFO",
+            "propagate": False,
+        },
+    },
+}
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
