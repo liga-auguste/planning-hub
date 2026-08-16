@@ -1,5 +1,6 @@
 import json as _json
 import logging
+import time
 from contextlib import contextmanager
 from datetime import date
 
@@ -17,19 +18,43 @@ class AIUnavailableError(Exception):
 
 
 @contextmanager
-def translate_anthropic_errors():
-    """Wraps a Claude call site.
+def log_claude_call(call_name: str):
+    """Wraps a Claude call site: exception translation (#29) plus structured
+    duration/usage logging (#31), so a slow or expensive call is visible
+    without going through the Anthropic console.
 
     anthropic.Anthropic already retries connection errors, timeouts, 429s and
-    5xxs internally (max_retries=2 by default) before raising, so this only
-    has to catch what survives that and turn it into the one exception the
-    views know how to show.
+    5xxs internally (max_retries=2 by default) before raising, so the except
+    clause only has to catch what survives that and turn it into the one
+    exception the views know how to show.
+
+    Populate result["message"] with the SDK response (or
+    stream.get_final_message() for a streaming call) before the block ends,
+    so the log line can report the model and token usage.
     """
+    started = time.monotonic()
+    result = {}
     try:
-        yield
+        yield result
     except anthropic.APIError as exc:
-        logger.warning("Anthropic call failed: %s", exc)
+        logger.warning(
+            "claude_call call=%s duration_ms=%.0f outcome=error error=%s",
+            call_name,
+            (time.monotonic() - started) * 1000,
+            exc,
+        )
         raise AIUnavailableError("Claude request failed") from exc
+    else:
+        message = result.get("message")
+        usage = message.usage if message else None
+        logger.info(
+            "claude_call call=%s model=%s duration_ms=%.0f input_tokens=%s output_tokens=%s outcome=success",
+            call_name,
+            message.model if message else "?",
+            (time.monotonic() - started) * 1000,
+            usage.input_tokens if usage else "?",
+            usage.output_tokens if usage else "?",
+        )
 
 
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
@@ -195,12 +220,13 @@ Antworte NUR mit einem JSON-Array, kein anderer Text:
 
 Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortiert."""
 
-    with translate_anthropic_errors():
+    with log_claude_call("generate_timelapse_moments") as result:
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
+        result["message"] = response
     text = response.content[0].text.strip()
     if "```" in text:
         text = text.split("```")[1]
@@ -216,11 +242,13 @@ def generate_weekly_summary(
     prompt = build_prompt(projects, today, single_project_demo=single_project_demo)
 
     with (
-        translate_anthropic_errors(),
+        log_claude_call("generate_weekly_summary") as result,
         client.messages.stream(
             model="claude-sonnet-4-6",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         ) as stream,
     ):
-        return stream.get_final_text()
+        text = stream.get_final_text()
+        result["message"] = stream.get_final_message()
+        return text

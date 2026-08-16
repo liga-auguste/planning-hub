@@ -3,7 +3,7 @@ import logging
 
 import anthropic
 
-from .ai import KONTEXTE, AIUnavailableError, translate_anthropic_errors
+from .ai import KONTEXTE, AIUnavailableError, log_claude_call
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +59,24 @@ Stelle maximal 4 gezielte Fragen. Nur Fragen, deren Antwort die Aufgabenliste
 wirklich verändert. Keine Fragen, die du aus dem Kontext schon beantworten kannst.
 Auf Deutsch, kurz und direkt."""
 
-    with translate_anthropic_errors():
+    with log_claude_call("get_clarifying_questions") as result:
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
+        result["message"] = response
     return response.content[0].text
 
 
 def _generate_plan_text(client, prompt: str) -> str:
-    with translate_anthropic_errors():
+    with log_claude_call("generate_plan") as result:
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
+        result["message"] = response
     raw = response.content[0].text.strip()
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()

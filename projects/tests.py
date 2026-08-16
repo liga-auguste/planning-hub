@@ -6,7 +6,7 @@ import sys
 import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 import anthropic
@@ -33,6 +33,7 @@ from .ai import (
     build_prompt,
     generate_timelapse_moments,
     generate_weekly_summary,
+    log_claude_call,
 )
 from .models import DemoEvent, PlannerRule
 from .notion import (
@@ -2430,8 +2431,51 @@ class AnthropicFailureTranslationTest(SimpleTestCase):
         self.assertIs(ctx.exception.__cause__, timeout)
 
 
-def _fake_response(text):
-    return Mock(content=[Mock(text=text)])
+def _fake_response(text, model="claude-sonnet-4-6", input_tokens=100, output_tokens=50):
+    return Mock(
+        content=[Mock(text=text)],
+        model=model,
+        usage=Mock(input_tokens=input_tokens, output_tokens=output_tokens),
+    )
+
+
+class LogClaudeCallTest(SimpleTestCase):
+    """log_claude_call (#31) wraps a Claude call site: exception translation
+    (#29) plus structured duration/usage logging on success."""
+
+    def test_logs_model_duration_and_tokens_on_success(self):
+        with (
+            self.assertLogs("projects.ai", level="INFO") as cm,
+            log_claude_call("some_call") as result,
+        ):
+            result["message"] = _fake_response(
+                "hi", model="claude-sonnet-4-6", input_tokens=123, output_tokens=45
+            )
+        [record] = cm.output
+        self.assertIn("call=some_call", record)
+        self.assertIn("model=claude-sonnet-4-6", record)
+        self.assertIn("input_tokens=123", record)
+        self.assertIn("output_tokens=45", record)
+        self.assertIn("outcome=success", record)
+
+    def test_logs_outcome_error_on_anthropic_failure(self):
+        with (
+            self.assertLogs("projects.ai", level="WARNING") as cm,
+            self.assertRaises(AIUnavailableError),
+            log_claude_call("some_call"),
+        ):
+            raise _anthropic_timeout_error()
+        [record] = cm.output
+        self.assertIn("call=some_call", record)
+        self.assertIn("outcome=error", record)
+
+    def test_success_path_does_not_also_log_a_warning(self):
+        with (
+            self.assertLogs("projects.ai", level="INFO") as cm,
+            log_claude_call("some_call") as result,
+        ):
+            result["message"] = _fake_response("hi")
+        self.assertEqual(len(cm.output), 1)
 
 
 class TimelapseBaselineUsesLocalDateTest(SimpleTestCase):
@@ -2448,6 +2492,42 @@ class TimelapseBaselineUsesLocalDateTest(SimpleTestCase):
             generate_timelapse_moments("Test", date(2026, 2, 1), [])
         prompt = create.call_args.kwargs["messages"][0]["content"]
         self.assertIn("Zeitraum: 2026-01-16 bis", prompt)
+
+
+class TimelapseMomentsLoggingTest(SimpleTestCase):
+    def test_logs_usage_on_success(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(
+                "[]", input_tokens=77, output_tokens=12
+            )
+            with self.assertLogs("projects.ai", level="INFO") as cm:
+                generate_timelapse_moments("Test", date.today(), [])
+        [record] = cm.output
+        self.assertIn("call=generate_timelapse_moments", record)
+        self.assertIn("input_tokens=77", record)
+        self.assertIn("output_tokens=12", record)
+        self.assertIn("outcome=success", record)
+
+
+class WeeklySummaryLoggingTest(SimpleTestCase):
+    def test_logs_usage_on_success(self):
+        fake_stream = MagicMock()
+        fake_stream.__enter__.return_value = fake_stream
+        fake_stream.get_final_text.return_value = "Zusammenfassung"
+        fake_stream.get_final_message.return_value = _fake_response(
+            "Zusammenfassung", input_tokens=200, output_tokens=80
+        )
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.stream.return_value = fake_stream
+            with self.assertLogs("projects.ai", level="INFO") as cm:
+                text = generate_weekly_summary([], date.today())
+        self.assertEqual(text, "Zusammenfassung")
+        [record] = cm.output
+        self.assertIn("call=generate_weekly_summary", record)
+        self.assertIn("input_tokens=200", record)
+        self.assertIn("output_tokens=80", record)
+        self.assertIn("outcome=success", record)
 
 
 class GeneratePlanRetryTest(SimpleTestCase):
@@ -2479,6 +2559,20 @@ class GeneratePlanRetryTest(SimpleTestCase):
             result = self.generate()
         self.assertEqual(result, {"project_name": "Testkonzert", "tasks": []})
         self.assertEqual(create.call_count, 2)
+
+    def test_each_retry_attempt_logs_its_own_success_line(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = [
+                _fake_response("not json"),
+                _fake_response(self.VALID),
+            ]
+            with self.assertLogs("projects.ai", level="INFO") as cm:
+                self.generate()
+        self.assertEqual(len(cm.output), 2)
+        for record in cm.output:
+            self.assertIn("call=generate_plan", record)
+            self.assertIn("outcome=success", record)
 
     def test_raises_ai_unavailable_after_a_second_invalid_response(self):
         with patch("anthropic.Anthropic") as MockAnthropic:
@@ -2583,6 +2677,19 @@ class GetClarifyingQuestionsTest(SimpleTestCase):
             self.assertEqual(
                 get_clarifying_questions("Konzert", []), "Wie viele Gäste?"
             )
+
+    def test_logs_usage_on_success(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response(
+                "Wie viele Gäste?", input_tokens=64, output_tokens=20
+            )
+            with self.assertLogs("projects.ai", level="INFO") as cm:
+                get_clarifying_questions("Konzert", [])
+        [record] = cm.output
+        self.assertIn("call=get_clarifying_questions", record)
+        self.assertIn("input_tokens=64", record)
+        self.assertIn("output_tokens=20", record)
+        self.assertIn("outcome=success", record)
 
 
 class NotionFailureTranslationTest(SimpleTestCase):
