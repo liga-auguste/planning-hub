@@ -126,6 +126,7 @@ Create `.env`:
 ANTHROPIC_API_KEY=your_key
 DEMO_MODE=true
 SECRET_KEY=any-local-secret
+DEBUG=true
 ```
 
 A missing `ANTHROPIC_API_KEY` (or `NOTION_API_KEY` outside `DEMO_MODE`) fails
