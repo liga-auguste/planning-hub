@@ -3509,6 +3509,26 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
         self.assertContains(response, 'data-task-id="task-1"')
 
 
+class PlannerRulesBackLinkTest(DemoModeTestCase):
+    """#7 (inherited from #22): the rules page's "← Planer" link always
+    returned to the empty tile step, discarding whatever project type the
+    visitor had already chosen — even though planner_start's ?type= handler
+    already writes it to the session unconditionally. Only the step is
+    restored, not unsaved free text (see PlannerTileLinksTest for why)."""
+
+    def test_back_link_is_bare_without_a_chosen_type(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, f'href="{reverse("planner_start")}"')
+        self.assertNotContains(response, "?type=")
+
+    def test_back_link_carries_the_previously_chosen_type(self):
+        self.client.get(reverse("planner_start") + "?type=konzert")
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(
+            response, f'href="{reverse("planner_start")}?type=konzert"'
+        )
+
+
 class PlannerRulesDemoModeTest(DemoModeTestCase):
     """#22: PlannerRule was the one demo-editable object that was not
     session-scoped, so any anonymous visitor could rewrite or delete the rules

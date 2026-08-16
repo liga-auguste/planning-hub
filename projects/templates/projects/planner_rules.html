@@ -47,7 +47,11 @@
 
 {% block content %}
 <div class="card"><div class="card-body">
+    {% if back_type %}
+    <a href="{% url 'planner_start' %}?type={{ back_type|urlencode }}" class="back">← Planer</a>
+    {% else %}
     <a href="{% url 'planner_start' %}" class="back">← Planer</a>
+    {% endif %}
     <h1>Planungsregeln</h1>
     <p class="subtitle">
         Diese Regeln fließen in jeden generierten Plan ein.<br>
