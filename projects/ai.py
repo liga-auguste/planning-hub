@@ -180,7 +180,9 @@ def _valid_moments(raw) -> list:
     and are parsed back with date.fromisoformat(), while the dashboard JS builds a
     timestamp from them as `date + 'T12:00:00'`. Neither can be given whatever the
     model happened to emit, so a moment with an unparseable date is dropped and a
-    parseable one is normalised to YYYY-MM-DD.
+    parseable one is normalised to YYYY-MM-DD. The result is sorted by that
+    normalised date, since the model's own "chronologisch sortiert" instruction
+    isn't enforced anywhere downstream (#101).
     """
     moments = []
     for moment in raw if isinstance(raw, list) else []:
@@ -191,7 +193,7 @@ def _valid_moments(raw) -> list:
         except ValueError:
             continue
         moments.append({**moment, "date": parsed.isoformat()})
-    return moments
+    return sorted(moments, key=lambda m: m["date"])
 
 
 def generate_timelapse_moments(

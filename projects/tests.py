@@ -2127,6 +2127,48 @@ class ValidMomentsTest(SimpleTestCase):
         self.assertEqual(_valid_moments({"date": "2026-09-05"}), [])
         self.assertEqual(_valid_moments(None), [])
 
+    def test_out_of_order_moments_are_sorted_chronologically(self):
+        moments = [
+            {"date": "2026-12-23", "label": "Verträge besiegelt"},
+            {"date": "2026-12-14", "label": "Visuelles Gesicht"},
+            {"date": "2027-01-08", "label": "Verkauf öffnet"},
+        ]
+        self.assertEqual(
+            _valid_moments(moments),
+            [
+                {"date": "2026-12-14", "label": "Visuelles Gesicht"},
+                {"date": "2026-12-23", "label": "Verträge besiegelt"},
+                {"date": "2027-01-08", "label": "Verkauf öffnet"},
+            ],
+        )
+
+    def test_sort_uses_the_normalised_date_not_the_original_spelling(self):
+        moments = [
+            {"date": "2026-12-23", "label": "Verträge besiegelt"},
+            {"date": "20261214", "label": "Visuelles Gesicht"},
+        ]
+        self.assertEqual(
+            _valid_moments(moments),
+            [
+                {"date": "2026-12-14", "label": "Visuelles Gesicht"},
+                {"date": "2026-12-23", "label": "Verträge besiegelt"},
+            ],
+        )
+
+    def test_invalid_moments_are_dropped_before_sorting(self):
+        moments = [
+            {"date": "2026-12-23", "label": "Verträge besiegelt"},
+            {"date": "kaputt"},
+            {"date": "2026-12-14", "label": "Visuelles Gesicht"},
+        ]
+        self.assertEqual(
+            _valid_moments(moments),
+            [
+                {"date": "2026-12-14", "label": "Visuelles Gesicht"},
+                {"date": "2026-12-23", "label": "Verträge besiegelt"},
+            ],
+        )
+
 
 class ParseEventDateTest(SimpleTestCase):
     def test_explicit_year_is_used(self):
