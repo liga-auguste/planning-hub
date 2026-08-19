@@ -735,6 +735,19 @@ class DarkThemeTest(DemoModeTestCase):
         for choice in ("light", "dark", "system"):
             self.assertContains(response, f'data-theme-choice="{choice}"')
 
+    def test_public_css_does_not_override_the_logo_swap_display_rule(self):
+        """#103: `.wordmark img { display: block }` in public.css outranked
+        base.css's `.logo-dark { display: none }` by specificity (a class
+        plus a type selector beats a lone class), so both logo images
+        rendered at once on every base_public.html page. `.wordmark img`
+        must only size the logo, never touch `display`."""
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        start = css.index(".wordmark img")
+        rule = css[start : css.index("}", start)]
+        self.assertNotIn("display", rule)
+
 
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):
     """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
