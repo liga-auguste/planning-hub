@@ -39,6 +39,57 @@
 }
 .sidebar-toggle:hover { color: var(--color-text-primary); }
 .sidebar.collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
+.sidebar-backdrop { display: none; }
+.sidebar-toggle-mobile { display: none; }
+/* Below the tablet breakpoint the sidebar becomes a full-screen overlay
+   instead of squeezing to a 48px rail: it slides in on a transform and the
+   content underneath never reflows. The in-panel arrow above already
+   works as its close button once the panel is open — it just needs an
+   always-reachable launcher for opening it, since that arrow leaves the
+   screen along with the panel it lives inside once collapsed. The scrim
+   and launcher react to `.collapsed` purely via CSS sibling selectors, so
+   the existing toggle JS (further down this file) needs no mobile-specific
+   branch of its own. */
+@media (max-width: 768px) {
+    .sidebar, .sidebar.collapsed {
+        width: 260px;
+    }
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: var(--shadow-medium);
+        z-index: 1001;
+    }
+    .sidebar:not(.collapsed) { transform: translateX(0); }
+    .sidebar.collapsed .sidebar-content { display: block; }
+    .sidebar-resize { display: none; }
+    .main, .main.sidebar-collapsed { margin-left: 0; }
+    .sidebar-toggle-mobile {
+        position: fixed; top: 12px; left: 12px; z-index: 1002;
+        width: 36px; height: 36px;
+        align-items: center; justify-content: center;
+        border-radius: 8px;
+        background: var(--color-bg-primary);
+        border: 1px solid var(--color-border-primary);
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        box-shadow: var(--shadow-low);
+    }
+    .sidebar.collapsed ~ .sidebar-toggle-mobile { display: flex; }
+    .sidebar-backdrop {
+        display: block;
+        position: fixed; inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 1000;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+    }
+    .sidebar:not(.collapsed) ~ .sidebar-backdrop {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
 .main {
     margin-left: 320px;
     max-width: 920px;
