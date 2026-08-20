@@ -405,6 +405,68 @@ class BootstrapJsBundleDroppedTest(DemoModeTestCase):
         self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
 
 
+class SidebarMobileDefaultCollapseTest(DemoModeTestCase):
+    """#25: the sidebar's fixed 320px width used to render at every
+    viewport. First load with no stored preference now collapses it below
+    the tablet breakpoint the rest of the app already uses. A MediaQueryList
+    change listener keeps that in sync live if the window crosses the
+    breakpoint mid-session, but only while no explicit preference has been
+    stored yet — a click on the toggle owns the state from then on."""
+
+    def test_load_script_checks_the_breakpoint_when_no_preference_is_stored(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "window.matchMedia('(max-width: 768px)')")
+
+    def test_an_explicit_stored_preference_is_still_checked_first(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "storedCollapsed === 'true'")
+
+    def test_the_breakpoint_listener_defers_to_an_explicit_preference(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "tabletBreakpoint.addEventListener('change'")
+        self.assertContains(
+            response, "if (localStorage.getItem('sidebarCollapsed') !== null) return;"
+        )
+
+
+class SidebarMobileOverlayTest(DemoModeTestCase):
+    """Below the tablet breakpoint, collapsing the sidebar used to shrink it
+    to a 48px rail — the same desktop push behaviour, just squeezed onto a
+    phone screen. It's now a full-screen overlay instead: a backdrop, a
+    launcher button reachable even while the panel itself is off-screen,
+    and the main content never reflows. The scrim/launcher visibility is
+    pure CSS (sibling selectors keyed off .sidebar.collapsed), so the JS
+    only needs to wire both extra controls to the same toggle."""
+
+    def test_backdrop_and_launcher_button_are_rendered(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'id="sidebar-backdrop"')
+        self.assertContains(response, 'id="sidebar-toggle-mobile"')
+
+    def test_sidebar_becomes_an_overlay_on_mobile(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn("transform: translateX(-100%);", css)
+        self.assertIn(".sidebar:not(.collapsed) { transform: translateX(0); }", css)
+
+    def test_content_never_reflows_on_mobile(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".main, .main.sidebar-collapsed { margin-left: 0; }", css)
+
+    def test_both_extra_controls_share_the_existing_toggle(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response,
+            "if (toggleBtnMobile) toggleBtnMobile.addEventListener('click', toggleSidebar);",
+        )
+        self.assertContains(
+            response, "if (backdrop) backdrop.addEventListener('click', toggleSidebar);"
+        )
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
