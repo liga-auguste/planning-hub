@@ -405,6 +405,24 @@ class BootstrapJsBundleDroppedTest(DemoModeTestCase):
         self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
 
 
+class SidebarInfoIconTest(DemoModeTestCase):
+    """The 'Über dieses Projekt' link used a plain 'ℹ' character. iOS gives
+    it emoji presentation by default (a coloured icon, not a text glyph),
+    which this project's design language reserves for typographic symbols
+    only — a pictographic character needs a Lucide SVG instead, the way
+    every other icon in this codebase already does it."""
+
+    def test_the_emoji_character_is_gone(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, "ℹ")
+
+    def test_an_inline_svg_takes_its_place(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response, '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/>'
+        )
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
