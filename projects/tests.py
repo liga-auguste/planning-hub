@@ -402,21 +402,31 @@ class BootstrapJsBundleDroppedTest(DemoModeTestCase):
 
     def test_both_bases_still_link_the_stylesheet(self):
         self.assertContains(self.client.get("/dashboard/"), "bootstrap.min.css")
+        self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
 
 
 class SidebarMobileDefaultCollapseTest(DemoModeTestCase):
     """#25: the sidebar's fixed 320px width used to render at every
     viewport. First load with no stored preference now collapses it below
-    the tablet breakpoint the rest of the app already uses."""
+    the tablet breakpoint the rest of the app already uses. A MediaQueryList
+    change listener keeps that in sync live if the window crosses the
+    breakpoint mid-session, but only while no explicit preference has been
+    stored yet — a click on the toggle owns the state from then on."""
 
     def test_load_script_checks_the_breakpoint_when_no_preference_is_stored(self):
         response = self.client.get("/dashboard/")
-        self.assertContains(response, "window.matchMedia('(max-width: 768px)').matches")
+        self.assertContains(response, "window.matchMedia('(max-width: 768px)')")
 
     def test_an_explicit_stored_preference_is_still_checked_first(self):
         response = self.client.get("/dashboard/")
         self.assertContains(response, "storedCollapsed === 'true'")
-        self.assertContains(self.client.get("/impressum/"), "bootstrap.min.css")
+
+    def test_the_breakpoint_listener_defers_to_an_explicit_preference(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "tabletBreakpoint.addEventListener('change'")
+        self.assertContains(
+            response, "if (localStorage.getItem('sidebarCollapsed') !== null) return;"
+        )
 
 
 class DashboardKanbanCssTest(DemoModeTestCase):

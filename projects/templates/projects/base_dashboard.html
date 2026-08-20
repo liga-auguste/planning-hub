@@ -41,12 +41,13 @@ const toggleBtn = document.getElementById('sidebar-toggle');
 const handle = document.getElementById('sidebar-resize');
 
 if (sidebar && main && toggleBtn) {
+    const tabletBreakpoint = window.matchMedia('(max-width: 768px)');
     const storedCollapsed = localStorage.getItem('sidebarCollapsed');
     // No stored preference? Below the tablet breakpoint (768px, matching
     // the rest of the app) the sidebar now starts collapsed instead of
     // claiming 320px of a phone screen (#25).
     const startCollapsed = storedCollapsed === 'true'
-        || (storedCollapsed === null && window.matchMedia('(max-width: 768px)').matches);
+        || (storedCollapsed === null && tabletBreakpoint.matches);
     if (startCollapsed) {
         sidebar.classList.add('collapsed');
         main.classList.add('sidebar-collapsed');
@@ -71,6 +72,17 @@ if (sidebar && main && toggleBtn) {
                 main.style.marginLeft = savedWidth + 'px';
             }
         }
+    });
+
+    // Fires only when the breakpoint is actually crossed, not on every
+    // resize pixel. Once a click has stored an explicit preference, that
+    // choice owns the state for the rest of the session — this listener
+    // then has nothing left to do.
+    tabletBreakpoint.addEventListener('change', (e) => {
+        if (localStorage.getItem('sidebarCollapsed') !== null) return;
+        sidebar.classList.toggle('collapsed', e.matches);
+        main.classList.toggle('sidebar-collapsed', e.matches);
+        toggleBtn.textContent = e.matches ? '›' : '‹';
     });
 
     if (handle) {
