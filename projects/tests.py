@@ -429,7 +429,10 @@ class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
 
     def test_banner_wraps_instead_of_squeezing(self):
         response = self.client.get("/dashboard/")
-        self.assertContains(response, ".demo-banner { display: flex; align-items: center; flex-wrap: wrap;")
+        self.assertContains(
+            response,
+            ".demo-banner { display: flex; align-items: center; flex-wrap: wrap;",
+        )
 
     def test_cta_no_longer_forces_itself_right_with_a_fixed_margin(self):
         response = self.client.get("/dashboard/")
