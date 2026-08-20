@@ -983,6 +983,25 @@ class LandingFlowStepOrderTest(DemoModeTestCase):
         self.assertNotContains(response, "scale(2.8)")
 
 
+class LandingMobileStepsTapRevealTest(DemoModeTestCase):
+    """#100: below 768px the flow curve is dropped and the three steps
+    used to render fully open and static, reading as flat next to the
+    animated desktop version. They now default closed and reuse the
+    existing tap/hover reveal mechanic (`is-open`) instead of a new one."""
+
+    def test_mobile_step_desc_defaults_closed(self):
+        response = self.client.get("/")
+        self.assertContains(response, "max-height: 0; overflow: hidden")
+
+    def test_open_state_still_reveals_the_description(self):
+        response = self.client.get("/")
+        self.assertContains(response, ".step.is-open .step-desc")
+
+    def test_disclosure_chevron_rotates_open(self):
+        response = self.client.get("/")
+        self.assertContains(response, ".step.is-open .step-label::after")
+
+
 class FooterPinningTest(DemoModeTestCase):
     """Part A of #21: the footer pinning rules used to live only in
     landing.html's extra_css override, so every other public page had the
