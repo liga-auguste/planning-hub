@@ -519,6 +519,21 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
+class SidebarDefaultWidthTest(DemoModeTestCase):
+    """The 320px default left a lot of empty space next to the nav labels
+    and project names it actually holds — 260px still comfortably fits the
+    demo data's longest entry without wrapping, with room to spare for
+    real, somewhat longer event names. The drag-resize range (180-500px in
+    base_dashboard.html) is unrelated and untouched."""
+
+    def test_sidebar_and_main_agree_on_the_narrower_width(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".sidebar {\n    width: 260px;", css)
+        self.assertIn(".main {\n    margin-left: 260px;", css)
+
+
 class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
     """The demo banner's text and its CTA link sat in a non-wrapping flex
     row, so on a narrow main content area (sidebar expanded, or the sidebar
