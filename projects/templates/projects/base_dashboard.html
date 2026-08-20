@@ -23,6 +23,10 @@
     </div>
     {% include 'projects/_theme_toggle.html' %}
 </div>
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+<button class="sidebar-toggle-mobile" id="sidebar-toggle-mobile" title="Sidebar ein-/ausblenden" aria-label="Sidebar ein-/ausblenden">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+</button>
 {% block body_extras %}{% endblock %}
 <div class="main" id="main">
     <div class="content-body">
@@ -38,6 +42,8 @@
 const sidebar = document.getElementById('sidebar');
 const main = document.querySelector('.main');
 const toggleBtn = document.getElementById('sidebar-toggle');
+const toggleBtnMobile = document.getElementById('sidebar-toggle-mobile');
+const backdrop = document.getElementById('sidebar-backdrop');
 const handle = document.getElementById('sidebar-resize');
 
 if (sidebar && main && toggleBtn) {
@@ -60,7 +66,11 @@ if (sidebar && main && toggleBtn) {
         }
     }
 
-    toggleBtn.addEventListener('click', () => {
+    // Shared by the in-panel arrow, the mobile-only launcher button and the
+    // backdrop tap: on mobile the sidebar is a full-screen overlay (see
+    // dashboard.css), so opening/closing it is one toggle no matter which
+    // control triggered it.
+    function toggleSidebar() {
         const collapsed = sidebar.classList.toggle('collapsed');
         main.classList.toggle('sidebar-collapsed', collapsed);
         toggleBtn.textContent = collapsed ? '›' : '‹';
@@ -72,7 +82,11 @@ if (sidebar && main && toggleBtn) {
                 main.style.marginLeft = savedWidth + 'px';
             }
         }
-    });
+    }
+
+    toggleBtn.addEventListener('click', toggleSidebar);
+    if (toggleBtnMobile) toggleBtnMobile.addEventListener('click', toggleSidebar);
+    if (backdrop) backdrop.addEventListener('click', toggleSidebar);
 
     // Fires only when the breakpoint is actually crossed, not on every
     // resize pixel. Once a click has stored an explicit preference, that

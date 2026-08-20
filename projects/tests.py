@@ -429,6 +429,44 @@ class SidebarMobileDefaultCollapseTest(DemoModeTestCase):
         )
 
 
+class SidebarMobileOverlayTest(DemoModeTestCase):
+    """Below the tablet breakpoint, collapsing the sidebar used to shrink it
+    to a 48px rail — the same desktop push behaviour, just squeezed onto a
+    phone screen. It's now a full-screen overlay instead: a backdrop, a
+    launcher button reachable even while the panel itself is off-screen,
+    and the main content never reflows. The scrim/launcher visibility is
+    pure CSS (sibling selectors keyed off .sidebar.collapsed), so the JS
+    only needs to wire both extra controls to the same toggle."""
+
+    def test_backdrop_and_launcher_button_are_rendered(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'id="sidebar-backdrop"')
+        self.assertContains(response, 'id="sidebar-toggle-mobile"')
+
+    def test_sidebar_becomes_an_overlay_on_mobile(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn("transform: translateX(-100%);", css)
+        self.assertIn(".sidebar:not(.collapsed) { transform: translateX(0); }", css)
+
+    def test_content_never_reflows_on_mobile(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".main, .main.sidebar-collapsed { margin-left: 0; }", css)
+
+    def test_both_extra_controls_share_the_existing_toggle(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response,
+            "if (toggleBtnMobile) toggleBtnMobile.addEventListener('click', toggleSidebar);",
+        )
+        self.assertContains(
+            response, "if (backdrop) backdrop.addEventListener('click', toggleSidebar);"
+        )
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
