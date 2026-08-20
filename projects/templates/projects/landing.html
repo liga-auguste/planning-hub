@@ -336,15 +336,34 @@
     @media (max-width: 768px) {
         .flow { margin-top: 56px; }
         .flow-line { display: none; }
-        .flow-steps { grid-template-columns: 1fr; gap: 20px; margin-top: 0; }
+        .flow-steps { grid-template-columns: 1fr; gap: 4px; margin-top: 0; }
         .step, .step:nth-child(1), .step:nth-child(2), .step:nth-child(3) {
-            padding: 0; text-align: left;
+            padding: 14px 0; text-align: left;
         }
+        .step + .step { border-top: 1px solid var(--color-border-primary); }
         /* Everything back to the left, in step with the stacked steps. */
         .actions { justify-content: flex-start; margin-top: 40px; }
-        .step-label { color: var(--color-text-primary); display: block; margin-bottom: 4px; transform: none; }
+        .step-label {
+            color: var(--color-text-primary); display: flex;
+            align-items: center; justify-content: space-between;
+            margin-bottom: 0; transform: none;
+        }
+        /* The reveal mechanic itself (hover/focus/click -> .is-open) is
+           unchanged from desktop — only its visual result differs here.
+           This chevron is the disclosure indicator that replaces the label
+           shrink desktop uses instead: a typographic symbol, the same one
+           already used elsewhere in this codebase for the same purpose. */
+        .step-label::after { content: '›'; color: var(--color-text-quaternary); transition: transform 0.25s ease; }
+        .step.is-open .step-label::after { transform: rotate(90deg); }
         .tech-badge { text-align: left; }
-        .step-desc { position: static; opacity: 1; transform: none; }
+        .step-desc {
+            position: static; display: block; max-height: 0; overflow: hidden;
+            opacity: 0; transform: none; margin-top: 0;
+            transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
+        }
+        /* 200px is an estimate for the longest description (step 3, three
+           lines) — worth eyeballing on a real device and adjusting. */
+        .step.is-open .step-desc { max-height: 200px; opacity: 1; margin-top: 8px; }
     }
     @media (max-width: 560px) {
         h1 { font-size: 30px; }
