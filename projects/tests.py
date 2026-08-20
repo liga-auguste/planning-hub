@@ -435,6 +435,13 @@ class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertNotContains(response, ".demo-banner-cta { margin-left: auto;")
 
+    def test_text_gets_an_explicit_basis_so_wide_layouts_do_not_wrap_early(self):
+        # Without this, flex-wrap breaks the row against the text's full
+        # unbroken width even when there's plenty of room for it to shrink
+        # and wrap internally instead — see the PR discussion.
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".demo-banner span { flex: 1 1 200px; }")
+
 
 class SidebarProgressRingTest(DemoModeTestCase):
     """#76: the sidebar's per-project status dot becomes a progress ring —
