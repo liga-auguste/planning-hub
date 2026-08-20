@@ -419,6 +419,23 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
+class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
+    """The demo banner's text and its CTA link sat in a non-wrapping flex
+    row, so on a narrow main content area (sidebar expanded, or the sidebar
+    collapse from #25 not yet triggered) the CTA squeezed the paragraph
+    into a cramped, hard-to-read column instead of dropping to its own
+    line. flex-wrap lets it reflow at whatever width actually runs out of
+    room, without a hardcoded breakpoint."""
+
+    def test_banner_wraps_instead_of_squeezing(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".demo-banner { display: flex; align-items: center; flex-wrap: wrap;")
+
+    def test_cta_no_longer_forces_itself_right_with_a_fixed_margin(self):
+        response = self.client.get("/dashboard/")
+        self.assertNotContains(response, ".demo-banner-cta { margin-left: auto;")
+
+
 class SidebarProgressRingTest(DemoModeTestCase):
     """#76: the sidebar's per-project status dot becomes a progress ring —
     fill from done/total, stroke colour from the project's urgency."""
