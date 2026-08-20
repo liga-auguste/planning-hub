@@ -519,6 +519,22 @@ class DashboardKanbanCssTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta span:last-child")
 
 
+class ContentPaddingMobileTest(DemoModeTestCase):
+    """The 48px side padding on .content-body/.page-footer was sized for
+    the desktop column, not a phone screen — on a ~375px viewport it ate
+    over a quarter of the width as bare grey margin either side."""
+
+    def test_content_padding_shrinks_below_the_tablet_breakpoint(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(
+            "@media (max-width: 768px) {\n    .content-body { padding: 24px 16px; }",
+            css,
+        )
+        self.assertIn(".page-footer { padding: 16px 16px 24px; }", css)
+
+
 class SidebarDefaultWidthTest(DemoModeTestCase):
     """The 320px default left a lot of empty space next to the nav labels
     and project names it actually holds — 260px still comfortably fits the

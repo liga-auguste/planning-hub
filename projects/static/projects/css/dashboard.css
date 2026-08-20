@@ -107,3 +107,11 @@
 .page-footer a { font-size: 12px; color: var(--color-text-quaternary); text-decoration: none; }
 .page-footer a:hover { color: var(--color-text-secondary); }
 .page-footer .footer-copy { font-size: 12px; color: var(--color-text-quaternary); margin-left: auto; }
+/* The 48px side padding was sized for the desktop column (max-width: 920px
+   on .main), not for a phone screen it now has to share with the sidebar
+   overlay's own 12px launcher-button margin — on a ~375px viewport it ate
+   over a quarter of the width as bare grey margin either side. */
+@media (max-width: 768px) {
+    .content-body { padding: 24px 16px; }
+    .page-footer { padding: 16px 16px 24px; }
+}
