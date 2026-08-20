@@ -177,7 +177,9 @@ class BodyDynamicViewportHeightTest(SimpleTestCase):
     def test_dashboard_sidebar_min_height_stays_untouched(self):
         # dashboard.css's .sidebar rule is a separate, unrelated 100vh use
         # (see #99) — guards against a future refactor collapsing the two.
-        css = (settings.BASE_DIR / "projects/static/projects/css/dashboard.css").read_text()
+        css = (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
         self.assertNotIn("100dvh", css)
 
 
