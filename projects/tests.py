@@ -163,6 +163,24 @@ class VendoredCssSourceMapTest(SimpleTestCase):
         self.assertNotIn("sourceMappingURL", css_path.read_text())
 
 
+class BodyDynamicViewportHeightTest(SimpleTestCase):
+    """#99: 100vh resolves to iOS Safari's large viewport (toolbar
+    collapsed), so on load — toolbar visible, the default state — the
+    sticky footer rendered partly behind the browser chrome. dvh tracks
+    the actually-visible area; vh stays first as the fallback, since an
+    unsupported declaration is ignored and leaves the earlier one standing."""
+
+    def test_body_keeps_the_vh_fallback_before_the_dvh_upgrade(self):
+        css = (settings.BASE_DIR / "projects/static/projects/css/base.css").read_text()
+        self.assertLess(css.index("min-height: 100vh"), css.index("min-height: 100dvh"))
+
+    def test_dashboard_sidebar_min_height_stays_untouched(self):
+        # dashboard.css's .sidebar rule is a separate, unrelated 100vh use
+        # (see #99) — guards against a future refactor collapsing the two.
+        css = (settings.BASE_DIR / "projects/static/projects/css/dashboard.css").read_text()
+        self.assertNotIn("100dvh", css)
+
+
 class StaticCacheHeadersConfTest(SimpleTestCase):
     """#74: with hashed filenames the far-future cache header is safe — and
     only with them, which is why the two land together and are pinned
@@ -996,7 +1014,7 @@ class FooterPinningTest(DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
         ).read_text()
-        self.assertIn("min-height: 100vh; display: flex; flex-direction: column;", css)
+        self.assertIn("display: flex; flex-direction: column;", css)
 
     def test_base_template_pins_the_footer(self):
         css = (
