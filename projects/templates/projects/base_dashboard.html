@@ -41,7 +41,13 @@ const toggleBtn = document.getElementById('sidebar-toggle');
 const handle = document.getElementById('sidebar-resize');
 
 if (sidebar && main && toggleBtn) {
-    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+    const storedCollapsed = localStorage.getItem('sidebarCollapsed');
+    // No stored preference? Below the tablet breakpoint (768px, matching
+    // the rest of the app) the sidebar now starts collapsed instead of
+    // claiming 320px of a phone screen (#25).
+    const startCollapsed = storedCollapsed === 'true'
+        || (storedCollapsed === null && window.matchMedia('(max-width: 768px)').matches);
+    if (startCollapsed) {
         sidebar.classList.add('collapsed');
         main.classList.add('sidebar-collapsed');
         toggleBtn.textContent = '›';
