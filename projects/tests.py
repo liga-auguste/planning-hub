@@ -524,14 +524,109 @@ class SidebarDefaultWidthTest(DemoModeTestCase):
     and project names it actually holds — 260px still comfortably fits the
     demo data's longest entry without wrapping, with room to spare for
     real, somewhat longer event names. The drag-resize range (180-500px in
-    base_dashboard.html) is unrelated and untouched."""
+    base_dashboard.html) is unrelated and untouched. #96's floating-tile
+    change offsets .main's margin-left by the fixed 24px sidebar gap, so it
+    no longer matches .sidebar's width 1:1 — see SidebarFloatingTileTest."""
 
     def test_sidebar_and_main_agree_on_the_narrower_width(self):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
         ).read_text()
         self.assertIn(".sidebar {\n    width: 260px;", css)
-        self.assertIn(".main {\n    margin-left: 260px;", css)
+        self.assertIn(".main {\n    margin-left: 284px;", css)
+
+
+class SidebarFloatingTileTest(DemoModeTestCase):
+    """#96: the sidebar becomes a floating tile — inset from the viewport
+    edge with rounded corners and a shadow instead of a flush panel with a
+    hard border. .main's margin-left grows by the fixed 24px gap (12px inset
+    + 12px space to the content) so the content doesn't creep back under the
+    now-floating sidebar."""
+
+    def setUp(self):
+        super().setUp()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_sidebar_has_no_flush_border(self):
+        self.assertNotIn("border-right: 1px solid var(--color-border-primary);", self.css)
+
+    def test_sidebar_is_rounded_and_elevated(self):
+        self.assertIn("border-radius: 12px;", self.css)
+        self.assertIn("box-shadow: var(--shadow-medium);", self.css)
+
+    def test_sidebar_is_inset_from_the_viewport_edge(self):
+        self.assertIn("top: 12px; left: 12px; bottom: 12px;", self.css)
+
+    def test_main_margin_left_accounts_for_the_gap(self):
+        self.assertIn(".main {\n    margin-left: 284px;", self.css)
+        self.assertIn(".main.sidebar-collapsed { margin-left: 72px; }", self.css)
+
+    def test_mobile_overlay_keeps_its_own_shadow_and_full_width(self):
+        # Explicitly untouched by the floating-tile change (see plan on #96).
+        self.assertIn("transform: translateX(-100%);", self.css)
+        self.assertIn("box-shadow: var(--shadow-medium);", self.css)
+
+    def test_drag_resize_keeps_the_gap_offset(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';")
+
+
+class AiCardDeboxTest(DemoModeTestCase):
+    """#96: .ai-card loses its background/border/radius entirely, at every
+    width — no breakpoint-specific override, unlike .project-section and the
+    Kanban board (.kanban-card, unchanged — see DeboxingRegressionTest)."""
+
+    def test_ai_card_has_no_background_border_or_radius(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }",
+        )
+        self.assertNotContains(response, "border-radius: 8px; padding: 20px 24px;")
+
+
+class DeboxingRegressionTest(DemoModeTestCase):
+    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these three
+    boxed areas untouched — locked in before any code change so a later step
+    can't quietly widen the scope."""
+
+    def test_project_section_keeps_its_border(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".project-section { margin-bottom: 8px; background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 16px 20px; }",
+        )
+
+    def test_kanban_card_keeps_its_border(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".kanban-card { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 6px; "
+            "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
+        )
+
+    def test_my_plan_task_list_keeps_border_and_radius(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".task-list { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }",
+        )
+
+    def test_my_plan_summary_box_keeps_border_and_radius(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-box { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
+            "padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }",
+        )
 
 
 class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):

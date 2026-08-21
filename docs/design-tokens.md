@@ -51,7 +51,7 @@ for its dark theme.
 | `--color-accent*` | Interactive/focus accent (links, hover borders) |
 | `--color-overdue` / `--color-urgent` / `--color-done` | The one status color per state — previously 3 reds and 3 oranges |
 | `--color-overdue-tint` / `--color-urgent-tint` | Light backgrounds for status badges and notices |
-| `--shadow-low` / `--shadow-medium` | The two elevation levels used for hover/active shadows |
+| `--shadow-low` / `--shadow-medium` | The two elevation levels — hover/active shadows, plus `--shadow-medium` for the sidebar's static elevation as a floating tile (#96) |
 
 `--color-overdue-tint` and `--color-urgent-tint` extend the set #11 originally
 proposed — the kanban column counters and the stale-data notice needed a light

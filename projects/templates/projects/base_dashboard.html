@@ -45,6 +45,10 @@ const toggleBtn = document.getElementById('sidebar-toggle');
 const toggleBtnMobile = document.getElementById('sidebar-toggle-mobile');
 const backdrop = document.getElementById('sidebar-backdrop');
 const handle = document.getElementById('sidebar-resize');
+// The sidebar floats 12px off the viewport edge with another 12px of space
+// before .main's content starts (#96) — .main's margin-left has to track
+// the sidebar's width plus this fixed gap, not the width alone.
+const SIDEBAR_GAP = 24;
 
 if (sidebar && main && toggleBtn) {
     const tabletBreakpoint = window.matchMedia('(max-width: 768px)');
@@ -62,7 +66,7 @@ if (sidebar && main && toggleBtn) {
         const savedWidth = localStorage.getItem('sidebarWidth');
         if (savedWidth) {
             sidebar.style.width = savedWidth + 'px';
-            main.style.marginLeft = savedWidth + 'px';
+            main.style.marginLeft = (parseInt(savedWidth) + SIDEBAR_GAP) + 'px';
         }
     }
 
@@ -79,7 +83,7 @@ if (sidebar && main && toggleBtn) {
             const savedWidth = localStorage.getItem('sidebarWidth');
             if (savedWidth) {
                 sidebar.style.width = savedWidth + 'px';
-                main.style.marginLeft = savedWidth + 'px';
+                main.style.marginLeft = (parseInt(savedWidth) + SIDEBAR_GAP) + 'px';
             }
         }
     }
@@ -113,7 +117,7 @@ if (sidebar && main && toggleBtn) {
 function onMouseMove(e) {
     const width = Math.max(180, Math.min(500, e.clientX));
     sidebar.style.width = width + 'px';
-    main.style.marginLeft = width + 'px';
+    main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';
 }
 function onMouseUp() {
     handle.classList.remove('dragging');
