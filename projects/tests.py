@@ -1354,10 +1354,35 @@ class TopBarRightStaysBesideTheWordmarkWithoutAStepperTest(DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(
+        self.assertIn(".top-bar-right:has(.ps-track) { display: contents; }", css)
+        self.assertNotIn(
             ".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css
         )
-        self.assertNotIn(".top-bar-right { flex-wrap: wrap; width: 100%;", css)
+
+
+class ThemeToggleStaysOppositeWordmarkWithStepperTest(DemoModeTestCase):
+    """#114: .top-bar-right used to wrap the theme toggle together with
+    .ps-track below 560px, so the toggle got pushed onto its own row under
+    the wordmark instead of staying opposite it. .top-bar-right now turns
+    into display: contents at that width, making .ps-track and the toggle
+    direct flex items of .top-bar itself — order keeps the toggle on row 1
+    and only .ps-track (full width) wraps onto row 2, centered by its own
+    auto margins."""
+
+    def test_the_theme_toggle_is_ordered_first(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".top-bar-right .theme-toggle { order: 1; }", css)
+
+    def test_the_track_is_ordered_second_and_centered(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(
+            ".ps-track { order: 2; width: 100%; max-width: 320px; margin: 0 auto; }",
+            css,
+        )
 
 
 class LandingFlowStepOrderTest(DemoModeTestCase):
@@ -1454,6 +1479,20 @@ class FooterOnDashboardPagesTest(DemoModeTestCase):
 
     def test_planner_start_keeps_its_footer(self):
         self.assert_has_footer(self.client.get(reverse("planner_start")))
+
+
+class PlannerCardFooterBorderTest(DemoModeTestCase):
+    """The footer's border-top sat close under the stepper on a phone,
+    reading as two parallel lines a few pixels apart on every planner step
+    (the stepper wraps to its own full-width row there). On desktop the
+    line has room to breathe and stays on every step, planner or not —
+    :has(.ps-track) scopes the removal to the mobile breakpoint only."""
+
+    def test_the_footer_border_is_dropped_on_mobile_with_a_stepper(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".wrapper:has(.ps-track) .page-footer { border-top: none; }", css)
 
 
 class AiStubTest(DemoModeTestCase):
