@@ -1481,6 +1481,20 @@ class FooterOnDashboardPagesTest(DemoModeTestCase):
         self.assert_has_footer(self.client.get(reverse("planner_start")))
 
 
+class PlannerCardFooterBorderTest(DemoModeTestCase):
+    """.planner-card carries its own border; the footer's border-top sat
+    right underneath it on the three steps that use the card (Beschreiben,
+    Klärung, Review), reading as two parallel lines a few pixels apart.
+    Scoped with the general sibling combinator so Projekttyp (.tile-page,
+    no card) and every non-planner page keep the footer's border-top."""
+
+    def test_the_footer_border_is_dropped_after_a_planner_card(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".planner-card ~ .page-footer { border-top: none; }", css)
+
+
 class AiStubTest(DemoModeTestCase):
     """Guards the guard: proves the stubs are actually in the request path."""
 
