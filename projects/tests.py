@@ -655,8 +655,8 @@ class SidebarFloatingTileTest(DemoModeTestCase):
 
 class AiCardDeboxTest(DemoModeTestCase):
     """#96: .ai-card loses its background/border/radius entirely, at every
-    width — no breakpoint-specific override, unlike .project-section and the
-    Kanban board (.kanban-card, unchanged — see DeboxingRegressionTest)."""
+    width — no breakpoint-specific override, unlike the Kanban board
+    (.kanban-card, unchanged — see DeboxingRegressionTest)."""
 
     def test_ai_card_has_no_background_border_or_radius(self):
         response = self.client.get(reverse("dashboard"))
@@ -667,18 +667,75 @@ class AiCardDeboxTest(DemoModeTestCase):
         self.assertNotContains(response, "border-radius: 8px; padding: 20px 24px;")
 
 
-class DeboxingRegressionTest(DemoModeTestCase):
-    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these three
-    boxed areas untouched — locked in before any code change so a later step
-    can't quietly widen the scope."""
+class ProjectSectionDeboxTest(DemoModeTestCase):
+    """#96 follow-up: .project-section loses its background/border/radius
+    too, matching .ai-card — the per-project header (.project-header's own
+    border-bottom) and per-task separators (.task-row's border-bottom) stay
+    as internal dividers, the same pattern .ai-card already uses."""
 
-    def test_project_section_keeps_its_border(self):
+    def test_project_section_has_no_background_border_or_radius(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".project-section { margin-bottom: 8px; background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 16px 20px; }",
+            ".project-section { margin-bottom: 8px; padding: 0; }",
         )
+        self.assertNotContains(response, "border-radius: 8px; padding: 16px 20px;")
+
+
+class ProjectDateBadgeTest(DemoModeTestCase):
+    """The project-header's separate date badge duplicates what's already in
+    the project name for real Notion data — the maintainer's own habit is to
+    write the event date into the name itself. Demo names carry no such
+    date, example projects and a session plan alike (has_session_plan is
+    only ever true inside DEMO_MODE — see views.dashboard), so demo_mode
+    alone decides it; no has_session_plan check needed here."""
+
+    def test_date_badge_shows_in_demo_mode(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="project-date"')
+
+    @override_settings(DEMO_MODE=False)
+    def test_date_badge_is_hidden_in_production(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="project-date"')
+        self.assertContains(response, project["name"])
+
+
+class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
+    """De-boxing .project-section (see ProjectSectionDeboxTest) took the
+    20px inset that used to keep the header clear of the fixed mobile
+    hamburger launcher (36px, right: 20px — dashboard.css) with it, so the
+    title/date ran straight underneath it. padding-right reserves that
+    space again; min-height is 48px, not 36 — box-sizing: border-box
+    (base.css) counts the header's own padding-bottom: 8px against it, so a
+    36px min-height only left 28px of actual band to center the text in,
+    landing 6px above the button's center instead of matching it. 48px
+    keeps that band a full 36px (48 − 8), matching the button's own height
+    and, measured, its center exactly (both 44px down from the viewport
+    top). The border-bottom separator is dropped at this width too — the
+    button's own bottom edge lands right on it otherwise, reading as a
+    stray line through the button rather than a divider under the
+    heading."""
+
+    def test_mobile_header_reserves_room_for_the_hamburger(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".project-header { padding-right: 44px; min-height: 48px; "
+            "align-items: center; border-bottom: none; }",
+        )
+
+
+class DeboxingRegressionTest(DemoModeTestCase):
+    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these
+    boxed areas untouched — locked in before any code change so a later step
+    can't quietly widen the scope. (.project-section joined the de-boxed
+    side in a #96 follow-up — see ProjectSectionDeboxTest.)"""
 
     def test_kanban_card_keeps_its_border(self):
         response = self.client.get(reverse("dashboard"))

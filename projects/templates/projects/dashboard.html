@@ -49,7 +49,7 @@
         .ai-card ul > li > strong::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
         .ai-error { color: var(--color-text-quaternary); font-style: italic; }
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
-        .project-section { margin-bottom: 8px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 16px 20px; }
+        .project-section { margin-bottom: 8px; padding: 0; }
         .project-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-primary); }
         .project-name { font-size: 14px; font-weight: 600; }
         .project-date { font-size: 12px; color: var(--color-text-quaternary); }
@@ -154,6 +154,27 @@
         .demo-banner-cta { color: var(--color-text-secondary); font-weight: 500; text-decoration: underline; white-space: nowrap; }
         .download-fab { position: fixed; bottom: 28px; right: 28px; background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow-medium); transition: background 0.15s, opacity 0.15s; }
         .download-fab:hover { opacity: 0.85; }
+        @media (max-width: 768px) {
+            /* The fixed hamburger launcher (36px, right: 20px — see
+               dashboard.css) eats into content-body's own 20px right padding
+               now that .project-section no longer reserves its own inset;
+               without this the title/date ran straight under it.
+               min-height matches the button's own 36px and centers this
+               row's text within that band, so the two land on (roughly) the
+               same visual axis. min-height is 48px, not 36 — box-sizing:
+               border-box (base.css) counts the existing padding-bottom: 8px
+               against it, so a 36px min-height only left a 28px content
+               band to center the text in, landing its center 6px above the
+               button's. 48px keeps that band at a full 36px (48 − 8),
+               matching the button's own height and its center exactly:
+               content-body's 24px top + half of 36 = 42, plus the 2px the
+               button's own top: 26 sits below content-body's 24px = 44,
+               same number. The separator goes too: the button's bottom
+               edge sits right on top of it at this width, which reads as
+               a stray line cutting through the button rather than a
+               divider under the heading. */
+            .project-header { padding-right: 44px; min-height: 48px; align-items: center; border-bottom: none; }
+        }
 {% endblock %}
 
 {% block sidebar_content %}
@@ -410,7 +431,14 @@
          data-event-date="{{ project.event_date_display }}">
         <div class="project-header">
             <span class="project-name">{{ project.display_name }}</span>
-            <span class="project-date">{{ project.event_date_display }}</span>
+            {% comment %}
+            Production project names carry the event date already (own Notion
+            habit) — the separate badge would just repeat it. Demo names don't,
+            example data and a session plan alike (has_session_plan only ever
+            true inside DEMO_MODE — see views.dashboard), so demo_mode alone
+            is the right switch, no has_session_plan check needed here.
+            {% endcomment %}
+            {% if demo_mode %}<span class="project-date">{{ project.event_date_display }}</span>{% endif %}
         </div>
         {% for task in project.tasks %}
         <div class="task-row">
