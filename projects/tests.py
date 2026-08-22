@@ -1482,17 +1482,17 @@ class FooterOnDashboardPagesTest(DemoModeTestCase):
 
 
 class PlannerCardFooterBorderTest(DemoModeTestCase):
-    """.planner-card carries its own border; the footer's border-top sat
-    right underneath it on the three steps that use the card (Beschreiben,
-    Klärung, Review), reading as two parallel lines a few pixels apart.
-    Scoped with the general sibling combinator so Projekttyp (.tile-page,
-    no card) and every non-planner page keep the footer's border-top."""
+    """The footer's border-top sat close under the stepper on a phone,
+    reading as two parallel lines a few pixels apart on every planner step
+    (the stepper wraps to its own full-width row there). On desktop the
+    line has room to breathe and stays on every step, planner or not —
+    :has(.ps-track) scopes the removal to the mobile breakpoint only."""
 
-    def test_the_footer_border_is_dropped_after_a_planner_card(self):
+    def test_the_footer_border_is_dropped_on_mobile_with_a_stepper(self):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(".planner-card ~ .page-footer { border-top: none; }", css)
+        self.assertIn(".wrapper:has(.ps-track) .page-footer { border-top: none; }", css)
 
 
 class AiStubTest(DemoModeTestCase):

@@ -32,12 +32,6 @@
 .page-footer a { font-size: 12px; color: var(--color-text-quaternary); text-decoration: none; }
 .page-footer a:hover { color: var(--color-text-secondary); }
 .page-footer .footer-copy { font-size: 12px; color: var(--color-text-quaternary); margin-left: auto; }
-/* .planner-card carries its own border; the footer's border-top directly
-   below it read as two parallel lines a few pixels apart on the steps that
-   use the card (Beschreiben, Klärung, Review). The sibling combinator scopes
-   the removal to those — Projekttyp (.tile-page, no card) and every other
-   page keep the footer's own border-top. */
-.planner-card ~ .page-footer { border-top: none; }
 .ps-track { display: flex; align-items: flex-start; width: 300px; }
 .ps-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
 .ps-step + .ps-step::before {
@@ -71,6 +65,10 @@
     .top-bar-right:has(.ps-track) { display: contents; }
     .top-bar-right .theme-toggle { order: 1; }
     .ps-track { order: 2; width: 100%; max-width: 320px; margin: 0 auto; }
+    /* The stepper's own row sits close above the footer here; its border-top
+       read as a second line right under the stepper. Desktop has more
+       vertical room and keeps the line on every step, planner or not. */
+    .wrapper:has(.ps-track) .page-footer { border-top: none; }
 }
 .btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }
 .btn-primary .spinner {
