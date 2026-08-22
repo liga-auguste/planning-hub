@@ -588,7 +588,9 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         ).read_text()
 
     def test_sidebar_has_no_flush_border(self):
-        self.assertNotIn("border-right: 1px solid var(--color-border-primary);", self.css)
+        self.assertNotIn(
+            "border-right: 1px solid var(--color-border-primary);", self.css
+        )
 
     def test_sidebar_is_rounded_and_elevated(self):
         self.assertIn("border-radius: 12px;", self.css)
@@ -608,7 +610,9 @@ class SidebarFloatingTileTest(DemoModeTestCase):
 
     def test_drag_resize_keeps_the_gap_offset(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';")
+        self.assertContains(
+            response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';"
+        )
 
     def test_mobile_launcher_shares_the_content_bodys_right_inset(self):
         # Production mode's "Aktualisieren" button (dashboard.html, inside
@@ -616,9 +620,7 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         # own right padding. The launcher needs the same value, or the two
         # buttons land 8px apart instead of sharing one edge.
         content_body_padding = 20
-        self.assertIn(
-            f"right: {content_body_padding}px; z-index: 1002;", self.css
-        )
+        self.assertIn(f"right: {content_body_padding}px; z-index: 1002;", self.css)
 
     def test_mobile_launcher_shares_the_wordmark_rows_center_axis(self):
         # dashboard.html's wordmark row: 24px content-body padding-top +
@@ -1352,7 +1354,9 @@ class TopBarRightStaysBesideTheWordmarkWithoutAStepperTest(DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css)
+        self.assertIn(
+            ".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css
+        )
         self.assertNotIn(".top-bar-right { flex-wrap: wrap; width: 100%;", css)
 
 
