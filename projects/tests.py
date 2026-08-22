@@ -505,6 +505,44 @@ class SidebarMobileOverlayTest(DemoModeTestCase):
         )
 
 
+class SidebarMobileWidthAndScrollClearanceTest(DemoModeTestCase):
+    """A phone-width sidebar overlay surfaced two problems a fixed 260px
+    panel never showed on desktop: a flat 260px is either cramped on a
+    small phone or leaves an odd sliver of backdrop on a large one, and the
+    collapse arrow / theme toggle — both position: absolute within the
+    scrolling .sidebar, so they stay pinned over the visible box instead of
+    scrolling away — had no reserved space and sat directly on top of the
+    first and last nav items."""
+
+    def setUp(self):
+        super().setUp()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_mobile_sidebar_width_is_proportional_not_fixed(self):
+        self.assertIn(
+            "@media (max-width: 768px) {\n    .sidebar, .sidebar.collapsed {",
+            self.css,
+        )
+        self.assertIn("width: min(85vw, 320px);", self.css)
+
+    def test_sidebar_content_reserves_room_for_the_pinned_controls(self):
+        self.assertIn(".sidebar-content { padding: 24px 0 56px; }", self.css)
+
+    def test_theme_toggle_gets_an_opaque_full_width_bar_on_mobile(self):
+        # Real (longer, wrapping) event names mean any item can scroll
+        # through the toggle's screen position, not just the last one —
+        # its own pill background only covered itself, so text either side
+        # showed through instead of being cleanly hidden underneath.
+        self.assertIn(
+            ".sidebar .theme-toggle {\n        left: 0; right: 0; width: 100%;\n"
+            "        transform: none;\n        justify-content: flex-end;\n"
+            "        background: var(--color-bg-primary);",
+            self.css,
+        )
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
@@ -524,14 +562,210 @@ class SidebarDefaultWidthTest(DemoModeTestCase):
     and project names it actually holds — 260px still comfortably fits the
     demo data's longest entry without wrapping, with room to spare for
     real, somewhat longer event names. The drag-resize range (180-500px in
-    base_dashboard.html) is unrelated and untouched."""
+    base_dashboard.html) is unrelated and untouched. #96's floating-tile
+    change offsets .main's margin-left by the fixed 24px sidebar gap, so it
+    no longer matches .sidebar's width 1:1 — see SidebarFloatingTileTest."""
 
     def test_sidebar_and_main_agree_on_the_narrower_width(self):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
         ).read_text()
         self.assertIn(".sidebar {\n    width: 260px;", css)
-        self.assertIn(".main {\n    margin-left: 260px;", css)
+        self.assertIn(".main {\n    margin-left: 284px;", css)
+
+
+class SidebarFloatingTileTest(DemoModeTestCase):
+    """#96: the sidebar becomes a floating tile — inset from the viewport
+    edge with rounded corners and a shadow instead of a flush panel with a
+    hard border. .main's margin-left grows by the fixed 24px gap (12px inset
+    + 12px space to the content) so the content doesn't creep back under the
+    now-floating sidebar."""
+
+    def setUp(self):
+        super().setUp()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_sidebar_has_no_flush_border(self):
+        self.assertNotIn(
+            "border-right: 1px solid var(--color-border-primary);", self.css
+        )
+
+    def test_sidebar_is_rounded_and_elevated(self):
+        self.assertIn("border-radius: 12px;", self.css)
+        self.assertIn("box-shadow: var(--shadow-medium);", self.css)
+
+    def test_sidebar_is_inset_from_the_viewport_edge(self):
+        self.assertIn("top: 12px; left: 12px; bottom: 12px;", self.css)
+
+    def test_main_margin_left_accounts_for_the_gap(self):
+        self.assertIn(".main {\n    margin-left: 284px;", self.css)
+        self.assertIn(".main.sidebar-collapsed { margin-left: 72px; }", self.css)
+
+    def test_mobile_overlay_keeps_its_own_shadow_and_full_width(self):
+        # Explicitly untouched by the floating-tile change (see plan on #96).
+        self.assertIn("transform: translateX(-100%);", self.css)
+        self.assertIn("box-shadow: var(--shadow-medium);", self.css)
+
+    def test_drag_resize_keeps_the_gap_offset(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';"
+        )
+
+    def test_mobile_launcher_shares_the_content_bodys_right_inset(self):
+        # Production mode's "Aktualisieren" button (dashboard.html, inside
+        # .ai-card's flex row, margin-left: auto) sits at .content-body's
+        # own right padding. The launcher needs the same value, or the two
+        # buttons land 8px apart instead of sharing one edge.
+        content_body_padding = 20
+        self.assertIn(f"right: {content_body_padding}px; z-index: 1002;", self.css)
+
+    def test_mobile_launcher_shares_the_wordmark_rows_center_axis(self):
+        # dashboard.html's wordmark row: 24px content-body padding-top +
+        # half its 40px logo image = a 44px center from the viewport top.
+        # The 36px launcher button needs top: 26px to share that center.
+        content_body_top_padding = 24
+        logo_height = 40
+        button_height = 36
+        wordmark_center = content_body_top_padding + logo_height / 2
+        button_top = wordmark_center - button_height / 2
+        self.assertIn(f"top: {int(button_top)}px; right: 20px;", self.css)
+
+    def test_content_body_padding_shrinks_below_the_tablet_breakpoint(self):
+        # The desktop 40px/48px padding left barely 3/4 of a phone's width
+        # for content once .main went full-bleed there.
+        self.assertIn(".content-body { padding: 24px 20px; }", self.css)
+        self.assertIn(".page-footer { padding: 20px 20px 32px; }", self.css)
+        self.assertLess(
+            self.css.index(".content-body { padding: 40px 48px; flex: 1; }"),
+            self.css.index(".content-body { padding: 24px 20px; }"),
+        )
+
+    def test_main_rule_precedes_the_mobile_override_in_the_cascade(self):
+        # #96 follow-up: .main's base margin-left and the @media override
+        # that zeroes it on mobile carry equal specificity, so whichever
+        # one is later in the stylesheet wins regardless of the media
+        # condition. The base rule has to come first, or the override is
+        # silently dead on every width, mobile included.
+        self.assertLess(
+            self.css.index(".main {\n    margin-left: 284px;"),
+            self.css.index(".main, .main.sidebar-collapsed { margin-left: 0; }"),
+        )
+
+
+class AiCardDeboxTest(DemoModeTestCase):
+    """#96: .ai-card loses its background/border/radius entirely, at every
+    width — no breakpoint-specific override, unlike the Kanban board
+    (.kanban-card, unchanged — see DeboxingRegressionTest)."""
+
+    def test_ai_card_has_no_background_border_or_radius(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }",
+        )
+        self.assertNotContains(response, "border-radius: 8px; padding: 20px 24px;")
+
+
+class ProjectSectionDeboxTest(DemoModeTestCase):
+    """#96 follow-up: .project-section loses its background/border/radius
+    too, matching .ai-card — the per-project header (.project-header's own
+    border-bottom) and per-task separators (.task-row's border-bottom) stay
+    as internal dividers, the same pattern .ai-card already uses."""
+
+    def test_project_section_has_no_background_border_or_radius(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".project-section { margin-bottom: 8px; padding: 0; }",
+        )
+        self.assertNotContains(response, "border-radius: 8px; padding: 16px 20px;")
+
+
+class ProjectDateBadgeTest(DemoModeTestCase):
+    """The project-header's separate date badge duplicates what's already in
+    the project name for real Notion data — the maintainer's own habit is to
+    write the event date into the name itself. Demo names carry no such
+    date, example projects and a session plan alike (has_session_plan is
+    only ever true inside DEMO_MODE — see views.dashboard), so demo_mode
+    alone decides it; no has_session_plan check needed here."""
+
+    def test_date_badge_shows_in_demo_mode(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="project-date"')
+
+    @override_settings(DEMO_MODE=False)
+    def test_date_badge_is_hidden_in_production(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="project-date"')
+        self.assertContains(response, project["name"])
+
+
+class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
+    """De-boxing .project-section (see ProjectSectionDeboxTest) took the
+    20px inset that used to keep the header clear of the fixed mobile
+    hamburger launcher (36px, right: 20px — dashboard.css) with it, so the
+    title/date ran straight underneath it. padding-right reserves that
+    space again; min-height is 48px, not 36 — box-sizing: border-box
+    (base.css) counts the header's own padding-bottom: 8px against it, so a
+    36px min-height only left 28px of actual band to center the text in,
+    landing 6px above the button's center instead of matching it. 48px
+    keeps that band a full 36px (48 − 8), matching the button's own height
+    and, measured, its center exactly (both 44px down from the viewport
+    top). The border-bottom separator is dropped at this width too — the
+    button's own bottom edge lands right on it otherwise, reading as a
+    stray line through the button rather than a divider under the
+    heading."""
+
+    def test_mobile_header_reserves_room_for_the_hamburger(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".project-header { padding-right: 44px; min-height: 48px; "
+            "align-items: center; border-bottom: none; }",
+        )
+
+
+class DeboxingRegressionTest(DemoModeTestCase):
+    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these
+    boxed areas untouched — locked in before any code change so a later step
+    can't quietly widen the scope. (.project-section joined the de-boxed
+    side in a #96 follow-up — see ProjectSectionDeboxTest.)"""
+
+    def test_kanban_card_keeps_its_border(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".kanban-card { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 6px; "
+            "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
+        )
+
+    def test_my_plan_task_list_keeps_border_and_radius(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".task-list { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }",
+        )
+
+    def test_my_plan_summary_box_keeps_border_and_radius(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-box { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
+            "padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }",
+        )
 
 
 class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
@@ -1104,7 +1338,26 @@ class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(".top-bar { flex-wrap: wrap;", css)
+        self.assertIn(".top-bar:has(.ps-track) { flex-wrap: wrap;", css)
+
+
+class TopBarRightStaysBesideTheWordmarkWithoutAStepperTest(DemoModeTestCase):
+    """The <560px row-break for .top-bar-right exists so the planner
+    stepper's .ps-track gets a full-width row on a phone. Pages with
+    nothing but the theme toggle in that slot (landing, legal pages) have
+    no such width need — the row-break rule is scoped with :has(.ps-track)
+    so those pages keep the toggle on the same row as the wordmark,
+    opposite it via .top-bar's own space-between, instead of pushed onto
+    its own row underneath."""
+
+    def test_the_row_break_is_scoped_to_pages_with_a_stepper(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(
+            ".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css
+        )
+        self.assertNotIn(".top-bar-right { flex-wrap: wrap; width: 100%;", css)
 
 
 class LandingFlowStepOrderTest(DemoModeTestCase):
