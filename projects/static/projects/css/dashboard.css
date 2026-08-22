@@ -41,6 +41,18 @@
 .sidebar.collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
 .sidebar-backdrop { display: none; }
 .sidebar-toggle-mobile { display: none; }
+/* Declared here, before the @media block below, on purpose: its
+   margin-left has the same specificity as the mobile override's, so
+   whichever rule is later in the cascade wins on every width, media
+   condition or not. Moving this after the @media block silently breaks
+   the mobile override even though its own text stays untouched. */
+.main {
+    margin-left: 284px;
+    max-width: 920px;
+    transition: margin-left 0.2s ease;
+    flex: 1; display: flex; flex-direction: column;
+}
+.main.sidebar-collapsed { margin-left: 72px; }
 /* Below the tablet breakpoint the sidebar becomes a full-screen overlay
    instead of squeezing to a 48px rail: it slides in on a transform and the
    content underneath never reflows. The in-panel arrow above already
@@ -52,7 +64,12 @@
    branch of its own. */
 @media (max-width: 768px) {
     .sidebar, .sidebar.collapsed {
-        width: 260px;
+        /* Not the desktop's fixed 260px, and not a flat vw share either
+           (62.5vw swallowed the screen, barely any backdrop left): scale
+           with the viewport on narrow phones, but cap at 320px so larger
+           phones read as a proper drawer with visible dimmed backdrop
+           rather than nearly full-bleed. */
+        width: min(85vw, 320px);
     }
     .sidebar {
         top: 0; left: 0; bottom: 0;
@@ -64,10 +81,52 @@
     }
     .sidebar:not(.collapsed) { transform: translateX(0); }
     .sidebar.collapsed .sidebar-content { display: block; }
+    /* The ‹ collapse arrow (.sidebar-toggle) and the theme toggle are both
+       position: absolute within .sidebar, which is what scrolls (see
+       overflow-y: auto above) — so they stay pinned over the visible box
+       at a fixed spot instead of scrolling away with the nav list behind
+       them. Without this padding the arrow sits directly on top of the
+       first nav item ("Übersicht") and the theme toggle hides the last
+       one, out of reach no matter how far you scroll. */
+    /* 56px, not a smaller round number: the theme toggle's mobile bar
+       below is 12px top/bottom padding + its 26px buttons + a 1px border,
+       sitting bottom: 12px up from .sidebar's own edge — 63px of reserved
+       space needed past the last item, rounded up with a small margin. */
+    .sidebar-content { padding: 24px 0 56px; }
+    /* Real event names run longer than the demo data's and wrap onto two
+       lines, so with a tall project list any item can end up scrolling
+       through the toggle's screen position, not just the last one — the
+       padding above only guarantees the *last* item clears it once
+       scrolled all the way down. The toggle's own pill background only
+       covers itself, so text either side of it showed through and read as
+       overlapping. A full-width, opaque bar behind it means whatever's
+       currently scrolled there is cleanly hidden instead of visually
+       colliding with the icons. */
+    .sidebar .theme-toggle {
+        left: 0; right: 0; width: 100%;
+        transform: none;
+        justify-content: flex-end;
+        background: var(--color-bg-primary);
+        border-top: 1px solid var(--color-border-primary);
+        border-radius: 0;
+        /* 20px right, matching .content-body's inset — same edge the
+           launcher and "Aktualisieren" buttons sit on. */
+        padding: 12px 20px;
+    }
     .sidebar-resize { display: none; }
     .main, .main.sidebar-collapsed { margin-left: 0; }
     .sidebar-toggle-mobile {
-        position: fixed; top: 12px; left: 12px; z-index: 1002;
+        /* Top-right, not top-left: .content-body's mobile padding (20px,
+           see below) leaves the wordmark starting close enough to the
+           left edge that a left-fixed button sat on top of it.
+           top: 26px lines up its center with the wordmark row's: 24px
+           content-body padding-top + half its 40px logo image = a 44px
+           center, minus half this button's own 36px height.
+           right: 20px matches .content-body's own right padding, so this
+           button and the "Aktualisieren" button inside it (production
+           mode's dashboard.html, margin-left: auto in its row) share the
+           same right inset instead of sitting 8px apart. */
+        position: fixed; top: 26px; right: 20px; z-index: 1002;
         width: 36px; height: 36px;
         align-items: center; justify-content: center;
         border-radius: 8px;
@@ -92,13 +151,6 @@
         pointer-events: auto;
     }
 }
-.main {
-    margin-left: 284px;
-    max-width: 920px;
-    transition: margin-left 0.2s ease;
-    flex: 1; display: flex; flex-direction: column;
-}
-.main.sidebar-collapsed { margin-left: 72px; }
 /* flex: 1 pins the footer below; the inner layout stays a block context */
 .content-body { padding: 40px 48px; flex: 1; }
 .page-footer {
@@ -109,3 +161,11 @@
 .page-footer a { font-size: 12px; color: var(--color-text-quaternary); text-decoration: none; }
 .page-footer a:hover { color: var(--color-text-secondary); }
 .page-footer .footer-copy { font-size: 12px; color: var(--color-text-quaternary); margin-left: auto; }
+/* The desktop 48px side padding eats almost a quarter of a phone's width
+   on its own — .main already goes full-bleed below 768px (margin-left: 0
+   above), so this is the padding actually setting the visible margin
+   there. */
+@media (max-width: 768px) {
+    .content-body { padding: 24px 20px; }
+    .page-footer { padding: 20px 20px 32px; }
+}

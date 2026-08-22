@@ -505,6 +505,44 @@ class SidebarMobileOverlayTest(DemoModeTestCase):
         )
 
 
+class SidebarMobileWidthAndScrollClearanceTest(DemoModeTestCase):
+    """A phone-width sidebar overlay surfaced two problems a fixed 260px
+    panel never showed on desktop: a flat 260px is either cramped on a
+    small phone or leaves an odd sliver of backdrop on a large one, and the
+    collapse arrow / theme toggle — both position: absolute within the
+    scrolling .sidebar, so they stay pinned over the visible box instead of
+    scrolling away — had no reserved space and sat directly on top of the
+    first and last nav items."""
+
+    def setUp(self):
+        super().setUp()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_mobile_sidebar_width_is_proportional_not_fixed(self):
+        self.assertIn(
+            "@media (max-width: 768px) {\n    .sidebar, .sidebar.collapsed {",
+            self.css,
+        )
+        self.assertIn("width: min(85vw, 320px);", self.css)
+
+    def test_sidebar_content_reserves_room_for_the_pinned_controls(self):
+        self.assertIn(".sidebar-content { padding: 24px 0 56px; }", self.css)
+
+    def test_theme_toggle_gets_an_opaque_full_width_bar_on_mobile(self):
+        # Real (longer, wrapping) event names mean any item can scroll
+        # through the toggle's screen position, not just the last one —
+        # its own pill background only covered itself, so text either side
+        # showed through instead of being cleanly hidden underneath.
+        self.assertIn(
+            ".sidebar .theme-toggle {\n        left: 0; right: 0; width: 100%;\n"
+            "        transform: none;\n        justify-content: flex-end;\n"
+            "        background: var(--color-bg-primary);",
+            self.css,
+        )
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
@@ -571,6 +609,48 @@ class SidebarFloatingTileTest(DemoModeTestCase):
     def test_drag_resize_keeps_the_gap_offset(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';")
+
+    def test_mobile_launcher_shares_the_content_bodys_right_inset(self):
+        # Production mode's "Aktualisieren" button (dashboard.html, inside
+        # .ai-card's flex row, margin-left: auto) sits at .content-body's
+        # own right padding. The launcher needs the same value, or the two
+        # buttons land 8px apart instead of sharing one edge.
+        content_body_padding = 20
+        self.assertIn(
+            f"right: {content_body_padding}px; z-index: 1002;", self.css
+        )
+
+    def test_mobile_launcher_shares_the_wordmark_rows_center_axis(self):
+        # dashboard.html's wordmark row: 24px content-body padding-top +
+        # half its 40px logo image = a 44px center from the viewport top.
+        # The 36px launcher button needs top: 26px to share that center.
+        content_body_top_padding = 24
+        logo_height = 40
+        button_height = 36
+        wordmark_center = content_body_top_padding + logo_height / 2
+        button_top = wordmark_center - button_height / 2
+        self.assertIn(f"top: {int(button_top)}px; right: 20px;", self.css)
+
+    def test_content_body_padding_shrinks_below_the_tablet_breakpoint(self):
+        # The desktop 40px/48px padding left barely 3/4 of a phone's width
+        # for content once .main went full-bleed there.
+        self.assertIn(".content-body { padding: 24px 20px; }", self.css)
+        self.assertIn(".page-footer { padding: 20px 20px 32px; }", self.css)
+        self.assertLess(
+            self.css.index(".content-body { padding: 40px 48px; flex: 1; }"),
+            self.css.index(".content-body { padding: 24px 20px; }"),
+        )
+
+    def test_main_rule_precedes_the_mobile_override_in_the_cascade(self):
+        # #96 follow-up: .main's base margin-left and the @media override
+        # that zeroes it on mobile carry equal specificity, so whichever
+        # one is later in the stylesheet wins regardless of the media
+        # condition. The base rule has to come first, or the override is
+        # silently dead on every width, mobile included.
+        self.assertLess(
+            self.css.index(".main {\n    margin-left: 284px;"),
+            self.css.index(".main, .main.sidebar-collapsed { margin-left: 0; }"),
+        )
 
 
 class AiCardDeboxTest(DemoModeTestCase):
@@ -1199,7 +1279,24 @@ class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(".top-bar { flex-wrap: wrap;", css)
+        self.assertIn(".top-bar:has(.ps-track) { flex-wrap: wrap;", css)
+
+
+class TopBarRightStaysBesideTheWordmarkWithoutAStepperTest(DemoModeTestCase):
+    """The <560px row-break for .top-bar-right exists so the planner
+    stepper's .ps-track gets a full-width row on a phone. Pages with
+    nothing but the theme toggle in that slot (landing, legal pages) have
+    no such width need — the row-break rule is scoped with :has(.ps-track)
+    so those pages keep the toggle on the same row as the wordmark,
+    opposite it via .top-bar's own space-between, instead of pushed onto
+    its own row underneath."""
+
+    def test_the_row_break_is_scoped_to_pages_with_a_stepper(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css)
+        self.assertNotIn(".top-bar-right { flex-wrap: wrap; width: 100%;", css)
 
 
 class LandingFlowStepOrderTest(DemoModeTestCase):
