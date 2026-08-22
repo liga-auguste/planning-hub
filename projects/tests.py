@@ -1354,10 +1354,35 @@ class TopBarRightStaysBesideTheWordmarkWithoutAStepperTest(DemoModeTestCase):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
         ).read_text()
-        self.assertIn(
+        self.assertIn(".top-bar-right:has(.ps-track) { display: contents; }", css)
+        self.assertNotIn(
             ".top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%;", css
         )
-        self.assertNotIn(".top-bar-right { flex-wrap: wrap; width: 100%;", css)
+
+
+class ThemeToggleStaysOppositeWordmarkWithStepperTest(DemoModeTestCase):
+    """#114: .top-bar-right used to wrap the theme toggle together with
+    .ps-track below 560px, so the toggle got pushed onto its own row under
+    the wordmark instead of staying opposite it. .top-bar-right now turns
+    into display: contents at that width, making .ps-track and the toggle
+    direct flex items of .top-bar itself — order keeps the toggle on row 1
+    and only .ps-track (full width) wraps onto row 2, centered by its own
+    auto margins."""
+
+    def test_the_theme_toggle_is_ordered_first(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(".top-bar-right .theme-toggle { order: 1; }", css)
+
+    def test_the_track_is_ordered_second_and_centered(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/public.css"
+        ).read_text()
+        self.assertIn(
+            ".ps-track { order: 2; width: 100%; max-width: 320px; margin: 0 auto; }",
+            css,
+        )
 
 
 class LandingFlowStepOrderTest(DemoModeTestCase):

@@ -53,11 +53,18 @@
    slot (landing, legal pages) have no such width need, so :has() scopes
    the row-break to when .ps-track is actually there — otherwise the
    toggle would get shoved onto its own row for no reason, opposite the
-   wordmark instead of beside it. */
+   wordmark instead of beside it.
+   #114: .top-bar-right turns into display: contents so .ps-track and
+   the theme toggle become .top-bar's own flex items instead of being
+   boxed together — that's what lets the toggle stay on row 1 next to
+   the wordmark while only .ps-track (ordered after the toggle, full
+   width) wraps onto row 2 by itself. Its own auto margins center it
+   on that row, independent of .top-bar's space-between on row 1. */
 @media (max-width: 560px) {
-    .top-bar:has(.ps-track) { flex-wrap: wrap; row-gap: 14px; }
-    .top-bar-right:has(.ps-track) { flex-wrap: wrap; width: 100%; row-gap: 10px; }
-    .ps-track { width: 100%; max-width: 320px; }
+    .top-bar:has(.ps-track) { flex-wrap: wrap; row-gap: 20px; }
+    .top-bar-right:has(.ps-track) { display: contents; }
+    .top-bar-right .theme-toggle { order: 1; }
+    .ps-track { order: 2; width: 100%; max-width: 320px; margin: 0 auto; }
 }
 .btn-primary.is-loading { opacity: 0.65; cursor: not-allowed; }
 .btn-primary .spinner {
