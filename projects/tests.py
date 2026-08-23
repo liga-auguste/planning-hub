@@ -1403,23 +1403,55 @@ class LandingFlowStepOrderTest(DemoModeTestCase):
         self.assertNotContains(response, "scale(2.8)")
 
 
-class LandingMobileStepsTapRevealTest(DemoModeTestCase):
-    """#100: below 768px the flow curve is dropped and the three steps
-    used to render fully open and static, reading as flat next to the
-    animated desktop version. They now default closed and reuse the
-    existing tap/hover reveal mechanic (`is-open`) instead of a new one."""
+class LandingMobileSeqTest(DemoModeTestCase):
+    """#117: below 768px the flow curve's plain accordion is gone; a card
+    sequence now walks a visitor through idea input, a simulated clarifying
+    question and plan generation, ending on a static preview of the plan."""
 
-    def test_mobile_step_desc_defaults_closed(self):
+    def test_seq_markup_present(self):
         response = self.client.get("/")
-        self.assertContains(response, "max-height: 0; overflow: hidden")
+        self.assertContains(response, '<div class="seq" data-step="0">')
 
-    def test_open_state_still_reveals_the_description(self):
+    def test_seq_deck_has_three_cards(self):
         response = self.client.get("/")
-        self.assertContains(response, ".step.is-open .step-desc")
+        self.assertContains(response, "Idee beschreiben")
+        self.assertContains(response, "Rückfragen klären")
+        self.assertContains(response, "Plan generieren")
 
-    def test_disclosure_chevron_rotates_open(self):
+    def test_headline_wrapped_without_duplicating_text(self):
         response = self.client.get("/")
-        self.assertContains(response, ".step.is-open .step-label::after")
+        self.assertContains(response, '<div class="seq-headline">')
+        self.assertEqual(
+            response.content.decode().count("Aus einer Idee wird ein Plan"), 1
+        )
+
+    def test_static_task_list_has_no_interaction_hooks(self):
+        response = self.client.get("/")
+        self.assertNotContains(response, "data-task-id")
+        self.assertNotContains(response, 'onclick="toggleTask')
+        self.assertContains(response, '<span class="dot')
+
+    def test_seq_card_deck_is_keyboard_accessible(self):
+        response = self.client.get("/")
+        self.assertContains(response, 'role="button"')
+        self.assertContains(response, 'class="seq-deck"')
+
+    def test_seq_hidden_on_desktop_by_default(self):
+        response = self.client.get("/")
+        self.assertContains(response, ".seq { display: none; }")
+
+    def test_reduced_motion_block_covers_new_classes(self):
+        response = self.client.get("/")
+        css = response.content.decode()
+        rm_start = css.index("@media (prefers-reduced-motion: reduce)")
+        rm_block = css[rm_start:rm_start + 900]
+        self.assertIn(".seq-caret", rm_block)
+        self.assertIn(".seq-skel-row", rm_block)
+        self.assertIn(".seq-headline", rm_block)
+
+    def test_static_plan_shows_zero_done(self):
+        response = self.client.get("/")
+        self.assertContains(response, "0 / 10 erledigt")
 
 
 class FooterPinningTest(DemoModeTestCase):

@@ -276,6 +276,14 @@
         .step-label { transition: color 0.3s; }
         .step-desc { transform: none; transition: opacity 0.2s ease; }
         .flow-halo { animation: none !important; }
+        .seq-headline { transition: height 0s, opacity 0s; }
+        .seq-card { transition: transform 0.2s linear, opacity 0.2s linear; }
+        .seq-detail { transition: height 0s, opacity 0s; }
+        .seq-caret { animation: none; opacity: 1; }
+        .seq-cue-circle { animation: none; }
+        .seq-status-dot, .seq-dots span, .seq-skel-row { animation: none; opacity: 0.7; }
+        .seq-bubble-question { transition: opacity 0.15s; }
+        .seq-chip { transition: background 0.15s, color 0.15s; }
     }
     /* The row carries the two paths and nothing else, so centring it needs no
        machinery: a flex row with justify-content does it, and the two pills
@@ -334,41 +342,130 @@
        tapped, hence the click listener in the script. The breakpoint is a
        width, not a pointer, and cannot stand in for one. */
     @media (max-width: 768px) {
-        .flow { margin-top: 56px; }
-        .flow-line { display: none; }
-        .flow-steps { grid-template-columns: 1fr; gap: 4px; margin-top: 0; }
-        .step, .step:nth-child(1), .step:nth-child(2), .step:nth-child(3) {
-            padding: 14px 0; text-align: left;
-        }
-        .step + .step { border-top: 1px solid var(--color-border-primary); }
-        /* Everything back to the left, in step with the stacked steps. */
-        .actions { justify-content: flex-start; margin-top: 40px; }
-        .step-label {
-            color: var(--color-text-primary); display: flex;
-            align-items: center; justify-content: space-between;
-            margin-bottom: 0; transform: none;
-        }
-        /* The reveal mechanic itself (hover/focus/click -> .is-open) is
-           unchanged from desktop — only its visual result differs here.
-           This chevron is the disclosure indicator that replaces the label
-           shrink desktop uses instead: a typographic symbol, the same one
-           already used elsewhere in this codebase for the same purpose. */
-        .step-label::after { content: '›'; color: var(--color-text-quaternary); transition: transform 0.25s ease; }
-        .step.is-open .step-label::after { transform: rotate(90deg); }
+        .flow { display: none; }
+        .actions { display: none; }
         .tech-badge { text-align: left; }
-        .step-desc {
-            position: static; display: block; max-height: 0; overflow: hidden;
-            opacity: 0; transform: none; margin-top: 0;
-            transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
+        .seq { display: flex; flex-direction: column; }
+
+        .seq-headline { overflow: hidden; height: 92px; opacity: 1; transition: height 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease; }
+        .seq[data-step="1"] .seq-headline,
+        .seq[data-step="2"] .seq-headline,
+        .seq[data-step="3"] .seq-headline { height: 0; opacity: 0; }
+
+        .seq-deck { position: relative; height: 196px; margin-top: 8px; cursor: pointer; }
+        .seq[data-step="3"] .seq-deck { display: none; }
+        .seq-card {
+            position: absolute; inset: 0; margin: auto 0; height: 196px;
+            border-radius: 16px; border: 1px solid var(--color-border-primary);
+            box-shadow: var(--shadow-medium); padding: 20px; background: var(--color-bg-primary);
+            transition: transform 0.55s cubic-bezier(0.22,1,0.36,1), opacity 0.45s ease;
         }
-        /* 200px is an estimate for the longest description (step 3, three
-           lines) — worth eyeballing on a real device and adjusting. */
-        .step.is-open .step-desc { max-height: 200px; opacity: 1; margin-top: 8px; }
+        .seq-card-head { display: flex; justify-content: space-between; font-family: "SF Mono", "Fira Code", ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--color-text-quaternary); }
+        .seq-card-title { font-size: 25px; font-weight: 700; margin-top: 10px; color: var(--color-text-primary); }
+        .seq-card-desc { font-size: 14.5px; color: var(--color-text-tertiary); max-width: 84%; margin-top: 6px; }
+        .seq-card-cue { position: absolute; right: 20px; bottom: 20px; display: none; align-items: center; gap: 8px; }
+        .seq-cue-label { font-size: 11px; color: var(--color-text-quaternary); }
+        .seq-cue-circle {
+            width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            border: 1px solid var(--color-border-primary); animation: phNudge 1.8s ease-in-out infinite;
+        }
+        /* card depth per data-step (0,1,2) */
+        .seq[data-step="0"] .seq-card[data-card="0"] { transform: translateY(0) scale(1) rotate(-1.5deg); z-index: 10; }
+        .seq[data-step="0"] .seq-card[data-card="1"] { transform: translateY(13px) scale(0.955) rotate(1.8deg); z-index: 9; }
+        .seq[data-step="0"] .seq-card[data-card="2"] { transform: translateY(26px) scale(0.91) rotate(-2.6deg); z-index: 8; }
+        .seq[data-step="1"] .seq-card[data-card="0"] { transform: translate(-130%, -24px) rotate(-16deg); opacity: 0; }
+        .seq[data-step="1"] .seq-card[data-card="1"] { transform: translateY(0) scale(1) rotate(1.8deg); z-index: 10; }
+        .seq[data-step="1"] .seq-card[data-card="2"] { transform: translateY(13px) scale(0.955) rotate(-2.6deg); z-index: 9; }
+        .seq[data-step="2"] .seq-card[data-card="0"],
+        .seq[data-step="2"] .seq-card[data-card="1"] { transform: translate(-130%, -24px) rotate(-16deg); opacity: 0; }
+        .seq[data-step="2"] .seq-card[data-card="2"] { transform: translateY(0) scale(1) rotate(-2.6deg); z-index: 10; }
+        .seq[data-step="0"] .seq-card[data-card="0"] .seq-card-cue { display: flex; }
+        .seq[data-step="1"][data-phase="4"] .seq-card[data-card="1"] .seq-card-cue { display: flex; }
+        .seq[data-phase="4"] .seq-cue-label { color: var(--color-accent); font-weight: 600; transition: color 0.3s; }
+        .seq[data-phase="4"] .seq-cue-circle { background: var(--color-accent); color: var(--color-solid-text); border-color: var(--color-accent); transition: background 0.3s, border-color 0.3s; }
+
+        .seq-detail { height: 0; overflow: hidden; opacity: 0; transition: height 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.45s ease; }
+        .seq[data-step="1"] .seq-detail { height: 268px; opacity: 1; }
+        .seq[data-step="2"] .seq-detail { height: 236px; opacity: 1; }
+        .seq-detail-head { display: flex; justify-content: space-between; align-items: center; }
+        .seq-step-label { font-family: "SF Mono", "Fira Code", ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--color-text-quaternary); }
+        .seq-reset { font-size: 12px; padding: 6px 11px; border-radius: 6px; border: 1px solid var(--color-border-primary); color: var(--color-text-quaternary); background: transparent; cursor: pointer; }
+
+        .seq-chat { display: none; flex-direction: column; gap: 10px; margin-top: 12px; }
+        .seq[data-step="1"] .seq-chat { display: flex; }
+        .seq-bubble-user { align-self: flex-end; max-width: 84%; background: var(--color-solid-bg); color: var(--color-solid-text); border-radius: 14px 14px 4px 14px; padding: 11px 13px; font-size: 13.5px; line-height: 1.5; }
+        .seq-caret { animation: phCaret 1s step-end infinite; }
+        .seq-bubble-thinking { display: none; align-self: flex-start; background: var(--color-bg-secondary); border: 1px solid var(--color-border-primary); border-radius: 14px 14px 14px 4px; padding: 12px 14px; align-items: center; gap: 8px; font-size: 11.5px; color: var(--color-text-quaternary); }
+        .seq[data-phase="1"] .seq-bubble-thinking { display: flex; }
+        .seq-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--color-text-quaternary); display: inline-block; animation: phSkel 1.1s ease-in-out infinite; }
+        .seq-dots span:nth-child(2) { animation-delay: 0.18s; }
+        .seq-dots span:nth-child(3) { animation-delay: 0.36s; }
+        .seq-bubble-question { display: none; background: var(--color-bg-secondary); border: 1px solid var(--color-border-primary); border-radius: 14px 14px 14px 4px; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--color-text-secondary); opacity: 0; transform: translateY(8px); transition: opacity 0.3s, transform 0.4s cubic-bezier(0.22,1,0.36,1); }
+        .seq[data-phase="2"] .seq-bubble-question,
+        .seq[data-phase="3"] .seq-bubble-question,
+        .seq[data-phase="4"] .seq-bubble-question { display: block; opacity: 1; transform: none; }
+        .seq-chips { display: none; align-self: flex-end; gap: 7px; }
+        .seq[data-phase="2"] .seq-chips,
+        .seq[data-phase="3"] .seq-chips,
+        .seq[data-phase="4"] .seq-chips { display: flex; }
+        .seq-chip { border-radius: 99px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--color-border-primary); background: var(--color-bg-primary); color: var(--color-text-secondary); transition: transform 0.18s, background 0.3s, color 0.3s, border-color 0.3s, opacity 0.3s; }
+        .seq[data-phase="3"] .seq-chip-nein { transform: scale(0.93); }
+        .seq[data-phase="3"] .seq-chip-nein,
+        .seq[data-phase="4"] .seq-chip-nein { background: var(--color-accent); color: var(--color-solid-text); border-color: var(--color-accent); }
+        .seq[data-phase="3"] .seq-chip-ja,
+        .seq[data-phase="4"] .seq-chip-ja { opacity: 0.32; }
+
+        .seq-generating { display: none; margin-top: 14px; }
+        .seq[data-step="2"] .seq-generating { display: block; }
+        .seq-status { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--color-text-quaternary); }
+        .seq-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); animation: phSkel 1s ease-in-out infinite; }
+        .seq-skeleton { margin-top: 10px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; }
+        .seq-skel-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); animation: phSkel 1.4s ease-in-out infinite; }
+        .seq-skel-row:last-child { border-bottom: none; }
+        .seq-skel-row:nth-child(2) { animation-delay: 0.15s; }
+        .seq-skel-row:nth-child(3) { animation-delay: 0.30s; }
+        .seq-skel-row:nth-child(4) { animation-delay: 0.45s; }
+        .seq-skel-circle { width: 14px; height: 14px; border-radius: 50%; background: var(--color-border-secondary); flex-shrink: 0; }
+        .seq-skel-bar { height: 9px; background: var(--color-border-primary); border-radius: 4px; }
+        .seq-skel-tail { margin-left: auto; width: 42px; height: 9px; background: var(--color-bg-tertiary); border-radius: 4px; }
+
+        .seq-plan { display: none; margin-top: 20px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent); opacity: 0; transition: opacity 0.5s ease 0.2s; }
+        .seq[data-step="3"] .seq-plan { display: block; opacity: 1; }
+        .seq-plan-head { display: flex; justify-content: space-between; align-items: flex-start; }
+        .seq-plan-kicker { font-family: "SF Mono", "Fira Code", ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--color-accent); }
+        .seq-plan-name { font-size: 24px; font-weight: 600; margin-top: 4px; color: var(--color-text-primary); }
+        .seq-plan-meta { font-size: 13px; color: var(--color-text-quaternary); margin-top: 2px; }
+        .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: 99px; background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 54px; box-sizing: border-box; }
+        .seq .dot { cursor: default; }
+
+        .seq-cta { flex: none; position: sticky; bottom: 0; z-index: 5; background: var(--color-bg-primary); border-top: 1px solid var(--color-border-primary); padding: 12px 20px 16px; }
+        .seq-cta-btn { display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 15px 20px; border-radius: 99px; font-size: 15px; font-weight: 600; color: var(--color-solid-text); text-decoration: none; background: var(--color-solid-bg); transition: background 0.4s ease; }
+        .seq[data-step="3"] .seq-cta-btn { background: var(--color-accent); }
+
+        .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-border-primary); border-radius: 4px; overflow: hidden; }
+        .progress-bar-fill { height: 100%; background: var(--color-solid-bg); border-radius: 4px; transition: width 0.3s; }
+        .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
+        .task-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
+        .task-row:last-child { border-bottom: none; }
+        .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-quaternary); }
+        .dot.overdue { background: var(--color-overdue); }
+        .dot.urgent { background: var(--color-text-quaternary); }
+        .task-name { flex: 1; line-height: 1.4; }
+        .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
+        .task-date.overdue { color: var(--color-overdue); }
+        .task-date.urgent { color: var(--color-urgent); }
+        .summary-box { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
+        .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
+
+        @keyframes phSkel { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.85; } }
+        @keyframes phCaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+        @keyframes phNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(3px); } }
     }
     @media (max-width: 560px) {
         h1 { font-size: 30px; }
         .status-row { margin-bottom: 18px; }
     }
+    .seq { display: none; }
 {% endblock %}
 
 {% block content %}
@@ -377,7 +474,9 @@
         <span class="status-dot"></span>
         Live-Demo, kein Login
     </p>
-    <h1>Aus einer Idee wird ein Plan</h1>
+    <div class="seq-headline">
+        <h1>Aus einer Idee wird ein Plan</h1>
+    </div>
     <div class="flow">
         <svg class="flow-line" viewBox="0 0 900 112" aria-hidden="true">
             <path class="flow-track" d="M -1000 130 L 0 110 C 300 104, 600 58, 900 -18 L 2200 -347.33"/>
@@ -417,6 +516,105 @@
                     </span>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="seq" data-step="0">
+        <div class="seq-deck" role="button" tabindex="0" aria-label="Weiter zum nächsten Schritt">
+            <div class="seq-card" data-card="0">
+                <div class="seq-card-head">
+                    <span class="seq-card-num">01</span>
+                    <span class="seq-card-tag">Notiz</span>
+                </div>
+                <div class="seq-card-title">Idee beschreiben</div>
+                <div class="seq-card-desc">Ein Satz genügt: was stattfinden soll, wann, mit wem.</div>
+                <div class="seq-card-cue">
+                    <span class="seq-cue-label">antippen</span>
+                    <span class="seq-cue-circle">›</span>
+                </div>
+            </div>
+            <div class="seq-card" data-card="1">
+                <div class="seq-card-head">
+                    <span class="seq-card-num">02</span>
+                    <span class="seq-card-tag">Rückfrage</span>
+                </div>
+                <div class="seq-card-title">Rückfragen klären</div>
+                <div class="seq-card-desc">Die KI fragt nur nach, was den Plan wirklich verändert.</div>
+                <div class="seq-card-cue">
+                    <span class="seq-cue-label">Plan generieren</span>
+                    <span class="seq-cue-circle">›</span>
+                </div>
+            </div>
+            <div class="seq-card" data-card="2">
+                <div class="seq-card-head">
+                    <span class="seq-card-num">03</span>
+                    <span class="seq-card-tag">KI</span>
+                </div>
+                <div class="seq-card-title">Plan generieren</div>
+                <div class="seq-card-desc">Aufgaben, Reihenfolge und Daten rückwärts vom Termin — in wenigen Sekunden.</div>
+            </div>
+        </div>
+
+        <div class="seq-detail">
+            <div class="seq-detail-head">
+                <span class="seq-step-label">Schritt <span class="seq-step-n">2</span> von 4</span>
+                <button type="button" class="seq-reset">↺ neu</button>
+            </div>
+            <div class="seq-chat">
+                <div class="seq-bubble seq-bubble-user"><span class="seq-typed"></span><span class="seq-caret">|</span></div>
+                <div class="seq-bubble seq-bubble-thinking">
+                    <span class="seq-dots"><span></span><span></span><span></span></span>
+                    <span>prüft deine Regeln</span>
+                </div>
+                <div class="seq-bubble seq-bubble-question">Raum schon gebucht?</div>
+                <div class="seq-chips">
+                    <span class="seq-chip seq-chip-nein">Nein</span>
+                    <span class="seq-chip seq-chip-ja">Ja</span>
+                </div>
+            </div>
+            <div class="seq-generating">
+                <div class="seq-status"><span class="seq-status-dot"></span><span>Plan wird erstellt …</span></div>
+                <div class="seq-skeleton">
+                    <div class="seq-skel-row"><span class="seq-skel-circle"></span><span class="seq-skel-bar" style="width:52%"></span><span class="seq-skel-tail"></span></div>
+                    <div class="seq-skel-row"><span class="seq-skel-circle"></span><span class="seq-skel-bar" style="width:68%"></span><span class="seq-skel-tail"></span></div>
+                    <div class="seq-skel-row"><span class="seq-skel-circle"></span><span class="seq-skel-bar" style="width:44%"></span><span class="seq-skel-tail"></span></div>
+                    <div class="seq-skel-row"><span class="seq-skel-circle"></span><span class="seq-skel-bar" style="width:60%"></span><span class="seq-skel-tail"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="seq-plan">
+            <div class="seq-plan-head">
+                <div>
+                    <div class="seq-plan-kicker">04 · EINFACH ARBEITEN</div>
+                    <div class="seq-plan-name">Workshop Team</div>
+                    <div class="seq-plan-meta">Freitag, 16.5. · 0 / 10 erledigt</div>
+                </div>
+                <button type="button" class="seq-reset">↺ neu</button>
+            </div>
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width: 0%"></div></div>
+            <div class="summary-label">KI-Übersicht</div>
+            <div class="summary-box">
+                Drei Aufgaben sind <strong>überfällig</strong>, heute steht die Agenda an —
+                Druck und Technik hängen daran. Der Rest liegt sauber vor dem Termin am Freitag.
+            </div>
+            <div class="task-list">
+                <div class="task-row"><span class="dot overdue"></span><span class="task-name">Einladung an das Team</span><span class="task-date overdue">Mo 12.5.</span></div>
+                <div class="task-row"><span class="dot overdue"></span><span class="task-name">Catering bestätigen</span><span class="task-date overdue">Di 13.5.</span></div>
+                <div class="task-row"><span class="dot overdue"></span><span class="task-name">Teilnehmerliste prüfen</span><span class="task-date overdue">Di 13.5.</span></div>
+                <div class="task-row"><span class="dot urgent"></span><span class="task-name">Agenda finalisieren</span><span class="task-date urgent">heute</span></div>
+                <div class="task-row"><span class="dot urgent"></span><span class="task-name">Moderationskarten schreiben</span><span class="task-date urgent">heute</span></div>
+                <div class="task-row"><span class="dot"></span><span class="task-name">Vorbesprechung mit Lena</span><span class="task-date">Do 15.5.</span></div>
+                <div class="task-row"><span class="dot"></span><span class="task-name">Material drucken</span><span class="task-date">Do 15.5.</span></div>
+                <div class="task-row"><span class="dot"></span><span class="task-name">Technik testen</span><span class="task-date">Do 15.5.</span></div>
+                <div class="task-row"><span class="dot"></span><span class="task-name">Raum vorbereiten</span><span class="task-date">Fr 16.5.</span></div>
+                <div class="task-row"><span class="dot"></span><span class="task-name">Nachbereitung einplanen</span><span class="task-date">Mo 19.5.</span></div>
+            </div>
+            <a class="seq-plan-secondary" href="{% url 'dashboard' %}?mode=multi">Beispiel-Dashboard ansehen</a>
+        </div>
+
+        <div class="seq-cta">
+            <a class="seq-cta-btn" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
         </div>
     </div>
 
@@ -465,6 +663,94 @@
         // opened the station by the time the button goes down.
         step.addEventListener('click', reveal);
     });
+})();
+
+(function () {
+    if (!window.matchMedia('(max-width: 768px)').matches) return;
+
+    const seq = document.querySelector('.seq');
+    if (!seq) return;
+    const deck = seq.querySelector('.seq-deck');
+    const typedEl = seq.querySelector('.seq-typed');
+    const IDEA = "Workshop mit dem Team am Freitag, halbtags.";
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let state = { step: 0, phase: 0, typed: 0 };
+    let timers = [];
+
+    function delay(ms) { return reduced ? 0 : ms; }
+    function schedule(fn, ms, raw) {
+        const id = setTimeout(fn, raw ? ms : delay(ms));
+        timers.push(id);
+        return id;
+    }
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+    function render() {
+        seq.dataset.step = String(state.step);
+        if (state.phase) { seq.dataset.phase = String(state.phase); }
+        else { delete seq.dataset.phase; }
+        if (typedEl) { typedEl.textContent = IDEA.slice(0, state.typed); }
+    }
+
+    function startTyping() {
+        state.typed = 0;
+        state.phase = 0;
+        render();
+        function step() {
+            if (state.typed >= IDEA.length) {
+                schedule(() => { state.phase = 1; render(); }, 420);
+                schedule(() => { state.phase = 2; render(); }, 1750);
+                schedule(() => { state.phase = 3; render(); }, 2750);
+                schedule(() => { state.phase = 4; render(); }, 2930);
+                return;
+            }
+            const ch = IDEA[state.typed];
+            let d = 34 + Math.random() * 55;
+            if (ch === ' ') d += 30;
+            if (ch === ',' || ch === '.') d += 210;
+            schedule(() => { state.typed += 1; render(); step(); }, d);
+        }
+        step();
+    }
+
+    function advance() {
+        if (state.step >= 3 || state.step === 2) return; // step 3 runs on its own
+        clearTimers();
+        const next = state.step + 1;
+        if (next === 1) {
+            state.step = 1;
+            render();
+            startTyping();
+        } else if (next === 2) {
+            state.step = 2;
+            state.phase = 0;
+            render();
+            schedule(() => { state.step = 3; render(); }, 1900, true); // survives reduced motion
+        }
+    }
+
+    function reset() {
+        clearTimers();
+        state = { step: 0, phase: 0, typed: 0 };
+        render();
+    }
+
+    deck.addEventListener('click', advance);
+    deck.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advance(); }
+    });
+    seq.querySelectorAll('.seq-reset').forEach(function (btn) {
+        btn.addEventListener('click', reset);
+    });
+    window.addEventListener('pagehide', clearTimers);
+
+    const mq = window.matchMedia('(max-width: 768px)');
+    (mq.addEventListener ? mq.addEventListener.bind(mq) : mq.addListener.bind(mq))('change', function (e) {
+        if (!e.matches) reset();
+    });
+
+    render();
 })();
 </script>
 {% endblock %}
