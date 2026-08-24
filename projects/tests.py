@@ -445,25 +445,32 @@ class SidebarInfoIconTest(DemoModeTestCase):
 
 class SidebarMobileDefaultCollapseTest(DemoModeTestCase):
     """#25: the sidebar's fixed 320px width used to render at every
-    viewport. First load with no stored preference now collapses it below
-    the tablet breakpoint the rest of the app already uses. A MediaQueryList
-    change listener keeps that in sync live if the window crosses the
-    breakpoint mid-session, but only while no explicit preference has been
-    stored yet — a click on the toggle owns the state from then on."""
+    viewport. Below the tablet breakpoint the rest of the app already uses,
+    it now always starts (and stays) collapsed — including over a stored
+    "open" preference from a prior desktop session, since arriving on a
+    phone with someone else's desktop choice claiming 320px of the screen
+    defeats the point of the breakpoint. A stored "closed" preference still
+    applies on desktop, both on load and when a MediaQueryList change
+    listener keeps this in sync live as the window crosses the breakpoint
+    mid-session."""
 
-    def test_load_script_checks_the_breakpoint_when_no_preference_is_stored(self):
+    def test_load_script_checks_the_breakpoint(self):
         response = self.client.get("/dashboard/")
         self.assertContains(response, "window.matchMedia('(max-width: 768px)')")
 
-    def test_an_explicit_stored_preference_is_still_checked_first(self):
+    def test_mobile_wins_over_a_stored_preference_on_load(self):
         response = self.client.get("/dashboard/")
-        self.assertContains(response, "storedCollapsed === 'true'")
+        self.assertContains(
+            response,
+            "const startCollapsed = tabletBreakpoint.matches || storedCollapsed === 'true';",
+        )
 
-    def test_the_breakpoint_listener_defers_to_an_explicit_preference(self):
+    def test_the_breakpoint_listener_also_lets_mobile_win(self):
         response = self.client.get("/dashboard/")
         self.assertContains(response, "tabletBreakpoint.addEventListener('change'")
         self.assertContains(
-            response, "if (localStorage.getItem('sidebarCollapsed') !== null) return;"
+            response,
+            "const collapsed = e.matches || localStorage.getItem('sidebarCollapsed') === 'true';",
         )
 
 
@@ -1449,9 +1456,14 @@ class LandingMobileSeqTest(DemoModeTestCase):
         self.assertIn(".seq-skel-row", rm_block)
         self.assertIn(".seq-headline", rm_block)
 
-    def test_static_plan_shows_zero_done(self):
+    def test_static_plan_has_no_progress_indicator(self):
+        # #117 follow-up: a freshly generated plan has nothing done yet, so
+        # the progress bar and "x / 10 erledigt" count were dropped —
+        # neither carries information at this point in the sequence.
         response = self.client.get("/")
-        self.assertContains(response, "0 / 10 erledigt")
+        self.assertContains(response, "Freitag, 16.5.")
+        self.assertNotContains(response, "erledigt")
+        self.assertNotContains(response, "progress-bar-wrap")
 
 
 class FooterPinningTest(DemoModeTestCase):

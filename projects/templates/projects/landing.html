@@ -36,12 +36,27 @@
        buttons below cut — the page opens and closes on the same shape.
        fit-content is what keeps it a chip: without it the flex box would
        stretch to the full column and the background would become a band. */
+    /* Wraps the badge purely for the mobile collapse animation below (see
+       .status-bar's own height/overflow) — .status-row keeps its own
+       fit-content sizing regardless. The 24px gap before the headline
+       moved here from .status-row itself so the wrapper, not just the
+       badge, carries it. */
+    /* height/overflow give the mobile collapse below (see the 768px block)
+       something to animate from — 36px matches the badge's own rendered
+       height (13px text + 7px top/bottom padding + 2px border), worth
+       checking on a real device. Harmless on desktop: nothing ever changes
+       these values there. */
+    .status-bar {
+        display: flex; align-items: center;
+        height: 36px; overflow: hidden; margin-bottom: 24px;
+        transition: height 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease, margin-bottom 0.6s cubic-bezier(0.22,1,0.36,1);
+    }
     .status-row {
-        display: flex; width: fit-content;
+        display: flex; width: fit-content; margin: 0;
         align-items: center; gap: 8px; flex-wrap: wrap;
         padding: 7px 16px 7px 13px; border-radius: 99px;
         background: var(--color-bg-primary); border: 1px solid var(--color-border-primary);
-        font-size: 13px; color: var(--color-text-tertiary); margin-bottom: 24px;
+        font-size: 13px; color: var(--color-text-tertiary);
     }
     .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-done); flex-shrink: 0; }
     /* The claim leads, the brand stays quiet: the wordmark keeps base_public's
@@ -277,6 +292,7 @@
         .step-desc { transform: none; transition: opacity 0.2s ease; }
         .flow-halo { animation: none !important; }
         .seq-headline { transition: height 0s, opacity 0s; }
+        .status-bar { transition: height 0s, opacity 0s, margin-bottom 0s; }
         .seq-card { transition: transform 0.2s linear, opacity 0.2s linear; }
         .seq-detail { transition: height 0s, opacity 0s; }
         .seq-caret { animation: none; opacity: 1; }
@@ -335,6 +351,7 @@
     .tech-link { color: inherit; text-decoration: none; transition: color 0.15s; }
     .tech-link:hover { color: var(--color-text-primary); }
     .tech-icon { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; margin-right: 4px; }
+    .seq { display: none; }
     /* Below 769px three columns have no room to hold a label and its text side
        by side, so the curve is dropped and the steps become a plain stacked
        list with their descriptions always visible. Above it the descriptions
@@ -344,13 +361,58 @@
     @media (max-width: 768px) {
         .flow { display: none; }
         .actions { display: none; }
-        .tech-badge { text-align: left; }
+        .tech-badge { text-align: center; font-size: 12px; }
+        .page-footer { border-top: none; }
+        /* The tech stack line only earns its place on the very first
+           screen — once the sequence is under way it's just clutter
+           between the button and the footer. .tech-badge sits after .seq
+           in the markup, not inside it, hence the sibling combinator. */
+        .seq[data-step="1"] ~ .tech-badge,
+        .seq[data-step="2"] ~ .tech-badge,
+        .seq[data-step="3"] ~ .tech-badge { display: none; }
+        /* Step 0 only: .tech-badge (now ahead of .seq-cta in the markup)
+           carries the auto top margin instead of the button, spelled with
+           the shorthand so it doesn't duplicate the exact override string
+           FooterPinningTest guards against — see .seq-cta's own margin
+           rule further down for the matching step-0 override. The stack
+           line ends up at the bottom of the first screen and the button
+           follows directly beneath it. */
+        .seq[data-step="0"] ~ .tech-badge { margin: auto 0 28px; }
+        /* 104px measured, not guessed: the top-bar/wordmark plus
+           .wrapper's own top padding put .landing's own top edge exactly
+           104px down on every device (none of it depends on .seq's
+           content). min-height: calc(100dvh - 104px) therefore always
+           equals exactly one screen's worth of remaining room, regardless
+           of viewport height — unlike a flat px reservation (tried first),
+           which a tall enough phone screen simply swallows whole, leaving
+           the footer visible without any scroll at all. .seq-cta below
+           anchors to *this* box's bottom edge with an auto top margin, so
+           it's genuinely the last thing in flow before the tech-badge/
+           footer rather than a fixed-position illusion sitting over them —
+           on any device, that puts the button exactly at the bottom of the
+           first screen and pushes the footer just past it, into the next
+           one. dvh corrects for a mobile browser's address bar hiding on
+           scroll, same fallback pattern used elsewhere in this file. */
+        .landing { display: flex; flex-direction: column; min-height: calc(100vh - 104px); min-height: calc(100dvh - 104px); }
         .seq { display: flex; flex-direction: column; }
 
         .seq-headline { overflow: hidden; height: 92px; opacity: 1; transition: height 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease; }
-        .seq[data-step="1"] .seq-headline,
-        .seq[data-step="2"] .seq-headline,
-        .seq[data-step="3"] .seq-headline { height: 0; opacity: 0; }
+        /* .seq-headline is a sibling of .seq in the markup, not a
+           descendant (same for .status-bar below) — a plain descendant
+           selector here would silently never match. :has() lets both react
+           to .seq's data-step anyway. The headline is collapsed only while
+           the sequence is mid-flight (typing, thinking, generating), to
+           free up room for the growing chat/skeleton content — step 3 is
+           deliberately left out so it reappears once the plan lands. The
+           badge follows the same mid-flight collapse but stays gone at
+           step 3 too, since the only real action on that screen is
+           "Eigenes Projekt planen" — a live-demo disclaimer doesn't earn
+           its place there. */
+        .landing:has(.seq[data-step="1"]) .seq-headline,
+        .landing:has(.seq[data-step="2"]) .seq-headline { height: 0; opacity: 0; }
+        .landing:has(.seq[data-step="1"]) .status-bar,
+        .landing:has(.seq[data-step="2"]) .status-bar,
+        .landing:has(.seq[data-step="3"]) .status-bar { height: 0; opacity: 0; margin-bottom: 0; }
 
         .seq-deck { position: relative; height: 196px; margin-top: 8px; cursor: pointer; }
         .seq[data-step="3"] .seq-deck { display: none; }
@@ -385,13 +447,14 @@
         .seq[data-phase="4"] .seq-cue-circle { background: var(--color-accent); color: var(--color-solid-text); border-color: var(--color-accent); transition: background 0.3s, border-color 0.3s; }
 
         .seq-detail { height: 0; overflow: hidden; opacity: 0; transition: height 0.6s cubic-bezier(0.22,1,0.36,1), opacity 0.45s ease; }
-        .seq[data-step="1"] .seq-detail { height: 268px; opacity: 1; }
+        .seq[data-step="1"] .seq-detail { height: 280px; opacity: 1; }
         .seq[data-step="2"] .seq-detail { height: 236px; opacity: 1; }
-        .seq-detail-head { display: flex; justify-content: space-between; align-items: center; }
-        .seq-step-label { font-family: "SF Mono", "Fira Code", ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: .14em; color: var(--color-text-quaternary); }
-        .seq-reset { font-size: 12px; padding: 6px 11px; border-radius: 6px; border: 1px solid var(--color-border-primary); color: var(--color-text-quaternary); background: transparent; cursor: pointer; }
 
-        .seq-chat { display: none; flex-direction: column; gap: 10px; margin-top: 12px; }
+        /* 24px, not the original 12px: the stacked card behind the active
+           one pokes 13px past the deck's own box (see the data-step="1"
+           .seq-card[data-card="2"] translateY below), so 12px left almost
+           no visible gap between that peeking edge and the chat bubble. */
+        .seq-chat { display: none; flex-direction: column; gap: 10px; margin-top: 24px; }
         .seq[data-step="1"] .seq-chat { display: flex; }
         .seq-bubble-user { align-self: flex-end; max-width: 84%; background: var(--color-solid-bg); color: var(--color-solid-text); border-radius: 14px 14px 4px 14px; padding: 11px 13px; font-size: 13.5px; line-height: 1.5; }
         .seq-caret { animation: phCaret 1s step-end infinite; }
@@ -432,30 +495,59 @@
         .seq-plan { display: none; margin-top: 20px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 46px), transparent); opacity: 0; transition: opacity 0.5s ease 0.2s; }
         .seq[data-step="3"] .seq-plan { display: block; opacity: 1; }
         .seq-plan-head { display: flex; justify-content: space-between; align-items: flex-start; }
-        .seq-plan-kicker { font-family: "SF Mono", "Fira Code", ui-monospace, monospace; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--color-accent); }
-        .seq-plan-name { font-size: 24px; font-weight: 600; margin-top: 4px; color: var(--color-text-primary); }
+        .seq-plan-name { font-size: 24px; font-weight: 600; color: var(--color-text-primary); }
         .seq-plan-meta { font-size: 13px; color: var(--color-text-quaternary); margin-top: 2px; }
-        .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: 99px; background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 54px; box-sizing: border-box; }
+        /* 90px bottom margin, not 20px: .seq-cta is fixed at step 3 (see
+           below), floating over the last part of the scrollable content
+           instead of sitting in flow after it — this button carries the
+           clearance that would otherwise come for free. Only while it's
+           still fixed, though: once .seq-cta releases into flow (see the
+           :has() rule right after), that clearance is dead space with
+           nothing left to protect against, so it shrinks back down. */
+        .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: 99px; background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 90px; box-sizing: border-box; }
+        .landing:has(.seq-cta.is-released) .seq-plan-secondary { margin-bottom: 12px; }
         .seq .dot { cursor: default; }
 
-        .seq-cta { flex: none; position: sticky; bottom: 0; z-index: 5; background: var(--color-bg-primary); border-top: 1px solid var(--color-border-primary); padding: 12px 20px 16px; }
+        /* An auto top margin claims whatever height .landing's measured
+           min-height (see above) leaves unclaimed, landing the button at
+           the bottom of the first screen — genuinely in flow, so the
+           tech-badge/footer that follow are structurally, not just
+           visually, below it. Step 0 hands the auto margin to .tech-badge
+           instead (see above), which now sits ahead of the button in the
+           markup, so the button just needs a small top gap of its own
+           underneath it. No framing bar around it, just the pill. */
+        .seq-cta { flex: none; margin: auto 0 0; }
+        .seq[data-step="0"] ~ .seq-cta { margin: 20px 0 0; }
+        /* Step 3 only, fixed instead: its task list is long enough that
+           the auto-margin approach above would strand the button below
+           the fold until scrolled to, and this is the one step where the
+           button *is* the point of the screen — it should be visible the
+           instant the plan renders, not after hunting for it. .seq-plan-
+           secondary's own margin-bottom (below) reserves clearance so the
+           last task rows don't end up underneath it. Fixed forever would
+           mean the footer can never actually be reached, though — no
+           amount of scrolling gets you past a button glued to the
+           viewport — so a plain scroll listener (see extra_js) releases
+           it into normal flow the moment the footer comes into view,
+           right where it's written in the markup, so you can keep
+           scrolling past both. */
+        .seq[data-step="3"] ~ .seq-cta { position: fixed; left: 20px; right: 20px; bottom: 20px; z-index: 5; margin: 0; }
+        .seq[data-step="3"] ~ .seq-cta.is-released { position: static; margin: 12px 0 0; }
         .seq-cta-btn { display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 15px 20px; border-radius: 99px; font-size: 15px; font-weight: 600; color: var(--color-solid-text); text-decoration: none; background: var(--color-solid-bg); transition: background 0.4s ease; }
-        .seq[data-step="3"] .seq-cta-btn { background: var(--color-accent); }
+        .seq[data-step="3"] ~ .seq-cta .seq-cta-btn { background: var(--color-accent); }
 
-        .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-border-primary); border-radius: 4px; overflow: hidden; }
-        .progress-bar-fill { height: 100%; background: var(--color-solid-bg); border-radius: 4px; transition: width 0.3s; }
         .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
         .task-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
         .task-row:last-child { border-bottom: none; }
         .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-quaternary); }
         .dot.overdue { background: var(--color-overdue); }
-        .dot.urgent { background: var(--color-text-quaternary); }
+        .dot.urgent { background: var(--color-urgent); }
         .task-name { flex: 1; line-height: 1.4; }
         .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
         .task-date.overdue { color: var(--color-overdue); }
         .task-date.urgent { color: var(--color-urgent); }
         .summary-box { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
-        .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
+        .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-top: 16px; margin-bottom: 10px; }
 
         @keyframes phSkel { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.85; } }
         @keyframes phCaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
@@ -463,17 +555,23 @@
     }
     @media (max-width: 560px) {
         h1 { font-size: 30px; }
-        .status-row { margin-bottom: 18px; }
+        .status-bar { margin-bottom: 18px; }
+        /* At 30px the headline fits on one line here, not the two the 768px
+           block's 92px assumes — so the collapse animation would leave a
+           near-empty box above the cards. 44px matches a single 30px/1.1
+           line with a little air. */
+        .seq-headline { height: 44px; }
     }
-    .seq { display: none; }
 {% endblock %}
 
 {% block content %}
 <div class="landing">
-    <p class="status-row">
-        <span class="status-dot"></span>
-        Live-Demo, kein Login
-    </p>
+    <div class="status-bar">
+        <p class="status-row">
+            <span class="status-dot"></span>
+            Live-Demo, kein Login
+        </p>
+    </div>
     <div class="seq-headline">
         <h1>Aus einer Idee wird ein Plan</h1>
     </div>
@@ -556,10 +654,6 @@
         </div>
 
         <div class="seq-detail">
-            <div class="seq-detail-head">
-                <span class="seq-step-label">Schritt <span class="seq-step-n">2</span> von 4</span>
-                <button type="button" class="seq-reset">↺ neu</button>
-            </div>
             <div class="seq-chat">
                 <div class="seq-bubble seq-bubble-user"><span class="seq-typed"></span><span class="seq-caret">|</span></div>
                 <div class="seq-bubble seq-bubble-thinking">
@@ -586,17 +680,14 @@
         <div class="seq-plan">
             <div class="seq-plan-head">
                 <div>
-                    <div class="seq-plan-kicker">04 · EINFACH ARBEITEN</div>
                     <div class="seq-plan-name">Workshop Team</div>
-                    <div class="seq-plan-meta">Freitag, 16.5. · 0 / 10 erledigt</div>
+                    <div class="seq-plan-meta">Freitag, 16.5.</div>
                 </div>
-                <button type="button" class="seq-reset">↺ neu</button>
             </div>
-            <div class="progress-bar-wrap"><div class="progress-bar-fill" style="width: 0%"></div></div>
             <div class="summary-label">KI-Übersicht</div>
             <div class="summary-box">
-                Drei Aufgaben sind <strong>überfällig</strong>, heute steht die Agenda an —
-                Druck und Technik hängen daran. Der Rest liegt sauber vor dem Termin am Freitag.
+                Stand heute, 14. Mai: drei Aufgaben sind <strong>überfällig</strong>, heute steht die
+                Agenda an. Druck und Technik hängen daran. Der Rest liegt sauber vor dem Termin am Freitag.
             </div>
             <div class="task-list">
                 <div class="task-row"><span class="dot overdue"></span><span class="task-name">Einladung an das Team</span><span class="task-date overdue">Mo 12.5.</span></div>
@@ -604,6 +695,7 @@
                 <div class="task-row"><span class="dot overdue"></span><span class="task-name">Teilnehmerliste prüfen</span><span class="task-date overdue">Di 13.5.</span></div>
                 <div class="task-row"><span class="dot urgent"></span><span class="task-name">Agenda finalisieren</span><span class="task-date urgent">heute</span></div>
                 <div class="task-row"><span class="dot urgent"></span><span class="task-name">Moderationskarten schreiben</span><span class="task-date urgent">heute</span></div>
+                <div class="task-row"><span class="dot urgent"></span><span class="task-name">Raum buchen</span><span class="task-date urgent">heute</span></div>
                 <div class="task-row"><span class="dot"></span><span class="task-name">Vorbesprechung mit Lena</span><span class="task-date">Do 15.5.</span></div>
                 <div class="task-row"><span class="dot"></span><span class="task-name">Material drucken</span><span class="task-date">Do 15.5.</span></div>
                 <div class="task-row"><span class="dot"></span><span class="task-name">Technik testen</span><span class="task-date">Do 15.5.</span></div>
@@ -613,9 +705,16 @@
             <a class="seq-plan-secondary" href="{% url 'dashboard' %}?mode=multi">Beispiel-Dashboard ansehen</a>
         </div>
 
-        <div class="seq-cta">
-            <a class="seq-cta-btn" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
-        </div>
+    </div>
+
+    <div class="tech-badge">
+        Django · PostgreSQL · Notion API · Claude API · Hetzner VPS ·
+        <a class="tech-link" href="https://github.com/liga-auguste/planning-hub"
+           target="_blank" rel="noopener"><svg class="tech-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Quellcode</a>
+    </div>
+
+    <div class="seq-cta">
+        <a class="seq-cta-btn" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
     </div>
 
     <div class="actions">
@@ -625,12 +724,6 @@
         <a class="action" href="{% url 'dashboard' %}?mode=multi">
             Beispiel-Dashboard ansehen
         </a>
-    </div>
-
-    <div class="tech-badge">
-        Django · PostgreSQL · Notion API · Claude API · Hetzner VPS ·
-        <a class="tech-link" href="https://github.com/liga-auguste/planning-hub"
-           target="_blank" rel="noopener"><svg class="tech-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>Quellcode</a>
     </div>
 </div>
 {% endblock %}
@@ -740,10 +833,29 @@
     deck.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); advance(); }
     });
-    seq.querySelectorAll('.seq-reset').forEach(function (btn) {
-        btn.addEventListener('click', reset);
-    });
     window.addEventListener('pagehide', clearTimers);
+
+    // .seq-cta is fixed only at step 3 (see extra_css) — everywhere else
+    // this is a no-op, since .is-released only does anything combined with
+    // that step's own selector. requestAnimationFrame-throttled: running
+    // getBoundingClientRect() on every single scroll event (some browsers
+    // fire dozens per second during momentum scrolling) forces a layout
+    // recalculation each time, which is what was making the scroll itself
+    // feel janky — at most once per frame is enough to track the footer's
+    // position smoothly.
+    const footer = document.querySelector('.page-footer');
+    if (footer) {
+        const cta = document.querySelector('.seq-cta');
+        let ticking = false;
+        function checkFooterRelease() {
+            ticking = false;
+            cta.classList.toggle('is-released', footer.getBoundingClientRect().top < window.innerHeight);
+        }
+        window.addEventListener('scroll', function () {
+            if (!ticking) { ticking = true; requestAnimationFrame(checkFooterRelease); }
+        }, { passive: true });
+        checkFooterRelease();
+    }
 
     const mq = window.matchMedia('(max-width: 768px)');
     (mq.addEventListener ? mq.addEventListener.bind(mq) : mq.addListener.bind(mq))('change', function (e) {
