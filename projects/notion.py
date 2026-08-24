@@ -67,6 +67,9 @@ def get_upcoming_projects(today: date) -> list:
                 "id": page["id"],
                 "name": _text(props["Name der Veranstaltung"]["title"]),
                 "event_date": _date(props["Termin"]),
+                "event_date_uncertain": props.get("Termin unsicher", {}).get(
+                    "checkbox", False
+                ),
                 "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
                 "status": status_prop["name"] if status_prop else None,
                 "status_color": status_prop["color"] if status_prop else "gray",
@@ -148,6 +151,9 @@ def get_historical_projects() -> list:
                 {
                     "name": name,
                     "event_date": _date(props["Termin"]),
+                    "event_date_uncertain": props.get("Termin unsicher", {}).get(
+                        "checkbox", False
+                    ),
                     "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
                     "tasks": _get_tasks(page["id"]),
                 }
@@ -176,13 +182,14 @@ def find_project(name: str, event_date: date) -> str | None:
         return results[0]["id"] if results else None
 
 
-def create_project(name: str, event_date: date) -> str:
+def create_project(name: str, event_date: date, date_uncertain: bool = False) -> str:
     with translate_notion_errors():
         response = _client().pages.create(
             parent={"database_id": PROJECTS_DB},
             properties={
                 "Name der Veranstaltung": {"title": [{"text": {"content": name}}]},
                 "Termin": {"date": {"start": event_date.isoformat()}},
+                "Termin unsicher": {"checkbox": date_uncertain},
                 "Status/Aufgaben": {"status": {"name": "geplant / mit Zeitplan"}},
             },
         )

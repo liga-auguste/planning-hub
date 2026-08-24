@@ -1817,6 +1817,45 @@ class PlannerReviewHappyPathTest(DemoModeTestCase):
         self.assertContains(response, "Testkonzert")
 
 
+class PlannerReviewDateFallbackTest(DemoModeTestCase):
+    """A description with no recognizable date used to leave event_date_iso
+    empty — the date input rendered blank, and submitting it unchanged
+    crashed planner_create() on date.fromisoformat(""). event_date now
+    always gets a placeholder four weeks out, flagged uncertain until the
+    visitor confirms or changes it."""
+
+    def test_no_date_in_the_description_still_prefills_a_date(self):
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert irgendwann im Herbst",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        self.assertNotContains(response, 'id="event-date" value=""')
+        self.assertContains(
+            response,
+            'name="event_date_uncertain" id="event-date-uncertain-hidden" value="true"',
+        )
+        self.assertContains(response, "Kein Termin im Text erkannt")
+        self.assertNotContains(response, 'id="date-uncertain-notice" hidden')
+
+    def test_a_recognized_date_is_not_marked_uncertain(self):
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        self.assertContains(response, 'id="event-date" value="2026-09-05"')
+        self.assertContains(
+            response,
+            'name="event_date_uncertain" id="event-date-uncertain-hidden" value="false"',
+        )
+        self.assertContains(response, 'id="date-uncertain-notice" hidden')
+
+
 class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
     """Replanning clears cached summaries by the unversioned prefix, so
     summaries written under any older key version go too — a session can
@@ -1840,6 +1879,47 @@ class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
         )
         self.assertNotIn("demo_plan_summary_v3_today", self.client.session)
         self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+
+class PlannerCreateDatelessDescriptionTest(DemoModeTestCase):
+    """planner_review always prefills event_date now (see
+    PlannerReviewDateFallbackTest), but planner_create must not depend on
+    that — a direct POST with the field omitted used to hit
+    date.fromisoformat("") and 500. It now falls back the same way and
+    still saves the plan."""
+
+    def test_missing_event_date_falls_back_instead_of_crashing(self):
+        response = self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert irgendwann im Herbst",
+                "project_name": "Herbstkonzert",
+                "task_name": ["Programm festlegen"],
+                "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+                "task_kontext": ["Planung"],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        plan = self.client.session["demo_plan"]
+        self.assertTrue(plan["event_date"])
+        self.assertTrue(plan["event_date_uncertain"])
+
+    def test_a_supplied_event_date_is_not_marked_uncertain(self):
+        self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "project_name": "Sommerkonzert",
+                "event_date": "2026-09-05",
+                "event_date_uncertain": "false",
+                "task_name": ["Programm festlegen"],
+                "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+                "task_kontext": ["Planung"],
+            },
+        )
+        plan = self.client.session["demo_plan"]
+        self.assertEqual(plan["event_date"], "2026-09-05")
+        self.assertFalse(plan["event_date_uncertain"])
 
 
 class PlannerStartAiFailureTest(DemoModeTestCase):
@@ -2514,6 +2594,53 @@ class ProductionKontextBadgeTest(TestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'class="task-kontext">Büro<')
         self.assertNotContains(response, "[&#x27;")
+
+
+class DateUncertainBadgeTest(DemoModeTestCase):
+    """The "Termin unsicher" badge only appears for a project whose date was
+    a fallback guess (see PlannerCreateDatelessDescriptionTest), on both
+    demo-mode surfaces that show a project's date."""
+
+    def test_dashboard_shows_the_badge_for_an_uncertain_date(self):
+        self.given_session_plan(event_date_uncertain=True)
+        response = self.client.get(reverse("dashboard"))
+        # Renders twice: once in the visible AI-card header next to
+        # demo_project_date (what a visitor actually sees after generating a
+        # plan), once in the .project-section this same project also gets
+        # (hidden by default, revealed by the multi-project/timelapse
+        # toggles) — a single assertContains here previously passed even
+        # when only the hidden copy carried the badge.
+        self.assertContains(response, 'class="date-uncertain-badge"', count=2)
+
+    def test_dashboard_shows_no_badge_for_a_confirmed_date(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="date-uncertain-badge"')
+
+    def test_my_plan_shows_the_badge_for_an_uncertain_date(self):
+        self.given_session_plan(event_date_uncertain=True)
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'class="date-uncertain-badge"')
+
+
+@override_settings(DEMO_MODE=False)
+class ProductionDateUncertainBadgeTest(TestCase):
+    """The production counterpart: a real Notion project whose "Termin
+    unsicher" checkbox is set renders the same badge on the dashboard."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_dashboard_shows_the_badge_when_notion_flags_the_date_uncertain(self):
+        project = _fake_upcoming_project()
+        project["event_date_uncertain"] = True
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="date-uncertain-badge"')
 
 
 class PictographicEmojiTest(DemoModeTestCase):
@@ -3303,6 +3430,34 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 create_tasks("project-id", [{"name": "x", "date": "2026-09-05"}])
+
+
+class CreateProjectDateUncertainTest(SimpleTestCase):
+    """create_project's new date_uncertain param writes a "Termin unsicher"
+    checkbox, the read-path (get_upcoming_projects/get_historical_projects)
+    counterpart to the fallback date planner_review/planner_create apply
+    when the description carried no recognizable date."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_defaults_to_false(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.pages.create.return_value = {"id": "page-1"}
+            create_project("Sommerkonzert", date(2026, 9, 5))
+        properties = instance.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(properties["Termin unsicher"], {"checkbox": False})
+
+    def test_true_when_the_date_was_a_guess(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.pages.create.return_value = {"id": "page-1"}
+            create_project("Herbstkonzert", date(2026, 10, 3), True)
+        properties = instance.pages.create.call_args.kwargs["properties"]
+        self.assertEqual(properties["Termin unsicher"], {"checkbox": True})
 
 
 class FindProjectTest(SimpleTestCase):

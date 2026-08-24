@@ -227,6 +227,7 @@ def _build_session_project(session_plan):
         "id": "session-plan",
         "name": session_plan["name"],
         "event_date": event_date,
+        "event_date_uncertain": session_plan.get("event_date_uncertain", False),
         "performers": "",
         "tasks": tasks,
         "status": "in Vorbereitung",
@@ -406,6 +407,7 @@ def dashboard(request):
     # Project name for demo single-project header
     demo_project_name = ""
     demo_project_date = ""
+    demo_project_date_uncertain = False
     if settings.DEMO_MODE and has_session_plan and month_groups:
         first_project = (
             month_groups[0]["projects"][0] if month_groups[0]["projects"] else None
@@ -413,6 +415,9 @@ def dashboard(request):
         if first_project:
             demo_project_name = first_project["display_name"]
             demo_project_date = first_project["event_date_display"]
+            demo_project_date_uncertain = first_project.get(
+                "event_date_uncertain", False
+            )
 
     return render(
         request,
@@ -436,6 +441,7 @@ def dashboard(request):
             "sim_date_display": _format_date(sim_date) if sim_date else "",
             "demo_project_name": demo_project_name,
             "demo_project_date": demo_project_date,
+            "demo_project_date_uncertain": demo_project_date_uncertain,
             "stale": stale,
             "data_unavailable": data_unavailable,
         },
