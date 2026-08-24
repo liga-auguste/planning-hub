@@ -38,8 +38,12 @@
     .task-table select:hover, .task-table select:focus { border-color: var(--color-border-primary); outline: none; }
     .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: var(--color-overdue); }
-    .btn-add { background: var(--color-solid-bg); border: none; border-radius: 6px; padding: 8px 16px; color: var(--color-solid-text); font-size: 14px; cursor: pointer; white-space: nowrap; }
-    .btn-add:hover { opacity: 0.85; }
+    /* Same pill shape and weight as .btn-primary (border-radius: 99px,
+       11px/22px padding, 600 weight) so the two read as a matched pair —
+       distinguished by color, not by form: accent instead of solid, since
+       --color-solid-bg is the one color the primary button already owns. */
+    .btn-add { background: var(--color-accent); border: none; border-radius: 99px; padding: 11px 22px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .btn-add:hover { background: var(--color-accent-hover); }
     .review-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
     tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }
     tr.sofort input[name="task_date"] { color: var(--color-urgent); font-weight: 500; }
