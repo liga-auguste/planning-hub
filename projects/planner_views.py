@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlencode
 
 import markdown as md
@@ -178,6 +178,15 @@ def _parse_event_date(description: str):
     return None
 
 
+# No date recognized in the description at all — used to leave event_date_iso
+# empty, which crashed planner_create() on submit whenever a visitor didn't
+# notice the blank field and fill it in by hand. Four weeks out is an
+# arbitrary but safe placeholder; event_date_uncertain flags it through
+# review, session, and (in production) Notion, so it stays visibly a guess
+# until confirmed.
+_FALLBACK_LEAD = timedelta(weeks=4)
+
+
 def planner_start(request):
     if request.method == "POST":
         description = request.POST.get("description", "").strip()
@@ -250,6 +259,9 @@ def planner_review(request):
             )
 
         event_date = _parse_event_date(description)
+        event_date_uncertain = event_date is None
+        if event_date_uncertain:
+            event_date = timezone.localdate() + _FALLBACK_LEAD
         project_name = plan.get("project_name") or description.split(",")[0].strip()
         return render(
             request,
@@ -259,7 +271,8 @@ def planner_review(request):
                 "project_name": project_name,
                 "tasks": plan["tasks"],
                 "kontexte": KONTEXTE,
-                "event_date_iso": event_date.isoformat() if event_date else "",
+                "event_date_iso": event_date.isoformat(),
+                "event_date_uncertain": event_date_uncertain,
                 "demo_mode": settings.DEMO_MODE,
             },
         )
@@ -270,12 +283,20 @@ def planner_create(request):
     if request.method == "POST":
         description = request.POST.get("description", "").strip()
         event_date_str = request.POST.get("event_date", "")
+        event_date_uncertain = request.POST.get("event_date_uncertain") == "true"
+        if event_date_str:
+            event_date = date.fromisoformat(event_date_str)
+        else:
+            # Belt and braces: the review step always prefills this field now,
+            # but a direct POST (or JS that failed to run) could still arrive
+            # here empty — fall back instead of the ValueError this used to be.
+            event_date = timezone.localdate() + _FALLBACK_LEAD
+            event_date_uncertain = True
         names = request.POST.getlist("task_name")
         dates = request.POST.getlist("task_date")
         kontexte = request.POST.getlist("task_kontext")
 
         project_name = request.POST.get("project_name", description).strip()
-        event_date = date.fromisoformat(event_date_str)
 
         if settings.DEMO_MODE:
             tasks = [
@@ -290,7 +311,8 @@ def planner_create(request):
             ]
             request.session["demo_plan"] = {
                 "name": project_name,
-                "event_date": event_date_str,
+                "event_date": event_date.isoformat(),
+                "event_date_uncertain": event_date_uncertain,
                 "tasks": tasks,
             }
             # Clear cached summaries and old timelapse state. Matching the
@@ -324,7 +346,7 @@ def planner_create(request):
             # created (create_tasks likewise skips already-written tasks),
             # so retrying can't duplicate anything in Notion.
             project_id = find_project(project_name, event_date) or create_project(
-                project_name, event_date
+                project_name, event_date, event_date_uncertain
             )
             tasks = [
                 {"name": n, "date": d, "kontext": [k] if k else []}
@@ -353,7 +375,8 @@ def planner_create(request):
                         if n and d
                     ],
                     "kontexte": KONTEXTE,
-                    "event_date_iso": event_date_str,
+                    "event_date_iso": event_date.isoformat(),
+                    "event_date_uncertain": event_date_uncertain,
                     "demo_mode": settings.DEMO_MODE,
                     "error": True,
                 },
