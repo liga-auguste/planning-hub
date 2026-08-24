@@ -38,9 +38,9 @@
     .task-table select:hover, .task-table select:focus { border-color: var(--color-border-primary); outline: none; }
     .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: var(--color-overdue); }
-    .btn-add { background: var(--color-solid-bg); border: none; border-radius: 6px; padding: 8px 16px; color: var(--color-solid-text); font-size: 14px; cursor: pointer; white-space: nowrap; margin-top: 12px; }
+    .btn-add { background: var(--color-solid-bg); border: none; border-radius: 6px; padding: 8px 16px; color: var(--color-solid-text); font-size: 14px; cursor: pointer; white-space: nowrap; }
     .btn-add:hover { opacity: 0.85; }
-    .btn-primary { margin-top: 24px; }
+    .review-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
     tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }
     tr.sofort input[name="task_date"] { color: var(--color-urgent); font-weight: 500; }
     /* Below 768px the table is the wrong shape for this content (#71): the
@@ -130,13 +130,14 @@
                 {% endfor %}
             </tbody>
         </table>
-        <button type="button" id="add-task-row" class="btn-add">+ Aufgabe hinzufügen</button>
-
-        {% if demo_mode %}
-        <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">Zum Dashboard →</button>
-        {% else %}
-        <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">In Notion anlegen</button>
-        {% endif %}
+        <div class="review-actions">
+            <button type="button" id="add-task-row" class="btn-add">+ Aufgabe hinzufügen</button>
+            {% if demo_mode %}
+            <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">Zum Dashboard →</button>
+            {% else %}
+            <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">In Notion anlegen</button>
+            {% endif %}
+        </div>
     </form>
 </div>
 {% endblock %}
