@@ -1800,6 +1800,48 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
         )
 
 
+class AddTaskRowMarkupTest(DemoModeTestCase):
+    """#98: the review page only let a visitor edit or delete a generated
+    task, never add one that Claude missed. These pin the markup the new
+    client-side row-adder depends on."""
+
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_the_add_button_is_served(self):
+        html = self.review_page().content.decode()
+        self.assertIn('id="add-task-row"', html)
+        self.assertIn("Aufgabe hinzufügen", html)
+
+    def test_the_add_button_does_not_submit_the_form(self):
+        html = self.review_page().content.decode()
+        self.assertIn('<button type="button" id="add-task-row"', html)
+
+    def test_demo_mode_still_carries_no_kontext_field_at_all(self):
+        # Regression guard for the new JS specifically: addTaskRow() builds
+        # its kontext cell inside a Django {% if not demo_mode %} block, not
+        # a JS-level check, so a demo-mode response must stay entirely free
+        # of task_kontext even inside the added <script>.
+        html = self.review_page().content.decode()
+        self.assertNotIn("task_kontext", html)
+
+    def test_the_new_row_will_be_excluded_from_date_recompute(self):
+        html = self.review_page().content.decode()
+        self.assertIn("querySelectorAll('tbody tr[data-days]')", html)
+
+
 class PlannerReviewHappyPathTest(DemoModeTestCase):
     """First test to exercise planner_review's POST path at all. generate_plan
     now returns a dict directly (see GeneratePlanRetryTest in planner.py) —
@@ -1920,6 +1962,62 @@ class PlannerCreateDatelessDescriptionTest(DemoModeTestCase):
         plan = self.client.session["demo_plan"]
         self.assertEqual(plan["event_date"], "2026-09-05")
         self.assertFalse(plan["event_date_uncertain"])
+
+
+class PlannerCreateDropsIncompleteRowsTest(DemoModeTestCase):
+    """#98: an added row left empty (never filled in, or added and then
+    ignored) must vanish silently rather than save as a blank task —
+    planner_create already drops any row with an empty name or date via the
+    zip/if guard, but that behavior was only ever exercised with a single
+    complete row. This pins it for a genuinely multi-row POST."""
+
+    def test_the_empty_added_row_is_dropped_in_demo_mode(self):
+        response = self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert am 5. September",
+                "project_name": "Sommerkonzert",
+                "event_date": (date.today() + timedelta(days=30)).isoformat(),
+                "task_name": ["Programm festlegen", ""],
+                "task_date": [(date.today() + timedelta(days=7)).isoformat(), ""],
+                "task_kontext": ["Planung", ""],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        tasks = self.client.session["demo_plan"]["tasks"]
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Programm festlegen")
+
+
+@override_settings(DEMO_MODE=False)
+class PlannerCreateDropsIncompleteRowsProductionTest(TestCase):
+    """Same guard as PlannerCreateDropsIncompleteRowsTest, but through the
+    production Notion path, which builds the task list independently."""
+
+    def test_the_empty_added_row_is_dropped_before_reaching_notion(self):
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks") as mock_create_tasks,
+        ):
+            response = self.client.post(
+                reverse("planner_create"),
+                data={
+                    "description": "Konzert am 5. September",
+                    "project_name": "Sommerkonzert",
+                    "event_date": (date.today() + timedelta(days=30)).isoformat(),
+                    "task_name": ["Programm festlegen", ""],
+                    "task_date": [
+                        (date.today() + timedelta(days=7)).isoformat(),
+                        "",
+                    ],
+                    "task_kontext": ["Planung", ""],
+                },
+            )
+        self.assertEqual(response.status_code, 302)
+        _, tasks = mock_create_tasks.call_args.args
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Programm festlegen")
 
 
 class PlannerStartAiFailureTest(DemoModeTestCase):
