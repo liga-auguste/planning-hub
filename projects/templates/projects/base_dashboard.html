@@ -53,11 +53,13 @@ const SIDEBAR_GAP = 24;
 if (sidebar && main && toggleBtn) {
     const tabletBreakpoint = window.matchMedia('(max-width: 768px)');
     const storedCollapsed = localStorage.getItem('sidebarCollapsed');
-    // No stored preference? Below the tablet breakpoint (768px, matching
-    // the rest of the app) the sidebar now starts collapsed instead of
-    // claiming 320px of a phone screen (#25).
-    const startCollapsed = storedCollapsed === 'true'
-        || (storedCollapsed === null && tabletBreakpoint.matches);
+    // Below the tablet breakpoint (768px, matching the rest of the app) the
+    // sidebar always starts collapsed, even if a prior desktop session
+    // stored an explicit "open" preference — arriving on a phone (e.g. from
+    // the landing page's demo link) with someone else's desktop choice
+    // claiming 320px of the screen defeats the point of the breakpoint (#25).
+    // A stored "closed" preference still applies on desktop as before.
+    const startCollapsed = tabletBreakpoint.matches || storedCollapsed === 'true';
     if (startCollapsed) {
         sidebar.classList.add('collapsed');
         main.classList.add('sidebar-collapsed');
@@ -93,14 +95,14 @@ if (sidebar && main && toggleBtn) {
     if (backdrop) backdrop.addEventListener('click', toggleSidebar);
 
     // Fires only when the breakpoint is actually crossed, not on every
-    // resize pixel. Once a click has stored an explicit preference, that
-    // choice owns the state for the rest of the session — this listener
-    // then has nothing left to do.
+    // resize pixel. Same rule as the initial state above: crossing into
+    // mobile always collapses it, crossing back out to desktop restores
+    // whatever was explicitly stored (or opens, if nothing was).
     tabletBreakpoint.addEventListener('change', (e) => {
-        if (localStorage.getItem('sidebarCollapsed') !== null) return;
-        sidebar.classList.toggle('collapsed', e.matches);
-        main.classList.toggle('sidebar-collapsed', e.matches);
-        toggleBtn.textContent = e.matches ? '›' : '‹';
+        const collapsed = e.matches || localStorage.getItem('sidebarCollapsed') === 'true';
+        sidebar.classList.toggle('collapsed', collapsed);
+        main.classList.toggle('sidebar-collapsed', collapsed);
+        toggleBtn.textContent = collapsed ? '›' : '‹';
     });
 
     if (handle) {
