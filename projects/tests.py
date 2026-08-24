@@ -1445,7 +1445,7 @@ class LandingMobileSeqTest(DemoModeTestCase):
 
     def test_seq_hidden_on_desktop_by_default(self):
         response = self.client.get("/")
-        self.assertContains(response, ".seq { display: none; }")
+        self.assertContains(response, ".seq, .seq-cta { display: none; }")
 
     def test_reduced_motion_block_covers_new_classes(self):
         response = self.client.get("/")

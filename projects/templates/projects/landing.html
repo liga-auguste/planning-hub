@@ -351,7 +351,12 @@
     .tech-link { color: inherit; text-decoration: none; transition: color 0.15s; }
     .tech-link:hover { color: var(--color-text-primary); }
     .tech-icon { width: 11px; height: 11px; fill: currentColor; vertical-align: -1px; margin-right: 4px; }
-    .seq { display: none; }
+    /* .seq-cta is the mobile counterpart to .actions below (see the
+       max-width: 768px block) — hidden here for the same reason .seq is:
+       above the breakpoint it would render as an unstyled link, duplicate
+       to .actions, since its own button styling only exists inside that
+       media query. */
+    .seq, .seq-cta { display: none; }
     /* Below 769px three columns have no room to hold a label and its text side
        by side, so the curve is dropped and the steps become a plain stacked
        list with their descriptions always visible. Above it the descriptions
@@ -516,7 +521,7 @@
            instead (see above), which now sits ahead of the button in the
            markup, so the button just needs a small top gap of its own
            underneath it. No framing bar around it, just the pill. */
-        .seq-cta { flex: none; margin: auto 0 0; }
+        .seq-cta { display: block; flex: none; margin: auto 0 0; }
         .seq[data-step="0"] ~ .seq-cta { margin: 20px 0 0; }
         /* Step 3 only, fixed instead: its task list is long enough that
            the auto-margin approach above would strand the button below
