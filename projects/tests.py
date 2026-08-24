@@ -1451,7 +1451,7 @@ class LandingMobileSeqTest(DemoModeTestCase):
         response = self.client.get("/")
         css = response.content.decode()
         rm_start = css.index("@media (prefers-reduced-motion: reduce)")
-        rm_block = css[rm_start:rm_start + 900]
+        rm_block = css[rm_start : rm_start + 900]
         self.assertIn(".seq-caret", rm_block)
         self.assertIn(".seq-skel-row", rm_block)
         self.assertIn(".seq-headline", rm_block)
