@@ -653,7 +653,7 @@
             </div>
         </div>
 
-        <div class="seq-detail">
+        <div class="seq-detail" aria-hidden="true">
             <div class="seq-chat">
                 <div class="seq-bubble seq-bubble-user"><span class="seq-typed"></span><span class="seq-caret">|</span></div>
                 <div class="seq-bubble seq-bubble-thinking">
@@ -759,8 +759,11 @@
 })();
 
 (function () {
-    if (!window.matchMedia('(max-width: 768px)').matches) return;
-
+    // No matchMedia gate here on purpose: everything below has to stay bound
+    // even when the page first loads wide, so narrowing past the breakpoint
+    // later (a resize, a rotating tablet — no reload) still lands on a live
+    // deck instead of an inert one. .seq itself is what CSS hides on desktop;
+    // there is nothing left for this script to gate on width.
     const seq = document.querySelector('.seq');
     if (!seq) return;
     const deck = seq.querySelector('.seq-deck');
