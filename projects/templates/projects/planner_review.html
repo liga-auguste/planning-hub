@@ -38,7 +38,13 @@
     .task-table select:hover, .task-table select:focus { border-color: var(--color-border-primary); outline: none; }
     .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: var(--color-overdue); }
-    .btn-primary { margin-top: 24px; }
+    /* Same pill shape and weight as .btn-primary (border-radius: 99px,
+       11px/22px padding, 600 weight) so the two read as a matched pair —
+       distinguished by color, not by form: accent instead of solid, since
+       --color-solid-bg is the one color the primary button already owns. */
+    .btn-add { background: var(--color-accent); border: none; border-radius: 99px; padding: 11px 22px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .btn-add:hover { background: var(--color-accent-hover); }
+    .review-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
     tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }
     tr.sofort input[name="task_date"] { color: var(--color-urgent); font-weight: 500; }
     /* Below 768px the table is the wrong shape for this content (#71): the
@@ -128,12 +134,14 @@
                 {% endfor %}
             </tbody>
         </table>
-
-        {% if demo_mode %}
-        <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">Zum Dashboard →</button>
-        {% else %}
-        <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">In Notion anlegen</button>
-        {% endif %}
+        <div class="review-actions">
+            <button type="button" id="add-task-row" class="btn-add">+ Aufgabe hinzufügen</button>
+            {% if demo_mode %}
+            <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">Zum Dashboard →</button>
+            {% else %}
+            <button type="submit" class="btn btn-primary" data-loading-text="Wird gespeichert...">In Notion anlegen</button>
+            {% endif %}
+        </div>
     </form>
 </div>
 {% endblock %}
@@ -148,7 +156,7 @@ function updateDates() {
     const val = document.getElementById('event-date').value;
     if (!val) return;
     const eventDate = new Date(val + 'T12:00:00');
-    document.querySelectorAll('tbody tr').forEach(row => {
+    document.querySelectorAll('tbody tr[data-days]').forEach(row => {
         const dateInput = row.querySelector('input[name="task_date"]');
         if (!dateInput) return;
         const days = parseInt(row.dataset.days) || 0;
@@ -186,5 +194,32 @@ document.querySelectorAll('textarea[name="task_name"]').forEach(ta => {
     autoResize(ta);
     ta.addEventListener('input', () => autoResize(ta));
 });
+
+// No data-days attribute: excludes the row from updateDates()'s
+// recomputation, so a manually entered date survives future "Zieldatum" edits.
+function addTaskRow() {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td class="col-name">
+            <textarea name="task_name" rows="1"></textarea>
+        </td>
+        <td class="col-date"><input type="date" name="task_date"></td>
+        {% if not demo_mode %}
+        <td class="col-kontext">
+            <select name="task_kontext">
+                {% for k in kontexte %}
+                <option value="{{ k }}">{{ k }}</option>
+                {% endfor %}
+            </select>
+        </td>
+        {% endif %}
+        <td class="col-actions"><button type="button" class="btn-delete" onclick="this.closest('tr').remove()">×</button></td>
+    `;
+    document.querySelector('.task-table tbody').appendChild(row);
+    const ta = row.querySelector('textarea[name="task_name"]');
+    autoResize(ta);
+    ta.addEventListener('input', () => autoResize(ta));
+}
+document.getElementById('add-task-row').addEventListener('click', addTaskRow);
 </script>
 {% endblock %}
