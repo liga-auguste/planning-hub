@@ -19,13 +19,29 @@ from .models import PlannerRule
 
 # The rule texts are German on purpose: they go into the Claude prompt and are
 # shown in the UI. Kept here rather than in the management command so an empty
-# rule set is never the effective state (#22).
+# rule set is never the effective state (#22). project_types names PLANNER_TILES
+# types (planner_views.py); an empty list means the rule applies to all of them (#105).
 INITIAL_RULES = [
-    "Bei Konzertveranstaltungen GEMA-Meldung einplanen — nicht bei Gottesdiensten",
-    "Bei externen Mitwirkenden: Verträge, Honorare und Fahrtkosten einplanen",
-    "Bei Konzerten Plakat als Standard voraussetzen; bei Gottesdiensten genügt ein Hausausdruck",
-    "Vorverkauf nur bei größeren Konzerten relevant",
-    "Bei Recruiting / Personalplanung: Stellenausschreibung, Bewerbungsschluss, Interview-Runden, Referenzcheck und Angebot einplanen",
+    {
+        "text": "Bei Konzertveranstaltungen GEMA-Meldung einplanen — nicht bei Gottesdiensten",
+        "project_types": ["konzert"],
+    },
+    {
+        "text": "Bei externen Mitwirkenden: Verträge, Honorare und Fahrtkosten einplanen",
+        "project_types": [],
+    },
+    {
+        "text": "Bei Konzerten Plakat als Standard voraussetzen; bei Gottesdiensten genügt ein Hausausdruck",
+        "project_types": ["konzert"],
+    },
+    {
+        "text": "Vorverkauf nur bei größeren Konzerten relevant",
+        "project_types": ["konzert"],
+    },
+    {
+        "text": "Bei Recruiting / Personalplanung: Stellenausschreibung, Bewerbungsschluss, Interview-Runden, Referenzcheck und Angebot einplanen",
+        "project_types": ["recruiting"],
+    },
 ]
 
 DEMO_RULES_KEY = "demo_rules"
@@ -36,8 +52,13 @@ DEMO_RULES_KEY = "demo_rules"
 
 def _seed():
     return [
-        {"id": i + 1, "text": text, "active": True}
-        for i, text in enumerate(INITIAL_RULES)
+        {
+            "id": i + 1,
+            "text": rule["text"],
+            "active": True,
+            "project_types": list(rule["project_types"]),
+        }
+        for i, rule in enumerate(INITIAL_RULES)
     ]
 
 
@@ -47,6 +68,8 @@ def _is_valid(rules):
         and isinstance(r.get("id"), int)
         and isinstance(r.get("text"), str)
         and isinstance(r.get("active"), bool)
+        and isinstance(r.get("project_types"), list)
+        and all(isinstance(t, str) for t in r["project_types"])
         for r in rules
     )
 
@@ -94,24 +117,49 @@ def get_rules(request):
     return list(PlannerRule.objects.all())
 
 
-def get_active_rule_texts(request):
-    """The texts the planner prompt is built from — active rules only."""
+def _applies(rule_project_types, project_type):
+    return not rule_project_types or project_type in rule_project_types
+
+
+def get_active_rule_texts(request, project_type):
+    """The texts the planner prompt is built from — active rules that apply
+    to project_type (an empty project_types list applies to every type)."""
     if settings.DEMO_MODE:
-        return [r["text"] for r in _session_rules(request) if r["active"]]
-    return list(PlannerRule.objects.filter(active=True).values_list("text", flat=True))
+        return [
+            r["text"]
+            for r in _session_rules(request)
+            if r["active"] and _applies(r["project_types"], project_type)
+        ]
+    return [
+        r.text
+        for r in PlannerRule.objects.filter(active=True)
+        if _applies(r.project_types, project_type)
+    ]
 
 
-def add_rule(request, text):
+def add_rule(request, text, project_types=None):
+    project_types = project_types or []
     if settings.DEMO_MODE:
         rules = _session_rules(request)
         next_id = max((r["id"] for r in rules), default=0) + 1
         _save_session_rules(
-            request, rules + [{"id": next_id, "text": text, "active": True}]
+            request,
+            rules
+            + [
+                {
+                    "id": next_id,
+                    "text": text,
+                    "active": True,
+                    "project_types": project_types,
+                }
+            ],
         )
         return
     last = PlannerRule.objects.order_by("-order").first()
     next_order = (last.order + 1) if last else 0
-    PlannerRule.objects.create(text=text, active=True, order=next_order)
+    PlannerRule.objects.create(
+        text=text, active=True, order=next_order, project_types=project_types
+    )
 
 
 def toggle_rule(request, rule_id):
@@ -132,22 +180,36 @@ def toggle_rule(request, rule_id):
     return rule.active
 
 
-def update_rule(request, rule_id, text):
-    """Returns False if there is no such rule. An empty text is ignored."""
+def update_rule(request, rule_id, text, project_types=None):
+    """Returns False if there is no such rule. An empty text is ignored.
+    project_types=None means "not sent" and leaves the existing assignment
+    untouched."""
     if settings.DEMO_MODE:
         rules = _session_rules(request)
         rule = _find(rules, rule_id)
         if rule is None:
             return False
+        changed = False
         if text:
             rule["text"] = text
+            changed = True
+        if project_types is not None:
+            rule["project_types"] = project_types
+            changed = True
+        if changed:
             _save_session_rules(request, rules)
         return True
     rule = PlannerRule.objects.filter(pk=rule_id).first()
     if rule is None:
         return False
+    changed = False
     if text:
         rule.text = text
+        changed = True
+    if project_types is not None:
+        rule.project_types = project_types
+        changed = True
+    if changed:
         rule.save()
     return True
 

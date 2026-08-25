@@ -70,7 +70,7 @@ Every Claude call goes through one wrapper (`log_claude_call` in `ai.py`) that a
 
 Every domain has planning rules that Claude doesn't know by default — legal requirements, vendor workflows, internal conventions. These are encoded explicitly in the prompt as editable rules rather than as conditional logic, so planning heuristics stay readable, adjustable, and separate from application code.
 
-Where a rule lives depends on who owns it. In production it is a `PlannerRule` row the maintainer curates for everyone. In demo mode the public page has no authentication, so a shared table would let any visitor rewrite the rules every other visitor's plan is generated with — there the rules live in the visitor's own session instead, seeded from the same defaults. Both sit behind one interface in `rules.py`, so the views never learn which backend answered.
+Where a rule lives depends on who owns it. In production it is a `PlannerRule` row the maintainer curates for everyone. In demo mode the public page has no authentication, so a shared table would let any visitor rewrite the rules every other visitor's plan is generated with — there the rules live in the visitor's own session instead, seeded from the same defaults. Both sit behind one interface in `rules.py`, so the views never learn which backend answered. Each rule can also be scoped to one or more project types (concert-only rules don't leak into a wedding plan); a rule with no type selected applies to all of them.
 
 ### Notion as source of truth
 

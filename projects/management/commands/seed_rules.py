@@ -11,6 +11,11 @@ class Command(BaseCommand):
         if PlannerRule.objects.exists():
             self.stdout.write("Rules already present, skipped.")
             return
-        for i, text in enumerate(INITIAL_RULES):
-            PlannerRule.objects.create(text=text, active=True, order=i)
+        for i, rule in enumerate(INITIAL_RULES):
+            PlannerRule.objects.create(
+                text=rule["text"],
+                active=True,
+                order=i,
+                project_types=rule["project_types"],
+            )
         self.stdout.write(f"Created {len(INITIAL_RULES)} rules.")
