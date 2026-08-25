@@ -5128,3 +5128,48 @@ class SeedRulesCommandTest(TestCase):
         PlannerRule.objects.create(text="Bereits vorhanden", active=True, order=0)
         call_command("seed_rules")
         self.assertEqual(PlannerRule.objects.count(), 1)
+
+
+@override_settings(DEMO_MODE=False)
+class BackfillPlannerRuleProjectTypesMigrationTest(TestCase):
+    """#105 review follow-up: rows a pre-#105 seed_rules run created sit at
+    project_types' field default ([]) once the migration adds the column.
+    Migration 0007 backfills the scoping those rows are missing by matching
+    on rule text."""
+
+    def setUp(self):
+        from django.apps import apps
+
+        self.backfill = importlib.import_module(
+            "projects.migrations.0007_backfill_planner_rule_project_types"
+        ).backfill_project_types
+        self.apps = apps
+
+    def test_backfills_a_known_rule_still_at_the_default(self):
+        rule = PlannerRule.objects.create(
+            text="Vorverkauf nur bei größeren Konzerten relevant",
+            active=True,
+            order=0,
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["konzert"])
+
+    def test_leaves_a_manually_assigned_row_untouched(self):
+        rule = PlannerRule.objects.create(
+            text="Vorverkauf nur bei größeren Konzerten relevant",
+            active=True,
+            order=0,
+            project_types=["hochzeit"],
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["hochzeit"])
+
+    def test_leaves_a_custom_rule_untouched(self):
+        rule = PlannerRule.objects.create(
+            text="Eigene Regel der Maintainerin", active=True, order=0
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, [])
