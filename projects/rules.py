@@ -1,11 +1,14 @@
 """Storage for the planning rules that go into the Claude prompt.
 
 Two backends behind one interface (#22). In production the rules are the
-global PlannerRule table the maintainer curates. In demo mode they live in
-request.session instead, seeded from INITIAL_RULES — the same per-session
-stance as demo_plan, demo_project_type, demo_sim_date and
-demo_timelapse_moments, so one anonymous visitor cannot rewrite the rules
-every other visitor's plan is generated with.
+global PlannerRule table the maintainer curates, seeded once from
+INITIAL_RULES via the seed_rules management command. In demo mode they live
+in request.session instead — the same per-session stance as demo_plan,
+demo_project_type, demo_sim_date and demo_timelapse_moments, so one anonymous
+visitor cannot rewrite the rules every other visitor's plan is generated
+with — and start empty rather than seeded from INITIAL_RULES, so a visitor's
+example project is planned with their own rules, not the maintainer's
+concert-specific ones (#105).
 
 Every public function takes the request first and branches on DEMO_MODE, so
 the views never learn which backend they are talking to. The session entries
@@ -18,9 +21,10 @@ from django.conf import settings
 from .models import PlannerRule
 
 # The rule texts are German on purpose: they go into the Claude prompt and are
-# shown in the UI. Kept here rather than in the management command so an empty
-# rule set is never the effective state (#22). project_types names PLANNER_TILES
-# types (planner_views.py); an empty list means the rule applies to all of them (#105).
+# shown in the UI. Seeds the production PlannerRule table only (via
+# seed_rules) — the demo session starts empty instead (#105). project_types
+# names PLANNER_TILES types (planner_views.py); an empty list means the rule
+# applies to all of them.
 INITIAL_RULES = [
     {
         "text": "Bei Konzertveranstaltungen GEMA-Meldung einplanen — nicht bei Gottesdiensten",
@@ -51,15 +55,11 @@ DEMO_RULES_KEY = "demo_rules"
 
 
 def _seed():
-    return [
-        {
-            "id": i + 1,
-            "text": rule["text"],
-            "active": True,
-            "project_types": list(rule["project_types"]),
-        }
-        for i, rule in enumerate(INITIAL_RULES)
-    ]
+    """The demo starts with no rules — a visitor's own example plan should not
+    be built from the maintainer's concert-specific production rules (#105).
+    The rules feature (add/edit/toggle/reorder/delete) still works from here,
+    it just has nothing to show until the visitor adds their own."""
+    return []
 
 
 def _is_valid(rules):
@@ -79,9 +79,7 @@ def _session_rules(request):
 
     Seeding does not write the session, so merely reading the rules page — a
     GET, and the demo is public and uncrawled (#27) — creates no session row.
-    Every mutating function below saves right afterwards anyway, and _seed()
-    hands out the same ids every time, so a later toggle of id 3 still resolves
-    against an unsaved seed.
+    Every mutating function below saves right afterwards anyway.
 
     Self-healing like _get_sim_date / _allowed_sim_dates (views.py): a session
     written by an older version — or by hand — can hold anything, and the rules
