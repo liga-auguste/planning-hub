@@ -5093,13 +5093,21 @@ class PlannerRulesDatabaseModeTest(TestCase):
         response = self.client.get(reverse("rules_list"))
         self.assertNotContains(response, "diesem Besuch")
 
-    def test_the_rules_page_is_never_scoped_by_type(self):
-        """Unlike the demo, the maintainer curates the whole rule set
-        together — a session-only 'current project type' must not hide any
-        of it (#105)."""
+    def test_the_rules_page_is_scoped_to_the_current_project_type(self):
+        """The maintainer only ever plans Konzert-tile events (concerts and,
+        within that same tile, church services) and does not want to manage
+        an event-type distinction she has no use for — so, same as the demo,
+        the page filters to whatever she is currently planning (#105)."""
         session = self.client.session
         session["demo_project_type"] = "hochzeit"
         session.save()
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, INITIAL_RULES[0]["text"])  # konzert-only
+        self.assertContains(response, INITIAL_RULES[1]["text"])  # applies to all
+
+    def test_the_rules_page_shows_everything_without_a_current_project_type(self):
+        """Reached from the dashboard sidebar rather than mid-planning, there
+        is no type to scope by, so the maintainer sees her whole rule set."""
         response = self.client.get(reverse("rules_list"))
         for rule in INITIAL_RULES:
             self.assertContains(response, rule["text"])
