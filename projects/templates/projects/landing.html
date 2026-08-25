@@ -18,20 +18,9 @@
        flow — centring content that overflows its container is exactly what
        clips its top edge. The width condition guards the same failure from the
        other side: under 769px the curve is dropped and the steps unfold to
-       their full text, so the block grows well past this estimate.
-
-       The 101px of free space right at the 940px boundary is thin, and every
-       piece of the 839px estimate above is itself a "roughly" — real fonts,
-       a device's own rendering and the exact viewport chrome can each be off
-       by a few px. Split evenly, a small enough total error puts .actions
-       flush against the footer's top border instead of clear of it. The
-       padding below is a floor under that split, not part of the estimate:
-       it comes out of .landing's own box, so justify-content still centres
-       the content within what's left, and the button row keeps a minimum
-       gap above the footer regardless of how the rest of the estimate
-       drifts. */
+       their full text, so the block grows well past this estimate. */
     @media (min-height: 940px) and (min-width: 769px) {
-        .landing { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-bottom: 24px; }
+        .landing { flex: 1; display: flex; flex-direction: column; justify-content: center; }
     }
     /* The one fact a visitor wants before the first click: this costs them
        nothing and asks nothing of them. Green is the one accent on an
@@ -319,10 +308,15 @@
        As pills the paths read as the next step rather than as a second
        headline. 99px is the radius the project already uses for its pills and
        progress tracks, the same hover shade its dark buttons already use. flex-wrap
-       handles narrow screens, so these need no breakpoint of their own. */
+       handles narrow screens, so these need no breakpoint of their own.
+       margin-bottom keeps the buttons clear of the footer's top border below
+       any viewport that is too short for .landing's vertical-centring media
+       query — the common case, not the exception, since most browser windows
+       land under that 940px threshold. Margin is outer size, so it survives
+       untouched even where justify-content: center *does* apply. */
     .actions {
         display: flex; gap: 12px; flex-wrap: wrap;
-        justify-content: center; margin-top: 90px;
+        justify-content: center; margin-top: 90px; margin-bottom: 16px;
     }
     .action {
         display: inline-flex; align-items: center; gap: 8px;
