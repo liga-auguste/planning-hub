@@ -18,9 +18,20 @@
        flow — centring content that overflows its container is exactly what
        clips its top edge. The width condition guards the same failure from the
        other side: under 769px the curve is dropped and the steps unfold to
-       their full text, so the block grows well past this estimate. */
+       their full text, so the block grows well past this estimate.
+
+       The 101px of free space right at the 940px boundary is thin, and every
+       piece of the 839px estimate above is itself a "roughly" — real fonts,
+       a device's own rendering and the exact viewport chrome can each be off
+       by a few px. Split evenly, a small enough total error puts .actions
+       flush against the footer's top border instead of clear of it. The
+       padding below is a floor under that split, not part of the estimate:
+       it comes out of .landing's own box, so justify-content still centres
+       the content within what's left, and the button row keeps a minimum
+       gap above the footer regardless of how the rest of the estimate
+       drifts. */
     @media (min-height: 940px) and (min-width: 769px) {
-        .landing { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+        .landing { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-bottom: 24px; }
     }
     /* The one fact a visitor wants before the first click: this costs them
        nothing and asks nothing of them. Green is the one accent on an
