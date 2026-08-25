@@ -18,12 +18,7 @@
     .subtitle { color: var(--color-text-quaternary); margin-bottom: 28px; line-height: 1.5; }
     .back { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
     #rules-list { list-style: none; padding: 0; margin: 0; }
-    .rule-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--color-border-primary); flex-wrap: wrap; }
-    .rule-main { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 260px; }
-    .type-checks { display: flex; flex-wrap: wrap; gap: 4px 10px; }
-    .rule-types { margin-left: 44px; width: 100%; }
-    .type-chip { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-text-quaternary); cursor: pointer; }
-    .type-chip input { margin: 0; }
+    .rule-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--color-border-primary); }
     .rule-item.inactive .rule-text { color: var(--color-text-quaternary); }
     .rule-item.sortable-ghost { opacity: 0.4; }
     .drag-handle { cursor: grab; color: var(--color-text-quaternary); font-size: 16px; padding: 2px 0; flex-shrink: 0; user-select: none; margin-top: 2px; }
@@ -43,8 +38,7 @@
     .add-section { margin-top: 28px; }
     .add-section h2 { font-size: 13px; font-weight: 600; color: var(--color-text-quaternary); margin-bottom: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
     .add-form { display: flex; gap: 8px; }
-    .add-form-fields { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-    .add-form textarea { border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 12px; font-size: 14px; resize: vertical; min-height: 56px; font-family: inherit; }
+    .add-form textarea { flex: 1; border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 12px; font-size: 14px; resize: vertical; min-height: 56px; font-family: inherit; }
     .add-form textarea:focus { outline: none; border-color: var(--color-text-primary); }
     .btn-add { background: var(--color-solid-bg); border: none; border-radius: 6px; padding: 8px 16px; color: var(--color-solid-text); font-size: 14px; cursor: pointer; white-space: nowrap; align-self: flex-end; }
     .btn-add:hover { opacity: 0.85; }
@@ -61,7 +55,6 @@
     <h1>Planungsregeln</h1>
     <p class="subtitle">
         Diese Regeln fließen in den Plan des jeweils passenden Projekttyps ein.<br>
-        Ohne angehakten Projekttyp gilt eine Regel für alle Projekttypen.<br>
         Eine ausgeschaltete Regel bleibt in der Liste, geht aber nicht in den Plan ein.
         {% if demo_mode %}<br>
         Im Demo-Modus gehören diese Regeln nur zu diesem Besuch und wirken sich ausschließlich auf deine eigenen Pläne aus.
@@ -74,30 +67,18 @@
     <ul id="rules-list">
         {% for rule in rules %}
         <li class="rule-item {% if not rule.active %}inactive{% endif %}" data-id="{{ rule.id }}">
-            <div class="rule-main">
-                <span class="drag-handle">⠿</span>
-                <label class="toggle" title="{% if rule.active %}Aktiv{% else %}Inaktiv{% endif %}">
-                    <input type="checkbox" {% if rule.active %}checked{% endif %}
-                           onchange="toggleRule({{ rule.id }}, this)">
-                    <span class="toggle-slider"></span>
-                </label>
-                <div class="rule-text"
-                     contenteditable="true"
-                     data-id="{{ rule.id }}"
-                     data-original="{{ rule.text|escapejs }}"
-                     onblur="saveRule(this)">{{ rule.text }}</div>
-                <button class="btn-delete" onclick="deleteRule({{ rule.id }}, this)" title="Löschen">×</button>
-            </div>
-            <div class="type-checks rule-types" data-id="{{ rule.id }}">
-                {% for pt in project_types %}
-                <label class="type-chip">
-                    <input type="checkbox" value="{{ pt.type }}"
-                           {% if pt.type in rule.project_types %}checked{% endif %}
-                           onchange="saveRuleTypes({{ rule.id }}, this)">
-                    {{ pt.label }}
-                </label>
-                {% endfor %}
-            </div>
+            <span class="drag-handle">⠿</span>
+            <label class="toggle" title="{% if rule.active %}Aktiv{% else %}Inaktiv{% endif %}">
+                <input type="checkbox" {% if rule.active %}checked{% endif %}
+                       onchange="toggleRule({{ rule.id }}, this)">
+                <span class="toggle-slider"></span>
+            </label>
+            <div class="rule-text"
+                 contenteditable="true"
+                 data-id="{{ rule.id }}"
+                 data-original="{{ rule.text|escapejs }}"
+                 onblur="saveRule(this)">{{ rule.text }}</div>
+            <button class="btn-delete" onclick="deleteRule({{ rule.id }}, this)" title="Löschen">×</button>
         </li>
         {% empty %}
         <li class="empty">Noch keine Regeln — füge die erste hinzu.</li>
@@ -108,18 +89,8 @@
         <h2>Neue Regel</h2>
         <form method="post" action="{% url 'rule_add' %}" class="add-form">
             {% csrf_token %}
-            <div class="add-form-fields">
-                <textarea name="text"
-                    placeholder="z.B. Bei externen Dienstleistern immer Angebot und Vertrag einplanen"></textarea>
-                <div class="type-checks">
-                    {% for pt in project_types %}
-                    <label class="type-chip">
-                        <input type="checkbox" name="project_types" value="{{ pt.type }}">
-                        {{ pt.label }}
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
+            <textarea name="text"
+                placeholder="z.B. Bei externen Dienstleistern immer Angebot und Vertrag einplanen"></textarea>
             <button type="submit" class="btn-add">Hinzufügen</button>
         </form>
     </div>
@@ -164,12 +135,6 @@ function saveRule(el) {
     } else if (!text) {
         el.textContent = original;
     }
-}
-
-function saveRuleTypes(id, checkbox) {
-    const group = checkbox.closest('.rule-types');
-    const project_types = [...group.querySelectorAll('input:checked')].map(el => el.value);
-    post(`/planner/regeln/update/${id}/`, {project_types});
 }
 
 function deleteRule(id, btn) {

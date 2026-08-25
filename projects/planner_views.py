@@ -482,9 +482,6 @@ def rules_list(request):
             "back_type_label": next(
                 (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
             ),
-            "project_types": [
-                {"type": tile["type"], "label": tile["label"]} for tile in PLANNER_TILES
-            ],
         },
     )
 
