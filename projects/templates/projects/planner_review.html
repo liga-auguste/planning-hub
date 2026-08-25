@@ -3,7 +3,8 @@
 {% block title %}Plan reviewen – Planning Hub{% endblock %}
 
 {% block topbar_right %}
-    {% include 'projects/_progress.html' with active_step=4 %}
+    {% url 'planner_questions' as back_url %}
+    {% include 'projects/_progress.html' with active_step=4 back_url=back_url %}
 {% endblock %}
 
 {% block extra_css %}
@@ -78,9 +79,9 @@
 
 {% block content %}
 <div class="planner-card">
-    <a href="{% url 'planner_start' %}" class="back">← Neu planen</a>
+    <a href="{% url 'planner_questions' %}" class="back">← Klärung</a>
     <h1>Plan reviewen</h1>
-    <p class="subtitle">{{ description }}</p>
+    <p class="subtitle">{{ description }}{% if redisplay %}<br><span class="draft-notice">So hattest du es zuletzt gespeichert.</span>{% endif %}</p>
 
     {% if error %}
     <p class="error-notice">Der Plan konnte nicht gespeichert werden. Deine Aufgaben sind unten erhalten geblieben — bitte versuche es gleich noch einmal.</p>

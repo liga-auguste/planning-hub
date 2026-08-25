@@ -39,6 +39,12 @@
     left: -50%; right: 50%; height: 2px; background: var(--color-border-primary);
 }
 .ps-step.done + .ps-step::before { background: var(--color-solid-bg); }
+/* Only the step immediately before the current one is ever an <a> (#116);
+   a bare .ps-step selector already covers its flex layout, this just clears
+   the browser's own link styling and signals it's clickable. */
+a.ps-step { text-decoration: none; cursor: pointer; }
+a.ps-step:hover .ps-dot { background: var(--color-text-primary); }
+a.ps-step:hover .ps-label { color: var(--color-text-primary); }
 .ps-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-border-primary); margin-bottom: 6px; position: relative; z-index: 1; }
 .ps-step.done .ps-dot, .ps-step.active .ps-dot { background: var(--color-solid-bg); }
 /* The landing page's halo, held still: a marker on the current step,

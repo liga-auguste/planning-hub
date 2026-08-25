@@ -186,11 +186,40 @@ def _parse_event_date(description: str):
 # until confirmed.
 _FALLBACK_LEAD = timedelta(weeks=4)
 
+# Everything a visitor typed between Beschreiben and Review, kept so a
+# one-step-back link can redisplay it instead of losing it (#116). Shared by
+# both DEMO_MODE and production, unlike the demo_* keys above.
+DRAFT_SESSION_KEYS = (
+    "planner_description",
+    "planner_questions_html",
+    "planner_answers",
+    "planner_review_state",
+)
+
+
+def _clear_planner_draft(request):
+    for key in DRAFT_SESSION_KEYS:
+        request.session.pop(key, None)
+
+
+def _step2_back_url(request):
+    project_type = request.session.get("demo_project_type", "")
+    return f"{reverse('planner_start')}?{urlencode({'type': project_type})}"
+
 
 def planner_start(request):
     if request.method == "POST":
         description = request.POST.get("description", "").strip()
         if description:
+            if request.session.get("planner_description") != description:
+                # A changed description invalidates whatever an earlier
+                # round already produced downstream — same reasoning as
+                # _clear_planner_draft() on a tile-grid visit, applied here
+                # so it can't outlive the description it was drafted for
+                # (#124). description/questions_html get overwritten below
+                # regardless, so only the two draft-specific keys matter.
+                request.session.pop("planner_answers", None)
+                request.session.pop("planner_review_state", None)
             history = _get_history()
             rules = rules_store.get_active_rule_texts(request)
             try:
@@ -209,17 +238,26 @@ def planner_start(request):
                     },
                 )
             questions_html = md.markdown(questions)
+            request.session["planner_description"] = description
+            request.session["planner_questions_html"] = questions_html
             return render(
                 request,
                 "projects/planner_questions.html",
                 {
                     "description": description,
                     "questions": questions_html,
+                    "back_url": _step2_back_url(request),
                 },
             )
     project_type = request.GET.get("type", "")
     if project_type:
         request.session["demo_project_type"] = project_type
+        prefill = request.session.get("planner_description", "")
+    else:
+        # The tile grid is the explicit "start over" entry point — an
+        # abandoned draft must not bleed into the next, unrelated attempt.
+        _clear_planner_draft(request)
+        prefill = ""
     show_tiles = not bool(project_type)
     base = reverse("planner_start")
     tiles = [
@@ -230,10 +268,33 @@ def planner_start(request):
         request,
         "projects/planner_start.html",
         {
-            "prefill": "",
+            "prefill": prefill,
             "show_tiles": show_tiles,
             "tiles": tiles,
             "placeholder": _tile_placeholder(project_type),
+        },
+    )
+
+
+def planner_questions(request):
+    description = request.session.get("planner_description")
+    questions_html = request.session.get("planner_questions_html")
+    if not description or not questions_html:
+        return redirect("planner_start")
+    return render(
+        request,
+        "projects/planner_questions.html",
+        {
+            "description": description,
+            "questions": questions_html,
+            "answers": request.session.get("planner_answers", ""),
+            "back_url": _step2_back_url(request),
+            # This GET route only ever redisplays what an earlier POST
+            # already stored — #124's report noted that nothing in the UI
+            # told the two apart. The template turns this into a quiet
+            # "not just generated" notice; the fresh, just-POSTed render
+            # below (and planner_review()'s own POST branch) omits it.
+            "redisplay": True,
         },
     )
 
@@ -255,6 +316,7 @@ def planner_review(request):
                     "description": description,
                     "answers": full_answers,
                     "error": True,
+                    "back_url": _step2_back_url(request),
                 },
             )
 
@@ -263,17 +325,30 @@ def planner_review(request):
         if event_date_uncertain:
             event_date = timezone.localdate() + _FALLBACK_LEAD
         project_name = plan.get("project_name") or description.split(",")[0].strip()
+        review_state = {
+            "description": description,
+            "project_name": project_name,
+            "tasks": plan["tasks"],
+            "event_date_iso": event_date.isoformat(),
+            "event_date_uncertain": event_date_uncertain,
+        }
+        request.session["planner_answers"] = full_answers
+        request.session["planner_review_state"] = review_state
+        return render(
+            request,
+            "projects/planner_review.html",
+            {**review_state, "kontexte": KONTEXTE, "demo_mode": settings.DEMO_MODE},
+        )
+    review_state = request.session.get("planner_review_state")
+    if review_state:
         return render(
             request,
             "projects/planner_review.html",
             {
-                "description": description,
-                "project_name": project_name,
-                "tasks": plan["tasks"],
+                **review_state,
                 "kontexte": KONTEXTE,
-                "event_date_iso": event_date.isoformat(),
-                "event_date_uncertain": event_date_uncertain,
                 "demo_mode": settings.DEMO_MODE,
+                "redisplay": True,
             },
         )
     return redirect("planner_start")
@@ -338,6 +413,7 @@ def planner_create(request):
                 project_type=project_type,
                 task_count=len(tasks),
             )
+            _clear_planner_draft(request)
             return redirect("dashboard")
 
         try:
@@ -381,6 +457,7 @@ def planner_create(request):
                     "error": True,
                 },
             )
+        _clear_planner_draft(request)
         _bust_dashboard_cache()
         return redirect("dashboard")
     return redirect("planner_start")
