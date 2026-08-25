@@ -4863,6 +4863,32 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         self.assertIn("Immer", get_active_rule_texts(request, "konzert"))
         self.assertIn("Immer", get_active_rule_texts(request, "hochzeit"))
 
+    def test_rules_page_only_shows_rules_for_the_current_project_type(self):
+        """A visitor planning a Workshop should not see a Konzert-only rule
+        left over from an earlier tile in the same session (#105)."""
+        self.add_rule_id("Nur Konzert", ["konzert"])
+        self.add_rule_id("Nur Workshop", ["workshop"])
+        self.add_rule_id("Immer", [])
+
+        session = self.client.session
+        session["demo_project_type"] = "workshop"
+        session.save()
+
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, "Nur Konzert")
+        self.assertContains(response, "Nur Workshop")
+        self.assertContains(response, "Immer")
+
+    def test_rules_page_shows_everything_without_a_current_project_type(self):
+        """Reached from outside the planner flow (no tile picked yet), there is
+        nothing to scope by, so every rule stays visible."""
+        self.add_rule_id("Nur Konzert", ["konzert"])
+        self.add_rule_id("Nur Workshop", ["workshop"])
+
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "Nur Konzert")
+        self.assertContains(response, "Nur Workshop")
+
     def test_updating_a_rules_project_types_is_reflected_in_the_filter(self):
         rule_id = self.add_rule_id("Nur Konzert", ["konzert"])
         self.client.post(
@@ -5041,6 +5067,17 @@ class PlannerRulesDatabaseModeTest(TestCase):
     def test_the_demo_notice_is_absent(self):
         response = self.client.get(reverse("rules_list"))
         self.assertNotContains(response, "diesem Besuch")
+
+    def test_the_rules_page_is_never_scoped_by_type(self):
+        """Unlike the demo, the maintainer curates the whole rule set
+        together — a session-only 'current project type' must not hide any
+        of it (#105)."""
+        session = self.client.session
+        session["demo_project_type"] = "hochzeit"
+        session.save()
+        response = self.client.get(reverse("rules_list"))
+        for rule in INITIAL_RULES:
+            self.assertContains(response, rule["text"])
 
 
 @override_settings(DEMO_MODE=False)

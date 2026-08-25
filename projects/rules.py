@@ -119,6 +119,23 @@ def _applies(rule_project_types, project_type):
     return not rule_project_types or project_type in rule_project_types
 
 
+def get_visible_rules(request, project_type):
+    """The rules to show on the rules page for project_type.
+
+    In demo mode this is scoped to project_type — a visitor planning a
+    Workshop should not see (or be confused by) a Konzert-only rule they, or
+    an earlier visit in the same session, added while planning something else
+    (#105). Without a project_type (the rules page reached without having
+    picked a tile yet) every rule is shown, since there is nothing to scope
+    by. In production every rule is always shown — the maintainer curates the
+    whole set together, across every project type at once.
+    """
+    rules = get_rules(request)
+    if settings.DEMO_MODE and project_type:
+        rules = [r for r in rules if _applies(r["project_types"], project_type)]
+    return rules
+
+
 def get_active_rule_texts(request, project_type):
     """The texts the planner prompt is built from — active rules that apply
     to project_type (an empty project_types list applies to every type)."""

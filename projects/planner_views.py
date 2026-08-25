@@ -471,13 +471,17 @@ def planner_create(request):
 
 
 def rules_list(request):
+    project_type = request.session.get("demo_project_type", "")
     return render(
         request,
         "projects/planner_rules.html",
         {
-            "rules": rules_store.get_rules(request),
+            "rules": rules_store.get_visible_rules(request, project_type),
             "demo_mode": settings.DEMO_MODE,
-            "back_type": request.session.get("demo_project_type", ""),
+            "back_type": project_type,
+            "back_type_label": next(
+                (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
+            ),
             "project_types": [
                 {"type": tile["type"], "label": tile["label"]} for tile in PLANNER_TILES
             ],
