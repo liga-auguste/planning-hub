@@ -308,10 +308,15 @@
        As pills the paths read as the next step rather than as a second
        headline. 99px is the radius the project already uses for its pills and
        progress tracks, the same hover shade its dark buttons already use. flex-wrap
-       handles narrow screens, so these need no breakpoint of their own. */
+       handles narrow screens, so these need no breakpoint of their own.
+       margin-bottom keeps the buttons clear of the footer's top border below
+       any viewport that is too short for .landing's vertical-centring media
+       query — the common case, not the exception, since most browser windows
+       land under that 940px threshold. Margin is outer size, so it survives
+       untouched even where justify-content: center *does* apply. */
     .actions {
         display: flex; gap: 12px; flex-wrap: wrap;
-        justify-content: center; margin-top: 90px;
+        justify-content: center; margin-top: 90px; margin-bottom: 16px;
     }
     .action {
         display: inline-flex; align-items: center; gap: 8px;
