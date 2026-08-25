@@ -2988,6 +2988,31 @@ class ProductionKontextBadgeTest(TestCase):
         self.assertNotContains(response, "[&#x27;")
 
 
+@override_settings(DEMO_MODE=False)
+class ProductionRulesSidebarLinkTest(TestCase):
+    """#105: the maintainer manages the whole rule set from the dashboard, not
+    just mid-way through planning a new event — the demo deliberately omits
+    this link to avoid inviting repeated (costly) plan generation."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_dashboard_links_to_the_rules_page(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("rules_list")}"')
+
+
+class DemoRulesSidebarLinkTest(DemoModeTestCase):
+    def test_dashboard_does_not_link_to_the_rules_page(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, f'href="{reverse("rules_list")}"')
+
+
 class DateUncertainBadgeTest(DemoModeTestCase):
     """The "Termin unsicher" badge only appears for a project whose date was
     a fallback guess (see PlannerCreateDatelessDescriptionTest), on both

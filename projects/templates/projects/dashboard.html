@@ -228,6 +228,9 @@
         <span style="margin-right: 8px; font-size: 15px; line-height: 1;">+</span>
         Neue Veranstaltung
     </a>
+    <a class="sidebar-item" href="{% url 'rules_list' %}" style="color: var(--color-text-tertiary);">
+        <span style="margin-right: 8px;">⚙</span>Planungsregeln
+    </a>
     {% endif %}
     {% if demo_mode %}
     <a class="sidebar-item" onclick="document.getElementById('about-overlay').style.display='flex'" style="cursor:pointer; color:var(--color-text-tertiary);">
