@@ -289,6 +289,12 @@ def planner_questions(request):
             "questions": questions_html,
             "answers": request.session.get("planner_answers", ""),
             "back_url": _step2_back_url(request),
+            # This GET route only ever redisplays what an earlier POST
+            # already stored — #124's report noted that nothing in the UI
+            # told the two apart. The template turns this into a quiet
+            # "not just generated" notice; the fresh, just-POSTed render
+            # below (and planner_review()'s own POST branch) omits it.
+            "redisplay": True,
         },
     )
 
@@ -338,7 +344,12 @@ def planner_review(request):
         return render(
             request,
             "projects/planner_review.html",
-            {**review_state, "kontexte": KONTEXTE, "demo_mode": settings.DEMO_MODE},
+            {
+                **review_state,
+                "kontexte": KONTEXTE,
+                "demo_mode": settings.DEMO_MODE,
+                "redisplay": True,
+            },
         )
     return redirect("planner_start")
 

@@ -42,7 +42,7 @@
 <div class="planner-card">
     <a href="{{ back_url }}" class="back">← Beschreiben</a>
     <h1>Klärungsfragen</h1>
-    <p class="subtitle">{{ description }}</p>
+    <p class="subtitle">{{ description }}{% if redisplay %}<br><span class="draft-notice">So hattest du es zuletzt gespeichert.</span>{% endif %}</p>
 
     {% if error %}
     <p class="error-notice">Der Plan konnte gerade nicht erstellt werden. Deine Antworten sind erhalten geblieben — bitte versuche es gleich noch einmal.</p>

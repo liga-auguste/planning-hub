@@ -81,7 +81,7 @@
 <div class="planner-card">
     <a href="{% url 'planner_questions' %}" class="back">← Klärung</a>
     <h1>Plan reviewen</h1>
-    <p class="subtitle">{{ description }}</p>
+    <p class="subtitle">{{ description }}{% if redisplay %}<br><span class="draft-notice">So hattest du es zuletzt gespeichert.</span>{% endif %}</p>
 
     {% if error %}
     <p class="error-notice">Der Plan konnte nicht gespeichert werden. Deine Aufgaben sind unten erhalten geblieben — bitte versuche es gleich noch einmal.</p>

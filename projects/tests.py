@@ -1731,6 +1731,51 @@ class PlannerDescriptionChangeClearsStaleDownstreamTest(DemoModeTestCase):
         self.assertContains(response, "Antwort A")
 
 
+class PlannerRedisplayNoticeTest(DemoModeTestCase):
+    """#124's report noted that nothing in the UI told a redisplayed
+    Klärung/Review page apart from a freshly generated one, even though the
+    fix landing here already guarantees the two can no longer mismatch. A
+    quiet .draft-notice now marks the GET-redisplay path (stepper back-link,
+    refresh) so it doesn't read as brand new; the POST-rendered fresh page
+    stays exactly as before."""
+
+    def test_fresh_questions_carry_no_notice(self):
+        response = self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        self.assertNotContains(response, '<span class="draft-notice">')
+
+    def test_redisplayed_questions_carry_the_notice(self):
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        response = self.client.get(reverse("planner_questions"))
+        self.assertContains(response, '<span class="draft-notice">')
+
+    def test_fresh_review_carries_no_notice(self):
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        self.assertNotContains(response, '<span class="draft-notice">')
+
+    def test_redisplayed_review_carries_the_notice(self):
+        self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        response = self.client.get(reverse("planner_review"))
+        self.assertContains(response, '<span class="draft-notice">')
+
+
 class PlannerTileLinksTest(DemoModeTestCase):
     """#5 / #72: the tile links used to carry a raw-text prefill query
     parameter ("?prefill=Konzert am [Datum], ..."), unencoded and written
