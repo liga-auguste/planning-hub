@@ -234,9 +234,10 @@ projects/
   templates/projects/           # 15 templates, all JS inline
   management/commands/seed_rules.py  # Seed initial planner rules
 docs/
-  template-refactoring.md  # Base-template inheritance layout, as carried out
-  demo-mode.md              # Demo-mode navigation states, sidebar links, banner
-  screenshots/              # README images
+  template-refactoring.md      # Base-template inheritance layout, as carried out
+  demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
+  planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
+  screenshots/                  # README images
 ```
 
 ---

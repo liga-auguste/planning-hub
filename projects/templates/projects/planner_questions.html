@@ -3,7 +3,7 @@
 {% block title %}Klärungsfragen – Planning Hub{% endblock %}
 
 {% block topbar_right %}
-    {% include 'projects/_progress.html' with active_step=3 %}
+    {% include 'projects/_progress.html' with active_step=3 back_url=back_url %}
 {% endblock %}
 
 {% block extra_css %}
@@ -40,7 +40,7 @@
 
 {% block content %}
 <div class="planner-card">
-    <a href="{% url 'planner_start' %}" class="back">← Zurück</a>
+    <a href="{{ back_url }}" class="back">← Beschreiben</a>
     <h1>Klärungsfragen</h1>
     <p class="subtitle">{{ description }}</p>
 

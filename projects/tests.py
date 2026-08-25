@@ -1,6 +1,7 @@
 import importlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -1554,13 +1555,145 @@ class PlannerGetFallthroughTest(DemoModeTestCase):
         response = self.client.get(reverse("planner_review"))
         self.assertRedirects(response, reverse("planner_start"))
 
+    def test_review_get_renders_the_stored_plan_after_a_post(self):
+        # #116: the review step becomes GET-reachable so a refresh (or the
+        # stepper eventually pointing at it) redisplays the generated plan
+        # instead of bouncing the visitor back to step 1.
+        self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        response = self.client.get(reverse("planner_review"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "projects/planner_review.html")
+        self.assertContains(response, "Testkonzert")
+
     def test_create_get_redirects_to_start(self):
         response = self.client.get(reverse("planner_create"))
         self.assertRedirects(response, reverse("planner_start"))
 
-    def test_questions_route_is_gone(self):
-        # Literal path: the URL name no longer exists, so reverse() cannot be used.
-        self.assertEqual(self.client.get("/planner/questions/").status_code, 404)
+    def test_questions_get_redirects_to_start_when_session_is_empty(self):
+        # #116: the route is back, but only ever useful once step 2 has
+        # actually stored something to show.
+        response = self.client.get(reverse("planner_questions"))
+        self.assertRedirects(response, reverse("planner_start"))
+
+    def test_questions_get_renders_from_session_after_a_post(self):
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        response = self.client.get(reverse("planner_questions"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "projects/planner_questions.html")
+        self.assertContains(response, "Konzert am 15. September 2026")
+        self.assertContains(response, "Wie viele Mitwirkende?")
+
+
+class StepperBackLinkTest(DemoModeTestCase):
+    """#116: only the step immediately before the current one becomes a
+    link in the tracker — every earlier 'done' step stays a plain marker,
+    so a visitor can only ever go back exactly one step at a time."""
+
+    def _ps_step_wrapper_tags(self, html):
+        return re.findall(r'<(a|div) [^>]*class="ps-step[^"]*"', html)
+
+    def test_step_one_has_no_back_link(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertEqual(
+            self._ps_step_wrapper_tags(response.content.decode()),
+            ["div", "div", "div", "div"],
+        )
+
+    def test_step_two_links_back_to_the_tile_grid_only(self):
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertEqual(
+            self._ps_step_wrapper_tags(response.content.decode()),
+            ["a", "div", "div", "div"],
+        )
+        self.assertContains(
+            response, f'<a href="{reverse("planner_start")}" class="ps-step done">'
+        )
+
+    def test_step_three_links_back_to_beschreiben_only(self):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        response = self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        self.assertEqual(
+            self._ps_step_wrapper_tags(response.content.decode()),
+            ["div", "a", "div", "div"],
+        )
+        back_url = reverse("planner_start") + "?type=eigenes"
+        self.assertContains(response, f'<a href="{back_url}" class="ps-step done">')
+
+    def test_step_four_links_back_to_klaerung_only(self):
+        response = self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        self.assertEqual(
+            self._ps_step_wrapper_tags(response.content.decode()),
+            ["div", "div", "a", "div"],
+        )
+        self.assertContains(
+            response,
+            f'<a href="{reverse("planner_questions")}" class="ps-step done">',
+        )
+
+
+class PlannerBackNavigationPreservesDataTest(DemoModeTestCase):
+    """#116: going back one step must not lose what the visitor already
+    typed — the whole point of making the step reachable via GET."""
+
+    def test_klaerung_back_to_beschreiben_keeps_the_description(self):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertContains(response, "Konzert am 15. September 2026</textarea>")
+
+    def test_review_back_to_klaerung_keeps_questions_and_answers(self):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 15. September 2026",
+                "answers": "20 Gäste, in der Kirche",
+            },
+        )
+        response = self.client.get(reverse("planner_questions"))
+        self.assertContains(response, "Wie viele Mitwirkende?")
+        self.assertContains(response, "20 Gäste, in der Kirche</textarea>")
+
+
+class PlannerFreshStartClearsStaleDraftTest(DemoModeTestCase):
+    """#116: the tile grid is the explicit 'start over' entry point — an
+    abandoned draft must not bleed into the next, unrelated attempt."""
+
+    def test_visiting_the_tile_grid_clears_a_stale_description(self):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Alter Entwurf, nie abgeschlossen"},
+        )
+        self.client.get(reverse("planner_start"))  # tile grid, no ?type=
+        response = self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.assertNotContains(response, "Alter Entwurf")
+        self.assertContains(response, "></textarea>")
 
 
 class PlannerTileLinksTest(DemoModeTestCase):
@@ -1923,6 +2056,45 @@ class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
         self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
+class PlannerCreateClearsDraftStateTest(DemoModeTestCase):
+    """#116: a finished plan must not leave stale back-navigation state for
+    the next, unrelated attempt."""
+
+    DRAFT_KEYS = (
+        "planner_description",
+        "planner_questions_html",
+        "planner_answers",
+        "planner_review_state",
+    )
+
+    def test_successful_create_clears_the_draft_keys(self):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 5. September 2026"},
+        )
+        self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+        self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "project_name": "Sommerkonzert",
+                "event_date": (date.today() + timedelta(days=30)).isoformat(),
+                "task_name": ["Programm festlegen"],
+                "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+                "task_kontext": ["Planung"],
+            },
+        )
+        for key in self.DRAFT_KEYS:
+            self.assertNotIn(key, self.client.session)
+
+
 class PlannerCreateDatelessDescriptionTest(DemoModeTestCase):
     """planner_review always prefills event_date now (see
     PlannerReviewDateFallbackTest), but planner_create must not depend on
@@ -2018,6 +2190,48 @@ class PlannerCreateDropsIncompleteRowsProductionTest(TestCase):
         _, tasks = mock_create_tasks.call_args.args
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["name"], "Programm festlegen")
+
+
+class PlannerCreateClearsDraftStateProductionTest(TestCase):
+    """Same cleanup as PlannerCreateClearsDraftStateTest, through the
+    production Notion path, which has its own success branch."""
+
+    def test_successful_create_clears_the_draft_keys(self):
+        session = self.client.session
+        session["planner_description"] = "Konzert am 5. September"
+        session["planner_questions_html"] = "<p>Frage?</p>"
+        session["planner_answers"] = "keine weiteren Angaben"
+        session["planner_review_state"] = {
+            "description": "Konzert am 5. September",
+            "project_name": "Sommerkonzert",
+            "tasks": [],
+            "event_date_iso": "2026-09-05",
+            "event_date_uncertain": False,
+        }
+        session.save()
+        with (
+            patch("projects.planner_views.find_project", return_value=None),
+            patch("projects.planner_views.create_project", return_value="page-id"),
+            patch("projects.planner_views.create_tasks"),
+        ):
+            self.client.post(
+                reverse("planner_create"),
+                data={
+                    "description": "Konzert am 5. September",
+                    "project_name": "Sommerkonzert",
+                    "event_date": (date.today() + timedelta(days=30)).isoformat(),
+                    "task_name": ["Programm festlegen"],
+                    "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+                    "task_kontext": ["Planung"],
+                },
+            )
+        for key in (
+            "planner_description",
+            "planner_questions_html",
+            "planner_answers",
+            "planner_review_state",
+        ):
+            self.assertNotIn(key, self.client.session)
 
 
 class PlannerStartAiFailureTest(DemoModeTestCase):

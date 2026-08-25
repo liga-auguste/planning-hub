@@ -6,7 +6,8 @@
     {% if show_tiles %}
         {% include 'projects/_progress.html' with active_step=1 %}
     {% else %}
-        {% include 'projects/_progress.html' with active_step=2 %}
+        {% url 'planner_start' as back_url %}
+        {% include 'projects/_progress.html' with active_step=2 back_url=back_url %}
     {% endif %}
 {% endblock %}
 
