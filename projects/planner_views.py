@@ -221,7 +221,9 @@ def planner_start(request):
                 request.session.pop("planner_answers", None)
                 request.session.pop("planner_review_state", None)
             history = _get_history()
-            rules = rules_store.get_active_rule_texts(request)
+            rules = rules_store.get_active_rule_texts(
+                request, request.session.get("demo_project_type", "")
+            )
             try:
                 questions = get_clarifying_questions(description, history, rules)
             except AIUnavailableError:
@@ -305,7 +307,9 @@ def planner_review(request):
         full_answers = request.POST.get("answers", "").strip()
 
         history = _get_history()
-        rules = rules_store.get_active_rule_texts(request)
+        rules = rules_store.get_active_rule_texts(
+            request, request.session.get("demo_project_type", "")
+        )
         try:
             plan = generate_plan(description, full_answers, history, rules)
         except AIUnavailableError:
@@ -467,13 +471,17 @@ def planner_create(request):
 
 
 def rules_list(request):
+    project_type = request.session.get("demo_project_type", "")
     return render(
         request,
         "projects/planner_rules.html",
         {
-            "rules": rules_store.get_rules(request),
+            "rules": rules_store.get_visible_rules(request, project_type),
             "demo_mode": settings.DEMO_MODE,
-            "back_type": request.session.get("demo_project_type", ""),
+            "back_type": project_type,
+            "back_type_label": next(
+                (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
+            ),
         },
     )
 
@@ -482,7 +490,7 @@ def rule_add(request):
     if request.method == "POST":
         text = request.POST.get("text", "").strip()
         if text:
-            rules_store.add_rule(request, text)
+            rules_store.add_rule(request, text, request.POST.getlist("project_types"))
     return redirect("rules_list")
 
 
@@ -499,7 +507,12 @@ def rule_update(request, rule_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
     data = json.loads(request.body)
-    if not rules_store.update_rule(request, rule_id, data.get("text", "").strip()):
+    if not rules_store.update_rule(
+        request,
+        rule_id,
+        data.get("text", "").strip(),
+        data.get("project_types"),
+    ):
         return JsonResponse({"error": "not found"}, status=404)
     return JsonResponse({"ok": True})
 

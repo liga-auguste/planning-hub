@@ -35,6 +35,9 @@ class PlannerRule(models.Model):
     text = models.TextField()
     active = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0)
+    # PLANNER_TILES types this rule applies to (planner_views.py); empty
+    # means every type (#105).
+    project_types = models.JSONField(default=list, blank=True)
 
     class Meta:
         ordering = ["order"]

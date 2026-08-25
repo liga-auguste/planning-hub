@@ -2988,6 +2988,31 @@ class ProductionKontextBadgeTest(TestCase):
         self.assertNotContains(response, "[&#x27;")
 
 
+@override_settings(DEMO_MODE=False)
+class ProductionRulesSidebarLinkTest(TestCase):
+    """#105: the maintainer manages the whole rule set from the dashboard, not
+    just mid-way through planning a new event — the demo deliberately omits
+    this link to avoid inviting repeated (costly) plan generation."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_dashboard_links_to_the_rules_page(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f'href="{reverse("rules_list")}"')
+
+
+class DemoRulesSidebarLinkTest(DemoModeTestCase):
+    def test_dashboard_does_not_link_to_the_rules_page(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, f'href="{reverse("rules_list")}"')
+
+
 class DateUncertainBadgeTest(DemoModeTestCase):
     """The "Termin unsicher" badge only appears for a project whose date was
     a fallback guess (see PlannerCreateDatelessDescriptionTest), on both
@@ -4742,7 +4767,9 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
     """#22: PlannerRule was the one demo-editable object that was not
     session-scoped, so any anonymous visitor could rewrite or delete the rules
     every other visitor's plan is generated with. In demo mode the rules now
-    live in request.session, seeded from INITIAL_RULES."""
+    live in request.session — and, per #105, start empty rather than seeded
+    from INITIAL_RULES, so a visitor's example plan isn't built from the
+    maintainer's concert-specific production rules."""
 
     def request_with_session(self):
         """A request carrying this client's session, as the planner views see it."""
@@ -4750,53 +4777,66 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         request.session = self.client.session
         return request
 
-    def rule_ids(self):
-        """Reading persists nothing, so before the first write fall back to the
-        seed's ids — _seed() hands out 1..n every time."""
-        rules = self.client.session.get(DEMO_RULES_KEY)
-        if rules is None:
-            return list(range(1, len(INITIAL_RULES) + 1))
-        return [r["id"] for r in rules]
+    def add_rule_id(self, text, project_types=None):
+        """Adds a demo rule via the view (so CSRF/session wiring matches a real
+        request) and returns the id the session assigned it."""
+        self.client.post(
+            reverse("rule_add"),
+            data={"text": text, "project_types": project_types or []},
+        )
+        stored = self.client.session[DEMO_RULES_KEY]
+        return next(r["id"] for r in stored if r["text"] == text)
 
-    def test_a_fresh_session_is_seeded_with_the_initial_rules(self):
+    def test_a_fresh_session_starts_with_no_rules(self):
         response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
-        for text in INITIAL_RULES:
-            self.assertContains(response, text)
-        self.assertNotContains(response, "Noch keine Regeln")
+        self.assertContains(response, "Noch keine Regeln")
+        for rule in INITIAL_RULES:
+            self.assertNotContains(response, rule["text"])
 
     def test_reading_the_rules_page_persists_no_session(self):
         """The demo is public and not yet behind a robots.txt (#27), so a GET
         must not leave a session row behind for every visitor and crawler."""
         response = self.client.get(reverse("rules_list"))
-        self.assertContains(response, INITIAL_RULES[0])
+        self.assertContains(response, "Noch keine Regeln")
         self.assertEqual(Session.objects.count(), 0)
 
-    def test_the_first_write_persists_the_seeded_rules(self):
-        self.client.post(reverse("rule_toggle", args=[self.rule_ids()[0]]))
+    def test_the_first_write_persists_an_added_rule(self):
+        self.client.post(reverse("rule_add"), data={"text": "Erste Regel"})
         self.assertEqual(Session.objects.count(), 1)
         stored = self.client.session[DEMO_RULES_KEY]
-        self.assertEqual([r["text"] for r in stored], INITIAL_RULES)
-        self.assertFalse(stored[0]["active"])
+        self.assertEqual([r["text"] for r in stored], ["Erste Regel"])
+        self.assertEqual(stored[0]["project_types"], [])
+        self.assertTrue(stored[0]["active"])
 
     def test_adding_a_rule_writes_nothing_to_the_database(self):
         self.client.post(reverse("rule_add"), data={"text": "Neue Regel"})
         self.assertEqual(PlannerRule.objects.count(), 0)
         self.assertContains(self.client.get(reverse("rules_list")), "Neue Regel")
 
-    def test_toggle_update_delete_and_reorder_write_nothing_to_the_database(self):
-        self.client.get(reverse("rules_list"))
-        ids = self.rule_ids()
-        self.client.post(reverse("rule_toggle", args=[ids[0]]))
+    def test_adding_a_rule_persists_its_project_types(self):
         self.client.post(
-            reverse("rule_update", args=[ids[1]]),
+            reverse("rule_add"),
+            data={"text": "Neue Regel", "project_types": ["hochzeit", "konzert"]},
+        )
+        stored = self.client.session[DEMO_RULES_KEY]
+        added = next(r for r in stored if r["text"] == "Neue Regel")
+        self.assertEqual(added["project_types"], ["hochzeit", "konzert"])
+
+    def test_toggle_update_delete_and_reorder_write_nothing_to_the_database(self):
+        id_a = self.add_rule_id("Regel A")
+        id_b = self.add_rule_id("Regel B")
+        id_c = self.add_rule_id("Regel C")
+        self.client.post(reverse("rule_toggle", args=[id_a]))
+        self.client.post(
+            reverse("rule_update", args=[id_b]),
             data=json.dumps({"text": "Geänderte Regel"}),
             content_type="application/json",
         )
-        self.client.post(reverse("rule_delete", args=[ids[2]]))
+        self.client.post(reverse("rule_delete", args=[id_c]))
         self.client.post(
             reverse("rule_reorder"),
-            data=json.dumps({"order": [str(i) for i in reversed(ids[:2])]}),
+            data=json.dumps({"order": [str(id_b), str(id_a)]}),
             content_type="application/json",
         )
         self.assertEqual(PlannerRule.objects.count(), 0)
@@ -4804,36 +4844,97 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
     def test_one_visitor_cannot_change_what_another_one_sees(self):
         other = Client()
         self.client.post(reverse("rule_add"), data={"text": "Nur für mich"})
-        first_id = self.rule_ids()[0]
-        self.client.post(reverse("rule_delete", args=[first_id]))
 
         response = other.get(reverse("rules_list"))
         self.assertNotContains(response, "Nur für mich")
-        for text in INITIAL_RULES:
-            self.assertContains(response, text)
+        self.assertContains(response, "Noch keine Regeln")
 
     def test_a_deactivated_rule_stays_listed_but_leaves_the_prompt(self):
-        self.client.get(reverse("rules_list"))
-        ids = self.rule_ids()
-        response = self.client.post(reverse("rule_toggle", args=[ids[0]]))
+        rule_id = self.add_rule_id("GEMA-Meldung einplanen", ["konzert"])
+        response = self.client.post(reverse("rule_toggle", args=[rule_id]))
         self.assertEqual(response.json()["active"], False)
 
         request = self.request_with_session()
-        self.assertNotIn(INITIAL_RULES[0], get_active_rule_texts(request))
-        self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
-        self.assertContains(self.client.get(reverse("rules_list")), INITIAL_RULES[0])
+        self.assertNotIn(
+            "GEMA-Meldung einplanen", get_active_rule_texts(request, "konzert")
+        )
+        self.assertContains(
+            self.client.get(reverse("rules_list")), "GEMA-Meldung einplanen"
+        )
 
     def test_reordering_reaches_the_prompt_in_the_new_order(self):
-        self.client.get(reverse("rules_list"))
-        ids = self.rule_ids()
-        reordered = [ids[-1]] + ids[:-1]
+        id_a = self.add_rule_id("Regel A")
+        id_b = self.add_rule_id("Regel B")
         self.client.post(
             reverse("rule_reorder"),
-            data=json.dumps({"order": [str(i) for i in reordered]}),
+            data=json.dumps({"order": [str(id_b), str(id_a)]}),
             content_type="application/json",
         )
-        expected = [INITIAL_RULES[-1]] + INITIAL_RULES[:-1]
-        self.assertEqual(get_active_rule_texts(self.request_with_session()), expected)
+        self.assertEqual(
+            get_active_rule_texts(self.request_with_session(), "konzert"),
+            ["Regel B", "Regel A"],
+        )
+
+    def test_rules_are_filtered_by_project_type(self):
+        """#105: a rule tagged with specific project_types only reaches the
+        prompt for those types; a rule with no project_types applies to all
+        of them."""
+        self.add_rule_id("Nur Konzert", ["konzert"])
+        self.add_rule_id("Immer", [])
+        request = self.request_with_session()
+
+        self.assertIn("Nur Konzert", get_active_rule_texts(request, "konzert"))
+        self.assertNotIn("Nur Konzert", get_active_rule_texts(request, "hochzeit"))
+        self.assertIn("Immer", get_active_rule_texts(request, "konzert"))
+        self.assertIn("Immer", get_active_rule_texts(request, "hochzeit"))
+
+    def test_rules_page_only_shows_rules_for_the_current_project_type(self):
+        """A visitor planning a Workshop should not see a Konzert-only rule
+        left over from an earlier tile in the same session (#105)."""
+        self.add_rule_id("Nur Konzert", ["konzert"])
+        self.add_rule_id("Nur Workshop", ["workshop"])
+        self.add_rule_id("Immer", [])
+
+        session = self.client.session
+        session["demo_project_type"] = "workshop"
+        session.save()
+
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, "Nur Konzert")
+        self.assertContains(response, "Nur Workshop")
+        self.assertContains(response, "Immer")
+
+    def test_rules_page_shows_everything_without_a_current_project_type(self):
+        """Reached from outside the planner flow (no tile picked yet), there is
+        nothing to scope by, so every rule stays visible."""
+        self.add_rule_id("Nur Konzert", ["konzert"])
+        self.add_rule_id("Nur Workshop", ["workshop"])
+
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "Nur Konzert")
+        self.assertContains(response, "Nur Workshop")
+
+    def test_updating_a_rules_project_types_is_reflected_in_the_filter(self):
+        rule_id = self.add_rule_id("Nur Konzert", ["konzert"])
+        self.client.post(
+            reverse("rule_update", args=[rule_id]),
+            data=json.dumps({"project_types": []}),
+            content_type="application/json",
+        )
+        request = self.request_with_session()
+        self.assertIn("Nur Konzert", get_active_rule_texts(request, "hochzeit"))
+
+    def test_omitting_project_types_on_update_leaves_it_unchanged(self):
+        rule_id = self.add_rule_id("Nur Konzert", ["konzert"])
+        self.client.post(
+            reverse("rule_update", args=[rule_id]),
+            data=json.dumps({"text": "Neuer Text"}),
+            content_type="application/json",
+        )
+        stored = self.client.session[DEMO_RULES_KEY]
+        updated = next(r for r in stored if r["id"] == rule_id)
+        self.assertEqual(updated["text"], "Neuer Text")
+        self.assertEqual(updated["project_types"], ["konzert"])
 
     def test_toggling_an_unknown_rule_is_a_404(self):
         response = self.client.post(reverse("rule_toggle", args=[9999]))
@@ -4849,7 +4950,7 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         session.save()
         response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, INITIAL_RULES[0])
+        self.assertContains(response, "Noch keine Regeln")
 
     def test_entries_of_the_wrong_shape_re_seed_instead_of_crashing(self):
         session = self.client.session
@@ -4857,7 +4958,17 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         session.save()
         response = self.client.get(reverse("rules_list"))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, INITIAL_RULES[0])
+        self.assertContains(response, "Noch keine Regeln")
+
+    def test_malformed_project_types_re_seeds_instead_of_crashing(self):
+        session = self.client.session
+        session[DEMO_RULES_KEY] = [
+            {"id": 1, "text": "x", "active": True, "project_types": "konzert"}
+        ]
+        session.save()
+        response = self.client.get(reverse("rules_list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Noch keine Regeln")
 
     def test_the_page_explains_the_demo_scope_and_inactive_rules(self):
         response = self.client.get(reverse("rules_list"))
@@ -4871,15 +4982,29 @@ class PlannerRulesDatabaseModeTest(TestCase):
     the session stays empty."""
 
     def setUp(self):
-        for i, text in enumerate(INITIAL_RULES):
-            PlannerRule.objects.create(text=text, active=True, order=i)
+        for i, rule in enumerate(INITIAL_RULES):
+            PlannerRule.objects.create(
+                text=rule["text"],
+                active=True,
+                order=i,
+                project_types=rule["project_types"],
+            )
 
     def test_add_creates_a_rule_in_the_database(self):
         self.client.post(reverse("rule_add"), data={"text": "Neue Regel"})
         rule = PlannerRule.objects.get(text="Neue Regel")
         self.assertTrue(rule.active)
         self.assertEqual(rule.order, len(INITIAL_RULES))
+        self.assertEqual(rule.project_types, [])
         self.assertNotIn(DEMO_RULES_KEY, self.client.session)
+
+    def test_add_persists_project_types_in_the_database(self):
+        self.client.post(
+            reverse("rule_add"),
+            data={"text": "Neue Regel", "project_types": ["hochzeit"]},
+        )
+        rule = PlannerRule.objects.get(text="Neue Regel")
+        self.assertEqual(rule.project_types, ["hochzeit"])
 
     def test_toggle_flips_the_database_row(self):
         rule = PlannerRule.objects.first()
@@ -4897,6 +5022,26 @@ class PlannerRulesDatabaseModeTest(TestCase):
         )
         rule.refresh_from_db()
         self.assertEqual(rule.text, "Geänderte Regel")
+
+    def test_update_persists_project_types(self):
+        rule = PlannerRule.objects.first()  # seeded as ["konzert"]
+        self.client.post(
+            reverse("rule_update", args=[rule.pk]),
+            data=json.dumps({"project_types": ["hochzeit", "recruiting"]}),
+            content_type="application/json",
+        )
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["hochzeit", "recruiting"])
+
+    def test_omitting_project_types_on_update_leaves_it_unchanged(self):
+        rule = PlannerRule.objects.first()  # seeded as ["konzert"]
+        self.client.post(
+            reverse("rule_update", args=[rule.pk]),
+            data=json.dumps({"text": "Nur Text geändert"}),
+            content_type="application/json",
+        )
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["konzert"])
 
     def test_delete_removes_the_database_row(self):
         rule = PlannerRule.objects.first()
@@ -4922,11 +5067,109 @@ class PlannerRulesDatabaseModeTest(TestCase):
         )
 
     def test_the_prompt_gets_the_active_rules_from_the_database(self):
-        PlannerRule.objects.filter(text=INITIAL_RULES[0]).update(active=False)
+        PlannerRule.objects.filter(text=INITIAL_RULES[0]["text"]).update(active=False)
         request = RequestFactory().get("/")
         request.session = self.client.session
-        self.assertEqual(get_active_rule_texts(request), INITIAL_RULES[1:])
+        expected = [
+            r["text"]
+            for r in INITIAL_RULES[1:]
+            if not r["project_types"] or "konzert" in r["project_types"]
+        ]
+        self.assertEqual(get_active_rule_texts(request, "konzert"), expected)
+
+    def test_rules_are_filtered_by_project_type_in_the_database(self):
+        """#105: same filter as the demo session backend."""
+        request = RequestFactory().get("/")
+        request.session = self.client.session
+        konzert_only = INITIAL_RULES[0]["text"]  # tagged ["konzert"]
+        always = INITIAL_RULES[1]["text"]  # tagged []
+
+        self.assertIn(konzert_only, get_active_rule_texts(request, "konzert"))
+        self.assertNotIn(konzert_only, get_active_rule_texts(request, "hochzeit"))
+        self.assertIn(always, get_active_rule_texts(request, "konzert"))
+        self.assertIn(always, get_active_rule_texts(request, "hochzeit"))
 
     def test_the_demo_notice_is_absent(self):
         response = self.client.get(reverse("rules_list"))
         self.assertNotContains(response, "diesem Besuch")
+
+    def test_the_rules_page_is_scoped_to_the_current_project_type(self):
+        """The maintainer only ever plans Konzert-tile events (concerts and,
+        within that same tile, church services) and does not want to manage
+        an event-type distinction she has no use for — so, same as the demo,
+        the page filters to whatever she is currently planning (#105)."""
+        session = self.client.session
+        session["demo_project_type"] = "hochzeit"
+        session.save()
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, INITIAL_RULES[0]["text"])  # konzert-only
+        self.assertContains(response, INITIAL_RULES[1]["text"])  # applies to all
+
+    def test_the_rules_page_shows_everything_without_a_current_project_type(self):
+        """Reached from the dashboard sidebar rather than mid-planning, there
+        is no type to scope by, so the maintainer sees her whole rule set."""
+        response = self.client.get(reverse("rules_list"))
+        for rule in INITIAL_RULES:
+            self.assertContains(response, rule["text"])
+
+
+@override_settings(DEMO_MODE=False)
+class SeedRulesCommandTest(TestCase):
+    def test_seeds_all_initial_rules_with_their_project_types(self):
+        call_command("seed_rules")
+        self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
+        for i, rule in enumerate(INITIAL_RULES):
+            stored = PlannerRule.objects.get(text=rule["text"])
+            self.assertEqual(stored.project_types, rule["project_types"])
+            self.assertEqual(stored.order, i)
+            self.assertTrue(stored.active)
+
+    def test_is_a_no_op_when_rules_already_exist(self):
+        PlannerRule.objects.create(text="Bereits vorhanden", active=True, order=0)
+        call_command("seed_rules")
+        self.assertEqual(PlannerRule.objects.count(), 1)
+
+
+@override_settings(DEMO_MODE=False)
+class BackfillPlannerRuleProjectTypesMigrationTest(TestCase):
+    """#105 review follow-up: rows a pre-#105 seed_rules run created sit at
+    project_types' field default ([]) once the migration adds the column.
+    Migration 0007 backfills the scoping those rows are missing by matching
+    on rule text."""
+
+    def setUp(self):
+        from django.apps import apps
+
+        self.backfill = importlib.import_module(
+            "projects.migrations.0007_backfill_planner_rule_project_types"
+        ).backfill_project_types
+        self.apps = apps
+
+    def test_backfills_a_known_rule_still_at_the_default(self):
+        rule = PlannerRule.objects.create(
+            text="Vorverkauf nur bei größeren Konzerten relevant",
+            active=True,
+            order=0,
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["konzert"])
+
+    def test_leaves_a_manually_assigned_row_untouched(self):
+        rule = PlannerRule.objects.create(
+            text="Vorverkauf nur bei größeren Konzerten relevant",
+            active=True,
+            order=0,
+            project_types=["hochzeit"],
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["hochzeit"])
+
+    def test_leaves_a_custom_rule_untouched(self):
+        rule = PlannerRule.objects.create(
+            text="Eigene Regel der Maintainerin", active=True, order=0
+        )
+        self.backfill(self.apps, None)
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, [])
