@@ -211,6 +211,15 @@ def planner_start(request):
     if request.method == "POST":
         description = request.POST.get("description", "").strip()
         if description:
+            if request.session.get("planner_description") != description:
+                # A changed description invalidates whatever an earlier
+                # round already produced downstream — same reasoning as
+                # _clear_planner_draft() on a tile-grid visit, applied here
+                # so it can't outlive the description it was drafted for
+                # (#124). description/questions_html get overwritten below
+                # regardless, so only the two draft-specific keys matter.
+                request.session.pop("planner_answers", None)
+                request.session.pop("planner_review_state", None)
             history = _get_history()
             rules = rules_store.get_active_rule_texts(request)
             try:

@@ -1696,6 +1696,41 @@ class PlannerFreshStartClearsStaleDraftTest(DemoModeTestCase):
         self.assertContains(response, "></textarea>")
 
 
+class PlannerDescriptionChangeClearsStaleDownstreamTest(DemoModeTestCase):
+    """#124: editing the description on step 2 must invalidate whatever an
+    earlier round already produced downstream (answers, review state) — the
+    same "this boundary starts a new draft" reasoning
+    PlannerFreshStartClearsStaleDraftTest already covers for a tile-grid
+    visit, now applied to the description edit itself."""
+
+    def _reach_review_with(self, description, answers):
+        self.client.get(reverse("planner_start") + "?type=eigenes")
+        self.client.post(reverse("planner_start"), data={"description": description})
+        self.client.post(
+            reverse("planner_review"),
+            data={"description": description, "answers": answers},
+        )
+
+    def test_editing_the_description_drops_the_stale_answers(self):
+        self._reach_review_with("Konzert A", "Antwort A")
+        self.client.post(reverse("planner_start"), data={"description": "Konzert B"})
+        response = self.client.get(reverse("planner_questions"))
+        self.assertContains(response, "Konzert B")
+        self.assertNotContains(response, "Antwort A")
+
+    def test_editing_the_description_drops_the_stale_review_state(self):
+        self._reach_review_with("Konzert A", "Antwort A")
+        self.client.post(reverse("planner_start"), data={"description": "Konzert B"})
+        response = self.client.get(reverse("planner_review"))
+        self.assertRedirects(response, reverse("planner_start"))
+
+    def test_resubmitting_the_same_description_keeps_the_answers(self):
+        self._reach_review_with("Konzert A", "Antwort A")
+        self.client.post(reverse("planner_start"), data={"description": "Konzert A"})
+        response = self.client.get(reverse("planner_questions"))
+        self.assertContains(response, "Antwort A")
+
+
 class PlannerTileLinksTest(DemoModeTestCase):
     """#5 / #72: the tile links used to carry a raw-text prefill query
     parameter ("?prefill=Konzert am [Datum], ..."), unencoded and written
