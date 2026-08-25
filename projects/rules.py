@@ -62,14 +62,19 @@ def _seed():
     return []
 
 
+def _valid_project_types(project_types):
+    return isinstance(project_types, list) and all(
+        isinstance(t, str) for t in project_types
+    )
+
+
 def _is_valid(rules):
     return isinstance(rules, list) and all(
         isinstance(r, dict)
         and isinstance(r.get("id"), int)
         and isinstance(r.get("text"), str)
         and isinstance(r.get("active"), bool)
-        and isinstance(r.get("project_types"), list)
-        and all(isinstance(t, str) for t in r["project_types"])
+        and _valid_project_types(r.get("project_types"))
         for r in rules
     )
 
@@ -151,7 +156,8 @@ def get_active_rule_texts(request, project_type):
 
 
 def add_rule(request, text, project_types=None):
-    project_types = project_types or []
+    if not _valid_project_types(project_types):
+        project_types = []
     if settings.DEMO_MODE:
         rules = _session_rules(request)
         next_id = max((r["id"] for r in rules), default=0) + 1
@@ -195,8 +201,11 @@ def toggle_rule(request, rule_id):
 
 def update_rule(request, rule_id, text, project_types=None):
     """Returns False if there is no such rule. An empty text is ignored.
-    project_types=None means "not sent" and leaves the existing assignment
-    untouched."""
+    project_types=None, or a malformed value (not a list of strings), leaves
+    the existing assignment untouched rather than corrupting the stored rule
+    — the demo backend has no other point to self-heal from, and production's
+    JSONField doesn't validate its contents on save."""
+    has_project_types = _valid_project_types(project_types)
     if settings.DEMO_MODE:
         rules = _session_rules(request)
         rule = _find(rules, rule_id)
@@ -206,7 +215,7 @@ def update_rule(request, rule_id, text, project_types=None):
         if text:
             rule["text"] = text
             changed = True
-        if project_types is not None:
+        if has_project_types:
             rule["project_types"] = project_types
             changed = True
         if changed:
@@ -219,7 +228,7 @@ def update_rule(request, rule_id, text, project_types=None):
     if text:
         rule.text = text
         changed = True
-    if project_types is not None:
+    if has_project_types:
         rule.project_types = project_types
         changed = True
     if changed:

@@ -49,7 +49,7 @@ from .notion import (
 )
 from .planner import generate_plan, get_clarifying_questions
 from .planner_views import _get_history, _parse_event_date
-from .rules import DEMO_RULES_KEY, INITIAL_RULES, get_active_rule_texts
+from .rules import DEMO_RULES_KEY, INITIAL_RULES, add_rule, get_active_rule_texts
 from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
     CACHE_KEY,
@@ -4823,6 +4823,13 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         added = next(r for r in stored if r["text"] == "Neue Regel")
         self.assertEqual(added["project_types"], ["hochzeit", "konzert"])
 
+    def test_add_rejects_malformed_project_types(self):
+        request = self.request_with_session()
+        add_rule(request, "Direkt aufgerufen", project_types="konzert")
+        stored = request.session[DEMO_RULES_KEY]
+        added = next(r for r in stored if r["text"] == "Direkt aufgerufen")
+        self.assertEqual(added["project_types"], [])
+
     def test_toggle_update_delete_and_reorder_write_nothing_to_the_database(self):
         id_a = self.add_rule_id("Regel A")
         id_b = self.add_rule_id("Regel B")
@@ -4936,6 +4943,21 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         self.assertEqual(updated["text"], "Neuer Text")
         self.assertEqual(updated["project_types"], ["konzert"])
 
+    def test_malformed_project_types_on_update_leaves_it_unchanged(self):
+        """A crafted request straight to the JSON endpoint (the UI never sends
+        a non-list) must not be able to write a value into the session that
+        would later force a re-seed — same intent as _is_valid()'s self-healing
+        on read, applied at the point the bad value would otherwise land."""
+        rule_id = self.add_rule_id("Nur Konzert", ["konzert"])
+        self.client.post(
+            reverse("rule_update", args=[rule_id]),
+            data=json.dumps({"project_types": "konzert"}),
+            content_type="application/json",
+        )
+        stored = self.client.session[DEMO_RULES_KEY]
+        updated = next(r for r in stored if r["id"] == rule_id)
+        self.assertEqual(updated["project_types"], ["konzert"])
+
     def test_toggling_an_unknown_rule_is_a_404(self):
         response = self.client.post(reverse("rule_toggle", args=[9999]))
         self.assertEqual(response.status_code, 404)
@@ -5006,6 +5028,17 @@ class PlannerRulesDatabaseModeTest(TestCase):
         rule = PlannerRule.objects.get(text="Neue Regel")
         self.assertEqual(rule.project_types, ["hochzeit"])
 
+    def test_add_rejects_malformed_project_types(self):
+        """add_rule's only caller (the view) always sends a list via
+        request.POST.getlist(), but the function itself should not rely on
+        that — same guard as update_rule, applied on the way in instead of
+        on the way out."""
+        request = RequestFactory().get("/")
+        request.session = self.client.session
+        add_rule(request, "Direkt aufgerufen", project_types="konzert")
+        rule = PlannerRule.objects.get(text="Direkt aufgerufen")
+        self.assertEqual(rule.project_types, [])
+
     def test_toggle_flips_the_database_row(self):
         rule = PlannerRule.objects.first()
         response = self.client.post(reverse("rule_toggle", args=[rule.pk]))
@@ -5038,6 +5071,21 @@ class PlannerRulesDatabaseModeTest(TestCase):
         self.client.post(
             reverse("rule_update", args=[rule.pk]),
             data=json.dumps({"text": "Nur Text geändert"}),
+            content_type="application/json",
+        )
+        rule.refresh_from_db()
+        self.assertEqual(rule.project_types, ["konzert"])
+
+    def test_malformed_project_types_on_update_leaves_it_unchanged(self):
+        """The DB backend has no read-time self-healing like the session's
+        _is_valid() — an int would make _applies() raise, a string would
+        silently turn its membership check into a substring check. Rejecting
+        the bad value here, before it reaches the JSONField, is the only
+        guard this backend gets."""
+        rule = PlannerRule.objects.first()  # seeded as ["konzert"]
+        self.client.post(
+            reverse("rule_update", args=[rule.pk]),
+            data=json.dumps({"project_types": "konzert"}),
             content_type="application/json",
         )
         rule.refresh_from_db()
