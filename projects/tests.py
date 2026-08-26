@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 import anthropic
 import httpx
-import markdown
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
@@ -30,11 +29,13 @@ from notion_client.errors import HTTPResponseError, RequestTimeoutError
 
 from .ai import (
     AIUnavailableError,
+    _number_projects_and_tasks,
     _valid_moments,
     build_prompt,
     generate_timelapse_moments,
     generate_weekly_summary,
     log_claude_call,
+    resolve_weekly_summary,
 )
 from .models import DemoEvent, PlannerRule
 from .notion import (
@@ -57,14 +58,19 @@ from .views import (
     STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
-    _fix_ai_markdown,
     _format_date,
 )
 
 # The view modules import the AI functions with `from .ai import ...`, so the
 # name to patch is the one bound in the view module, not the one in projects.ai.
 AI_STUBS = {
-    "projects.views.generate_weekly_summary": "**Test summary**",
+    # generate_weekly_summary returns the raw reference dict since #122 —
+    # the stub has to match that shape, not the markdown string Claude used
+    # to hand back (same evolution as the generate_plan stub below).
+    "projects.views.generate_weekly_summary": {
+        "jetzt_faellig": [],
+        "naechste_woche": [],
+    },
     "projects.planner_views.get_clarifying_questions": "**Wie viele Mitwirkende?**",
     # generate_plan now parses its own response and returns a dict (see #29 /
     # GeneratePlanRetryTest) — this stub has to match that shape, not the raw
@@ -75,6 +81,17 @@ AI_STUBS = {
     },
     "projects.planner_views.generate_timelapse_moments": [],
 }
+
+
+def _summary_data(marker="Zusammenfassung läuft"):
+    """A minimal raw reference dict (#122) whose assessment carries a
+    recognisable marker; project_ref 1 resolves against whatever project the
+    test's get_upcoming_projects stub returns first (and the block is simply
+    dropped when there is none)."""
+    return {
+        "jetzt_faellig": [{"project_ref": 1, "assessment": marker, "task_refs": []}],
+        "naechste_woche": [],
+    }
 
 
 @override_settings(DEMO_MODE=True)
@@ -792,7 +809,9 @@ class ProjectDateBadgeTest(DemoModeTestCase):
         project = _fake_upcoming_project_with_task()
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
-            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'class="project-date"')
@@ -1123,7 +1142,9 @@ class ProductionSidebarIconSlotWidthTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project_with_task()],
             ),
-            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(
@@ -3092,9 +3113,10 @@ class MultiViewSummaryCacheTest(DemoModeTestCase):
 
     def test_the_second_visit_still_renders_the_summary(self):
         """ "Called once" must not be bought with a blank AI card."""
+        self.summary_mock.return_value = _summary_data("Alles im Plan")
         self.client.get(reverse("dashboard") + "?mode=multi")
         second = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(second, "Test summary")
+        self.assertContains(second, "Alles im Plan")
 
     def test_the_summary_is_cached_under_the_current_key(self):
         """Without this, a key bump would leave the tests above vacuously green."""
@@ -3108,8 +3130,9 @@ class MultiViewSummaryCacheTest(DemoModeTestCase):
         first = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(first, "nicht verfügbar")
         self.summary_mock.side_effect = None
+        self.summary_mock.return_value = _summary_data("Alles im Plan")
         second = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(second, "Test summary")
+        self.assertContains(second, "Alles im Plan")
 
     def test_the_single_plan_view_does_not_use_the_multi_cache(self):
         """The visitor's own plan is per-session data and stays in the session."""
@@ -3187,7 +3210,9 @@ class ProductionKontextBadgeTest(TestCase):
         project["tasks"][0]["kontext"] = ["Büro"]
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
-            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'class="task-kontext">Büro<')
@@ -3207,7 +3232,9 @@ class ProductionRulesSidebarLinkTest(TestCase):
     def test_dashboard_links_to_the_rules_page(self):
         with (
             patch("projects.views.get_upcoming_projects", return_value=[]),
-            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, f'href="{reverse("rules_list")}"')
@@ -3260,7 +3287,9 @@ class ProductionDateUncertainBadgeTest(TestCase):
         project["event_date_uncertain"] = True
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
-            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'class="date-uncertain-badge"')
@@ -3541,95 +3570,6 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(project["ring_dashoffset"], "43.98")
 
 
-class FixAiMarkdownTest(SimpleTestCase):
-    """Claude returns task lines under a project bullet without list markers."""
-
-    def test_continuation_lines_become_sub_bullets(self):
-        result = _fix_ai_markdown("- **Konzert**\nPlakate aushängen")
-        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
-
-    def test_blank_lines_inside_a_block_are_dropped(self):
-        result = _fix_ai_markdown("- **Konzert**\n\nPlakate aushängen")
-        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
-
-    def test_existing_list_markers_are_left_alone(self):
-        result = _fix_ai_markdown("- **Konzert**\n- Plakate aushängen")
-        self.assertEqual(result, "- **Konzert**\n- Plakate aushängen")
-
-    def test_horizontal_rule_ends_the_block(self):
-        """A boundary glued to the last task line would be lazily continued
-        into the list by Markdown — a blank line is restored before it."""
-        result = _fix_ai_markdown("- **Konzert**\n---\nFreier Text")
-        self.assertEqual(result, "- **Konzert**\n\n---\nFreier Text")
-
-    def test_bold_line_ends_the_block(self):
-        result = _fix_ai_markdown("- **Konzert**\n**Hinweis**\nFreier Text")
-        self.assertEqual(result, "- **Konzert**\n\n**Hinweis**\nFreier Text")
-
-    def test_text_outside_a_block_is_untouched(self):
-        self.assertEqual(_fix_ai_markdown("Nur ein Satz."), "Nur ein Satz.")
-
-    def test_section_header_keeps_its_blank_line(self):
-        """A '##' header after a project block used to lose the blank line that
-        makes it a header, so Markdown rendered it as list content and the
-        summary showed an unexplained gap. See #20.
-        """
-        text = "- **Konzert**\n\n## Jetzt fällig\n\nPlakate aushängen"
-        self.assertEqual(_fix_ai_markdown(text), text)
-
-    def test_section_header_ends_the_block(self):
-        """'#' must reset in_project — text after the header is not a sub-task."""
-        result = _fix_ai_markdown(
-            "- **Konzert**\nPlakate aushängen\n## Nächste Woche\nFreier Text"
-        )
-        self.assertEqual(
-            result,
-            "- **Konzert**\n    - Plakate aushängen\n\n## Nächste Woche\nFreier Text",
-        )
-
-    def test_shallow_sub_task_indent_is_deepened_to_nest(self):
-        """python-markdown nests a sub-list at four spaces of indent; the two
-        the model tends to emit leave every sub-task a flat sibling li."""
-        result = _fix_ai_markdown("- **Konzert**\n  - Plakate aushängen")
-        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
-
-    def test_four_space_indent_is_left_alone(self):
-        result = _fix_ai_markdown("- **Konzert**\n    - Plakate aushängen")
-        self.assertEqual(result, "- **Konzert**\n    - Plakate aushängen")
-
-    def test_shallow_indent_outside_a_block_is_untouched(self):
-        self.assertEqual(_fix_ai_markdown("  - Notiz"), "  - Notiz")
-
-    def test_new_format_reply_renders_headers_and_nested_lists(self):
-        """The whole pipeline: a reply in the ## format (see build_prompt)
-        through markdown() ends up with real h2 headers and nested sub-task
-        lists — not a <p><strong> next to an invisible <hr>. See #20."""
-        # Suppressed rather than turned into the f-string the rule wants: this
-        # fixture is Markdown, and one line per line is what keeps it readable.
-        reply = "\n".join(  # noqa: FLY002
-            [
-                "## Jetzt fällig",
-                "",
-                "- **Sommerkonzert, 5. Aug** — Plakate müssen heute raus:",
-                "  - Plakate aushängen",
-                "  - GEMA-Meldung",
-                "",
-                "## Nächste Woche",
-                "",
-                "- **Herbstkonzert** — noch gut im Zeitplan:",
-                "  - Programm festlegen",
-            ]
-        )
-        html = markdown.markdown(_fix_ai_markdown(reply))
-        self.assertIn("<h2>Jetzt fällig</h2>", html)
-        self.assertIn("<h2>Nächste Woche</h2>", html)
-        self.assertNotIn("<hr", html)
-        self.assertNotIn("<p><strong>", html)
-        # Two blocks, each an outer project list with a nested sub-task list.
-        self.assertEqual(html.count("<ul>"), 4)
-        self.assertIn("<li>Plakate aushängen</li>", html)
-
-
 # --- #29: fail at startup, not at first request ---
 
 
@@ -3812,24 +3752,435 @@ class TimelapseMomentsLoggingTest(SimpleTestCase):
         self.assertIn("outcome=success", record)
 
 
+def _fake_stream(text, input_tokens=100, output_tokens=50):
+    stream = MagicMock()
+    stream.__enter__.return_value = stream
+    stream.get_final_text.return_value = text
+    stream.get_final_message.return_value = _fake_response(
+        text, input_tokens=input_tokens, output_tokens=output_tokens
+    )
+    return stream
+
+
+VALID_SUMMARY_JSON = '{"jetzt_faellig": [], "naechste_woche": []}'
+
+
 class WeeklySummaryLoggingTest(SimpleTestCase):
     def test_logs_usage_on_success(self):
-        fake_stream = MagicMock()
-        fake_stream.__enter__.return_value = fake_stream
-        fake_stream.get_final_text.return_value = "Zusammenfassung"
-        fake_stream.get_final_message.return_value = _fake_response(
-            "Zusammenfassung", input_tokens=200, output_tokens=80
-        )
         with patch("anthropic.Anthropic") as MockAnthropic:
-            MockAnthropic.return_value.messages.stream.return_value = fake_stream
+            MockAnthropic.return_value.messages.stream.return_value = _fake_stream(
+                VALID_SUMMARY_JSON, input_tokens=200, output_tokens=80
+            )
             with self.assertLogs("projects.ai", level="INFO") as cm:
-                text = generate_weekly_summary([], date.today())
-        self.assertEqual(text, "Zusammenfassung")
+                data = generate_weekly_summary([], date.today())
+        self.assertEqual(data, {"jetzt_faellig": [], "naechste_woche": []})
         [record] = cm.output
         self.assertIn("call=generate_weekly_summary", record)
         self.assertIn("input_tokens=200", record)
         self.assertIn("output_tokens=80", record)
         self.assertIn("outcome=success", record)
+
+
+def _summary_projects(today=None):
+    """Two projects, four tasks; the second task is already done. The
+    numbering the prompt and the resolver share counts every task, done ones
+    included: 1=Programm, 2=Ensemble (done), 3=Plakate, 4=Technik."""
+    today = today or date(2026, 9, 1)
+    return [
+        {
+            "id": "p-alpha",
+            "name": "Konzert Alpha",
+            "event_date": today + timedelta(days=5),
+            "performers": "",
+            "tasks": [
+                {
+                    "id": "t-programm",
+                    "name": "Programm festlegen",
+                    "due": today + timedelta(days=1),
+                    "done": False,
+                    "kontext": [],
+                    "urgency": "urgent",
+                },
+                {
+                    "id": "t-ensemble",
+                    "name": "Ensemble anfragen",
+                    "due": today - timedelta(days=10),
+                    "done": True,
+                    "kontext": [],
+                    "urgency": "done",
+                },
+            ],
+        },
+        {
+            "id": "p-beta",
+            "name": "Konzert Beta",
+            "event_date": today + timedelta(days=30),
+            "performers": "",
+            "tasks": [
+                {
+                    "id": "t-plakate",
+                    "name": "Plakate drucken",
+                    "due": today + timedelta(days=10),
+                    "done": False,
+                    "kontext": [],
+                    "urgency": "ok",
+                },
+                {
+                    "id": "t-technik",
+                    "name": "Technik prüfen",
+                    "due": today + timedelta(days=12),
+                    "done": False,
+                    "kontext": [],
+                    "urgency": "ok",
+                },
+            ],
+        },
+    ]
+
+
+class NumberingAndPromptTest(SimpleTestCase):
+    """#122: build_prompt and resolve_weekly_summary share one numbering,
+    produced by _number_projects_and_tasks. Every task occupies a number,
+    done ones included — numbering only open tasks would shift every later
+    ref the moment a task is toggled between cache-write and render."""
+
+    def test_numbering_counts_every_task_across_projects(self):
+        numbered_projects, numbered_tasks = _number_projects_and_tasks(
+            _summary_projects()
+        )
+        self.assertEqual([p["id"] for p in numbered_projects], ["p-alpha", "p-beta"])
+        self.assertEqual(
+            [t["id"] for t in numbered_tasks],
+            ["t-programm", "t-ensemble", "t-plakate", "t-technik"],
+        )
+
+    def test_a_project_without_event_date_is_skipped_like_in_the_prompt(self):
+        projects = _summary_projects()
+        projects[0]["event_date"] = None
+        numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
+        self.assertEqual([p["id"] for p in numbered_projects], ["p-beta"])
+        self.assertEqual([t["id"] for t in numbered_tasks], ["t-plakate", "t-technik"])
+
+    def test_prompt_numbers_open_tasks_with_their_global_position(self):
+        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
+        self.assertIn("[1] Programm festlegen", prompt)
+        # Position 2 belongs to the done task, which is never listed — the
+        # gap is deliberate, it keeps the numbering stable across toggles.
+        self.assertIn("[3] Plakate drucken", prompt)
+        self.assertIn("[4] Technik prüfen", prompt)
+
+    def test_done_tasks_are_not_listed_in_the_prompt(self):
+        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
+        self.assertNotIn("Ensemble anfragen", prompt)
+
+    def test_multi_mode_states_each_projects_ref(self):
+        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
+        self.assertIn("Projekt-Nr.: 1", prompt)
+        self.assertIn("Projekt-Nr.: 2", prompt)
+        self.assertIn('"project_ref"', prompt)
+
+    def test_single_project_demo_mode_has_no_project_refs(self):
+        prompt = build_prompt(
+            _summary_projects()[:1], date(2026, 9, 1), single_project_demo=True
+        )
+        self.assertNotIn("Projekt-Nr.", prompt)
+        self.assertNotIn('"project_ref"', prompt)
+        self.assertIn('"heading"', prompt)
+
+    def test_prompt_asks_for_json_only(self):
+        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
+        self.assertIn("NUR mit JSON", prompt)
+        self.assertIn('"jetzt_faellig"', prompt)
+        self.assertIn('"naechste_woche"', prompt)
+
+
+class ResolveWeeklySummaryTest(SimpleTestCase):
+    """#122: resolve_weekly_summary turns Claude's raw reference dict into
+    render-ready sections against *live* projects — the raw dict is what
+    every cache layer stores, so done-state must come from projects at
+    render time, never from the cached artifact."""
+
+    def resolve(self, data, projects=None, **kwargs):
+        return resolve_weekly_summary(
+            data, projects if projects is not None else _summary_projects(), **kwargs
+        )
+
+    def test_valid_refs_resolve_to_projects_and_tasks(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {
+                        "project_ref": 1,
+                        "assessment": "Programm ist der Engpass",
+                        "task_refs": [1],
+                    }
+                ],
+                "naechste_woche": [
+                    {
+                        "project_ref": 2,
+                        "assessment": "noch gut im Zeitplan",
+                        "task_refs": [3, 4],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(sections[0]["title"], "Jetzt fällig")
+        self.assertEqual(sections[1]["title"], "Nächste Woche")
+        [block] = sections[0]["blocks"]
+        self.assertEqual(block["project_id"], "p-alpha")
+        self.assertEqual(block["project_name"], "Konzert Alpha")
+        self.assertEqual(block["assessment"], "Programm ist der Engpass")
+        self.assertEqual([t["id"] for t in block["tasks"]], ["t-programm"])
+        [block2] = sections[1]["blocks"]
+        self.assertEqual([t["id"] for t in block2["tasks"]], ["t-plakate", "t-technik"])
+
+    def test_an_invalid_task_ref_is_dropped_and_the_rest_survive(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [1, 99, 3]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [block] = sections[0]["blocks"]
+        self.assertEqual([t["id"] for t in block["tasks"]], ["t-programm", "t-plakate"])
+
+    def test_an_invalid_project_ref_drops_the_whole_block(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 99, "assessment": "x", "task_refs": [1]},
+                    {"project_ref": 2, "assessment": "y", "task_refs": []},
+                ],
+                "naechste_woche": [],
+            }
+        )
+        self.assertEqual(len(sections[0]["blocks"]), 1)
+        self.assertEqual(sections[0]["blocks"][0]["project_id"], "p-beta")
+
+    def test_a_bool_ref_does_not_resolve_as_an_integer(self):
+        # True is an int subclass — without the explicit check it would
+        # resolve as ref 1 and silently attach the wrong task.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [True]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        self.assertEqual(sections[0]["blocks"][0]["tasks"], [])
+
+    def test_single_project_demo_uses_the_free_text_heading(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"heading": "Jetzt kritisch", "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            },
+            single_project_demo=True,
+        )
+        [block] = sections[0]["blocks"]
+        self.assertEqual(block["heading"], "Jetzt kritisch")
+        self.assertNotIn("project_id", block)
+
+    def test_single_project_demo_drops_a_block_without_heading(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [{"assessment": "x", "task_refs": [1]}],
+                "naechste_woche": [],
+            },
+            single_project_demo=True,
+        )
+        self.assertEqual(sections[0]["blocks"], [])
+
+    def test_a_done_task_resolves_as_done_regardless_of_the_cached_refs(self):
+        # The core regression case: the raw dict was cached while the task
+        # was open; by render time it is done in projects — the checkbox
+        # must render done.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [2]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertEqual(task["id"], "t-ensemble")
+        self.assertTrue(task["done"])
+
+    def test_garbage_blocks_and_missing_keys_are_tolerated(self):
+        sections = self.resolve(
+            {
+                "jetzt_faellig": ["kein dict", 42, {"project_ref": 1}],
+                "naechste_woche": "gar keine Liste",
+            }
+        )
+        [block] = sections[0]["blocks"]
+        self.assertEqual(block["assessment"], "")
+        self.assertEqual(block["tasks"], [])
+        self.assertEqual(sections[1]["blocks"], [])
+
+
+class GenerateWeeklySummaryRetryTest(SimpleTestCase):
+    """#122: generate_weekly_summary parses Claude's response as JSON with
+    the same retry contract as generate_plan (GeneratePlanRetryTest): one
+    re-ask on unparseable or wrong-shape JSON, AIUnavailableError after the
+    second bad response, SDK failures never spent as a JSON retry."""
+
+    def generate(self):
+        return generate_weekly_summary(_summary_projects(), date(2026, 9, 1))
+
+    def test_returns_parsed_dict_on_first_valid_response(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.return_value = _fake_stream(VALID_SUMMARY_JSON)
+            data = self.generate()
+        self.assertEqual(data, {"jetzt_faellig": [], "naechste_woche": []})
+        self.assertEqual(stream.call_count, 1)
+
+    def test_retries_once_on_invalid_json_then_succeeds(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream("kein json"),
+                _fake_stream(VALID_SUMMARY_JSON),
+            ]
+            data = self.generate()
+        self.assertEqual(data, {"jetzt_faellig": [], "naechste_woche": []})
+        self.assertEqual(stream.call_count, 2)
+
+    def test_raises_ai_unavailable_after_a_second_invalid_response(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream("kein json"),
+                _fake_stream("immer noch kein json"),
+            ]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 2)
+
+    def test_valid_json_in_the_wrong_shape_is_retried(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream('["nur", "eine", "liste"]'),
+                _fake_stream('{"jetzt_faellig": []}'),
+            ]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 2)
+
+    def test_an_sdk_failure_is_not_retried_as_a_json_error(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 1)
+
+    def test_fenced_response_is_still_parsed(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.return_value = _fake_stream(f"```json\n{VALID_SUMMARY_JSON}\n```")
+            data = self.generate()
+        self.assertEqual(data, {"jetzt_faellig": [], "naechste_woche": []})
+
+
+class AiSummaryCheckboxViewTest(DemoModeTestCase):
+    """#122 end to end: the rendered summary carries real inline checkboxes
+    wired to the existing toggle endpoints, and their done state is read
+    from live data at render time, not from the cached Claude response."""
+
+    def summary_stub(self):
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
+
+    def single_project_summary(self, task_refs):
+        return {
+            "jetzt_faellig": [
+                {
+                    "heading": "Jetzt kritisch",
+                    "assessment": "Programm zuerst",
+                    "task_refs": task_refs,
+                }
+            ],
+            "naechste_woche": [],
+        }
+
+    def test_dashboard_summary_renders_a_checkbox_for_a_referenced_task(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary([1])
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Jetzt kritisch")
+        self.assertContains(response, "Programm zuerst")
+        # Once in the AI card, once in the project section's task list —
+        # both are the same .toggle-form markup on the same endpoint.
+        self.assertContains(
+            response,
+            'class="toggle-form" data-task-id="demo-session-0"',
+            count=2,
+        )
+
+    def test_dashboard_checkbox_state_follows_a_toggle_not_the_cache(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary([1])
+        self.client.get(reverse("dashboard"))  # caches the raw refs in the session
+        self.client.post(
+            reverse("toggle_task", args=["demo-session-0"]),
+            json.dumps({"done": True}),
+            content_type="application/json",
+        )
+        response = self.client.get(reverse("dashboard"))
+        # The cached refs were written while the task was open; the rendered
+        # checkbox must still show the live done state — in the AI card and
+        # the task list alike.
+        self.assertContains(
+            response,
+            'data-task-id="demo-session-0" data-done="true"',
+            count=2,
+        )
+        self.summary_stub().assert_called_once()
+
+    def test_an_unresolvable_ref_does_not_break_the_page(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary([99])
+        response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Jetzt kritisch")
+
+    def test_multi_project_summary_links_the_project_by_id(self):
+        # Demo multi mode (no session plan): headings come from project_ref,
+        # resolved server-side — no PROJECT_MAP substring matching anywhere.
+        self.summary_stub().return_value = {
+            "jetzt_faellig": [
+                {"project_ref": 1, "assessment": "läuft", "task_refs": []}
+            ],
+            "naechste_woche": [],
+        }
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "showProject('demo-1')")
+        self.assertContains(response, 'class="ai-project-link"')
+        self.assertNotContains(response, "PROJECT_MAP")
+
+    def test_my_plan_summary_renders_the_same_live_checkbox(self):
+        plan = self.given_session_plan()
+        plan["tasks"][0]["done"] = True
+        session = self.client.session
+        session["demo_plan"] = plan
+        # Raw refs cached while the task was still open — done must come
+        # from the live session plan.
+        session[f"{SUMMARY_KEY}_today"] = self.single_project_summary([1])
+        session.save()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "Jetzt kritisch")
+        # The summary checkbox renders the live done state (the task list
+        # row formats its attributes across lines, so this single-line
+        # pattern matches the summary markup).
+        self.assertContains(response, 'data-task-id="demo-session-0" data-done="true"')
 
 
 class GeneratePlanRetryTest(SimpleTestCase):
@@ -4263,7 +4614,7 @@ class DashboardNotionFailureTest(TestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Sommerkonzert**",
+                return_value=_summary_data(),
             ),
         ):
             first = self.client.get(reverse("dashboard"))
@@ -4290,7 +4641,7 @@ class DashboardNotionFailureTest(TestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Sommerkonzert**",
+                return_value=_summary_data(),
             ),
         ):
             response = self.client.get(reverse("dashboard"))
@@ -4314,7 +4665,7 @@ class SidebarProgressRingZeroTasksTest(TestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Sommerkonzert**",
+                return_value=_summary_data(),
             ),
         ):
             response = self.client.get(reverse("dashboard"))
@@ -4354,7 +4705,8 @@ class DashboardAiFailureCacheTest(TestCase):
                 return_value=[_fake_upcoming_project()],
             ),
             patch(
-                "projects.views.generate_weekly_summary", return_value="**Wieder da**"
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data("Wieder da"),
             ),
         ):
             second = self.client.get(reverse("dashboard"))
@@ -4368,7 +4720,7 @@ class DashboardAiFailureCacheTest(TestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Letzte gute Übersicht**",
+                return_value=_summary_data("Letzte gute Übersicht"),
             ),
         ):
             self.client.get(reverse("dashboard"))
@@ -4681,7 +5033,7 @@ class DashboardSyncButtonLabelTest(TestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Sommerkonzert**",
+                return_value=_summary_data(),
             ),
         ):
             response = self.client.get(reverse("dashboard"))
@@ -4943,7 +5295,7 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
             ),
             patch(
                 "projects.views.generate_weekly_summary",
-                return_value="**Sommerkonzert**",
+                return_value=_summary_data(),
             ),
         ):
             response = self.client.get(reverse("dashboard"))

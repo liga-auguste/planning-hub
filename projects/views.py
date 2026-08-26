@@ -5,14 +5,13 @@ import math
 import re
 from datetime import date
 
-import markdown
 from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .ai import AIUnavailableError, generate_weekly_summary
+from .ai import AIUnavailableError, generate_weekly_summary, resolve_weekly_summary
 from .demo_data import get_demo_projects
 from .models import DemoEvent
 from .notion import (
@@ -68,15 +67,16 @@ def _format_date(d):
     return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
 
 
-# Both cache keys and SUMMARY_KEY store rendered summary HTML, so they carry a
-# version that is bumped on every format change (#20: v2/v4) — otherwise
-# old-shape HTML from before a deploy renders unstyled under the new CSS.
-CACHE_KEY = "dashboard_data_v2"
+# Both cache keys and SUMMARY_KEY store the summary's raw reference dict
+# (#122), so they carry a version that is bumped on every format change
+# (#20: v2/v4; #122: v3/v5) — otherwise a pre-deploy entry in the old shape
+# would crash or misrender under the new resolver.
+CACHE_KEY = "dashboard_data_v3"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v2"
+STALE_CACHE_KEY = "dashboard_data_stale_v3"
 
 
 def _bust_dashboard_cache():
@@ -88,14 +88,14 @@ def _bust_dashboard_cache():
 
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
-SUMMARY_KEY = "demo_plan_summary_v4"
+SUMMARY_KEY = "demo_plan_summary_v5"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v1"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v2"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the
@@ -138,49 +138,16 @@ def _annotate_tasks(projects, today):
     return projects
 
 
-# A sub-task bullet the model indented too shallowly: python-markdown only
-# nests a list at four spaces, anything less renders as a flat sibling li.
-_SHALLOW_BULLET = re.compile(r"^ {1,3}- ")
-
-
-def _fix_ai_markdown(text: str) -> str:
-    lines = text.split("\n")
-    result = []
-    in_project = False
-    for line in lines:
-        if line.startswith("- **"):
-            in_project = True
-            result.append(line)
-        elif line.startswith(("---", "**", "#")):
-            # The blank line before a boundary is what makes the next block a
-            # block — the blank-skipping below would otherwise glue it to the
-            # last task line, and Markdown lazily continues the list over it
-            # (the vanished section header of #20).
-            if in_project:
-                result.append("")
-                in_project = False
-            result.append(line)
-        elif in_project and not line.strip():
-            pass  # skip blank lines inside a project block
-        elif in_project and _SHALLOW_BULLET.match(line):
-            result.append(f"    {line.strip()}")
-        elif in_project and not line.strip().startswith(("-", "#", ">")):
-            result.append(f"    - {line.strip()}")
-        else:
-            result.append(line)
-    return "\n".join(result)
-
-
 def _fetch_fresh_data(today):
+    """Returns (projects, summary_data) — the summary as Claude's raw
+    reference dict, resolved against live projects only at render time."""
     projects = get_upcoming_projects(today)
     projects = _annotate_tasks(projects, today)
     try:
-        summary_md = generate_weekly_summary(projects, today)
+        summary_data = generate_weekly_summary(projects, today)
     except AIUnavailableError:
-        summary = None
-    else:
-        summary = markdown.markdown(_fix_ai_markdown(summary_md))
-    return projects, summary
+        summary_data = None
+    return projects, summary_data
 
 
 def _group_by_month(projects):
@@ -322,58 +289,56 @@ def dashboard(request):
                         task["done"] = True
             projects = _annotate_tasks([project], effective_today)
             summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
-            summary = request.session.get(summary_key)
-            if not summary:
+            summary_data = request.session.get(summary_key)
+            if not summary_data:
                 try:
-                    summary_md = generate_weekly_summary(
+                    summary_data = generate_weekly_summary(
                         projects, effective_today, single_project_demo=True
                     )
                 except AIUnavailableError:
-                    summary = None
+                    summary_data = None
                 else:
-                    summary = markdown.markdown(_fix_ai_markdown(summary_md))
-                    request.session[summary_key] = summary
+                    request.session[summary_key] = summary_data
         else:
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
             projects = _annotate_tasks(get_demo_projects(), today)
             summary_cache_key = f"{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}"
-            summary = cache.get(summary_cache_key)
-            if summary is None:
+            summary_data = cache.get(summary_cache_key)
+            if summary_data is None:
                 try:
-                    summary_md = generate_weekly_summary(projects, today)
+                    summary_data = generate_weekly_summary(projects, today)
                 except AIUnavailableError:
                     # Not cached, so the next request retries Claude.
-                    summary = None
+                    summary_data = None
                 else:
-                    summary = markdown.markdown(_fix_ai_markdown(summary_md))
-                    cache.set(summary_cache_key, summary, DEMO_MULTI_SUMMARY_TTL)
+                    cache.set(summary_cache_key, summary_data, DEMO_MULTI_SUMMARY_TTL)
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
-            projects, summary = cached
+            projects, summary_data = cached
         else:
             try:
-                projects, summary = _fetch_fresh_data(today)
+                projects, summary_data = _fetch_fresh_data(today)
             except NotionUnavailableError:
                 logger.warning(
                     "Notion read failed; falling back to the last known-good dashboard data"
                 )
                 last_known_good = cache.get(STALE_CACHE_KEY)
                 if last_known_good is None:
-                    projects, summary = [], None
+                    projects, summary_data = [], None
                     data_unavailable = True
                 else:
-                    projects, summary = last_known_good
+                    projects, summary_data = last_known_good
                     stale = True
             else:
                 # A fetch whose summary failed (None) is not a success worth
                 # remembering: caching it would blank the AI card for the
                 # whole TTL and overwrite the stale copy's last good summary.
                 # Leaving the cache empty makes the next request retry Claude.
-                if summary is not None:
-                    cache.set(CACHE_KEY, (projects, summary), CACHE_TTL)
-                    cache.set(STALE_CACHE_KEY, (projects, summary), None)
+                if summary_data is not None:
+                    cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
+                    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 
@@ -384,9 +349,16 @@ def dashboard(request):
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
 
-    project_map = {
-        p["display_name"]: p["id"] for group in month_groups for p in group["projects"]
-    }
+    # Resolved here at render time, after display_name/event_date_display are
+    # set — never where the raw dict is cached, so checkbox state and project
+    # headings always reflect the live data (#122).
+    summary = (
+        resolve_weekly_summary(
+            summary_data, projects, single_project_demo=has_session_plan
+        )
+        if summary_data
+        else None
+    )
 
     timelapse_moments = (
         request.session.get("demo_timelapse_moments", []) if settings.DEMO_MODE else []
@@ -429,7 +401,6 @@ def dashboard(request):
             "today": today,
             "today_display": _format_date(today),
             "today_iso": today.isoformat(),
-            "project_map": json.dumps(project_map),
             "has_session_plan": has_session_plan,
             "plan_exists": plan_exists,
             "force_multi": force_multi,
@@ -494,14 +465,14 @@ def preload_timelapse_summary(request):
                 task["done"] = True
     projects = _annotate_tasks([project], effective_today)
     try:
-        summary_md = generate_weekly_summary(
+        summary_data = generate_weekly_summary(
             projects, effective_today, single_project_demo=True
         )
     except AIUnavailableError:
         # Nothing written to the session — the next real visit to this date
         # just tries again instead of replaying a cached failure.
         return JsonResponse({"ok": False})
-    request.session[summary_key] = markdown.markdown(_fix_ai_markdown(summary_md))
+    request.session[summary_key] = summary_data
     return JsonResponse({"ok": True})
 
 
@@ -638,18 +609,25 @@ def my_plan(request):
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
 
-    summary = request.session.get(f"{SUMMARY_KEY}_today")
+    summary_data = request.session.get(f"{SUMMARY_KEY}_today")
     summary_error = False
-    if not summary:
+    if not summary_data:
         try:
-            summary_md = generate_weekly_summary(
+            summary_data = generate_weekly_summary(
                 [project], today, single_project_demo=True
             )
         except AIUnavailableError:
             summary_error = True
         else:
-            summary = markdown.markdown(_fix_ai_markdown(summary_md))
-            request.session[f"{SUMMARY_KEY}_today"] = summary
+            request.session[f"{SUMMARY_KEY}_today"] = summary_data
+
+    # Resolved against the live session plan at render time (#122) — the
+    # session-cached raw dict never carries done state.
+    summary = (
+        resolve_weekly_summary(summary_data, [project], single_project_demo=True)
+        if summary_data
+        else None
+    )
 
     return render(
         request,

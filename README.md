@@ -72,6 +72,12 @@ Every domain has planning rules that Claude doesn't know by default — legal re
 
 Where a rule lives depends on who owns it. In production it is a `PlannerRule` row the maintainer curates for everyone. In demo mode the public page has no authentication, so a shared table would let any visitor rewrite the rules every other visitor's plan is generated with — there the rules live in the visitor's own session instead, starting empty rather than seeded from the maintainer's concert-specific defaults, so a visitor's example plan is built from their own rules. Both sit behind one interface in `rules.py`, so the views never learn which backend answered. Each rule can also be scoped to one or more project types (concert-only rules don't leak into a wedding plan); a rule with no type selected applies to all of them.
 
+### Summary references by index, resolved live
+
+The AI weekly summary names real tasks, and those need to resolve to real task IDs for their inline checkboxes. Claude does not echo Notion page IDs back: an LLM copies a long opaque UUID less reliably than a small integer, and `strict: true` tool use would only guarantee the JSON's *structure*, not that a copied ID is the right one. Instead the prompt numbers every project and task, Claude answers with indices (`project_ref`, `task_refs`), and the server resolves them against its own data — an out-of-range index is dropped rather than rendered as a broken checkbox. Every task occupies a number, done ones included, so toggling a task cannot shift the numbering under a cached summary's references.
+
+The same layering fixes staleness: every cache (8h production cache, daily demo cache, session-stored time-lapse summaries) stores Claude's **raw, unresolved** reference dict, and references are resolved against live data at render time. Done-state is therefore always current — a checkbox toggled seconds ago renders correctly even though the summary around it is hours old.
+
 ### Notion as source of truth
 
 Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database now holds only `PlannerRule` (the production planning rules) and `DemoEvent` (anonymous usage telemetry).
@@ -84,7 +90,7 @@ Each production task belongs to a workflow context (e.g. planning, admin, on-sit
 
 ## Features
 
-- **AI weekly summary** — Claude response rendered as Markdown, with links to individual projects
+- **AI weekly summary** — Claude returns structured JSON referencing projects and tasks by index; the summary renders with real inline task checkboxes (toggling the same task API as the Kanban board) and project links resolved server-side
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
 - **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date
 - **Kanban view** — Open / Urgent / Done columns with progress bar
