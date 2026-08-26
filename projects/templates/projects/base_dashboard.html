@@ -66,16 +66,34 @@ if (sidebar && main && toggleBtn) {
     // claiming 320px of the screen defeats the point of the breakpoint (#25).
     // A stored "closed" preference still applies on desktop as before.
     const startCollapsed = tabletBreakpoint.matches || storedCollapsed === 'true';
-    if (startCollapsed) {
-        sidebar.classList.add('collapsed');
-        main.classList.add('sidebar-collapsed');
-        toggleBtn.textContent = '›';
-    } else {
+
+    // The resize handle stores its result as inline styles, and an inline
+    // style always beats a stylesheet rule — so every collapse path must
+    // clear them or .sidebar.collapsed's 48px rail can never apply (#137).
+    function clearInlineWidth() {
+        sidebar.style.width = '';
+        main.style.marginLeft = '';
+    }
+
+    // Counterpart for the expand paths. Never restores below the tablet
+    // breakpoint: there the sidebar is a fixed-width overlay and .main
+    // keeps margin-left 0, both of which a desktop drag width would beat.
+    function applySavedWidth() {
+        if (tabletBreakpoint.matches) return;
         const savedWidth = localStorage.getItem('sidebarWidth');
         if (savedWidth) {
             sidebar.style.width = savedWidth + 'px';
             main.style.marginLeft = (parseInt(savedWidth) + SIDEBAR_GAP) + 'px';
         }
+    }
+
+    if (startCollapsed) {
+        sidebar.classList.add('collapsed');
+        main.classList.add('sidebar-collapsed');
+        toggleBtn.textContent = '›';
+        clearInlineWidth();
+    } else {
+        applySavedWidth();
     }
 
     // Shared by the in-panel arrow, the mobile-only launcher button and the
@@ -87,13 +105,8 @@ if (sidebar && main && toggleBtn) {
         main.classList.toggle('sidebar-collapsed', collapsed);
         toggleBtn.textContent = collapsed ? '›' : '‹';
         localStorage.setItem('sidebarCollapsed', collapsed);
-        if (!collapsed) {
-            const savedWidth = localStorage.getItem('sidebarWidth');
-            if (savedWidth) {
-                sidebar.style.width = savedWidth + 'px';
-                main.style.marginLeft = (parseInt(savedWidth) + SIDEBAR_GAP) + 'px';
-            }
-        }
+        if (collapsed) clearInlineWidth();
+        else applySavedWidth();
     }
 
     toggleBtn.addEventListener('click', toggleSidebar);
@@ -109,6 +122,8 @@ if (sidebar && main && toggleBtn) {
         sidebar.classList.toggle('collapsed', collapsed);
         main.classList.toggle('sidebar-collapsed', collapsed);
         toggleBtn.textContent = collapsed ? '›' : '‹';
+        if (collapsed) clearInlineWidth();
+        else applySavedWidth();
     });
 
     if (handle) {

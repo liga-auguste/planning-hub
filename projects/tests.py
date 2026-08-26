@@ -569,6 +569,47 @@ class SidebarMobileWidthAndScrollClearanceTest(DemoModeTestCase):
         )
 
 
+class SidebarCollapseClearsInlineWidthTest(DemoModeTestCase):
+    """#137: the resize handle stores its result as inline styles on
+    .sidebar and .main. An inline style always beats a stylesheet rule, so
+    after any drag the collapse paths — which only toggled classes — left
+    the panel at its dragged width instead of the 48px rail. Every collapse
+    path now clears the inline styles, and every expand path restores the
+    stored width through one shared helper that also refuses to put a
+    desktop drag width onto the mobile overlay."""
+
+    def setUp(self):
+        super().setUp()
+        self.response = self.client.get("/dashboard/")
+
+    def test_collapsing_clears_both_inline_styles(self):
+        self.assertContains(
+            self.response,
+            "function clearInlineWidth() {\n"
+            "        sidebar.style.width = '';\n"
+            "        main.style.marginLeft = '';\n"
+            "    }",
+        )
+
+    def test_toggle_and_breakpoint_listener_clear_or_restore(self):
+        # The same clear-or-restore pair must sit in both dynamic collapse
+        # paths: toggleSidebar() and the tabletBreakpoint change listener.
+        self.assertContains(
+            self.response,
+            "if (collapsed) clearInlineWidth();\n        else applySavedWidth();",
+            count=2,
+        )
+
+    def test_the_initial_collapsed_load_also_clears(self):
+        self.assertContains(
+            self.response,
+            "toggleBtn.textContent = '›';\n        clearInlineWidth();",
+        )
+
+    def test_saved_width_is_never_restored_below_the_tablet_breakpoint(self):
+        self.assertContains(self.response, "if (tabletBreakpoint.matches) return;")
+
+
 class DashboardKanbanCssTest(DemoModeTestCase):
     def test_kanban_meta_has_gap(self):
         response = self.client.get("/dashboard/")
