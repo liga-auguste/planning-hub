@@ -12,6 +12,32 @@
 }
 .sidebar.collapsed { width: 48px; }
 .sidebar.collapsed .sidebar-content { display: none; }
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* 40px right, not 16px like the left: the ‹ collapse arrow sits
+       absolutely at right: 12px on the same row and the link must not
+       extend its clickable area underneath it. */
+    padding: 0 40px 14px 16px;
+    text-decoration: none;
+    color: var(--color-text-primary);
+}
+.sidebar-header img { height: 28px; width: auto; }
+.sidebar-logo-text {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+/* Collapsed, the arrow moves to the rail's horizontal center (see
+   .sidebar.collapsed .sidebar-toggle below) right where the icon mark
+   would sit — the top padding pushes the mark below it instead of
+   letting the two stack: the arrow's box ends at 48px (top: 28 + 20px
+   height), so 24px sidebar padding + 32px keeps an 8px gap. */
+.sidebar.collapsed .sidebar-header { padding: 32px 0 14px; justify-content: center; }
+.sidebar.collapsed .sidebar-logo-text { display: none; }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */
 .sidebar .theme-toggle {
@@ -31,7 +57,10 @@
 .sidebar.collapsed .sidebar-resize { display: none; }
 .sidebar-toggle {
     position: absolute;
-    top: 16px; right: 12px;
+    /* Shares the sidebar header's center axis (#95): the 28px logo starts
+       at the sidebar's 24px padding-top, so its center sits at 38px; this
+       box is 20px tall (16px glyph + 2px padding each side), so 38 − 10. */
+    top: 28px; right: 12px;
     background: none; border: none;
     cursor: pointer; color: var(--color-text-quaternary);
     font-size: 16px; padding: 2px 4px;
@@ -81,6 +110,11 @@
     }
     .sidebar:not(.collapsed) { transform: translateX(0); }
     .sidebar.collapsed .sidebar-content { display: block; }
+    /* Mobile "collapsed" means slid off-screen, not a 48px rail — undo
+       the rail-specific recentering (and the hidden wordmark) so the
+       header doesn't visibly jump during the slide-out transition. */
+    .sidebar.collapsed .sidebar-header { padding: 0 40px 14px 16px; justify-content: flex-start; }
+    .sidebar.collapsed .sidebar-logo-text { display: inline; }
     /* The ‹ collapse arrow (.sidebar-toggle) and the theme toggle are both
        position: absolute within .sidebar, which is what scrolls (see
        overflow-y: auto above) — so they stay pinned over the visible box
@@ -116,12 +150,9 @@
     .sidebar-resize { display: none; }
     .main, .main.sidebar-collapsed { margin-left: 0; }
     .sidebar-toggle-mobile {
-        /* Top-right, not top-left: .content-body's mobile padding (20px,
-           see below) leaves the wordmark starting close enough to the
-           left edge that a left-fixed button sat on top of it.
-           top: 26px lines up its center with the wordmark row's: 24px
-           content-body padding-top + half its 40px logo image = a 44px
-           center, minus half this button's own 36px height.
+        /* top: 26px was originally derived from the content-area wordmark
+           row's center axis; #95 moved the logo into the sidebar, so this
+           is now simply the button's established top-right spot.
            right: 20px matches .content-body's own right padding, so this
            button and the "Aktualisieren" button inside it (production
            mode's dashboard.html, margin-left: auto in its row) share the

@@ -630,16 +630,12 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         content_body_padding = 20
         self.assertIn(f"right: {content_body_padding}px; z-index: 1002;", self.css)
 
-    def test_mobile_launcher_shares_the_wordmark_rows_center_axis(self):
-        # dashboard.html's wordmark row: 24px content-body padding-top +
-        # half its 40px logo image = a 44px center from the viewport top.
-        # The 36px launcher button needs top: 26px to share that center.
-        content_body_top_padding = 24
-        logo_height = 40
-        button_height = 36
-        wordmark_center = content_body_top_padding + logo_height / 2
-        button_top = wordmark_center - button_height / 2
-        self.assertIn(f"top: {int(button_top)}px; right: 20px;", self.css)
+    def test_mobile_launcher_keeps_its_fixed_top_inset(self):
+        # The 26px was originally derived from the content-area wordmark
+        # row's center axis; #95 moved the logo into the sidebar, so the
+        # button now simply keeps its established top-right spot as a
+        # plain fixed inset.
+        self.assertIn("top: 26px; right: 20px;", self.css)
 
     def test_content_body_padding_shrinks_below_the_tablet_breakpoint(self):
         # The desktop 40px/48px padding left barely 3/4 of a phone's width
@@ -661,6 +657,93 @@ class SidebarFloatingTileTest(DemoModeTestCase):
             self.css.index(".main {\n    margin-left: 284px;"),
             self.css.index(".main, .main.sidebar-collapsed { margin-left: 0; }"),
         )
+
+
+class SidebarLogoHeaderTest(DemoModeTestCase):
+    """#95: the logo moves from the content area into a sidebar header row —
+    a real link to /dashboard/ above the nav. Collapsed, only the icon mark
+    stays visible in the 48px rail; the wordmark span is hidden via CSS."""
+
+    templates = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def setUp(self):
+        super().setUp()
+        self.base_html = (self.templates / "base_dashboard.html").read_text()
+        self.dashboard_html = (self.templates / "dashboard.html").read_text()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_header_links_logo_and_wordmark_to_the_dashboard(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertIn("{% url 'dashboard' %}", self.base_html)
+        self.assertIn("logo_schwarz.png", self.base_html)
+        self.assertIn("logo_weiss.png", self.base_html)
+        self.assertIn(
+            '<span class="sidebar-logo-text">Planning Hub</span>', self.base_html
+        )
+
+    def test_header_is_a_sibling_of_sidebar_content_not_a_child(self):
+        # .sidebar.collapsed .sidebar-content { display: none } would take a
+        # nested header down with it — same constraint the theme toggle
+        # already documents (#12). Source order in the template is enough to
+        # prove the header sits before (and thus outside) .sidebar-content.
+        self.assertLess(
+            self.base_html.index('class="sidebar-header"'),
+            self.base_html.index('<div class="sidebar-content">'),
+        )
+
+    def test_collapse_arrow_shares_the_header_center_axis(self):
+        # The 28px logo starts at the sidebar's 24px padding-top, putting
+        # its center at 38px; the arrow's 20px box (16px glyph + 2px
+        # padding each side) needs top: 28px to share that axis.
+        sidebar_padding_top = 24
+        logo_height = 28
+        arrow_box_height = 16 + 2 * 2
+        arrow_top = sidebar_padding_top + logo_height / 2 - arrow_box_height / 2
+        self.assertIn(f"top: {int(arrow_top)}px; right: 12px;", self.css)
+
+    def test_collapsed_rail_hides_only_the_wordmark(self):
+        self.assertIn(
+            ".sidebar.collapsed .sidebar-logo-text { display: none; }", self.css
+        )
+
+    def test_link_has_an_accessible_name_independent_of_collapse(self):
+        # Both <img> alts are empty and the wordmark span disappears when
+        # collapsed — without a static aria-label the link would have no
+        # accessible name in the collapsed rail.
+        self.assertIn('aria-label="Planning Hub', self.base_html)
+
+    def test_old_logo_row_left_the_content_area(self):
+        # The 40px sizing was unique to the removed #view-overview row; the
+        # about overlay's own 36px copy must survive (next test).
+        self.assertNotIn("height:40px;width:auto;", self.dashboard_html)
+
+    def test_about_overlay_keeps_its_own_logo_copy(self):
+        self.assertIn('height:36px;" class="logo-light"', self.dashboard_html)
+        self.assertIn('height:36px;" class="logo-dark"', self.dashboard_html)
+
+    def test_first_content_row_clears_the_mobile_launcher(self):
+        # The removed wordmark row used to keep the top-of-page band free
+        # of the fixed hamburger launcher on mobile; every element that can
+        # now render first reserves the button's footprint on the right,
+        # mirroring .project-header's existing reservation.
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header "
+            "{ padding-right: 44px; }",
+        )
+
+    def test_pages_without_a_sidebar_render_no_header(self):
+        # my_plan.html and stats.html override {% block body %} entirely and
+        # ship no sidebar at all.
+        self.given_session_plan()
+        for name in ("my_plan", "stats"):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertNotContains(response, "sidebar-header")
 
 
 class AiCardDeboxTest(DemoModeTestCase):

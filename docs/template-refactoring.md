@@ -135,6 +135,7 @@ top-of-page layouts.
   <div class="sidebar" id="sidebar">
     <button class="sidebar-toggle">...</button>
     <div class="sidebar-resize"></div>
+    <a class="sidebar-header" href="/dashboard/">logo + wordmark</a>
     <div class="sidebar-content">{% block sidebar_content %}{% endblock %}</div>
   </div>
   <div class="main" id="main">
