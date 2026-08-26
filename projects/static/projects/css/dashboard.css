@@ -34,8 +34,9 @@
 /* Collapsed, the arrow moves to the rail's horizontal center (see
    .sidebar.collapsed .sidebar-toggle below) right where the icon mark
    would sit — the top padding pushes the mark below it instead of
-   letting the two stack. */
-.sidebar.collapsed .sidebar-header { padding: 20px 0 14px; justify-content: center; }
+   letting the two stack: the arrow's box ends at 48px (top: 28 + 20px
+   height), so 24px sidebar padding + 32px keeps an 8px gap. */
+.sidebar.collapsed .sidebar-header { padding: 32px 0 14px; justify-content: center; }
 .sidebar.collapsed .sidebar-logo-text { display: none; }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */
@@ -56,7 +57,10 @@
 .sidebar.collapsed .sidebar-resize { display: none; }
 .sidebar-toggle {
     position: absolute;
-    top: 16px; right: 12px;
+    /* Shares the sidebar header's center axis (#95): the 28px logo starts
+       at the sidebar's 24px padding-top, so its center sits at 38px; this
+       box is 20px tall (16px glyph + 2px padding each side), so 38 − 10. */
+    top: 28px; right: 12px;
     background: none; border: none;
     cursor: pointer; color: var(--color-text-quaternary);
     font-size: 16px; padding: 2px 4px;

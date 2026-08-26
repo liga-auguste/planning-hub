@@ -694,6 +694,16 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
             self.base_html.index('<div class="sidebar-content">'),
         )
 
+    def test_collapse_arrow_shares_the_header_center_axis(self):
+        # The 28px logo starts at the sidebar's 24px padding-top, putting
+        # its center at 38px; the arrow's 20px box (16px glyph + 2px
+        # padding each side) needs top: 28px to share that axis.
+        sidebar_padding_top = 24
+        logo_height = 28
+        arrow_box_height = 16 + 2 * 2
+        arrow_top = sidebar_padding_top + logo_height / 2 - arrow_box_height / 2
+        self.assertIn(f"top: {int(arrow_top)}px; right: 12px;", self.css)
+
     def test_collapsed_rail_hides_only_the_wordmark(self):
         self.assertIn(
             ".sidebar.collapsed .sidebar-logo-text { display: none; }", self.css
