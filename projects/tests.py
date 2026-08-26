@@ -5869,6 +5869,37 @@ class StripTrailingDateTest(SimpleTestCase):
     def test_name_that_is_only_a_date_is_never_emptied(self):
         self.assertEqual(_strip_trailing_date("12.09.2026"), "12.09.2026")
 
+    # The real Notion names spell the date out ("am 5. September") instead of
+    # the numeric form the first round covered — seen live after PR #135.
+
+    def test_strips_textual_date_with_am(self):
+        self.assertEqual(
+            _strip_trailing_date("Musik zur Marktzeit am 5. September"),
+            "Musik zur Marktzeit",
+        )
+
+    def test_strips_textual_date_without_am(self):
+        self.assertEqual(
+            _strip_trailing_date("Trio romantique 13. September"),
+            "Trio romantique",
+        )
+
+    def test_strips_textual_date_with_year(self):
+        self.assertEqual(
+            _strip_trailing_date("Jahreskonzert der Kantorei am 15. November 2026"),
+            "Jahreskonzert der Kantorei",
+        )
+
+    def test_month_word_without_day_number_is_kept(self):
+        self.assertEqual(
+            _strip_trailing_date("Klänge im September"), "Klänge im September"
+        )
+
+    def test_non_month_ordinal_is_kept(self):
+        self.assertEqual(
+            _strip_trailing_date("Konzert am 3. Advent"), "Konzert am 3. Advent"
+        )
+
 
 class MyPlanDisplayNameTest(DemoModeTestCase):
     """#134: my_plan.html rendered the raw project.name in the page title and
