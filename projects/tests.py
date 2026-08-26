@@ -931,6 +931,125 @@ class SidebarProgressRingCssTest(DemoModeTestCase):
         self.assertNotContains(response, ".dot.gray, .dot.blue")
 
 
+class SidebarIconSlotWidthTest(DemoModeTestCase):
+    """#97: sidebar icons (dot, progress ring, bare glyphs) each carried their
+    own intrinsic width plus a per-icon margin-right, so the text after them
+    landed at a different x-position depending on which icon preceded it.
+    .sidebar-icon gives every icon the same fixed, centered 16px slot."""
+
+    def test_sidebar_icon_css_defines_a_fixed_centered_slot(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response,
+            ".sidebar-icon { display: inline-flex; align-items: center; "
+            "justify-content: center; width: 16px; flex-shrink: 0; "
+            "margin-right: 8px; }",
+        )
+
+    def test_progress_ring_no_longer_carries_its_own_margin(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".progress-ring { flex-shrink: 0; }")
+
+    def test_sidebar_icon_neutralizes_the_dot_margin(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, ".sidebar-icon > .dot { margin-right: 0; }")
+
+    def test_the_base_dot_rule_still_carries_its_own_margin(self):
+        """The task-completion checkbox reuses .dot outside the sidebar and
+        relies on this rule for its spacing before the task name."""
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response,
+            ".dot { display: inline-block; width: 7px; height: 7px; "
+            "border-radius: 50%; margin-right: 8px;",
+        )
+
+    def test_the_checkbox_dot_still_renders_outside_the_sidebar_icon_wrapper(self):
+        self.given_session_plan()
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, 'class="dot urgent " title="Abhaken"')
+
+    def test_the_overview_dot_is_wrapped(self):
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response,
+            '<span class="sidebar-icon"><span class="dot" '
+            'style="background: var(--color-solid-bg);"></span></span>',
+        )
+
+    def test_the_progress_ring_is_wrapped(self):
+        self.given_session_plan()
+        response = self.client.get("/dashboard/")
+        self.assertContains(
+            response, '<span class="sidebar-icon">\n            <svg class="progress-ring"'
+        )
+
+    def test_own_plan_view_icons_are_wrapped(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, '<span class="sidebar-icon">⊞</span>')
+        self.assertContains(response, '<span class="sidebar-icon">☰</span>')
+        self.assertContains(response, '<span class="sidebar-icon">←</span>')
+
+    def test_force_multi_plan_exists_icons_are_wrapped(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, '<span class="sidebar-icon">←</span>')
+        self.assertContains(response, '<span class="sidebar-icon">☰</span>')
+
+    def test_force_multi_no_plan_icons_are_wrapped(self):
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(
+            response,
+            '<span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>',
+        )
+        self.assertContains(response, '<span class="sidebar-icon">←</span>')
+
+    def test_demo_default_icons_are_wrapped(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>',
+        )
+        self.assertContains(response, '<span class="sidebar-icon">←</span>')
+
+    def test_about_info_svg_is_wrapped(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, '<span class="sidebar-icon"><svg width="14" height="14"')
+
+    def test_old_inline_margin_style_on_a_glyph_span_is_gone(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'style="margin-right: 8px;">')
+
+
+@override_settings(DEMO_MODE=False)
+class ProductionSidebarIconSlotWidthTest(TestCase):
+    """#97 in production: "Neue Veranstaltung" (+), "Planungsregeln" (⚙) and
+    the per-project progress ring only render outside demo mode."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_production_icons_are_wrapped(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.generate_weekly_summary", return_value="**Test**"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>',
+        )
+        self.assertContains(response, '<span class="sidebar-icon">⚙</span>')
+        self.assertContains(
+            response, '<span class="sidebar-icon">\n            <svg class="progress-ring"'
+        )
+
+
 class PlannerLoadingStateTest(DemoModeTestCase):
     """#6: markup-contract tests for the shared loading-state CSS/JS in
     base_public.html, and the per-form data-loading-text attribute. Runtime
