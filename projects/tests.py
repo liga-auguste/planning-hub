@@ -981,7 +981,8 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get("/dashboard/")
         self.assertContains(
-            response, '<span class="sidebar-icon">\n            <svg class="progress-ring"'
+            response,
+            '<span class="sidebar-icon">\n            <svg class="progress-ring"',
         )
 
     def test_own_plan_view_icons_are_wrapped(self):
@@ -1015,7 +1016,9 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
 
     def test_about_info_svg_is_wrapped(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, '<span class="sidebar-icon"><svg width="14" height="14"')
+        self.assertContains(
+            response, '<span class="sidebar-icon"><svg width="14" height="14"'
+        )
 
     def test_old_inline_margin_style_on_a_glyph_span_is_gone(self):
         response = self.client.get(reverse("dashboard"))
@@ -1046,7 +1049,8 @@ class ProductionSidebarIconSlotWidthTest(TestCase):
         )
         self.assertContains(response, '<span class="sidebar-icon">⚙</span>')
         self.assertContains(
-            response, '<span class="sidebar-icon">\n            <svg class="progress-ring"'
+            response,
+            '<span class="sidebar-icon">\n            <svg class="progress-ring"',
         )
 
 
