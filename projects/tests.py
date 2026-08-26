@@ -5903,3 +5903,24 @@ class DashboardDisplayNameStripsFullDateTest(TestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "Adventskonzert")
         self.assertNotContains(response, "Adventskonzert 12.09.2026")
+
+
+class DownloadPlanDisplayNameTest(DemoModeTestCase):
+    """#134 follow-up (PR #135 review): the markdown export printed the raw
+    plan name as the heading, directly above its own Zieldatum line — the
+    same date doubling the dashboard and Mein Plan fixes addressed."""
+
+    def test_export_heading_shows_cleaned_name(self):
+        self.given_session_plan(name="Adventskonzert 12.09.2026")
+        response = self.client.get(reverse("download_plan"))
+        content = response.content.decode()
+        self.assertIn("# Adventskonzert\n", content)
+        self.assertNotIn("Adventskonzert 12.09.2026", content)
+
+    def test_filename_keeps_the_raw_name(self):
+        self.given_session_plan(name="Adventskonzert 12.09.2026")
+        response = self.client.get(reverse("download_plan"))
+        self.assertIn(
+            'filename="Adventskonzert_12.09.2026.md"',
+            response["Content-Disposition"],
+        )

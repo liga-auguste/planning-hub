@@ -662,7 +662,9 @@ def download_plan(request):
     event_display = _format_date(event_date)
 
     lines = [
-        f"# {plan['name']}",
+        # Display-only cleanup (#134) — the export carries its own Zieldatum
+        # line right below. The filename keeps the raw name.
+        f"# {_strip_trailing_date(plan['name'])}",
         f"**Zieldatum:** {event_display}",
         "",
         "---",
