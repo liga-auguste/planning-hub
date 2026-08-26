@@ -27,7 +27,7 @@ These are German by decision. Do not "fix" them:
 - **`impressum()` / `datenschutz()`** — established legal terms, coupled to their URL paths and templates.
 - **`MONTHS_DE`, `MONTHS_SHORT`, `WEEKDAYS_SHORT`** — English identifier, German values. Correct as is.
 - **Notion property names** (`"Name der Veranstaltung"`, `"Wann?"`) — defined by the external database, not by us.
-- **German URL paths** (`mein-plan/`, `regeln/`) — inconsistent with `dashboard/` and `stats/`, tracked in #15 rather than changed ad hoc.
+- **URL paths split by audience, not by a single language rule** (#15): `mein-plan/`, `regeln/`, `impressum/`, `datenschutz/` are what a visitor sees and types, so they follow the product's German. `dashboard/`, `stats/`, `refresh/`, `timelapse/`, `task/<id>/toggle/` are technical routing a visitor never reads as a word, so they stay English like any other code identifier. The `{% url %}` name (`rule_add`, `my_plan`, …) is always an English code identifier regardless of which language its path uses — a German path with an English URL name, like `regeln/add/` → `rule_add`, is the expected shape, not an inconsistency.
 
 ### Hard constraint
 
