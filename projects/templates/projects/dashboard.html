@@ -186,12 +186,12 @@
     {% endif %}
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
         <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
-        Übersicht
+        Dashboard
     </a>
     {% if demo_mode %}
         {% if has_session_plan %}
         <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
-            <span class="sidebar-icon">⊞</span>Mehrprojekt-Ansicht
+            <span class="sidebar-icon">⊞</span>Mehrprojekt-Dashboard
         </a>
         <a class="sidebar-item" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
             <span class="sidebar-icon">☰</span>Plan als Liste
@@ -342,7 +342,7 @@
 
         <div class="ai-card">
             <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
-                <div style="font-size: 22px; font-weight: 700;">Übersicht</div>
+                <div style="font-size: 22px; font-weight: 700;">Dashboard</div>
                 {% if demo_project_name %}
                 <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
                     {{ demo_project_name }}

@@ -5344,3 +5344,46 @@ class BackfillPlannerRuleProjectTypesMigrationTest(TestCase):
         self.backfill(self.apps, None)
         rule.refresh_from_db()
         self.assertEqual(rule.project_types, [])
+
+
+class OverviewPageNamingTest(DemoModeTestCase):
+    """#48: "Übersicht" used to label both the single-project overview and
+    the AI-card heading, so a visitor saw the same word for two different
+    things. Renamed to "Dashboard", matching the dashboard/ URL path."""
+
+    def test_sidebar_nav_overview_says_dashboard(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, '<a class="sidebar-item active" id="nav-overview"'
+        )
+        self.assertContains(response, "Dashboard")
+        self.assertNotContains(response, "Übersicht")
+
+    def test_ai_card_heading_says_dashboard(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, '<div style="font-size: 22px; font-weight: 700;">Dashboard</div>'
+        )
+
+
+class MultiProjectViewNamingTest(DemoModeTestCase):
+    """#48: the multi-project view was "Mehrprojekt-Ansicht" in the sidebar
+    but "Mehrprojekt-Dashboard"/"Beispiel-Dashboard" elsewhere — three words
+    for one destination (dashboard?mode=multi). Unified on
+    "Mehrprojekt-Dashboard" everywhere a visitor can reach it from."""
+
+    def test_sidebar_link_says_mehrprojekt_dashboard(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Mehrprojekt-Dashboard")
+        self.assertNotContains(response, "Mehrprojekt-Ansicht")
+
+    def test_landing_page_links_say_mehrprojekt_dashboard(self):
+        response = self.client.get("/")
+        self.assertContains(response, "Mehrprojekt-Dashboard ansehen")
+        self.assertNotContains(response, "Beispiel-Dashboard")
+
+    def test_my_plan_link_already_said_mehrprojekt_dashboard(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "Mehrprojekt-Dashboard ansehen")
