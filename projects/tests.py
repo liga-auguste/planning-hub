@@ -59,6 +59,7 @@ from .views import (
     SUMMARY_KEY,
     _annotate_tasks,
     _format_date,
+    _strip_trailing_date,
 )
 
 # The view modules import the AI functions with `from .ai import ...`, so the
@@ -5822,3 +5823,83 @@ class MultiProjectViewNamingTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, "Mehrprojekt-Dashboard ansehen")
+
+
+class StripTrailingDateTest(SimpleTestCase):
+    """#134: the maintainer's Notion naming habit appends the event date to
+    the name ("Adventskonzert 12.09.2026"), which collides with the UI's own
+    date display. _strip_trailing_date removes a trailing German date or bare
+    year for display only — the Notion property is never touched."""
+
+    def test_strips_full_date(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventskonzert 12.09.2026"), "Adventskonzert"
+        )
+
+    def test_strips_date_without_year(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventskonzert 12.09."), "Adventskonzert"
+        )
+
+    def test_strips_date_after_comma(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventskonzert, 12.09.2026"), "Adventskonzert"
+        )
+
+    def test_strips_date_after_dash(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventskonzert – 12.09.2026"), "Adventskonzert"
+        )
+        self.assertEqual(
+            _strip_trailing_date("Adventskonzert - 12.09.2026"), "Adventskonzert"
+        )
+
+    def test_strips_single_digit_day_and_month(self):
+        self.assertEqual(_strip_trailing_date("Konzert 1.9.2026"), "Konzert")
+
+    def test_still_strips_bare_year(self):
+        self.assertEqual(_strip_trailing_date("Konzert 2026"), "Konzert")
+
+    def test_name_without_date_is_unchanged(self):
+        self.assertEqual(_strip_trailing_date("Sommerfest"), "Sommerfest")
+
+    def test_trailing_non_year_number_is_kept(self):
+        self.assertEqual(_strip_trailing_date("Jubiläum 175"), "Jubiläum 175")
+
+    def test_name_that_is_only_a_date_is_never_emptied(self):
+        self.assertEqual(_strip_trailing_date("12.09.2026"), "12.09.2026")
+
+
+class MyPlanDisplayNameTest(DemoModeTestCase):
+    """#134: my_plan.html rendered the raw project.name in the page title and
+    the project header, bypassing display_name entirely — a trailing date in
+    the name showed up next to the app's own date display."""
+
+    def test_my_plan_shows_cleaned_name(self):
+        self.given_session_plan(name="Adventskonzert 12.09.2026")
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "Adventskonzert")
+        self.assertNotContains(response, "Adventskonzert 12.09.2026")
+
+
+class DashboardDisplayNameStripsFullDateTest(TestCase):
+    """#134: _strip_year only caught a bare trailing year, so a full date
+    ("12.09.2026") survived into display_name on the production dashboard."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    @override_settings(DEMO_MODE=False)
+    def test_dashboard_shows_cleaned_name(self):
+        project = _fake_upcoming_project_with_task()
+        project["name"] = "Adventskonzert 12.09.2026"
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Adventskonzert")
+        self.assertNotContains(response, "Adventskonzert 12.09.2026")
