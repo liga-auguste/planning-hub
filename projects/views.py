@@ -165,9 +165,16 @@ def _group_by_month(projects):
     ]
 
 
-# A trailing German date (12.09.2026, 1.9., …) or bare year, with an optional
-# comma/dash separator — the maintainer's Notion naming habit (#134).
-_TRAILING_DATE_RE = re.compile(r"[\s,–—-]+(?:\d{1,2}\.\d{1,2}\.(?:\d{4})?|\d{4})$")
+# A trailing German date or bare year, with an optional comma/dash separator
+# and an optional "am" — the maintainer's Notion naming habit (#134). Covers
+# the numeric forms (12.09.2026, 1.9.) and the spelled-out ones the live
+# Notion data actually uses ("am 5. September", "15. November 2026").
+_TRAILING_DATE_RE = re.compile(
+    r"[\s,–—-]+(?:am\s+)?"
+    r"(?:\d{1,2}\.\d{1,2}\.(?:\d{4})?"
+    r"|\d{1,2}\.\s*(?:" + "|".join(MONTHS_DE.values()) + r")(?:\s+\d{4})?"
+    r"|\d{4})$"
+)
 
 
 def _strip_trailing_date(name):
