@@ -59,8 +59,33 @@ def log_claude_call(call_name: str):
 
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]
 
+# The two summary sections, in render order: JSON key ↔ German heading. The
+# keys are German by decision (#122 plan) — they mirror the two fixed block
+# headings the summary always had, so prompt text and key agree.
+SUMMARY_SECTIONS = (
+    ("jetzt_faellig", "Jetzt fällig"),
+    ("naechste_woche", "Nächste Woche"),
+)
+
+
+def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
+    """The single source of the reference numbering shared by build_prompt
+    and resolve_weekly_summary (#122): a 1-based position in these two lists
+    is what project_ref / task_refs mean.
+
+    Every task occupies a number, done ones included, even though the prompt
+    only ever shows open tasks: numbering by openness would shift every later
+    number the moment a task is toggled between cache-write and render time,
+    silently re-pointing the cached refs at the wrong tasks. Position depends
+    only on task order, which is stable across a toggle.
+    """
+    numbered_projects = [p for p in projects if p["event_date"]]
+    numbered_tasks = [t for p in numbered_projects for t in p["tasks"]]
+    return numbered_projects, numbered_tasks
+
 
 def build_prompt(projects: list, today: date, single_project_demo: bool = False) -> str:
+    numbered_projects, _ = _number_projects_and_tasks(projects)
     lines = [
         f"Heute ist der {today.strftime('%d.%m.%Y')}.",
         "",
@@ -69,14 +94,15 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         "",
     ]
 
-    for p in projects:
-        if not p["event_date"]:
-            continue
+    task_no = 0
+    for project_no, p in enumerate(numbered_projects, start=1):
         days_until = (p["event_date"] - today).days
         open_tasks = [t for t in p["tasks"] if not t["done"]]
         done_count = len([t for t in p["tasks"] if t["done"]])
 
         lines.append(f"## {'Dein Projekt' if single_project_demo else p['name']}")
+        if not single_project_demo:
+            lines.append(f"Projekt-Nr.: {project_no}")
         lines.append(
             f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)"
         )
@@ -84,7 +110,10 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         lines.append(f"Erledigt: {done_count} Aufgaben")
         lines.append(f"Offene Aufgaben ({len(open_tasks)}):")
 
-        for t in open_tasks:
+        for t in p["tasks"]:
+            task_no += 1
+            if t["done"]:
+                continue
             diff = (t["due"] - today).days if t["due"] else "?"
             urgency = (
                 " — DIESE WOCHE"
@@ -96,7 +125,7 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
                 if (t["kontext"] and not single_project_demo)
                 else ""
             )
-            lines.append(f"  - {t['name']}{urgency}{kontext}")
+            lines.append(f"  - [{task_no}] {t['name']}{urgency}{kontext}")
 
         lines.append("")
 
@@ -121,53 +150,40 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             "---",
             "",
             "Erstelle eine Übersicht für dieses einzelne Projekt. Schreibe als Assistentin — direkt, klar, hilfreich.",
-            "Kein Intro, kein Outro. Auf Deutsch, Du-Form. Nenne den Projektnamen NICHT — er ist bereits im Header sichtbar.",
+            "Nur Infos aus den Daten. Auf Deutsch, Du-Form.",
             "Datumsformat: '5. August' — keine führenden Nullen.",
             "",
-            "Formatierung — verschachtelte Markdown-Listen ohne Projektname:",
-            "- Status oder Kontext als Listenpunkt: **Thema** — ein Satz mit Einschätzung",
-            "- Tasks darunter als Unterpunkte (max. 4)",
-            "Beispiel:",
-            "- **Jetzt kritisch** — die Buchung muss heute raus, sonst wird der Termin knapp:",
-            "    - Venue buchen",
-            "    - Catering bestätigen",
+            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+            '{"jetzt_faellig": [{"heading": "Jetzt kritisch", "assessment": "die Buchung muss heute raus, sonst wird der Termin knapp", "task_refs": [1, 2]}], "naechste_woche": []}',
             "",
-            "Der Satz soll echten Assistenzwert haben: Was ist kritisch? Was läuft gut?",
+            '- "heading": Status oder Kontext als kurzes Thema (2–3 Wörter). Nenne den Projektnamen NICHT — er ist bereits im Header sichtbar.',
+            '- "assessment": ein Satz mit Einschätzung und echtem Assistenzwert: Was ist kritisch? Was läuft gut?',
+            '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
             "",
-            "Struktur — zwei Blöcke mit genau diesen Überschriften:",
-            "",
-            "## Jetzt fällig",
-            "Darunter: überfällige und diese Woche fällige Aufgaben.",
-            "",
-            "## Nächste Woche",
-            "Darunter: Aufgaben in den kommenden 7–14 Tagen.",
+            "Zuordnung der Blöcke:",
+            '- "jetzt_faellig": überfällige und diese Woche fällige Aufgaben.',
+            '- "naechste_woche": Aufgaben in den kommenden 7–14 Tagen.',
         ]
     else:
         lines += [
             "---",
             "",
             "Erstelle mir eine Wochenübersicht. Schreibe als Assistentin — nicht als Auflistungsmaschine.",
-            "Kein Intro, kein Outro. Auf Deutsch, Du-Form. Nur Infos aus den Daten.",
+            "Nur Infos aus den Daten. Auf Deutsch, Du-Form.",
             "Datumsformat: '5. August' — keine führenden Nullen.",
             "",
-            "Formatierung — verschachtelte Markdown-Listen:",
-            "- Jedes Projekt als Listenpunkt: **Projektname** — ein einziger Satz mit Einschätzung/Kontext",
-            "- Tasks darunter als Unterpunkte, nur die relevantesten (max. 4)",
-            "Beispiel:",
-            "- **Musik zur Marktzeit, 5. Aug** — übermorgen, alles läuft, nur Aufbau noch offen:",
-            "    - Aufbau koordinieren",
-            "    - Noten mitnehmen",
+            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+            '{"jetzt_faellig": [{"project_ref": 1, "assessment": "übermorgen, alles läuft, nur Aufbau noch offen", "task_refs": [1, 2]}], "naechste_woche": []}',
             "",
-            "Der Satz nach dem — soll echten Assistenzwert haben: Was ist der Status? Was ist kritisch?",
-            "Nicht: 'Tasks offen'. Sondern: 'Plakate müssen heute raus' oder 'noch gut im Zeitplan'.",
+            '- "project_ref": die Projekt-Nr. des Projekts (steht bei jedem Projekt oben).',
+            '- "assessment": ein einziger Satz mit Einschätzung/Kontext und echtem Assistenzwert: Was ist der Status? Was ist kritisch?',
+            "  Nicht: 'Tasks offen'. Sondern: 'Plakate müssen heute raus' oder 'noch gut im Zeitplan'.",
+            "  Nenne den Projektnamen NICHT im Satz — er wird aus den Daten ergänzt.",
+            '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
             "",
-            "Struktur — zwei Blöcke mit genau diesen Überschriften:",
-            "",
-            "## Jetzt fällig",
-            "Darunter: überfällige und diese Woche fällige Projekte.",
-            "",
-            "## Nächste Woche",
-            "Darunter: Projekte mit Tasks in den kommenden 7–14 Tagen.",
+            "Zuordnung der Blöcke:",
+            '- "jetzt_faellig": überfällige und diese Woche fällige Projekte.',
+            '- "naechste_woche": Projekte mit Aufgaben in den kommenden 7–14 Tagen.',
         ]
 
     return "\n".join(lines)
@@ -239,18 +255,115 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
 
 def generate_weekly_summary(
     projects: list, today: date, single_project_demo: bool = False
-) -> str:
+) -> dict:
+    """Returns Claude's raw reference dict (#122): section keys mapping to
+    blocks of {project_ref | heading, assessment, task_refs}. The refs are
+    resolved against live data by resolve_weekly_summary at render time —
+    this raw dict is what the caches store, never the resolved result.
+
+    Retries once if the answer isn't a valid JSON object with both section
+    keys — a plain re-ask, same contract as generate_plan — and only gives
+    up with AIUnavailableError after the second attempt.
+    """
     client = anthropic.Anthropic()
     prompt = build_prompt(projects, today, single_project_demo=single_project_demo)
 
-    with (
-        log_claude_call("generate_weekly_summary") as result,
-        client.messages.stream(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        ) as stream,
-    ):
-        text = stream.get_final_text()
-        result["message"] = stream.get_final_message()
-        return text
+    last_error = None
+    for attempt in (1, 2):
+        with (
+            log_claude_call("generate_weekly_summary") as result,
+            client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream,
+        ):
+            text = stream.get_final_text()
+            result["message"] = stream.get_final_message()
+        raw = text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        try:
+            data = _json.loads(raw)
+        except _json.JSONDecodeError as exc:
+            last_error = exc
+            logger.warning(
+                "Claude returned an unparseable weekly summary (attempt %d/2): %s",
+                attempt,
+                exc,
+            )
+            continue
+        if not isinstance(data, dict) or not all(
+            isinstance(data.get(key), list) for key, _ in SUMMARY_SECTIONS
+        ):
+            last_error = None
+            logger.warning(
+                "Claude returned a weekly summary without both section lists (attempt %d/2)",
+                attempt,
+            )
+            continue
+        return data
+    raise AIUnavailableError(
+        "Claude returned an unusable weekly summary twice"
+    ) from last_error
+
+
+def _resolve_ref(ref, numbered: list):
+    """A 1-based index into the numbered list, or None. bool is excluded
+    explicitly — True is an int subclass and would resolve as index 1."""
+    if isinstance(ref, bool) or not isinstance(ref, int):
+        return None
+    if not 1 <= ref <= len(numbered):
+        return None
+    return numbered[ref - 1]
+
+
+def resolve_weekly_summary(
+    data: dict, projects: list, single_project_demo: bool = False
+) -> list:
+    """Builds the render-ready sections from Claude's raw reference dict,
+    resolved against `projects` as they are *now* — called at render time,
+    never at cache-write time, so checkbox state can't go stale behind the
+    summary's cache layers (#122).
+
+    Robustness over completeness: an unresolvable task ref is dropped and
+    the rest of its block stays; a block with no usable heading (bad
+    project_ref, or a missing heading in single-project mode) is dropped
+    whole — there is nothing to head it with.
+    """
+    numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
+    sections = []
+    for key, title in SUMMARY_SECTIONS:
+        raw_blocks = data.get(key)
+        blocks = []
+        for raw_block in raw_blocks if isinstance(raw_blocks, list) else []:
+            if not isinstance(raw_block, dict):
+                continue
+            assessment = raw_block.get("assessment")
+            block = {"assessment": assessment if isinstance(assessment, str) else ""}
+            if single_project_demo:
+                heading = raw_block.get("heading")
+                if not isinstance(heading, str) or not heading.strip():
+                    continue
+                block["heading"] = heading
+            else:
+                project = _resolve_ref(raw_block.get("project_ref"), numbered_projects)
+                if project is None:
+                    continue
+                block["project_id"] = project["id"]
+                block["project_name"] = project.get("display_name") or project["name"]
+                block["event_date_display"] = project.get("event_date_display", "")
+            refs = raw_block.get("task_refs")
+            block["tasks"] = [
+                {
+                    "id": task["id"],
+                    "name": task["name"],
+                    "done": task["done"],
+                    "urgency": task.get("urgency", "ok"),
+                }
+                for ref in (refs if isinstance(refs, list) else [])
+                if (task := _resolve_ref(ref, numbered_tasks)) is not None
+            ]
+            blocks.append(block)
+        sections.append({"title": title, "blocks": blocks})
+    return sections

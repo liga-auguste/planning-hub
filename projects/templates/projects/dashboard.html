@@ -48,7 +48,11 @@
         .ai-card p { margin: 0 0 8px; }
         .ai-project-link { cursor: pointer; }
         .ai-project-link:hover { text-decoration: underline; }
-        .ai-card ul > li > strong::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
+        /* The › affordance belongs to the click-through, so it only decorates
+           real project links — single-project headings carry none (#122). */
+        .ai-card ul > li > strong.ai-project-link::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
+        .ai-card .toggle-form { display: inline; margin-right: 2px; }
+        .ai-card ul ul li .dot { vertical-align: middle; }
         .ai-error { color: var(--color-text-quaternary); font-style: italic; }
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
         .project-section { margin-bottom: 8px; padding: 0; }
@@ -361,7 +365,34 @@
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {% if summary %}
-            {{ summary|safe }}
+            {% for section in summary %}{% if section.blocks %}
+            <h2>{{ section.title }}</h2>
+            <ul>
+                {% for block in section.blocks %}
+                <li>
+                    {% if block.project_id %}
+                    <strong class="ai-project-link" onclick="showProject('{{ block.project_id }}')">{{ block.project_name }}{% if block.event_date_display %}, {{ block.event_date_display }}{% endif %}</strong>
+                    {% else %}
+                    <strong>{{ block.heading }}</strong>
+                    {% endif %}
+                    {% if block.assessment %}— {{ block.assessment }}{% endif %}
+                    {% if block.tasks %}
+                    <ul>
+                        {% for task in block.tasks %}
+                        <li>
+                            <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
+                                {% csrf_token %}
+                                <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
+                            </form>
+                            <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}{% endfor %}
             {% else %}
             <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
             {% endif %}
@@ -529,11 +560,14 @@ document.querySelectorAll('.toggle-form').forEach(form => {
             flashActionFailed(form.querySelector('button'));
             return;
         }
-        form.dataset.done = done ? 'true' : 'false';
-        const btn = form.querySelector('button');
-        btn.classList.toggle('done', done);
-        const nameSpan = form.closest('.task-row').querySelector('.task-name');
-        nameSpan.classList.toggle('done', done);
+        // The same task renders in more than one place (task list + AI
+        // summary card, #122) — update every copy, not just the clicked one.
+        document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
+            f.dataset.done = done ? 'true' : 'false';
+            f.querySelector('button').classList.toggle('done', done);
+            const nameSpan = f.closest('.task-row, li')?.querySelector('.task-name');
+            if (nameSpan) nameSpan.classList.toggle('done', done);
+        });
     });
 });
 
@@ -544,7 +578,6 @@ function flashActionFailed(el) {
 </script>
 <script>
 const TODAY = '{{ today_iso }}';
-const PROJECT_MAP = {{ project_map|safe }};
 const TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
 const PRECACHED_MOMENTS = {{ precached_moments|safe }};
 const SIM_DATE = '{{ sim_date }}';
@@ -631,19 +664,6 @@ if (TIMELAPSE_MOMENTS.length > 0) {
         setTimeout(preloadAll, 800);
     }
 }
-
-document.querySelectorAll('.ai-card li').forEach(li => {
-    const strong = li.querySelector('strong');
-    if (!strong) return;
-    const text = strong.textContent.trim();
-    for (const [name, id] of Object.entries(PROJECT_MAP)) {
-        if (text.includes(name) || text.split(',')[0].includes(name.split(',')[0])) {
-            strong.classList.add('ai-project-link');
-            strong.addEventListener('click', () => showProject(id));
-            break;
-        }
-    }
-});
 
 async function reschedule(taskId, newDate, dueSpan) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;

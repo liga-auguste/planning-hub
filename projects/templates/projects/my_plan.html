@@ -50,6 +50,11 @@
        inside the box, and markdown output picks the list type. */
     .summary-box ul, .summary-box ol { padding-left: 20px; margin: 8px 0; }
     .summary-box li { margin-bottom: 4px; }
+    /* The nested task list carries its own checkboxes (#122) — the dot is
+       the marker, a second bullet in front of it would double up. */
+    .summary-box ul ul { list-style: none; padding-left: 8px; }
+    .summary-box .dot { vertical-align: middle; margin-right: 6px; }
+    .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     .summary-box hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 16px 0; }
     .summary-box.ai-error { color: var(--color-text-quaternary); font-style: italic; }
@@ -96,7 +101,29 @@ docs/demo-mode.md.
 
     {% if summary %}
     <div class="summary-label">KI-Wochenübersicht</div>
-    <div class="summary-box">{{ summary|safe }}</div>
+    <div class="summary-box">
+        {% for section in summary %}{% if section.blocks %}
+        <h2>{{ section.title }}</h2>
+        <ul>
+            {% for block in section.blocks %}
+            <li>
+                <strong>{{ block.heading }}</strong>
+                {% if block.assessment %}— {{ block.assessment }}{% endif %}
+                {% if block.tasks %}
+                <ul>
+                    {% for task in block.tasks %}
+                    <li>
+                        <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
+                        <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}{% endfor %}
+    </div>
     {% elif summary_error %}
     <div class="summary-label">KI-Wochenübersicht</div>
     <div class="summary-box ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar.</div>
@@ -151,14 +178,23 @@ docs/demo-mode.md.
 const CSRF = '{{ csrf_token }}';
 const total = {{ total }};
 
+// The same task renders in the task list and in the AI summary box (#122) —
+// apply the state to every copy sharing the id, not just the clicked one.
+function applyDone(taskId, done) {
+    document.querySelectorAll(`.dot[data-task-id="${taskId}"]`).forEach(el => {
+        el.dataset.done = done ? 'true' : 'false';
+        el.classList.toggle('done', done);
+        el.closest('.task-row')?.classList.toggle('done', done);
+        const name = el.closest('li')?.querySelector('.task-name');
+        if (name) name.classList.toggle('done', done);
+    });
+}
+
 async function toggleTask(btn) {
     const taskId = btn.dataset.taskId;
     const currentDone = btn.dataset.done === 'true';
     const newDone = !currentDone;
-    btn.dataset.done = newDone;
-    const row = document.getElementById('row-' + taskId);
-    row.classList.toggle('done', newDone);
-    btn.classList.toggle('done', newDone);
+    applyDone(taskId, newDone);
     updateProgress();
     const response = await fetch(`/session-task/${taskId}/toggle/`, {
         method: 'POST',
@@ -168,9 +204,7 @@ async function toggleTask(btn) {
     if (!response.ok) {
         // The session didn't have this task (stale tab, expired session) —
         // undo the optimistic update rather than show a state that isn't saved.
-        btn.dataset.done = currentDone;
-        row.classList.toggle('done', currentDone);
-        btn.classList.toggle('done', currentDone);
+        applyDone(taskId, currentDone);
         updateProgress();
         flashActionFailed(btn);
     }
