@@ -1,7 +1,7 @@
 {% extends 'projects/base_dashboard.html' %}
 {% load static %}
 
-{% block title %}{{ project.name }} – Planning Hub{% endblock %}
+{% block title %}{{ project.display_name }} – Planning Hub{% endblock %}
 
 {% block extra_css %}
     .page { max-width: 720px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
@@ -86,7 +86,7 @@ docs/demo-mode.md.
     </div>
 
     <div class="project-header">
-        <div class="project-name">{{ project.name }}</div>
+        <div class="project-name">{{ project.display_name }}</div>
         <div class="project-meta">
             <span>{{ project.event_date_display }}</span>
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}

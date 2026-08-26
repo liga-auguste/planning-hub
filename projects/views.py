@@ -165,8 +165,15 @@ def _group_by_month(projects):
     ]
 
 
-def _strip_year(name):
-    return re.sub(r"\s+\d{4}$", "", name).strip()
+# A trailing German date (12.09.2026, 1.9., …) or bare year, with an optional
+# comma/dash separator — the maintainer's Notion naming habit (#134).
+_TRAILING_DATE_RE = re.compile(r"[\s,–—-]+(?:\d{1,2}\.\d{1,2}\.(?:\d{4})?|\d{4})$")
+
+
+def _strip_trailing_date(name):
+    """Display-only: the Notion property keeps the full name."""
+    stripped = _TRAILING_DATE_RE.sub("", name).strip()
+    return stripped or name
 
 
 def index(request):
@@ -343,7 +350,7 @@ def dashboard(request):
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 
     for project in projects:
-        project["display_name"] = _strip_year(project["name"])
+        project["display_name"] = _strip_trailing_date(project["name"])
         project["event_date_display"] = _format_date(project["event_date"])
 
     month_groups = _group_by_month(projects)
@@ -602,6 +609,7 @@ def my_plan(request):
 
     today = timezone.localdate()
     project = _build_session_project(plan)
+    project["display_name"] = _strip_trailing_date(project["name"])
     project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
 
@@ -654,7 +662,9 @@ def download_plan(request):
     event_display = _format_date(event_date)
 
     lines = [
-        f"# {plan['name']}",
+        # Display-only cleanup (#134) — the export carries its own Zieldatum
+        # line right below. The filename keeps the raw name.
+        f"# {_strip_trailing_date(plan['name'])}",
         f"**Zieldatum:** {event_display}",
         "",
         "---",
