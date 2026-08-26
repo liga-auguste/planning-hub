@@ -177,6 +177,12 @@
                a stray line cutting through the button rather than a
                divider under the heading. */
             .project-header { padding-right: 44px; min-height: 48px; align-items: center; border-bottom: none; }
+            /* The wordmark row removed in #95 used to hold the top of the
+               page clear of the fixed hamburger launcher; whatever renders
+               first now rises into its band. Same reservation as
+               .project-header above: 20px content-body inset + the 36px
+               button minus the box's own 14px side padding, plus a gap. */
+            .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
         }
 {% endblock %}
 
@@ -297,11 +303,6 @@
 
 {% block content %}
     <div id="view-overview">
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
-            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" style="height:40px;width:auto;" class="logo-light">
-            <img src="{% static 'projects/logo_weiss.png' %}" alt="" style="height:40px;width:auto;" class="logo-dark">
-            <span style="font-size:11px;font-weight:700;color:var(--color-text-primary);letter-spacing:0.08em;text-transform:uppercase;">Planning Hub</span>
-        </div>
         {% if demo_mode and has_session_plan %}
         <div class="timelapse-bar" id="timelapse-bar" style="display:none;">
             <div class="timelapse-label">Zeitreise</div>
@@ -341,7 +342,7 @@
         {% endif %}
 
         <div class="ai-card">
-            <div style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
+            <div class="ai-card-header" style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
                 <div style="font-size: 22px; font-weight: 700;">Dashboard</div>
                 {% if demo_project_name %}
                 <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">

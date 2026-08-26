@@ -18,6 +18,12 @@
 <div class="sidebar" id="sidebar">
     <div class="sidebar-resize" id="sidebar-resize"></div>
     <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
+    {# Sibling of .sidebar-content, not inside it, so the collapsed rail keeps the icon mark (#95) — same constraint as .theme-toggle (#12). #}
+    <a class="sidebar-header" href="{% url 'dashboard' %}" aria-label="Planning Hub – Dashboard">
+        <img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light">
+        <img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark">
+        <span class="sidebar-logo-text">Planning Hub</span>
+    </a>
     <div class="sidebar-content">
         {% block sidebar_content %}{% endblock %}
     </div>
