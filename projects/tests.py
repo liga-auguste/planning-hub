@@ -5396,9 +5396,11 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.given_cached_summaries()
         response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 200)
+        # list(...keys()): SessionBase is not a dict and not iterable itself,
+        # so SIM118's bare-iteration fix does not apply (cf. planner_views).
         leftovers = [
             k
-            for k in self.client.session.keys()
+            for k in list(self.client.session.keys())
             if k.startswith("demo_plan_summary")
         ]
         self.assertEqual(leftovers, [])
