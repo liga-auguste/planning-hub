@@ -3637,7 +3637,11 @@ class AnnotateTasksTest(SimpleTestCase):
         # so a toggle must not move a task. See ai.py.
         project = self.annotate(
             {"name": "Später offen", "due": self.TODAY + timedelta(days=5)},
-            {"name": "Früher erledigt", "done": True, "due": self.TODAY + timedelta(days=1)},
+            {
+                "name": "Früher erledigt",
+                "done": True,
+                "due": self.TODAY + timedelta(days=1),
+            },
         )
         self.assertEqual(self.names(project), ["Früher erledigt", "Später offen"])
 
@@ -3674,8 +3678,7 @@ class TaskSortOrderInViewsTest(DemoModeTestCase):
 
     def assert_chronological(self, html):
         positions = [
-            html.index(name)
-            for name in ("Frühaufgabe", "Mittelaufgabe", "Spätaufgabe")
+            html.index(name) for name in ("Frühaufgabe", "Mittelaufgabe", "Spätaufgabe")
         ]
         self.assertEqual(positions, sorted(positions))
 
@@ -3690,7 +3693,7 @@ class TaskSortOrderInViewsTest(DemoModeTestCase):
         # Only from the project section on — the kanban columns above it
         # split the same tasks by urgency, which reorders first occurrences.
         html = response.content.decode()
-        self.assert_chronological(html[html.index('class="project-section"'):])
+        self.assert_chronological(html[html.index('class="project-section"') :])
 
 
 # --- #29: fail at startup, not at first request ---
