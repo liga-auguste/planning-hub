@@ -3650,6 +3650,28 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(self.names(project), ["Zuerst", "Danach"])
 
 
+class UrgentDotColorTest(DemoModeTestCase):
+    """The landing mockup and the dashboard overview tab paint urgent dots
+    orange; the task lists painted them gray — a leftover from the first
+    dashboard build (825ec10, #c8c8c8) that split the urgency palette
+    across surfaces."""
+
+    RULE = ".dot.urgent { background: var(--color-urgent); }"
+
+    def test_dashboard_urgent_dots_are_orange(self):
+        self.given_session_plan()
+        self.assertContains(self.client.get(reverse("dashboard")), self.RULE)
+
+    def test_my_plan_urgent_dots_are_orange(self):
+        self.given_session_plan()
+        self.assertContains(self.client.get(reverse("my_plan")), self.RULE)
+
+    def test_landing_mockup_keeps_the_same_rule(self):
+        # The reference this aligns to — if the mockup changes, the suite
+        # should say the two drifted apart again.
+        self.assertContains(self.client.get(reverse("index")), self.RULE)
+
+
 class TaskSortOrderInViewsTest(DemoModeTestCase):
     """#140: the per-project task lists render chronologically — my_plan and
     the dashboard project section both go through _annotate_tasks, which now
