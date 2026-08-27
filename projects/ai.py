@@ -77,7 +77,9 @@ def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
     only ever shows open tasks: numbering by openness would shift every later
     number the moment a task is toggled between cache-write and render time,
     silently re-pointing the cached refs at the wrong tasks. Position depends
-    only on task order, which is stable across a toggle.
+    only on task order, which is stable across a toggle. That order is the
+    chronological one _annotate_tasks (views.py) establishes before every
+    prompt build and every resolve, so both sides number the same list (#140).
     """
     numbered_projects = [p for p in projects if p["event_date"]]
     numbered_tasks = [t for p in numbered_projects for t in p["tasks"]]

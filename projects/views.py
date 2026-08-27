@@ -69,14 +69,16 @@ def _format_date(d):
 
 # Both cache keys and SUMMARY_KEY store the summary's raw reference dict
 # (#122), so they carry a version that is bumped on every format change
-# (#20: v2/v4; #122: v3/v5) — otherwise a pre-deploy entry in the old shape
-# would crash or misrender under the new resolver.
-CACHE_KEY = "dashboard_data_v3"
+# (#20: v2/v4; #122: v3/v5; #140: v4/v6 — task order changed, and pre-deploy
+# task_refs were numbered against the unsorted order) — otherwise a
+# pre-deploy entry in the old shape would crash or misrender under the new
+# resolver.
+CACHE_KEY = "dashboard_data_v4"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v3"
+STALE_CACHE_KEY = "dashboard_data_stale_v4"
 
 
 def _bust_dashboard_cache():
@@ -88,14 +90,14 @@ def _bust_dashboard_cache():
 
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
-SUMMARY_KEY = "demo_plan_summary_v5"
+SUMMARY_KEY = "demo_plan_summary_v6"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v2"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v3"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the
@@ -106,6 +108,12 @@ RING_CIRCUMFERENCE = round(2 * math.pi * RING_RADIUS, 2)  # 43.98
 
 def _annotate_tasks(projects, today):
     for project in projects:
+        # Chronological order for every task-list view, dateless tasks last
+        # (#140). `done` is deliberately not part of the key: done tasks stay
+        # interleaved at their date position, and the cached summary's
+        # task_refs are positions in this order (_number_projects_and_tasks,
+        # ai.py) — a key that moved tasks on toggle would re-point them.
+        project["tasks"].sort(key=lambda t: (t["due"] is None, t["due"] or date.max))
         project_urgency = "ok"
         done_count = 0
         for task in project["tasks"]:
@@ -549,6 +557,13 @@ def reschedule_task_view(request, task_id):
             return JsonResponse({"error": "unknown task"}, status=404)
         task["date"] = raw_date
         request.session["demo_plan"] = plan
+        # The task order is chronological (#140), so a new date moves the
+        # task — cached summaries would keep task_refs numbered against the
+        # old positions and silently re-point (see _annotate_tasks). Same
+        # unversioned-prefix sweep as planner_create (planner_views.py).
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
     else:
         try:
             update_task_date(task_id, raw_date)

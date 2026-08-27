@@ -3611,6 +3611,90 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(project["total_count"], 0)
         self.assertEqual(project["ring_dashoffset"], "43.98")
 
+    # --- #140: tasks come out in chronological order ---
+
+    def names(self, project):
+        return [t["name"] for t in project["tasks"]]
+
+    def test_tasks_are_sorted_by_due_date(self):
+        project = self.annotate(
+            {"name": "Spät", "due": self.TODAY + timedelta(days=9)},
+            {"name": "Früh", "due": self.TODAY + timedelta(days=1)},
+            {"name": "Mittel", "due": self.TODAY + timedelta(days=5)},
+        )
+        self.assertEqual(self.names(project), ["Früh", "Mittel", "Spät"])
+
+    def test_dateless_tasks_go_to_the_end(self):
+        project = self.annotate(
+            {"name": "Ohne Datum", "due": None},
+            {"name": "Mit Datum", "due": self.TODAY + timedelta(days=1)},
+        )
+        self.assertEqual(self.names(project), ["Mit Datum", "Ohne Datum"])
+
+    def test_done_tasks_stay_at_their_date_position(self):
+        # `done` must not be part of the sort key: task_refs in the cached
+        # summary are positions in this order (_number_projects_and_tasks),
+        # so a toggle must not move a task. See ai.py.
+        project = self.annotate(
+            {"name": "Später offen", "due": self.TODAY + timedelta(days=5)},
+            {
+                "name": "Früher erledigt",
+                "done": True,
+                "due": self.TODAY + timedelta(days=1),
+            },
+        )
+        self.assertEqual(self.names(project), ["Früher erledigt", "Später offen"])
+
+    def test_equal_dates_keep_their_relative_order(self):
+        due = self.TODAY + timedelta(days=3)
+        project = self.annotate(
+            {"name": "Zuerst", "due": due},
+            {"name": "Danach", "due": due},
+        )
+        self.assertEqual(self.names(project), ["Zuerst", "Danach"])
+
+
+class TaskSortOrderInViewsTest(DemoModeTestCase):
+    """#140: the per-project task lists render chronologically — my_plan and
+    the dashboard project section both go through _annotate_tasks, which now
+    sorts in place."""
+
+    def given_unsorted_plan(self):
+        base = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": f"demo-session-{i}",
+                    "name": name,
+                    "date": (base + timedelta(days=days)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+                for i, (name, days) in enumerate(
+                    [("Spätaufgabe", 20), ("Frühaufgabe", 2), ("Mittelaufgabe", 10)]
+                )
+            ]
+        )
+
+    def assert_chronological(self, html):
+        positions = [
+            html.index(name) for name in ("Frühaufgabe", "Mittelaufgabe", "Spätaufgabe")
+        ]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_my_plan_lists_tasks_in_date_order(self):
+        self.given_unsorted_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assert_chronological(response.content.decode())
+
+    def test_dashboard_project_section_lists_tasks_in_date_order(self):
+        self.given_unsorted_plan()
+        response = self.client.get(reverse("dashboard"))
+        # Only from the project section on — the kanban columns above it
+        # split the same tasks by urgency, which reorders first occurrences.
+        html = response.content.decode()
+        self.assert_chronological(html[html.index('class="project-section"') :])
+
 
 # --- #29: fail at startup, not at first request ---
 
@@ -5295,6 +5379,50 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
     def test_no_session_plan_at_all_is_a_404(self):
         response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 404)
+
+    # --- #140: the task order is chronological, so a new date moves the
+    # task; a cached summary's task_refs would keep pointing at the old
+    # positions. A reschedule therefore sweeps the session summaries the
+    # way planner_create does. ---
+
+    def given_cached_summaries(self):
+        """A current-version summary, a preloaded sim-date one, and an
+        old-version leftover — the unversioned-prefix sweep clears all three."""
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = {"summary": "alt"}
+        session[f"{SUMMARY_KEY}_2026-09-01"] = {"summary": "alt"}
+        session["demo_plan_summary_v1_today"] = {"summary": "uralt"}
+        session.save()
+
+    def test_a_reschedule_clears_every_cached_summary(self):
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 200)
+        # list(...keys()): SessionBase is not a dict and not iterable itself,
+        # so SIM118's bare-iteration fix does not apply (cf. planner_views).
+        leftovers = [
+            k
+            for k in list(self.client.session.keys())
+            if k.startswith("demo_plan_summary")
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_a_rejected_reschedule_keeps_the_cached_summaries(self):
+        # Nothing moved, so nothing may be thrown away — the summary is a
+        # Claude call the visitor would otherwise pay for again.
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_an_unknown_task_keeps_the_cached_summaries(self):
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-1-7", f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
