@@ -5,6 +5,8 @@ An AI-powered project planning assistant. Describe an event or project in plain 
 > **Live demo:** [planninghub.ligaauguste.de](https://planninghub.ligaauguste.de) — no login required
 >
 > The interface and all AI-generated output are in German; the codebase and its documentation are in English. See [`CLAUDE.md`](CLAUDE.md) for the full convention.
+>
+> Built by specifying and reviewing rather than typing: see [How this was built](#how-this-was-built).
 
 ---
 
@@ -85,6 +87,20 @@ Notion already holds years of project history and is the daily working environme
 ### Context as Claude's own suggestion, not a keyword guess
 
 Each production task belongs to a workflow context (e.g. planning, admin, on-site) — one of a fixed vocabulary Claude already suggests per task while generating the plan. The planner review screen offers it as an editable dropdown, and the confirmed value is persisted to Notion's `Kontext` property alongside the task. The AI weekly-summary prompt then groups open tasks by context across all active projects. An earlier version derived context after the fact from task-name keywords instead — that broke down the moment two maintainers' vocabularies disagreed, and produced no useful grouping for a demo visitor's one-off project, so context is a production-only concept: demo mode does not collect, derive, store or display it.
+
+---
+
+## How this was built
+
+The implementation is delegated to Claude Code. What stays with me is the specification and the review.
+
+Every change runs on its own branch and lands through a pull request; nothing goes to `main` directly. Three things make that delegation pay off:
+
+- **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
+- **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
+- **The test suite** is where the delegation is actually checked: 5,998 lines of tests against 3,188 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
+
+A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/planning-hub/issues/116) → [`docs/planner-step-navigation.md`](docs/planner-step-navigation.md) → [PR #123](https://github.com/liga-auguste/planning-hub/pull/123).
 
 ---
 
