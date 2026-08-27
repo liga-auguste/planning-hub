@@ -557,6 +557,13 @@ def reschedule_task_view(request, task_id):
             return JsonResponse({"error": "unknown task"}, status=404)
         task["date"] = raw_date
         request.session["demo_plan"] = plan
+        # The task order is chronological (#140), so a new date moves the
+        # task — cached summaries would keep task_refs numbered against the
+        # old positions and silently re-point (see _annotate_tasks). Same
+        # unversioned-prefix sweep as planner_create (planner_views.py).
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
     else:
         try:
             update_task_date(task_id, raw_date)

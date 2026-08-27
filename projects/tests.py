@@ -5377,6 +5377,48 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 404)
 
+    # --- #140: the task order is chronological, so a new date moves the
+    # task; a cached summary's task_refs would keep pointing at the old
+    # positions. A reschedule therefore sweeps the session summaries the
+    # way planner_create does. ---
+
+    def given_cached_summaries(self):
+        """A current-version summary, a preloaded sim-date one, and an
+        old-version leftover — the unversioned-prefix sweep clears all three."""
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = {"summary": "alt"}
+        session[f"{SUMMARY_KEY}_2026-09-01"] = {"summary": "alt"}
+        session["demo_plan_summary_v1_today"] = {"summary": "uralt"}
+        session.save()
+
+    def test_a_reschedule_clears_every_cached_summary(self):
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 200)
+        leftovers = [
+            k
+            for k in self.client.session.keys()
+            if k.startswith("demo_plan_summary")
+        ]
+        self.assertEqual(leftovers, [])
+
+    def test_a_rejected_reschedule_keeps_the_cached_summaries(self):
+        # Nothing moved, so nothing may be thrown away — the summary is a
+        # Claude call the visitor would otherwise pay for again.
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_an_unknown_task_keeps_the_cached_summaries(self):
+        self.given_session_plan()
+        self.given_cached_summaries()
+        response = self.post_date("demo-1-7", f'{{"date": "{self.NEW_DATE}"}}')
+        self.assertEqual(response.status_code, 404)
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
     """§5 of #10: rescheduling is offered exactly where it persists — via Notion
