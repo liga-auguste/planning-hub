@@ -3611,6 +3611,87 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(project["total_count"], 0)
         self.assertEqual(project["ring_dashoffset"], "43.98")
 
+    # --- #140: tasks come out in chronological order ---
+
+    def names(self, project):
+        return [t["name"] for t in project["tasks"]]
+
+    def test_tasks_are_sorted_by_due_date(self):
+        project = self.annotate(
+            {"name": "Spät", "due": self.TODAY + timedelta(days=9)},
+            {"name": "Früh", "due": self.TODAY + timedelta(days=1)},
+            {"name": "Mittel", "due": self.TODAY + timedelta(days=5)},
+        )
+        self.assertEqual(self.names(project), ["Früh", "Mittel", "Spät"])
+
+    def test_dateless_tasks_go_to_the_end(self):
+        project = self.annotate(
+            {"name": "Ohne Datum", "due": None},
+            {"name": "Mit Datum", "due": self.TODAY + timedelta(days=1)},
+        )
+        self.assertEqual(self.names(project), ["Mit Datum", "Ohne Datum"])
+
+    def test_done_tasks_stay_at_their_date_position(self):
+        # `done` must not be part of the sort key: task_refs in the cached
+        # summary are positions in this order (_number_projects_and_tasks),
+        # so a toggle must not move a task. See ai.py.
+        project = self.annotate(
+            {"name": "Später offen", "due": self.TODAY + timedelta(days=5)},
+            {"name": "Früher erledigt", "done": True, "due": self.TODAY + timedelta(days=1)},
+        )
+        self.assertEqual(self.names(project), ["Früher erledigt", "Später offen"])
+
+    def test_equal_dates_keep_their_relative_order(self):
+        due = self.TODAY + timedelta(days=3)
+        project = self.annotate(
+            {"name": "Zuerst", "due": due},
+            {"name": "Danach", "due": due},
+        )
+        self.assertEqual(self.names(project), ["Zuerst", "Danach"])
+
+
+class TaskSortOrderInViewsTest(DemoModeTestCase):
+    """#140: the per-project task lists render chronologically — my_plan and
+    the dashboard project section both go through _annotate_tasks, which now
+    sorts in place."""
+
+    def given_unsorted_plan(self):
+        base = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": f"demo-session-{i}",
+                    "name": name,
+                    "date": (base + timedelta(days=days)).isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+                for i, (name, days) in enumerate(
+                    [("Spätaufgabe", 20), ("Frühaufgabe", 2), ("Mittelaufgabe", 10)]
+                )
+            ]
+        )
+
+    def assert_chronological(self, html):
+        positions = [
+            html.index(name)
+            for name in ("Frühaufgabe", "Mittelaufgabe", "Spätaufgabe")
+        ]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_my_plan_lists_tasks_in_date_order(self):
+        self.given_unsorted_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assert_chronological(response.content.decode())
+
+    def test_dashboard_project_section_lists_tasks_in_date_order(self):
+        self.given_unsorted_plan()
+        response = self.client.get(reverse("dashboard"))
+        # Only from the project section on — the kanban columns above it
+        # split the same tasks by urgency, which reorders first occurrences.
+        html = response.content.decode()
+        self.assert_chronological(html[html.index('class="project-section"'):])
+
 
 # --- #29: fail at startup, not at first request ---
 
