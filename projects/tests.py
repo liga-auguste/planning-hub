@@ -1401,6 +1401,17 @@ class DarkThemeTest(DemoModeTestCase):
         rule = css[start : css.index("}", start)]
         self.assertNotIn("display", rule)
 
+    def test_my_plan_css_does_not_override_the_logo_swap_display_rule(self):
+        """#143: same specificity trap as #103, this time in my_plan.html's
+        inline extra_css — `.logo img { display: block }` outranked
+        `.logo-dark { display: none }`, so both logo variants rendered at
+        once in the top nav. The rule must only size the logo."""
+        self.given_session_plan()
+        html = self.client.get("/mein-plan/").content.decode()
+        start = html.index(".logo img {")
+        rule = html[start : html.index("}", start)]
+        self.assertNotIn("display", rule)
+
 
 class CardUsesBootstrapVariablesTest(DemoModeTestCase):
     """#64 unit 3: --bs-card-spacer-x/y are read by .card-body, not by .card,
