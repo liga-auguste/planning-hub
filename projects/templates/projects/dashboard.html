@@ -370,7 +370,14 @@
                 </form>
                 {% endif %}
             </div>
+            {% comment %}
+            Hidden while a moment is simulated (#153): the sim banner is the
+            single date authority then — the real date next to it read as a
+            contradiction, not context.
+            {% endcomment %}
+            {% if not sim_date %}
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
+            {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {% if summary %}
             {% for section in summary %}{% if section.blocks %}
