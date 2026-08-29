@@ -116,12 +116,16 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             task_no += 1
             if t["done"]:
                 continue
-            diff = (t["due"] - today).days if t["due"] else "?"
-            urgency = (
-                " — DIESE WOCHE"
-                if isinstance(diff, int) and diff <= 7
-                else f" (fällig in {diff} Tagen)"
-            )
+            if t["due"] is None:
+                urgency = " — ohne Termin"
+            else:
+                diff = (t["due"] - today).days
+                if diff == 0:
+                    urgency = " — HEUTE fällig"
+                elif diff <= 7:
+                    urgency = " — DIESE WOCHE"
+                else:
+                    urgency = f" (fällig in {diff} Tagen)"
             kontext = (
                 f" [Kontext: {', '.join(t['kontext'])}]"
                 if (t["kontext"] and not single_project_demo)

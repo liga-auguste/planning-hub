@@ -14,6 +14,9 @@
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
     --color-urgent: #f97316;
+    /* amber-700, not amber-600: #d97706 sits at ΔE2000 ≈ 8 from the urgent
+       orange — indistinguishable at 7 px dot size (#160). */
+    --color-today: #b45309;
     --color-done: #22c55e;
     --color-overdue-tint: #fef2f2;
     --color-urgent-tint: #fff3e8;
@@ -73,6 +76,7 @@
     --color-accent-tint: #18182f;
     --color-overdue: #f87171;
     --color-urgent: #fb923c;
+    --color-today: #fbbf24;
     --color-done: #4ade80;
     --color-overdue-tint: #2d1517;
     --color-urgent-tint: #2d1f12;

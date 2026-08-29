@@ -35,6 +35,7 @@ for its dark theme.
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
     --color-urgent: #f97316;
+    --color-today: #b45309;
     --color-done: #22c55e;
     --color-overdue-tint: #fef2f2;
     --color-urgent-tint: #fff3e8;
@@ -49,7 +50,7 @@ for its dark theme.
 | `--color-border-primary/secondary` | Hairline borders and dividers |
 | `--color-text-primary` → `--color-text-quaternary` | Text and icon color, strongest to most muted |
 | `--color-accent*` | Interactive/focus accent (links, hover borders) |
-| `--color-overdue` / `--color-urgent` / `--color-done` | The one status color per state — previously 3 reds and 3 oranges |
+| `--color-overdue` / `--color-urgent` / `--color-today` / `--color-done` | The one status color per state — previously 3 reds and 3 oranges. `--color-today` (#160) is amber-700 light / amber-400 dark: amber-600 sits at ΔE2000 ≈ 8 from the urgent orange, too close to tell apart at 7 px dot size |
 | `--color-overdue-tint` / `--color-urgent-tint` | Light backgrounds for status badges and notices |
 | `--shadow-low` / `--shadow-medium` | The two elevation levels — hover/active shadows, plus `--shadow-medium` for the sidebar's static elevation as a floating tile (#96) |
 
