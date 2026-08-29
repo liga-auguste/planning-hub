@@ -1009,7 +1009,7 @@ class SidebarProgressRingTest(DemoModeTestCase):
                 {
                     "id": "t1",
                     "name": "Bald fällig",
-                    "date": date.today().isoformat(),
+                    "date": (date.today() + timedelta(days=2)).isoformat(),
                     "kontext": "",
                     "done": False,
                 }
@@ -1017,6 +1017,22 @@ class SidebarProgressRingTest(DemoModeTestCase):
         )
         response = self.client.get("/dashboard/")
         self.assertContains(response, "progress-ring-fill urgent")
+
+    def test_due_today_project_gets_the_today_ring_class(self):
+        # #160: due today outranks urgent on the project level.
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Heute fällig",
+                    "date": date.today().isoformat(),
+                    "kontext": "",
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.get("/dashboard/")
+        self.assertContains(response, "progress-ring-fill today")
 
     def test_on_track_project_gets_the_ok_ring_class(self):
         self.given_session_plan(
@@ -2809,7 +2825,7 @@ class MidnightBoundaryUsesLocalDateTest(DemoModeTestCase):
         )
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, 'class="dot overdue"')
-        self.assertContains(response, 'class="dot urgent"')
+        self.assertContains(response, 'class="dot today"')
         self.assertNotContains(response, 'class="dot ok"')
 
 
@@ -3554,16 +3570,25 @@ class AnnotateTasksTest(SimpleTestCase):
             self.urgency_for(done=True, due=self.TODAY - timedelta(days=1)), "done"
         )
 
-    def test_task_without_due_date_is_done(self):
-        self.assertEqual(self.urgency_for(due=None), "done")
+    def test_open_task_without_due_date_is_undated(self):
+        # #160: an open task with no due date must not render as done.
+        self.assertEqual(self.urgency_for(due=None), "undated")
+
+    def test_done_task_without_due_date_is_done(self):
+        # done wins over undated — the checkbox state is what counts.
+        self.assertEqual(self.urgency_for(done=True, due=None), "done")
 
     def test_past_due_is_overdue(self):
         self.assertEqual(
             self.urgency_for(due=self.TODAY - timedelta(days=1)), "overdue"
         )
 
-    def test_today_is_urgent(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY), "urgent")
+    def test_due_today_is_today(self):
+        # #160: due today is its own level, distinct from "urgent".
+        self.assertEqual(self.urgency_for(due=self.TODAY), "today")
+
+    def test_due_tomorrow_is_urgent(self):
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=1)), "urgent")
 
     def test_seven_days_out_is_still_urgent(self):
         self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), "urgent")
@@ -3578,8 +3603,35 @@ class AnnotateTasksTest(SimpleTestCase):
         )
         self.assertEqual(project["urgency"], "overdue")
 
+    def test_a_today_task_lifts_the_project_to_today(self):
+        project = self.annotate(
+            {"due": self.TODAY},
+            {"due": self.TODAY + timedelta(days=30)},
+        )
+        self.assertEqual(project["urgency"], "today")
+
+    def test_overdue_beats_today_on_the_project(self):
+        project = self.annotate(
+            {"due": self.TODAY},
+            {"due": self.TODAY - timedelta(days=2)},
+        )
+        self.assertEqual(project["urgency"], "overdue")
+
+    def test_today_beats_urgent_on_the_project(self):
+        project = self.annotate(
+            {"due": self.TODAY + timedelta(days=2)},
+            {"due": self.TODAY},
+        )
+        self.assertEqual(project["urgency"], "today")
+
     def test_project_without_open_work_stays_ok(self):
         project = self.annotate({"due": self.TODAY + timedelta(days=30)})
+        self.assertEqual(project["urgency"], "ok")
+
+    def test_a_project_with_only_undated_tasks_stays_ok(self):
+        # No date means no deadline pressure — undated never lifts the
+        # project urgency.
+        project = self.annotate({"due": None})
         self.assertEqual(project["urgency"], "ok")
 
     def test_due_display_is_formatted_german(self):
@@ -3596,8 +3648,8 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(project["total_count"], 3)
 
     def test_a_dateless_undone_task_does_not_count_as_done(self):
-        # It's annotated urgency="done" above (no due date), but done_count
-        # has to come from task["done"] directly or this would miscount it.
+        # done_count comes from task["done"] directly — since #160 the
+        # urgency is "undated" anyway, but the count must not depend on it.
         project = self.annotate({"done": False, "due": None})
         self.assertEqual(project["done_count"], 0)
         self.assertEqual(project["total_count"], 1)
@@ -3681,10 +3733,14 @@ class UrgentDotColorTest(DemoModeTestCase):
         self.given_session_plan()
         self.assertContains(self.client.get(reverse("my_plan")), self.RULE)
 
-    def test_landing_mockup_keeps_the_same_rule(self):
-        # The reference this aligns to — if the mockup changes, the suite
-        # should say the two drifted apart again.
-        self.assertContains(self.client.get(reverse("index")), self.RULE)
+    def test_landing_mockup_uses_the_product_today_rule(self):
+        # The mockup's "heute" rows wear the product's due-today amber
+        # (#160), no longer the urgent orange — same drift guard, new rule:
+        # if the palettes split across surfaces again, the suite should say.
+        self.assertContains(
+            self.client.get(reverse("index")),
+            ".dot.today { background: var(--color-today); }",
+        )
 
 
 class TaskSortOrderInViewsTest(DemoModeTestCase):
@@ -3727,6 +3783,160 @@ class TaskSortOrderInViewsTest(DemoModeTestCase):
         # split the same tasks by urgency, which reorders first occurrences.
         html = response.content.decode()
         self.assert_chronological(html[html.index('class="project-section"') :])
+
+
+class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
+    """#160: an open task without a due date renders as "undated" — Offen
+    column, neutral dot — instead of borrowing the done styling, and a task
+    due today renders as "today", distinct from "urgent"."""
+
+    def given_mixed_plan(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Ohne-Termin-Aufgabe",
+                    "date": None,
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Heute-Aufgabe",
+                    "date": date.today().isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-2",
+                    "name": "Erledigt-Aufgabe",
+                    "date": None,
+                    "done": True,
+                },
+            ]
+        )
+
+    def kanban_columns(self):
+        """Splits the dashboard HTML into (open, urgent, done) column slices."""
+        html = self.client.get(reverse("dashboard")).content.decode()
+        open_start = html.index('id="count-open"')
+        urgent_start = html.index('id="count-urgent"')
+        done_start = html.index('id="count-done"')
+        end = html.index('class="project-section"')
+        return (
+            html[open_start:urgent_start],
+            html[urgent_start:done_start],
+            html[done_start:end],
+        )
+
+    def test_an_open_undated_task_lands_in_the_open_column(self):
+        self.given_mixed_plan()
+        open_col, _urgent_col, done_col = self.kanban_columns()
+        self.assertIn("Ohne-Termin-Aufgabe", open_col)
+        self.assertIn("kanban-card undated", open_col)
+        self.assertNotIn("Ohne-Termin-Aufgabe", done_col)
+
+    def test_a_task_due_today_lands_in_the_urgent_column_as_today(self):
+        self.given_mixed_plan()
+        _open_col, urgent_col, _done_col = self.kanban_columns()
+        self.assertIn("Heute-Aufgabe", urgent_col)
+        self.assertIn("kanban-card today", urgent_col)
+
+    def test_a_done_undated_task_still_lands_in_the_done_column(self):
+        self.given_mixed_plan()
+        open_col, _urgent_col, done_col = self.kanban_columns()
+        self.assertIn("Erledigt-Aufgabe", done_col)
+        self.assertNotIn("Erledigt-Aufgabe", open_col)
+
+    def test_the_progress_counters_include_undated_and_today(self):
+        self.given_mixed_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".kanban-card.ok, .kanban-card.undated")
+        self.assertContains(
+            response, ".kanban-card.urgent, .kanban-card.overdue, .kanban-card.today"
+        )
+
+    def test_the_dashboard_css_defines_the_today_rules(self):
+        self.given_mixed_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".dot.today { background: var(--color-today); }")
+        self.assertContains(
+            response, ".progress-ring-fill.today { stroke: var(--color-today); }"
+        )
+        self.assertContains(response, ".kanban-card.today")
+        self.assertContains(response, ".task-due.today")
+
+    def test_reschedule_js_clears_the_today_class_too(self):
+        # Rescheduling a due-today task away must not leave the amber
+        # styling behind until the next reload.
+        self.given_mixed_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
+
+    def test_the_today_dot_rule_precedes_the_done_rule(self):
+        # Equal specificity — the later rule wins, and a checked-off task
+        # must turn gray even while the JS leaves the today class in place.
+        self.given_mixed_plan()
+        for url in ("dashboard", "my_plan"):
+            with self.subTest(url=url):
+                html = self.client.get(reverse(url)).content.decode()
+                self.assertLess(html.index(".dot.today"), html.index(".dot.done"))
+
+    def test_my_plan_undated_dot_is_not_done(self):
+        self.given_mixed_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "dot undated")
+
+    def test_my_plan_today_date_label_carries_today(self):
+        self.given_mixed_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "task-date today")
+        self.assertContains(response, ".task-date.today { color: var(--color-today); }")
+
+    def test_base_css_defines_the_today_token_in_both_themes(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        self.assertEqual(css.count("--color-today:"), 2)
+
+
+class PromptUndatedAndTodayTest(SimpleTestCase):
+    """#160: the weekly-summary prompt describes undated open tasks as
+    "ohne Termin" (previously the nonsensical "fällig in ? Tagen") and flags
+    due-today tasks as "HEUTE fällig"."""
+
+    TODAY = date(2026, 9, 1)
+
+    def project_with_task(self, **task):
+        return {
+            "id": "p-solo",
+            "name": "Konzert Solo",
+            "event_date": self.TODAY + timedelta(days=5),
+            "performers": "",
+            "tasks": [
+                {
+                    "id": "t-x",
+                    "name": "Aufgabe X",
+                    "due": None,
+                    "done": False,
+                    "kontext": [],
+                    **task,
+                }
+            ],
+        }
+
+    def test_an_undated_task_reads_ohne_termin(self):
+        prompt = build_prompt([self.project_with_task(due=None)], self.TODAY)
+        self.assertIn("Aufgabe X — ohne Termin", prompt)
+        self.assertNotIn("fällig in ? Tagen", prompt)
+
+    def test_a_task_due_today_reads_heute_faellig(self):
+        prompt = build_prompt([self.project_with_task(due=self.TODAY)], self.TODAY)
+        self.assertIn("Aufgabe X — HEUTE fällig", prompt)
+
+    def test_a_task_due_this_week_keeps_diese_woche(self):
+        prompt = build_prompt(
+            [self.project_with_task(due=self.TODAY + timedelta(days=3))], self.TODAY
+        )
+        self.assertIn("Aufgabe X — DIESE WOCHE", prompt)
 
 
 # --- #29: fail at startup, not at first request ---

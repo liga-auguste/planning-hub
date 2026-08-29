@@ -70,15 +70,16 @@ def _format_date(d):
 # Both cache keys and SUMMARY_KEY store the summary's raw reference dict
 # (#122), so they carry a version that is bumped on every format change
 # (#20: v2/v4; #122: v3/v5; #140: v4/v6 — task order changed, and pre-deploy
-# task_refs were numbered against the unsorted order) — otherwise a
-# pre-deploy entry in the old shape would crash or misrender under the new
-# resolver.
-CACHE_KEY = "dashboard_data_v4"
+# task_refs were numbered against the unsorted order; #160: v5 — the stored
+# projects are annotated, and a pre-deploy entry would keep rendering open
+# undated tasks as done) — otherwise a pre-deploy entry in the old shape
+# would crash or misrender under the new resolver.
+CACHE_KEY = "dashboard_data_v5"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v4"
+STALE_CACHE_KEY = "dashboard_data_stale_v5"
 
 
 def _bust_dashboard_cache():
@@ -106,6 +107,18 @@ RING_RADIUS = 7
 RING_CIRCUMFERENCE = round(2 * math.pi * RING_RADIUS, 2)  # 43.98
 
 
+# Project urgency is the highest-ranked task urgency; "done" and "undated"
+# rank like "ok" — neither exerts deadline pressure.
+_URGENCY_RANK = {
+    "overdue": 3,
+    "today": 2,
+    "urgent": 1,
+    "ok": 0,
+    "done": 0,
+    "undated": 0,
+}
+
+
 def _annotate_tasks(projects, today):
     for project in projects:
         # Chronological order for every task-list view, dateless tasks last
@@ -117,21 +130,23 @@ def _annotate_tasks(projects, today):
         project_urgency = "ok"
         done_count = 0
         for task in project["tasks"]:
-            if task["done"] or not task["due"]:
+            if task["done"]:
                 task["urgency"] = "done"
+            elif not task["due"]:
+                # An open task without a date is its own state (#160) — no
+                # deadline pressure, so it never lifts the project urgency.
+                task["urgency"] = "undated"
             elif task["due"] < today:
                 task["urgency"] = "overdue"
-                project_urgency = "overdue"
+            elif task["due"] == today:
+                task["urgency"] = "today"
             elif (task["due"] - today).days <= 7:
                 task["urgency"] = "urgent"
-                if project_urgency != "overdue":
-                    project_urgency = "urgent"
             else:
                 task["urgency"] = "ok"
+            if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
+                project_urgency = task["urgency"]
             task["due_display"] = _format_date(task["due"])
-            # Counted from task["done"] directly, not urgency == "done": a
-            # task with no due date is annotated "done" above even when it
-            # isn't, which would otherwise miscount it as complete.
             if task["done"]:
                 done_count += 1
         project["urgency"] = project_urgency
