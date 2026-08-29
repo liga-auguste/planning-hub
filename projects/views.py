@@ -109,7 +109,14 @@ RING_CIRCUMFERENCE = round(2 * math.pi * RING_RADIUS, 2)  # 43.98
 
 # Project urgency is the highest-ranked task urgency; "done" and "undated"
 # rank like "ok" — neither exerts deadline pressure.
-_URGENCY_RANK = {"overdue": 3, "today": 2, "urgent": 1, "ok": 0, "done": 0, "undated": 0}
+_URGENCY_RANK = {
+    "overdue": 3,
+    "today": 2,
+    "urgent": 1,
+    "ok": 0,
+    "done": 0,
+    "undated": 0,
+}
 
 
 def _annotate_tasks(projects, today):

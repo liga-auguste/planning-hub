@@ -3825,20 +3825,20 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
     def test_an_open_undated_task_lands_in_the_open_column(self):
         self.given_mixed_plan()
-        open_col, urgent_col, done_col = self.kanban_columns()
+        open_col, _urgent_col, done_col = self.kanban_columns()
         self.assertIn("Ohne-Termin-Aufgabe", open_col)
         self.assertIn("kanban-card undated", open_col)
         self.assertNotIn("Ohne-Termin-Aufgabe", done_col)
 
     def test_a_task_due_today_lands_in_the_urgent_column_as_today(self):
         self.given_mixed_plan()
-        open_col, urgent_col, done_col = self.kanban_columns()
+        _open_col, urgent_col, _done_col = self.kanban_columns()
         self.assertIn("Heute-Aufgabe", urgent_col)
         self.assertIn("kanban-card today", urgent_col)
 
     def test_a_done_undated_task_still_lands_in_the_done_column(self):
         self.given_mixed_plan()
-        open_col, urgent_col, done_col = self.kanban_columns()
+        open_col, _urgent_col, done_col = self.kanban_columns()
         self.assertIn("Erledigt-Aufgabe", done_col)
         self.assertNotIn("Erledigt-Aufgabe", open_col)
 
@@ -3878,9 +3878,7 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         self.given_mixed_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, "task-date today")
-        self.assertContains(
-            response, ".task-date.today { color: var(--color-today); }"
-        )
+        self.assertContains(response, ".task-date.today { color: var(--color-today); }")
 
     def test_base_css_defines_the_today_token_in_both_themes(self):
         css = (
