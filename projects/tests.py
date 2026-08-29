@@ -2407,6 +2407,53 @@ class PlannerReviewDateFallbackTest(DemoModeTestCase):
         self.assertContains(response, 'id="date-uncertain-notice" hidden')
 
 
+class PlannerReviewSortsTasksTest(DemoModeTestCase):
+    """#152: the review table lists tasks chronologically (days_before
+    descending = ascending date), matching what every later view shows
+    (#140) — it rendered Claude's raw emission order before. Post-event
+    tasks (negative days_before, like a GEMA report) sort last."""
+
+    OUT_OF_ORDER = [
+        {"name": "Generalprobe", "days_before": 3, "kontext": ""},
+        {"name": "Programm festlegen", "days_before": 30, "kontext": ""},
+        {"name": "GEMA-Meldung einreichen", "days_before": -5, "kontext": ""},
+        {"name": "Plakate drucken", "days_before": 10, "kontext": ""},
+    ]
+    CHRONOLOGICAL = [
+        "Programm festlegen",
+        "Plakate drucken",
+        "Generalprobe",
+        "GEMA-Meldung einreichen",
+    ]
+
+    def review_page(self, tasks):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": tasks,
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_the_review_table_lists_tasks_chronologically(self):
+        html = self.review_page(self.OUT_OF_ORDER).content.decode()
+        positions = [html.index(name) for name in self.CHRONOLOGICAL]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_the_session_state_carries_the_sorted_order(self):
+        # The GET/session-restore branch and every later consumer read
+        # planner_review_state, so the stored order is the one that counts.
+        self.review_page(self.OUT_OF_ORDER)
+        names = [
+            t["name"] for t in self.client.session["planner_review_state"]["tasks"]
+        ]
+        self.assertEqual(names, self.CHRONOLOGICAL)
+
+
 class PlannerCreateClearsOldSummariesTest(DemoModeTestCase):
     """Replanning clears cached summaries by the unversioned prefix, so
     summaries written under any older key version go too — a session can
