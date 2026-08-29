@@ -3733,10 +3733,14 @@ class UrgentDotColorTest(DemoModeTestCase):
         self.given_session_plan()
         self.assertContains(self.client.get(reverse("my_plan")), self.RULE)
 
-    def test_landing_mockup_keeps_the_same_rule(self):
-        # The reference this aligns to — if the mockup changes, the suite
-        # should say the two drifted apart again.
-        self.assertContains(self.client.get(reverse("index")), self.RULE)
+    def test_landing_mockup_uses_the_product_today_rule(self):
+        # The mockup's "heute" rows wear the product's due-today amber
+        # (#160), no longer the urgent orange — same drift guard, new rule:
+        # if the palettes split across surfaces again, the suite should say.
+        self.assertContains(
+            self.client.get(reverse("index")),
+            ".dot.today { background: var(--color-today); }",
+        )
 
 
 class TaskSortOrderInViewsTest(DemoModeTestCase):
