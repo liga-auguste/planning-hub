@@ -3860,6 +3860,13 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card.today")
         self.assertContains(response, ".task-due.today")
 
+    def test_reschedule_js_clears_the_today_class_too(self):
+        # Rescheduling a due-today task away must not leave the amber
+        # styling behind until the next reload.
+        self.given_mixed_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
+
     def test_the_today_dot_rule_precedes_the_done_rule(self):
         # Equal specificity — the later rule wins, and a checked-off task
         # must turn gray even while the JS leaves the today class in place.

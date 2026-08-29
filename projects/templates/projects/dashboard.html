@@ -688,7 +688,7 @@ async function reschedule(taskId, newDate, dueSpan) {
     dueSpan.textContent = newDate;
     const todayBtn = dueSpan.closest('.task-right')?.querySelector('.today-btn');
     if (todayBtn) todayBtn.remove();
-    dueSpan.classList.remove('overdue', 'urgent');
+    dueSpan.classList.remove('overdue', 'urgent', 'today');
     return true;
 }
 
