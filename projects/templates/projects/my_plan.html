@@ -92,7 +92,7 @@ docs/demo-mode.md.
         <div class="project-meta">
             <span>{{ project.event_date_display }}</span>
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
-            <span>{{ done_count }} / {{ total }} erledigt</span>
+            <span><span id="done-count">{{ done_count }}</span> / {{ total }} erledigt</span>
         </div>
         {% if total %}
         <div class="progress-bar-wrap">
@@ -221,6 +221,9 @@ function updateProgress() {
     const doneCount = document.querySelectorAll('.task-row.done').length;
     const fill = document.getElementById('progress-fill');
     if (fill && total > 0) fill.style.width = (doneCount / total * 100) + '%';
+    // The counter is server-rendered; keep it in step with the bar (#151).
+    const counter = document.getElementById('done-count');
+    if (counter) counter.textContent = doneCount;
 }
 </script>
 {% endblock %}

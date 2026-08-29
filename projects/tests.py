@@ -5298,6 +5298,39 @@ class MyPlanProgressBarTest(DemoModeTestCase):
         self.assertContains(self.client.get(reverse("my_plan")), "width: 0%")
 
 
+class MyPlanDoneCounterTest(DemoModeTestCase):
+    """#151: the "x / y erledigt" counter was server-rendered only, so after a
+    toggle the progress bar moved while the counter kept its load-time value
+    until the next reload. updateProgress() now rewrites the counter alongside
+    the bar, which requires the count to sit in an addressable element."""
+
+    def given_plan_with(self, total, done):
+        return self.given_session_plan(
+            tasks=[
+                {
+                    "id": f"demo-session-{i}",
+                    "name": f"Aufgabe {i}",
+                    "date": (date.today() + timedelta(days=i + 1)).isoformat(),
+                    "kontext": "Planung",
+                    "done": i < done,
+                }
+                for i in range(total)
+            ]
+        )
+
+    def test_done_count_renders_inside_an_addressable_element(self):
+        self.given_plan_with(total=4, done=2)
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            '<span id="done-count">2</span> / 4 erledigt',
+        )
+
+    def test_update_progress_rewrites_the_counter(self):
+        self.given_plan_with(total=4, done=1)
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "getElementById('done-count')")
+
+
 class ToggleTaskDemoModeTest(DemoModeTestCase):
     """#61: toggle_task_view's demo branch fell out of its lookup loop
     silently on a miss and always answered {"ok": True} — indistinguishable
