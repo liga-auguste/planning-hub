@@ -557,14 +557,22 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
-        const response = await fetch(`/task/${taskId}/toggle/`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({done})
-        });
-        if (!response.ok) {
-            // Notion disagreed — leave the checkbox exactly as it was rather
-            // than claim a change that didn't happen.
+        let response;
+        try {
+            response = await fetch(`/task/${taskId}/toggle/`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                body: JSON.stringify({done})
+            });
+        } catch {
+            // A rejected fetch (offline, server unreachable) never reaches
+            // the .ok check — same feedback as an error response (#159).
+            response = null;
+        }
+        if (!response || !response.ok) {
+            // Notion disagreed or the request never arrived — leave the
+            // checkbox exactly as it was rather than claim a change that
+            // didn't happen.
             flashActionFailed(form.querySelector('button'));
             return;
         }
@@ -675,12 +683,21 @@ if (TIMELAPSE_MOMENTS.length > 0) {
 
 async function reschedule(taskId, newDate, dueSpan) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-    const response = await fetch(`/task/${taskId}/reschedule/`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-        body: JSON.stringify({date: newDate})
-    });
-    if (!response.ok) {
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/reschedule/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({date: newDate})
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) would otherwise
+        // throw into the input's change handler and leave the date picker
+        // wedged in the row — return false like any failure so the caller
+        // swaps the display span back in (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
         flashActionFailed(dueSpan);
         return false;
     }

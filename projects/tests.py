@@ -5541,6 +5541,33 @@ class MyPlanDoneCounterTest(DemoModeTestCase):
         self.assertContains(response, "getElementById('done-count')")
 
 
+class FetchRejectionHandlingTest(DemoModeTestCase):
+    """#159: a *rejected* fetch (transport failure — as opposed to an error
+    response, which the !response.ok branches handle) threw out of three
+    handlers: my_plan's toggleTask kept an unsaved optimistic state, the
+    dashboard toggle failed with no feedback, and reschedule() left the
+    date input wedged in the row. Each fetch now routes the rejection into
+    the same path its error-response branch already takes."""
+
+    GUARD = "if (!response || !response.ok)"
+
+    def test_my_plan_toggle_catches_and_reverts(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, self.GUARD)
+        # The revert path survives behind the widened guard.
+        self.assertContains(response, "applyDone(taskId, currentDone);")
+        self.assertContains(response, "flashActionFailed(btn);")
+
+    def test_dashboard_toggle_and_reschedule_catch(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        # Both handlers — the toggle listener and reschedule() — carry the
+        # widened guard; their error paths (flash / return false) stay.
+        self.assertContains(response, self.GUARD, count=2)
+        self.assertContains(response, "flashActionFailed(dueSpan);")
+
+
 class ToggleTaskDemoModeTest(DemoModeTestCase):
     """#61: toggle_task_view's demo branch fell out of its lookup loop
     silently on a miss and always answered {"ok": True} — indistinguishable
