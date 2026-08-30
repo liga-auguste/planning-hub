@@ -2374,7 +2374,8 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
         self.assertContains(
-            response, "tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }"
+            response,
+            "tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }",
         )
 
     def test_the_delete_button_leaves_the_flow(self):
