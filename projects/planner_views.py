@@ -331,7 +331,20 @@ def planner_review(request):
         review_state = {
             "description": description,
             "project_name": project_name,
-            "tasks": plan["tasks"],
+            # Chronological like every later view (#140/#152): days_before
+            # descending is ascending date, post-event tasks (negative) land
+            # last, and sorted() is stable so same-day tasks keep Claude's
+            # relative order. generate_plan only guarantees a task *list* —
+            # a task without a usable days_before sorts as 0 (event day)
+            # rather than crashing the review.
+            "tasks": sorted(
+                plan["tasks"],
+                key=lambda t: (
+                    -t["days_before"]
+                    if isinstance(t, dict) and isinstance(t.get("days_before"), int)
+                    else 0
+                ),
+            ),
             "event_date_iso": event_date.isoformat(),
             "event_date_uncertain": event_date_uncertain,
         }
