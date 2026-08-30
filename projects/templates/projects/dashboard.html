@@ -62,7 +62,9 @@
         .project-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-primary); }
         .project-name { font-size: 14px; font-weight: 600; }
         .project-date { font-size: 12px; color: var(--color-text-quaternary); }
-        .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+        .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+        /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
+        .postpone-badge { margin-left: 6px; }
         .task-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
         .task-left { display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -184,6 +186,9 @@
         <a class="sidebar-item" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
             <span class="sidebar-icon">☰</span>Plan als Liste
         </a>
+        <a class="sidebar-item" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+            <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
+        </a>
         <a class="sidebar-item" href="{% url 'index' %}" style="color: var(--color-text-quaternary); font-size: 12px;">
             <span class="sidebar-icon">←</span>Zurück zur Startseite
         </a>
@@ -220,6 +225,9 @@
     </a>
     <a class="sidebar-item" href="{% url 'rules_list' %}" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon">⚙</span>Planungsregeln
+    </a>
+    <a class="sidebar-item" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
     </a>
     {% endif %}
     {% if demo_mode %}
@@ -402,7 +410,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}</span>
+                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -417,7 +425,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}</span>
+                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -426,7 +434,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}</span>
+                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -441,7 +449,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}</span>
+                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -491,6 +499,9 @@
                       {% endif %}>
                     {{ task.due_display }}
                 </span>
+                {% if task.postpone_count and task.postpone_count >= 2 %}
+                <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
+                {% endif %}
                 {% if task.urgency == 'overdue' %}{% if not demo_mode or has_session_plan %}
                 <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
                 {% endif %}{% endif %}

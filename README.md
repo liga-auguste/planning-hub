@@ -82,11 +82,15 @@ The same layering fixes staleness: every cache (8h production cache, daily demo 
 
 ### Notion as source of truth
 
-Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database now holds only `PlannerRule` (the production planning rules) and `DemoEvent` (anonymous usage telemetry).
+Notion already holds years of project history and is the daily working environment, so the app reads and writes Notion directly instead of migrating the data — the plan gets edited in the tool that is already in daily use. The cost: every dashboard render is a network call. Hence the 8-hour cache, plus a never-expiring last-known-good copy that is served with a notice when Notion is down. The rejected alternative — mirroring project data into Django models — was in the codebase once: four unused models were deleted because nothing ever read them. The local database holds only `PlannerRule` (the production planning rules), `DemoEvent` (anonymous usage telemetry) and `WeekCloseout` (the weekly close-out ritual's stats snapshot, see below) — nothing that Notion is itself the source of truth for.
 
 ### Context as Claude's own suggestion, not a keyword guess
 
 Each production task belongs to a workflow context (e.g. planning, admin, on-site) — one of a fixed vocabulary Claude already suggests per task while generating the plan. The planner review screen offers it as an editable dropdown, and the confirmed value is persisted to Notion's `Kontext` property alongside the task. The AI weekly-summary prompt then groups open tasks by context across all active projects. An earlier version derived context after the fact from task-name keywords instead — that broke down the moment two maintainers' vocabularies disagreed, and produced no useful grouping for a demo visitor's one-off project, so context is a production-only concept: demo mode does not collect, derive, store or display it.
+
+### Urgency by calendar week, closed deliberately
+
+`urgent` used to be a rolling 7-day window — reschedule a task past a deadline and it read as urgent again the moment it was saved, indistinguishable from procrastination. It is now a comparison against the current ISO calendar week (`projects/dates.py`), and "closing the week" is a deliberate ritual (triage the week's open tasks, reschedule what needs moving, see a stats snapshot and an appreciative AI review) rather than a persisted state machine — no stored "current effective week" pointer, just the calendar's own rollover. `projects/closeout.py` follows `rules.py`'s two-backend shape: a `WeekCloseout` row in production, the visitor's own session in demo mode, one interface either way. Full writeup: [`docs/wochenabschluss.md`](docs/wochenabschluss.md).
 
 ---
 
@@ -98,7 +102,7 @@ Every change runs on its own branch and lands through a pull request; nothing go
 
 - **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
 - **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
-- **The test suite** is where the delegation is actually checked: 5,998 lines of tests against 3,188 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
+- **The test suite** is where the delegation is actually checked: 7,411 lines of tests against 3,351 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
 
 A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/planning-hub/issues/116) → [`docs/planner-step-navigation.md`](docs/planner-step-navigation.md) → [PR #123](https://github.com/liga-auguste/planning-hub/pull/123).
 
@@ -110,8 +114,9 @@ A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
 - **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date
 - **Kanban view** — Open / Urgent / Done columns with progress bar; the grouping is unchanged, and only overdue cards carry a red accent
-- **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
-- **Urgency system** — overdue / due today / urgent / on track per task and project; the sidebar progress ring turns red only when something is overdue and stays neutral otherwise; open tasks without a date stay neutral instead of counting as done
+- **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks, a quiet "N× verschoben" badge once a task has been moved more than once. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
+- **Urgency system** — overdue / due today / urgent (same ISO calendar week) / on track per task and project; the sidebar progress ring turns red only when something is overdue and stays neutral otherwise; open tasks without a date stay neutral instead of counting as done
+- **Weekly close-out ritual** — a deliberate "close the week" flow: triage the week's still-open tasks, reschedule what needs moving, then see a stats snapshot (completed / rescheduled / added) plus an appreciative AI review. Closing a week is what lets the calendar's own rollover mark next week's tasks urgent — see [`docs/wochenabschluss.md`](docs/wochenabschluss.md)
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
@@ -212,7 +217,7 @@ PROJECTS_DB = "your-projects-database-id"
 TASKS_DB = "your-tasks-database-id"
 ```
 
-The German Notion property names (`"Name der Veranstaltung"`, `"Wann?"`, `"Status/Aufgaben"`, `"Related to Projekte"`) are hardcoded in `notion.py` and must exist in your databases as well.
+The German Notion property names (`"Name der Veranstaltung"`, `"Wann?"`, `"Status/Aufgaben"`, `"Related to Projekte"`) are hardcoded in `notion.py` and must exist in your databases as well. The Tasks database also needs a **Number** property named `"Verschoben"` (#171's postpone counter) — the app only ever reads/writes existing Notion properties, it does not provision schema, so this one has to be added by hand before a production deploy.
 
 ```bash
 createdb planning_hub

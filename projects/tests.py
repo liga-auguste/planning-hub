@@ -17,6 +17,7 @@ from django.contrib.sessions.models import Session
 from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.test import (
     Client,
     RequestFactory,
@@ -31,20 +32,26 @@ from .ai import (
     AIUnavailableError,
     _number_projects_and_tasks,
     _valid_moments,
+    build_closeout_prompt,
     build_prompt,
+    generate_closeout_summary,
     generate_timelapse_moments,
     generate_weekly_summary,
     log_claude_call,
     resolve_weekly_summary,
 )
-from .models import DemoEvent, PlannerRule
+from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .dates import is_same_iso_week
+from .models import DemoEvent, PlannerRule, WeekCloseout
 from .notion import (
     NotionUnavailableError,
+    _get_tasks,
     create_project,
     create_tasks,
     find_project,
     get_historical_projects,
     get_upcoming_projects,
+    increment_postpone_count,
     toggle_task,
     update_task_date,
 )
@@ -81,6 +88,7 @@ AI_STUBS = {
         "tasks": [],
     },
     "projects.planner_views.generate_timelapse_moments": [],
+    "projects.views.generate_closeout_summary": "Gute Woche gewesen.",
 }
 
 
@@ -1003,13 +1011,20 @@ class SidebarProgressRingTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(response, "progress-ring-fill overdue")
 
-    def test_urgent_project_gets_the_urgent_ring_class(self):
+    @patch("django.utils.timezone.localdate")
+    def test_urgent_project_gets_the_urgent_ring_class(self, mock_localdate):
+        # #169: urgent is calendar-week based now — a real date.today() + 2
+        # would only land in the same ISO week on some weekdays, so "today"
+        # is pinned to a known Monday rather than left to whichever day the
+        # suite happens to run on.
+        fixed_today = date(2026, 6, 15)
+        mock_localdate.return_value = fixed_today
         self.given_session_plan(
             tasks=[
                 {
                     "id": "t1",
                     "name": "Bald fällig",
-                    "date": (date.today() + timedelta(days=2)).isoformat(),
+                    "date": (fixed_today + timedelta(days=2)).isoformat(),
                     "kontext": "",
                     "done": False,
                 }
@@ -1128,8 +1143,25 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
             "border-radius: 50%; margin-right: 8px;",
         )
 
-    def test_the_checkbox_dot_still_renders_outside_the_sidebar_icon_wrapper(self):
-        self.given_session_plan()
+    @patch("django.utils.timezone.localdate")
+    def test_the_checkbox_dot_still_renders_outside_the_sidebar_icon_wrapper(
+        self, mock_localdate
+    ):
+        # #169: the default fixture's task (due today + 7) is never in the
+        # same ISO week as today under the calendar-week rule, so this needs
+        # its own explicitly urgent task rather than the shared default.
+        fixed_today = date(2026, 6, 15)
+        mock_localdate.return_value = fixed_today
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (fixed_today + timedelta(days=2)).isoformat(),
+                    "done": False,
+                }
+            ]
+        )
         response = self.client.get("/dashboard/")
         self.assertContains(response, 'class="dot urgent " title="Abhaken"')
 
@@ -1440,6 +1472,50 @@ class OverdueOnlySignalColorTest(DemoModeTestCase):
         for url in ("dashboard", "my_plan"):
             with self.subTest(url=url):
                 self.assertContains(self.client.get(reverse(url)), self.NEUTRAL_BADGE)
+
+
+class PostponeBadgeRenderingTest(DemoModeTestCase):
+    """#171: a small badge with the count, starting at the second move —
+    moving something once is normal planning and stays unmarked."""
+
+    def given_task(self, postpone_count):
+        # Deliberately not named anything containing "verschoben" — the
+        # assertions below check for the badge, not the task's own name.
+        return self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t1",
+                    "name": "Programm festlegen",
+                    "date": (date.today() + timedelta(days=3)).isoformat(),
+                    "done": False,
+                    "postpone_count": postpone_count,
+                }
+            ]
+        )
+
+    def test_a_single_reschedule_carries_no_badge(self):
+        self.given_task(postpone_count=1)
+        for url in ("dashboard", "my_plan"):
+            with self.subTest(url=url):
+                self.assertNotContains(self.client.get(reverse(url)), "verschoben")
+
+    def test_the_badge_appears_exactly_at_the_threshold_of_two(self):
+        self.given_task(postpone_count=2)
+        for url in ("dashboard", "my_plan"):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(reverse(url)), "2× verschoben")
+
+    def test_a_session_written_before_the_counter_existed_renders_fine(self):
+        # No postpone_count key at all — the shared demo default fixture.
+        self.given_session_plan()
+        for url in ("dashboard", "my_plan"):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(reverse(url)).status_code, 200)
+
+    def test_the_kanban_card_shows_the_compact_form(self):
+        self.given_task(postpone_count=3)
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'title="3× verschoben">3×</span>')
 
 
 class DarkThemeTest(DemoModeTestCase):
@@ -3672,6 +3748,30 @@ class ParseEventDateTest(SimpleTestCase):
         self.assertIsNone(_parse_event_date("Konzert irgendwann im Herbst"))
 
 
+class IsSameIsoWeekTest(SimpleTestCase):
+    """#169: is_same_iso_week compares the (ISO year, ISO week) tuple, not
+    the bare week number — that's what has to hold across a year boundary."""
+
+    def test_same_week_different_weekday(self):
+        self.assertTrue(is_same_iso_week(date(2026, 6, 15), date(2026, 6, 21)))
+
+    def test_adjacent_week_is_not_the_same(self):
+        self.assertFalse(is_same_iso_week(date(2026, 6, 15), date(2026, 6, 22)))
+
+    def test_a_date_is_always_in_its_own_week(self):
+        self.assertTrue(is_same_iso_week(date(2026, 6, 15), date(2026, 6, 15)))
+
+    def test_year_boundary_dec_31_and_jan_1_can_share_an_iso_week(self):
+        # 2025-12-31 is a Wednesday, ISO week 1 of 2026 — bare week numbers
+        # alone (both "1") would wrongly equate it with Jan 2027's week 1 too.
+        self.assertTrue(is_same_iso_week(date(2025, 12, 31), date(2026, 1, 1)))
+
+    def test_bare_week_number_collision_across_years_is_rejected(self):
+        # Both fall in "week 1" of their respective ISO years, a year apart —
+        # comparing only the week number would wrongly say True.
+        self.assertFalse(is_same_iso_week(date(2025, 1, 1), date(2026, 1, 1)))
+
+
 class AnnotateTasksTest(SimpleTestCase):
     TODAY = date(2026, 6, 15)
 
@@ -3712,11 +3812,18 @@ class AnnotateTasksTest(SimpleTestCase):
     def test_due_tomorrow_is_urgent(self):
         self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=1)), "urgent")
 
-    def test_seven_days_out_is_still_urgent(self):
-        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), "urgent")
+    def test_seven_days_out_is_ok_not_urgent(self):
+        # #169: calendar-week based, not a rolling 7-day window. TODAY is a
+        # Monday (see is_same_iso_week helper tests below), so +7 days lands
+        # on the same weekday next ISO week — always a different week.
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=7)), "ok")
 
     def test_eight_days_out_is_ok(self):
         self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=8)), "ok")
+
+    def test_due_later_this_same_calendar_week_is_urgent(self):
+        # TODAY is a Monday — Sunday is the last day of its ISO week.
+        self.assertEqual(self.urgency_for(due=self.TODAY + timedelta(days=6)), "urgent")
 
     def test_overdue_beats_urgent_on_the_project(self):
         project = self.annotate(
@@ -4075,6 +4182,55 @@ class PromptUndatedAndTodayTest(SimpleTestCase):
             [self.project_with_task(due=self.TODAY + timedelta(days=3))], self.TODAY
         )
         self.assertIn("Aufgabe X — DIESE WOCHE", prompt)
+
+
+class BuildPromptCalendarWeekLabelTest(SimpleTestCase):
+    """#169: build_prompt's "DIESE WOCHE" label follows the same calendar-week
+    rule as _annotate_tasks now, not a rolling 7-day window — but an overdue
+    task's label must stay exactly as it was (see the edge case called out
+    in the issue's implementation plan)."""
+
+    # A Tuesday — ISO week 36 runs through the following Sunday.
+    TODAY = date(2026, 9, 1)
+
+    def project_with_task(self, **task):
+        return {
+            "id": "p-solo",
+            "name": "Konzert Solo",
+            "event_date": self.TODAY + timedelta(days=5),
+            "performers": "",
+            "tasks": [
+                {
+                    "id": "t-x",
+                    "name": "Aufgabe X",
+                    "due": None,
+                    "done": False,
+                    "kontext": [],
+                    **task,
+                }
+            ],
+        }
+
+    def label_for(self, due):
+        prompt = build_prompt([self.project_with_task(due=due)], self.TODAY)
+        line = next(line for line in prompt.splitlines() if "Aufgabe X" in line)
+        return line
+
+    def test_due_the_last_day_of_this_iso_week_is_diese_woche(self):
+        self.assertIn("DIESE WOCHE", self.label_for(self.TODAY + timedelta(days=5)))
+
+    def test_due_the_first_day_of_next_iso_week_is_days_remaining(self):
+        line = self.label_for(self.TODAY + timedelta(days=6))
+        self.assertIn("(fällig in 6 Tagen)", line)
+        self.assertNotIn("DIESE WOCHE", line)
+
+    def test_overdue_from_a_past_calendar_week_still_reads_diese_woche(self):
+        # Naively swapping in is_same_iso_week here would send an overdue
+        # task from a past week into the days-remaining branch instead —
+        # the exact regression the issue's plan calls out.
+        line = self.label_for(self.TODAY - timedelta(days=5))
+        self.assertIn("DIESE WOCHE", line)
+        self.assertNotIn("fällig in -5 Tagen", line)
 
 
 # --- #29: fail at startup, not at first request ---
@@ -4598,6 +4754,86 @@ class GenerateWeeklySummaryRetryTest(SimpleTestCase):
         self.assertEqual(data, {"jetzt_faellig": [], "naechste_woche": []})
 
 
+VALID_CLOSEOUT_JSON = '{"summary_text": "Gute Woche gewesen."}'
+
+
+def _closeout_stats():
+    return {"completed_count": 3, "rescheduled_count": 1, "added_count": 2}
+
+
+class GenerateCloseOutSummaryTest(SimpleTestCase):
+    """#169: generate_closeout_summary parses Claude's response with the
+    same retry contract as generate_weekly_summary (GenerateWeeklySummaryRetryTest):
+    one re-ask on unparseable or wrong-shape JSON, AIUnavailableError after
+    the second bad response, SDK failures never spent as a JSON retry."""
+
+    def generate(self):
+        return generate_closeout_summary(_closeout_stats(), date(2026, 9, 1))
+
+    def test_returns_the_summary_text_on_first_valid_response(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.return_value = _fake_stream(VALID_CLOSEOUT_JSON)
+            text = self.generate()
+        self.assertEqual(text, "Gute Woche gewesen.")
+        self.assertEqual(stream.call_count, 1)
+
+    def test_retries_once_on_invalid_json_then_succeeds(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream("kein json"),
+                _fake_stream(VALID_CLOSEOUT_JSON),
+            ]
+            text = self.generate()
+        self.assertEqual(text, "Gute Woche gewesen.")
+        self.assertEqual(stream.call_count, 2)
+
+    def test_raises_ai_unavailable_after_a_second_invalid_response(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream("kein json"),
+                _fake_stream("immer noch kein json"),
+            ]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 2)
+
+    def test_valid_json_in_the_wrong_shape_is_retried(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = [
+                _fake_stream('{"other_key": "x"}'),
+                _fake_stream('{"summary_text": 5}'),
+            ]
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 2)
+
+    def test_an_sdk_failure_is_not_retried_as_a_json_error(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.side_effect = _anthropic_timeout_error()
+            with self.assertRaises(AIUnavailableError):
+                self.generate()
+        self.assertEqual(stream.call_count, 1)
+
+    def test_fenced_response_is_still_parsed(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            stream = MockAnthropic.return_value.messages.stream
+            stream.return_value = _fake_stream(f"```json\n{VALID_CLOSEOUT_JSON}\n```")
+            text = self.generate()
+        self.assertEqual(text, "Gute Woche gewesen.")
+
+    def test_prompt_names_the_three_stats_and_asks_for_json(self):
+        prompt = build_closeout_prompt(_closeout_stats(), date(2026, 9, 1))
+        self.assertIn("Erledigt: 3 Aufgaben", prompt)
+        self.assertIn("Verschoben in die nächste Woche: 1 Aufgaben", prompt)
+        self.assertIn("Neu dazugekommen: 2 Aufgaben", prompt)
+        self.assertIn("summary_text", prompt)
+
+
 class AiSummaryCheckboxViewTest(DemoModeTestCase):
     """#122 end to end: the rendered summary carries real inline checkboxes
     wired to the existing toggle endpoints, and their done state is read
@@ -4872,6 +5108,7 @@ class NotionFailureTranslationTest(SimpleTestCase):
         instance.databases.query.side_effect = exc
         instance.pages.update.side_effect = exc
         instance.pages.create.side_effect = exc
+        instance.pages.retrieve.side_effect = exc
         return instance
 
     def test_get_upcoming_projects_translates_a_timeout(self):
@@ -4911,6 +5148,81 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 create_tasks("project-id", [{"name": "x", "date": "2026-09-05"}])
+
+    def test_increment_postpone_count_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                increment_postpone_count("task-id")
+
+
+class PostponeCountReadFromNotionTest(SimpleTestCase):
+    """#171: _get_tasks reads the "Verschoben" number property fresh on
+    every fetch, or a task's count would reset to 0 on display even though
+    the stored value is correct."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_reads_the_verschoben_number_property(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {
+                "results": [
+                    {
+                        "id": "task-1",
+                        "created_time": "2026-08-01T10:00:00.000Z",
+                        "properties": {
+                            "Aufgabe": {"title": [{"plain_text": "Test"}]},
+                            "Wann?": {"date": {"start": "2026-08-20"}},
+                            "Done": {"checkbox": False},
+                            "Kontext": {"multi_select": []},
+                            "Verschoben": {"number": 3},
+                        },
+                    }
+                ]
+            }
+            tasks = _get_tasks("project-id")
+        self.assertEqual(tasks[0]["postpone_count"], 3)
+        self.assertEqual(tasks[0]["created_time"], date(2026, 8, 1))
+
+    def test_missing_property_defaults_to_zero(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {
+                "results": [_fake_task_page("Test", "2026-08-20")]
+            }
+            tasks = _get_tasks("project-id")
+        self.assertEqual(tasks[0]["postpone_count"], 0)
+        self.assertIsNone(tasks[0]["created_time"])
+
+
+class IncrementPostponeCountTest(SimpleTestCase):
+    """#171: read-then-write, since Notion has no atomic increment."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_reads_then_writes_the_incremented_value(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.pages.retrieve.return_value = {
+                "properties": {"Verschoben": {"number": 2}}
+            }
+            result = increment_postpone_count("task-1")
+        self.assertEqual(result, 3)
+        instance.pages.update.assert_called_once_with(
+            page_id="task-1", properties={"Verschoben": {"number": 3}}
+        )
+
+    def test_missing_property_starts_at_one(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.pages.retrieve.return_value = {"properties": {}}
+            result = increment_postpone_count("task-1")
+        self.assertEqual(result, 1)
 
 
 class CreateProjectDateUncertainTest(SimpleTestCase):
@@ -5349,7 +5661,10 @@ class RescheduleTaskNotionFailureTest(TestCase):
         self.assertEqual(response.json(), {"error": "notion unavailable"})
 
     def test_success_still_reports_ok(self):
-        with patch("projects.views.update_task_date") as mock_update:
+        with (
+            patch("projects.views.update_task_date") as mock_update,
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
             response = self.client.post(
                 reverse("reschedule_task", args=["task-1"]),
                 data='{"date": "2026-09-05"}',
@@ -5362,7 +5677,10 @@ class RescheduleTaskNotionFailureTest(TestCase):
         self.addCleanup(cache.clear)
         cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
         cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
-        with patch("projects.views.update_task_date"):
+        with (
+            patch("projects.views.update_task_date"),
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
             self.client.post(
                 reverse("reschedule_task", args=["task-1"]),
                 data='{"date": "2026-09-05"}',
@@ -5386,6 +5704,44 @@ class RescheduleTaskNotionFailureTest(TestCase):
             )
         self.assertIsNotNone(cache.get(CACHE_KEY))
         self.assertIsNotNone(cache.get(STALE_CACHE_KEY))
+
+
+@override_settings(DEMO_MODE=False)
+class RescheduleIncrementsCounterProductionTest(TestCase):
+    """#171: reschedule_task_view increments the postpone counter after a
+    successful date update and reports the new value."""
+
+    def test_increments_and_returns_the_new_count(self):
+        with (
+            patch("projects.views.update_task_date"),
+            patch(
+                "projects.views.increment_postpone_count", return_value=4
+            ) as mock_increment,
+        ):
+            response = self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertEqual(response.json(), {"ok": True, "postpone_count": 4})
+        mock_increment.assert_called_once_with("task-1")
+
+    def test_a_failing_increment_after_a_successful_date_update_is_still_a_502(self):
+        # #171 accepted gap: the date has already moved but the counter
+        # hasn't — self-healing on the next reschedule, not special-cased.
+        with (
+            patch("projects.views.update_task_date"),
+            patch(
+                "projects.views.increment_postpone_count",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+        ):
+            response = self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 502)
 
 
 @override_settings(DEMO_MODE=False)
@@ -5938,6 +6294,403 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_date("demo-1-7", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 404)
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+
+class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
+    """#171: awareness, not punishment — the counter increments on every
+    reschedule, the badge's >=2 threshold is a display concern (see
+    PostponeBadgeRenderingTest)."""
+
+    def post_date(self, task_id, new_date):
+        return self.client.post(
+            reverse("reschedule_task", args=[task_id]),
+            data=json.dumps({"date": new_date}),
+            content_type="application/json",
+        )
+
+    def test_first_reschedule_sets_the_count_to_one(self):
+        self.given_session_plan()
+        new_date = (date.today() + timedelta(days=14)).isoformat()
+        response = self.post_date("demo-session-0", new_date)
+        self.assertEqual(response.json(), {"ok": True, "postpone_count": 1})
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["postpone_count"], 1
+        )
+
+    def test_counter_increments_across_multiple_reschedules(self):
+        self.given_session_plan()
+        response = None
+        for _ in range(3):
+            response = self.post_date(
+                "demo-session-0", (date.today() + timedelta(days=14)).isoformat()
+            )
+        self.assertEqual(response.json()["postpone_count"], 3)
+
+    def test_an_unknown_task_is_a_404_and_increments_nothing(self):
+        self.given_session_plan()
+        response = self.post_date(
+            "demo-1-7", (date.today() + timedelta(days=14)).isoformat()
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("postpone_count", self.client.session["demo_plan"]["tasks"][0])
+
+
+class WeekCloseoutModelTest(TestCase):
+    def test_unique_constraint_on_iso_year_and_week(self):
+        WeekCloseout.objects.create(iso_year=2026, iso_week=25)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            WeekCloseout.objects.create(iso_year=2026, iso_week=25)
+
+    def test_str_shows_the_iso_week(self):
+        closeout = WeekCloseout.objects.create(iso_year=2026, iso_week=25)
+        self.assertEqual(str(closeout), "KW25/2026")
+
+
+class CloseoutBackendTest(TestCase):
+    """closeout.py direct: two backends behind one interface, the same shape
+    as rules.py — the views never learn which backend answered."""
+
+    def request(self):
+        request = RequestFactory().get("/")
+        request.session = self.client.session
+        return request
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_round_trip(self):
+        request = self.request()
+        self.assertFalse(is_week_closed(request, 2026, 25))
+        save_closeout(request, 2026, 25, _closeout_stats(), "Text.")
+        self.assertTrue(is_week_closed(request, 2026, 25))
+        self.assertEqual(get_latest_closeout(request)["summary_text"], "Text.")
+
+    @override_settings(DEMO_MODE=True)
+    def test_demo_round_trip(self):
+        request = self.request()
+        self.assertFalse(is_week_closed(request, 2026, 25))
+        save_closeout(request, 2026, 25, _closeout_stats(), "Text.")
+        self.assertTrue(is_week_closed(request, 2026, 25))
+        self.assertEqual(get_latest_closeout(request)["summary_text"], "Text.")
+
+    @override_settings(DEMO_MODE=True)
+    def test_no_closeout_yet_is_none(self):
+        self.assertIsNone(get_latest_closeout(self.request()))
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_no_closeout_yet_is_none(self):
+        self.assertIsNone(get_latest_closeout(self.request()))
+
+
+def _closeout_tasks(fixed_today):
+    return [
+        {
+            "id": "t-this-week",
+            "name": "Diese Woche",
+            "date": (fixed_today + timedelta(days=2)).isoformat(),
+            "done": False,
+        },
+        {
+            "id": "t-next-week",
+            "name": "Nächste Woche",
+            "date": (fixed_today + timedelta(days=9)).isoformat(),
+            "done": False,
+        },
+        {
+            "id": "t-overdue",
+            "name": "Überfällig",
+            "date": (fixed_today - timedelta(days=1)).isoformat(),
+            "done": False,
+        },
+        {
+            "id": "t-done",
+            "name": "Schon erledigt",
+            "date": (fixed_today + timedelta(days=1)).isoformat(),
+            "done": True,
+        },
+    ]
+
+
+# A Monday — matches AnnotateTasksTest/IsSameIsoWeekTest's reference date.
+CLOSEOUT_TODAY = date(2026, 6, 15)
+
+
+class CloseWeekStartDemoModeTest(DemoModeTestCase):
+    """#169: the triage list is only open tasks due in the current ISO
+    week — overdue tasks stay out (their own signal already), and so do
+    tasks already done or due a different week."""
+
+    @patch("django.utils.timezone.localdate")
+    def test_lists_only_open_tasks_due_this_week(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Diese Woche")
+        self.assertNotContains(response, "Nächste Woche")
+        self.assertNotContains(response, "Überfällig")
+        self.assertNotContains(response, "Schon erledigt")
+
+    def test_no_session_plan_redirects_to_index(self):
+        response = self.client.get(reverse("close_week_start"))
+        self.assertRedirects(response, reverse("index"))
+
+    @patch("django.utils.timezone.localdate")
+    def test_nothing_open_this_week_is_an_empty_state(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=[])
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Für diese Woche ist nichts mehr offen.")
+
+
+@override_settings(DEMO_MODE=False)
+class CloseWeekStartProductionTest(TestCase):
+    def _project(self, tasks):
+        return [
+            {
+                "id": "p1",
+                "name": "Projekt",
+                "event_date": CLOSEOUT_TODAY + timedelta(days=30),
+                "event_date_uncertain": False,
+                "performers": "",
+                "status": None,
+                "status_color": "gray",
+                "tasks": tasks,
+            }
+        ]
+
+    def _task(self, task_id, name, due, done=False):
+        return {
+            "id": task_id,
+            "name": name,
+            "due": due,
+            "done": done,
+            "kontext": [],
+            "postpone_count": 0,
+            "created_time": None,
+        }
+
+    @patch("django.utils.timezone.localdate")
+    def test_lists_only_open_tasks_due_this_week(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        tasks = [
+            self._task(
+                "t-this-week", "Diese Woche", CLOSEOUT_TODAY + timedelta(days=2)
+            ),
+            self._task(
+                "t-next-week", "Nächste Woche", CLOSEOUT_TODAY + timedelta(days=9)
+            ),
+        ]
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project(tasks)
+        ):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Diese Woche")
+        self.assertNotContains(response, "Nächste Woche")
+
+    def test_notion_failure_redirects_to_dashboard(self):
+        with patch(
+            "projects.views.get_upcoming_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertRedirects(response, reverse("dashboard"))
+
+
+class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
+    """#169: stats are computed by diffing the posted task_id list against
+    live state — completed if now done, rescheduled if no longer due this
+    same ISO week."""
+
+    @patch("django.utils.timezone.localdate")
+    def test_completed_and_rescheduled_and_unchanged(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-done",
+                    "name": "Erledigt",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                    "done": True,
+                },
+                {
+                    "id": "t-moved",
+                    "name": "Verschoben",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=9)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-stayed",
+                    "name": "Geblieben",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=2)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.post(
+            reverse("close_week_confirm"),
+            data={"task_id": ["t-done", "t-moved", "t-stayed"]},
+        )
+        self.assertRedirects(response, reverse("week_review"))
+        closeout = self.client.session["demo_week_closeout"]
+        self.assertEqual(closeout["completed_count"], 1)
+        self.assertEqual(closeout["rescheduled_count"], 1)
+        self.assertEqual(closeout["added_count"], 0)
+        self.assertEqual(closeout["summary_text"], "Gute Woche gewesen.")
+
+    def test_no_session_plan_redirects_to_index(self):
+        response = self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.assertRedirects(response, reverse("index"))
+
+    def test_get_redirects_to_start(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("close_week_confirm"))
+        self.assertRedirects(response, reverse("close_week_start"))
+
+    @patch("django.utils.timezone.localdate")
+    def test_ai_failure_still_saves_the_closeout_with_an_empty_summary(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=[])
+        self.ai_mocks[
+            "projects.views.generate_closeout_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.assertRedirects(response, reverse("week_review"))
+        self.assertEqual(self.client.session["demo_week_closeout"]["summary_text"], "")
+
+
+@override_settings(DEMO_MODE=False)
+class CloseWeekConfirmProductionTest(TestCase):
+    def _task(self, task_id, name, due, done=False, created_time=None):
+        return {
+            "id": task_id,
+            "name": name,
+            "due": due,
+            "done": done,
+            "kontext": [],
+            "postpone_count": 0,
+            "created_time": created_time,
+        }
+
+    def _project(self, tasks):
+        return [
+            {
+                "id": "p1",
+                "name": "Projekt",
+                "event_date": CLOSEOUT_TODAY + timedelta(days=30),
+                "event_date_uncertain": False,
+                "performers": "",
+                "status": None,
+                "status_color": "gray",
+                "tasks": tasks,
+            }
+        ]
+
+    @patch("django.utils.timezone.localdate")
+    def test_added_count_comes_from_created_time_this_week(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        tasks = [
+            self._task(
+                "t-done",
+                "Erledigt",
+                CLOSEOUT_TODAY,
+                done=True,
+                created_time=date(2026, 5, 1),
+            ),
+            self._task(
+                "t-new",
+                "Neu",
+                CLOSEOUT_TODAY + timedelta(days=1),
+                created_time=CLOSEOUT_TODAY,
+            ),
+        ]
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=self._project(tasks),
+            ),
+            patch(
+                "projects.views.generate_closeout_summary", return_value="Rückschau."
+            ),
+        ):
+            response = self.client.post(
+                reverse("close_week_confirm"), data={"task_id": ["t-done"]}
+            )
+        self.assertRedirects(response, reverse("week_review"))
+        closeout = WeekCloseout.objects.get()
+        self.assertEqual(closeout.completed_count, 1)
+        self.assertEqual(closeout.added_count, 1)
+        self.assertEqual(closeout.summary_text, "Rückschau.")
+
+    @patch("django.utils.timezone.localdate")
+    def test_reclosing_the_same_week_updates_not_duplicates(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        with (
+            patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            patch(
+                "projects.views.generate_closeout_summary", return_value="Erster Text."
+            ),
+        ):
+            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        with (
+            patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            patch(
+                "projects.views.generate_closeout_summary", return_value="Zweiter Text."
+            ),
+        ):
+            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.assertEqual(WeekCloseout.objects.count(), 1)
+        self.assertEqual(WeekCloseout.objects.get().summary_text, "Zweiter Text.")
+
+
+@override_settings(DEMO_MODE=False)
+class WeekReviewProductionTest(TestCase):
+    def test_no_closeout_redirects_to_start(self):
+        response = self.client.get(reverse("week_review"))
+        self.assertRedirects(response, reverse("close_week_start"))
+
+    def test_renders_the_latest_closeout(self):
+        WeekCloseout.objects.create(
+            iso_year=2026,
+            iso_week=25,
+            completed_count=3,
+            rescheduled_count=1,
+            added_count=2,
+            summary_text="Gute Woche.",
+        )
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, "Gute Woche.")
+        self.assertContains(response, "KW 25/2026")
+
+
+class WeekReviewDemoModeTest(DemoModeTestCase):
+    def test_no_session_plan_redirects_to_index(self):
+        response = self.client.get(reverse("week_review"))
+        self.assertRedirects(response, reverse("index"))
+
+    def test_no_closeout_yet_redirects_to_start(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("week_review"))
+        self.assertRedirects(response, reverse("close_week_start"))
+
+    def test_renders_the_latest_closeout_from_the_session(self):
+        self.given_session_plan()
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 25,
+            "completed_count": 2,
+            "rescheduled_count": 1,
+            "added_count": 0,
+            "summary_text": "Solide Woche.",
+            "closed_at": "2026-06-15T12:00:00",
+        }
+        session.save()
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, "Solide Woche.")
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):

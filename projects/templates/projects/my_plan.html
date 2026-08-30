@@ -35,7 +35,9 @@
     .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
     .task-date.overdue { color: var(--color-overdue); }
     .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
-    .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+    .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+    /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
+    .postpone-badge { margin-left: 6px; }
     .summary-box { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
     /* All six levels: the summary is markdown.markdown() output, so the
        heading depth is the model's to pick, not ours (#64). */
@@ -144,6 +146,9 @@ docs/demo-mode.md.
             <span class="task-name">{{ task.name }}</span>
             {% if task.due_display %}
             <span class="task-date {{ task.urgency }}">{{ task.due_display }}</span>
+            {% endif %}
+            {% if task.postpone_count and task.postpone_count >= 2 %}
+            <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
             {% endif %}
             {% if task.kontext %}
             <span class="task-kontext">{{ task.kontext.0 }}</span>
