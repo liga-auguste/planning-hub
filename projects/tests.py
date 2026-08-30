@@ -6459,6 +6459,30 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         self.assertContains(response, "→ Mi, 24. Juni")
         self.assertNotContains(response, "→ nächste Woche")
 
+    @patch("django.utils.timezone.localdate")
+    def test_already_closed_and_nothing_open_hides_the_button(self, mock_localdate):
+        # Re-confirming an already-closed week with an empty triage list
+        # would post an empty task_id list and overwrite the real
+        # completed/rescheduled counts with zeros — the button has to go,
+        # not just the copy above it.
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=[])
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 25,
+            "completed_count": 3,
+            "rescheduled_count": 1,
+            "added_count": 0,
+            "summary_text": "Text.",
+            "closed_at": "2026-06-15T12:00:00",
+        }
+        session.save()
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Diese Woche hast du bereits abgeschlossen.")
+        self.assertContains(response, "Rückblick ansehen")
+        self.assertNotContains(response, "Woche abschließen</button>")
+
 
 @override_settings(DEMO_MODE=False)
 class CloseWeekStartProductionTest(TestCase):
@@ -6517,6 +6541,19 @@ class CloseWeekStartProductionTest(TestCase):
         self.assertRedirects(
             response, reverse("dashboard"), fetch_redirect_response=False
         )
+
+    @patch("django.utils.timezone.localdate")
+    def test_already_closed_and_nothing_open_hides_the_button(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        WeekCloseout.objects.create(
+            iso_year=2026, iso_week=25, completed_count=3, rescheduled_count=1
+        )
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project([])
+        ):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Diese Woche hast du bereits abgeschlossen.")
+        self.assertNotContains(response, "Woche abschließen</button>")
 
 
 class CloseWeekConfirmDemoModeTest(DemoModeTestCase):

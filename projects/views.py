@@ -17,7 +17,7 @@ from .ai import (
     generate_weekly_summary,
     resolve_weekly_summary,
 )
-from .closeout import get_latest_closeout, save_closeout
+from .closeout import get_latest_closeout, is_week_closed, save_closeout
 from .dates import is_same_iso_week
 from .demo_data import get_demo_projects
 from .models import DemoEvent
@@ -668,11 +668,18 @@ def close_week_start(request):
         # The move button's own label — otherwise "→ nächste Woche" doesn't
         # say which date that actually is.
         task["next_week_display"] = _format_date(task["due"] + timedelta(days=7))
+    iso_year, iso_week, _ = today.isocalendar()
+    # If the week is already closed and nothing new is open, confirming
+    # again would post an empty task_id list and overwrite the real stats
+    # with zeros — the template hides the button for exactly this case and
+    # points to the existing review instead.
+    already_closed = is_week_closed(request, iso_year, iso_week)
     return render(
         request,
         "projects/close_week_start.html",
         {
             "tasks": open_this_week,
+            "already_closed": already_closed,
             "today_display": _format_date(today),
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,

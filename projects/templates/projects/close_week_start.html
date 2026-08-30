@@ -62,14 +62,23 @@ sidebar should compete with. See docs/wochenabschluss.md.
             </div>
             {% endfor %}
         </div>
+        <button type="submit" class="btn-confirm">Woche abschließen</button>
+        {% elif already_closed %}
+        {% comment %}
+        Nothing left to triage and this week's stats already exist —
+        confirming now would post an empty task_id list and overwrite the
+        real completed/rescheduled counts with zeros (#169 review).
+        {% endcomment %}
+        <div class="empty-state">Diese Woche hast du bereits abgeschlossen.</div>
+        <a href="{% url 'week_review' %}" class="btn-confirm" style="text-decoration:none; display:inline-block;">→ Rückblick ansehen</a>
         {% else %}
         {% if is_weekend %}
         <div class="empty-state">Genieße dein Wochenende — für diese Woche ist nichts mehr offen.</div>
         {% else %}
         <div class="empty-state">Für diese Woche ist alles erledigt oder verschoben.</div>
         {% endif %}
-        {% endif %}
         <button type="submit" class="btn-confirm">Woche abschließen</button>
+        {% endif %}
     </form>
 </div>
 {% endblock %}
