@@ -6491,7 +6491,12 @@ class CloseWeekStartProductionTest(TestCase):
             side_effect=NotionUnavailableError("boom"),
         ):
             response = self.client.get(reverse("close_week_start"))
-        self.assertRedirects(response, reverse("dashboard"))
+        # fetch_redirect_response=False: dashboard()'s own Notion-failure
+        # behavior has its own tests (DashboardNotionFailureTest); the mock
+        # above is out of scope by the time a live follow-up GET would run.
+        self.assertRedirects(
+            response, reverse("dashboard"), fetch_redirect_response=False
+        )
 
 
 class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
@@ -6650,7 +6655,12 @@ class CloseWeekConfirmProductionTest(TestCase):
 class WeekReviewProductionTest(TestCase):
     def test_no_closeout_redirects_to_start(self):
         response = self.client.get(reverse("week_review"))
-        self.assertRedirects(response, reverse("close_week_start"))
+        # fetch_redirect_response=False: close_week_start's own Notion call
+        # has its own tests (CloseWeekStartProductionTest); nothing here
+        # mocks it, so a live follow-up GET would hit the network.
+        self.assertRedirects(
+            response, reverse("close_week_start"), fetch_redirect_response=False
+        )
 
     def test_renders_the_latest_closeout(self):
         WeekCloseout.objects.create(

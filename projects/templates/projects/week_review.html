@@ -4,7 +4,9 @@
 {% block title %}Wochenrückblick – Planning Hub{% endblock %}
 
 {% block extra_css %}
-    .page { max-width: 640px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
+    /* Matches planner_rules.html's effective width (.wrapper, public.css) —
+       960px, not my_plan.html's narrower 720px focused-list shape. */
+    .page { max-width: 960px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
     .page-footer { padding-left: 0; padding-right: 0; }
     .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
     .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
