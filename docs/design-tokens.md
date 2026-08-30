@@ -34,11 +34,8 @@ for its dark theme.
     --color-accent-hover: #8989f0;
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
-    --color-urgent: #ca8a04;
-    --color-today: #b45309;
     --color-done: #22c55e;
     --color-overdue-tint: #fef2f2;
-    --color-urgent-tint: #fefce8;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
 }
@@ -50,13 +47,13 @@ for its dark theme.
 | `--color-border-primary/secondary` | Hairline borders and dividers |
 | `--color-text-primary` → `--color-text-quaternary` | Text and icon color, strongest to most muted |
 | `--color-accent*` | Interactive/focus accent (links, hover borders) |
-| `--color-overdue` / `--color-urgent` / `--color-today` / `--color-done` | The one status color per state — previously 3 reds and 3 oranges. `--color-today` (#160) is amber-700 light: amber-600 sat at ΔE2000 ≈ 8 from the then-orange urgent, too close to tell apart at 7 px dot size. `--color-urgent` (#170) is yellow-600 mustard light / yellow-400 dark: the retired orange sat at ΔE2000 19.7/23.5 from the overdue red, and the replacement must clear that distance against *both* neighbors (red and today) in each theme. Dark `--color-today` moved to amber-600 in the same change — every dark-capable yellow sits practically on top of amber-400, so today made room |
-| `--color-overdue-tint` / `--color-urgent-tint` | Light backgrounds for status badges and notices |
+| `--color-overdue` / `--color-done` | The only two status colors since #173: overdue red is the sole urgency signal, done green is a completion signal. Every other open urgency stage (due today, urgent, on track, undated) keeps its classification in data and markup but renders the neutral text/border grays. History: #160 gave due-today its own amber, #170 moved urgent to mustard after a ΔE2000 hue-distance analysis; #173 retired both warm stages because the warm-tone balancing act cost more than it bought. The ΔE tooling and sign-off-page workflow from #170 stay reusable for reintroducing a warm "soon" stage — a purely additive token-plus-override change on top of unchanged markup |
+| `--color-overdue-tint` | Light background for the stale-data and error notices |
 | `--shadow-low` / `--shadow-medium` | The two elevation levels — hover/active shadows, plus `--shadow-medium` for the sidebar's static elevation as a floating tile (#96) |
 
-`--color-overdue-tint` and `--color-urgent-tint` extend the set #11 originally
-proposed — the kanban column counters and the stale-data notice needed a light
-background for each status color, which the base 17 tokens didn't name.
+`--color-overdue-tint` extends the set #11 originally proposed — the stale-data
+notice needed a light background for its status color, which the base 17 tokens
+didn't name.
 
 ## Rule
 

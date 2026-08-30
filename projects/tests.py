@@ -1073,12 +1073,16 @@ class SidebarProgressRingTest(DemoModeTestCase):
 
 class SidebarProgressRingCssTest(DemoModeTestCase):
     def test_ring_css_references_the_status_tokens(self):
+        # #173: overdue is the only stroke override left — every other open
+        # stage rides the neutral base default.
         response = self.client.get("/dashboard/")
         self.assertContains(
             response, ".progress-ring-fill.overdue { stroke: var(--color-overdue)"
         )
         self.assertContains(
-            response, ".progress-ring-fill.urgent { stroke: var(--color-urgent)"
+            response,
+            ".progress-ring-fill { stroke: var(--color-text-quaternary); "
+            "stroke-linecap: round; }",
         )
 
     def test_the_old_sidebar_item_urgency_css_is_gone(self):
@@ -1348,7 +1352,6 @@ class DesignTokenTest(DemoModeTestCase):
         "--color-bg-primary",
         "--color-accent",
         "--color-overdue",
-        "--color-urgent",
     )
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
@@ -1368,30 +1371,19 @@ class DesignTokenTest(DemoModeTestCase):
             self.assertNotContains(response, literal)
 
 
-class UrgentMustardHueTest(DemoModeTestCase):
-    """#170: urgent leaves the orange family for yellow (mustard in light,
-    yellow-400 in dark) because the retired orange sat at ΔE2000 19.7/23.5
-    from the overdue red — one urgency step read as the same hue. Dark
-    today moves to amber-600 to make room next to the new yellow. Values
-    were signed off on a rendered comparison page at real component sizes;
-    every changed pair clears the retired red/orange distance in its
-    theme."""
+class OverdueOnlySignalColorTest(DemoModeTestCase):
+    """#173: red for overdue is the only urgency signal color left — every
+    other open stage renders the neutral gray the ok dots already use. The
+    classification (overdue/today/urgent/ok/undated) stays untouched in data
+    and markup; only the color mapping collapsed. The warm-stage tokens
+    retire fully; #170 keeps the tooling for reintroducing one later."""
 
-    SIGNED_OFF = (
-        "--color-urgent: #ca8a04;",  # light: yellow-600 mustard
-        "--color-urgent-tint: #fefce8;",  # light: yellow-50
-        "--color-urgent: #facc15;",  # dark: yellow-400
-        "--color-today: #d97706;",  # dark: amber-600
-        "--color-urgent-tint: #2d2a12;",  # dark: hand-rolled dark tint
-    )
-    # Full `token: value` pairs, so historical hexes inside comments stay
-    # legal while the retired declarations themselves must be gone.
-    RETIRED = (
-        "--color-urgent: #f97316",
-        "--color-urgent-tint: #fff3e8",
-        "--color-urgent: #fb923c",
-        "--color-today: #fbbf24",
-        "--color-urgent-tint: #2d1f12",
+    # The badge adopts the app's existing neutral-chip pattern
+    # (.task-kontext): red stays the only alarm color.
+    NEUTRAL_BADGE = (
+        ".date-uncertain-badge { font-size: 11px; font-weight: 600; "
+        "color: var(--color-text-quaternary); background: var(--color-bg-tertiary); "
+        "border-radius: 4px; padding: 1px 8px; white-space: nowrap; }"
     )
 
     def base_css(self):
@@ -1399,20 +1391,55 @@ class UrgentMustardHueTest(DemoModeTestCase):
             Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
         ).read_text()
 
-    def test_the_signed_off_declarations_are_present(self):
-        css = self.base_css()
-        for declaration in self.SIGNED_OFF:
-            self.assertIn(declaration, css)
+    def review_page(self):
+        self.ai_mocks["projects.planner_views.generate_plan"].return_value = {
+            "project_name": "Testkonzert",
+            "tasks": [
+                {"name": "Programm festlegen", "days_before": 30, "kontext": "Planung"}
+            ],
+        }
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 5. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
 
-    def test_the_retired_declarations_are_gone(self):
+    def test_the_warm_stage_tokens_are_fully_retired(self):
+        # Bare substring on purpose: it also catches the -tint variants and
+        # any comment still leaning on the retired names.
         css = self.base_css()
-        for declaration in self.RETIRED:
-            self.assertNotIn(declaration, css)
+        self.assertNotIn("--color-urgent", css)
+        self.assertNotIn("--color-today", css)
 
-    def test_each_theme_still_declares_urgent_and_today_exactly_once(self):
+    def test_the_surviving_status_tokens_stay_declared_in_both_themes(self):
         css = self.base_css()
-        self.assertEqual(css.count("--color-urgent:"), 2)
-        self.assertEqual(css.count("--color-today:"), 2)
+        self.assertEqual(css.count("--color-overdue:"), 2)
+        self.assertEqual(css.count("--color-overdue-tint:"), 2)
+        self.assertEqual(css.count("--color-done:"), 2)
+
+    def test_no_rendered_page_serves_the_retired_tokens(self):
+        # The collapse's own drift guard. Safe against false positives: the
+        # kanban count selectors and the reschedule JS strip class names,
+        # not token names, so this sweep only bites color rules.
+        self.given_session_plan()
+        pages = {
+            "index": self.client.get(reverse("index")),
+            "dashboard": self.client.get(reverse("dashboard")),
+            "my_plan": self.client.get(reverse("my_plan")),
+            "planner_review": self.review_page(),
+        }
+        for name, response in pages.items():
+            with self.subTest(page=name):
+                self.assertNotContains(response, "--color-urgent")
+                self.assertNotContains(response, "--color-today")
+
+    def test_the_date_uncertain_badge_wears_the_neutral_chip(self):
+        self.given_session_plan()
+        for url in ("dashboard", "my_plan"):
+            with self.subTest(url=url):
+                self.assertContains(self.client.get(reverse(url)), self.NEUTRAL_BADGE)
 
 
 class DarkThemeTest(DemoModeTestCase):
@@ -2268,7 +2295,7 @@ class ReviewLayoutTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(
             response,
-            "tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }",
+            "tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }",
         )
         self.assertNotContains(response, "td:first-child")
 
@@ -2347,7 +2374,7 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
         self.assertContains(
-            response, "tr.sofort { box-shadow: inset 3px 0 0 var(--color-urgent); }"
+            response, "tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }"
         )
 
     def test_the_delete_button_leaves_the_flow(self):
@@ -3840,30 +3867,32 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         self.assertNotContains(response, "Simulierter Zeitpunkt")
 
 
-class UrgentDotColorTest(DemoModeTestCase):
-    """The landing mockup and the dashboard overview tab paint urgent dots
-    orange; the task lists painted them gray — a leftover from the first
-    dashboard build (825ec10, #c8c8c8) that split the urgency palette
-    across surfaces."""
+class OverdueDotColorTest(DemoModeTestCase):
+    """Descendant of the #161 drift guard, same purpose after #173: if the
+    palettes split across surfaces again, the suite should say. Every
+    surface serves the one red overdue dot rule, and none reintroduces a
+    warm dot rule for the collapsed stages."""
 
-    RULE = ".dot.urgent { background: var(--color-urgent); }"
+    RULE = ".dot.overdue { background: var(--color-overdue); }"
 
-    def test_dashboard_urgent_dots_are_orange(self):
+    def pages(self):
         self.given_session_plan()
-        self.assertContains(self.client.get(reverse("dashboard")), self.RULE)
+        return {
+            "dashboard": self.client.get(reverse("dashboard")),
+            "my_plan": self.client.get(reverse("my_plan")),
+            "index": self.client.get(reverse("index")),
+        }
 
-    def test_my_plan_urgent_dots_are_orange(self):
-        self.given_session_plan()
-        self.assertContains(self.client.get(reverse("my_plan")), self.RULE)
+    def test_every_surface_serves_the_red_overdue_dot(self):
+        for name, response in self.pages().items():
+            with self.subTest(page=name):
+                self.assertContains(response, self.RULE)
 
-    def test_landing_mockup_uses_the_product_today_rule(self):
-        # The mockup's "heute" rows wear the product's due-today amber
-        # (#160), no longer the urgent orange — same drift guard, new rule:
-        # if the palettes split across surfaces again, the suite should say.
-        self.assertContains(
-            self.client.get(reverse("index")),
-            ".dot.today { background: var(--color-today); }",
-        )
+    def test_no_surface_serves_a_warm_dot_rule(self):
+        for name, response in self.pages().items():
+            with self.subTest(page=name):
+                self.assertNotContains(response, ".dot.urgent { background")
+                self.assertNotContains(response, ".dot.today { background")
 
 
 class TaskSortOrderInViewsTest(DemoModeTestCase):
@@ -3977,16 +4006,6 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
             response, ".kanban-card.urgent, .kanban-card.overdue, .kanban-card.today"
         )
 
-    def test_the_dashboard_css_defines_the_today_rules(self):
-        self.given_mixed_plan()
-        response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".dot.today { background: var(--color-today); }")
-        self.assertContains(
-            response, ".progress-ring-fill.today { stroke: var(--color-today); }"
-        )
-        self.assertContains(response, ".kanban-card.today")
-        self.assertContains(response, ".task-due.today")
-
     def test_reschedule_js_clears_the_today_class_too(self):
         # Rescheduling a due-today task away must not leave the amber
         # styling behind until the next reload.
@@ -3994,14 +4013,14 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
 
-    def test_the_today_dot_rule_precedes_the_done_rule(self):
+    def test_the_overdue_dot_rule_precedes_the_done_rule(self):
         # Equal specificity — the later rule wins, and a checked-off task
-        # must turn gray even while the JS leaves the today class in place.
+        # must turn gray even while the JS leaves the overdue class in place.
         self.given_mixed_plan()
         for url in ("dashboard", "my_plan"):
             with self.subTest(url=url):
                 html = self.client.get(reverse(url)).content.decode()
-                self.assertLess(html.index(".dot.today"), html.index(".dot.done"))
+                self.assertLess(html.index(".dot.overdue"), html.index(".dot.done"))
 
     def test_my_plan_undated_dot_is_not_done(self):
         self.given_mixed_plan()
@@ -4009,16 +4028,11 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         self.assertContains(response, "dot undated")
 
     def test_my_plan_today_date_label_carries_today(self):
+        # Markup only since #173 — the class stays as classification, the
+        # color rule is gone.
         self.given_mixed_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, "task-date today")
-        self.assertContains(response, ".task-date.today { color: var(--color-today); }")
-
-    def test_base_css_defines_the_today_token_in_both_themes(self):
-        css = (
-            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
-        ).read_text()
-        self.assertEqual(css.count("--color-today:"), 2)
 
 
 class PromptUndatedAndTodayTest(SimpleTestCase):

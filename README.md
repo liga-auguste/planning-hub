@@ -109,9 +109,9 @@ A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/
 - **AI weekly summary** — Claude returns structured JSON referencing projects and tasks by index; the summary renders with real inline task checkboxes (toggling the same task API as the Kanban board) and project links resolved server-side
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
 - **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date
-- **Kanban view** — Open / Urgent / Done columns with progress bar; tasks due today carry their own amber highlight within the Urgent column
+- **Kanban view** — Open / Urgent / Done columns with progress bar; the grouping is unchanged, and only overdue cards carry a red accent
 - **Task management** — check tasks done, reschedule due dates, "→ today" shortcut for overdue tasks. In demo mode rescheduling covers the visitor's own session plan only — the example projects live in no session, so it is not offered for them
-- **Urgency system** — overdue / due today / urgent / on track per task and project, shown as a colour-coded progress ring in the sidebar; open tasks without a date stay neutral instead of counting as done
+- **Urgency system** — overdue / due today / urgent / on track per task and project; the sidebar progress ring turns red only when something is overdue and stays neutral otherwise; open tasks without a date stay neutral instead of counting as done
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else

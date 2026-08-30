@@ -17,7 +17,7 @@
     .plan-head-name input { width: 100%; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 8px 12px; font-size: 16px; font-weight: 500; }
     .plan-head-name input:focus { outline: none; border-color: var(--color-text-primary); }
     .plan-head-date input { border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; color: var(--color-text-primary); background: var(--color-bg-primary); }
-    .date-uncertain-notice { margin: 6px 0 0; font-size: 12px; color: var(--color-urgent); max-width: 220px; }
+    .date-uncertain-notice { margin: 6px 0 0; font-size: 12px; color: var(--color-text-tertiary); max-width: 220px; }
     .task-table { width: 100%; border-collapse: collapse; }
     .task-table th { font-size: 11px; color: var(--color-text-quaternary); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--color-border-primary); }
     .task-table td { padding: 4px 8px; border-bottom: 1px solid var(--color-border-primary); vertical-align: middle; }
@@ -46,8 +46,11 @@
     .btn-add { background: var(--color-accent); border: none; border-radius: 99px; padding: 11px 22px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-add:hover { background: var(--color-accent-hover); }
     .review-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
-    tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-urgent); }
-    tr.sofort input[name="task_date"] { color: var(--color-urgent); font-weight: 500; }
+    /* #173: neutral — sofort dates are clamped to today, and due-today
+       itself renders neutral now; the bar survives as a structural marker
+       of which rows were clamped, not as an alarm. */
+    tr.sofort .col-name { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }
+    tr.sofort input[name="task_date"] { font-weight: 500; }
     /* Below 768px the table is the wrong shape for this content (#71): the
        fixed columns left the name ~60px and cut every task. Each row becomes
        a block — name on its own line, the controls underneath, the delete
@@ -73,7 +76,7 @@
            the marker sat on the first cell. As a block the row paints it,
            and the bar spans the whole stacked task. */
         tr.sofort .col-name { box-shadow: none; }
-        tr.sofort { box-shadow: inset 3px 0 0 var(--color-urgent); }
+        tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }
     }
 {% endblock %}
 
