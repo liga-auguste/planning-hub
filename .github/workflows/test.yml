@@ -28,6 +28,12 @@ jobs:
         image: postgres:16   # matches docker-compose.yml
         env:
           POSTGRES_PASSWORD: postgres
+          # Create the database DB_NAME points at (settings.py:91 default).
+          # Tests only need the maintenance DB to create test_planning_hub,
+          # but any step touching the *default* database — a future migrate
+          # or check --database — would otherwise fail on a missing
+          # planning_hub in a workflow whose tests just passed (#65).
+          POSTGRES_DB: planning_hub
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
