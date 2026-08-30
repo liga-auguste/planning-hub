@@ -48,7 +48,11 @@ sidebar should compete with. See docs/wochenabschluss.md.
     </div>
 
     <div class="page-title">Woche abschließen</div>
+    {% if already_closed and not tasks %}
+    <div class="page-subtitle">{{ today_display }} — bereits abgeschlossen</div>
+    {% else %}
     <div class="page-subtitle">{{ today_display }} — noch offene Aufgaben dieser Woche</div>
+    {% endif %}
 
     <form method="post" action="{% url 'close_week_confirm' %}" id="closeout-form">
         {% csrf_token %}

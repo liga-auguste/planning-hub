@@ -6482,6 +6482,10 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         self.assertContains(response, "Diese Woche hast du bereits abgeschlossen.")
         self.assertContains(response, "Rückblick ansehen")
         self.assertNotContains(response, "Woche abschließen</button>")
+        # The subtitle used to say "noch offene Aufgaben dieser Woche" even
+        # here — the same contradiction as the empty-state text, one line up.
+        self.assertContains(response, "bereits abgeschlossen</div>")
+        self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 
 @override_settings(DEMO_MODE=False)
@@ -6554,6 +6558,8 @@ class CloseWeekStartProductionTest(TestCase):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, "Diese Woche hast du bereits abgeschlossen.")
         self.assertNotContains(response, "Woche abschließen</button>")
+        self.assertContains(response, "bereits abgeschlossen</div>")
+        self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 
 class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
