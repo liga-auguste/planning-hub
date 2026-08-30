@@ -532,5 +532,8 @@ def rule_reorder(request):
     data, error = _parse_json_dict_body(request)
     if error:
         return error
-    rules_store.reorder_rules(request, data.get("order", []))
+    order = data.get("order", [])
+    if not isinstance(order, list):
+        return JsonResponse({"error": "invalid order"}, status=400)
+    rules_store.reorder_rules(request, order)
     return JsonResponse({"ok": True})
