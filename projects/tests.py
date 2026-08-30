@@ -1368,6 +1368,53 @@ class DesignTokenTest(DemoModeTestCase):
             self.assertNotContains(response, literal)
 
 
+class UrgentMustardHueTest(DemoModeTestCase):
+    """#170: urgent leaves the orange family for yellow (mustard in light,
+    yellow-400 in dark) because the retired orange sat at ΔE2000 19.7/23.5
+    from the overdue red — one urgency step read as the same hue. Dark
+    today moves to amber-600 to make room next to the new yellow. Values
+    were signed off on a rendered comparison page at real component sizes;
+    every changed pair clears the retired red/orange distance in its
+    theme."""
+
+    SIGNED_OFF = (
+        "--color-urgent: #ca8a04;",  # light: yellow-600 mustard
+        "--color-urgent-tint: #fefce8;",  # light: yellow-50
+        "--color-urgent: #facc15;",  # dark: yellow-400
+        "--color-today: #d97706;",  # dark: amber-600
+        "--color-urgent-tint: #2d2a12;",  # dark: hand-rolled dark tint
+    )
+    # Full `token: value` pairs, so historical hexes inside comments stay
+    # legal while the retired declarations themselves must be gone.
+    RETIRED = (
+        "--color-urgent: #f97316",
+        "--color-urgent-tint: #fff3e8",
+        "--color-urgent: #fb923c",
+        "--color-today: #fbbf24",
+        "--color-urgent-tint: #2d1f12",
+    )
+
+    def base_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+
+    def test_the_signed_off_declarations_are_present(self):
+        css = self.base_css()
+        for declaration in self.SIGNED_OFF:
+            self.assertIn(declaration, css)
+
+    def test_the_retired_declarations_are_gone(self):
+        css = self.base_css()
+        for declaration in self.RETIRED:
+            self.assertNotIn(declaration, css)
+
+    def test_each_theme_still_declares_urgent_and_today_exactly_once(self):
+        css = self.base_css()
+        self.assertEqual(css.count("--color-urgent:"), 2)
+        self.assertEqual(css.count("--color-today:"), 2)
+
+
 class DarkThemeTest(DemoModeTestCase):
     """#12: the dark palette lives in base.css as a [data-theme="dark"]
     block, and the preload script that switches the attribute runs before
