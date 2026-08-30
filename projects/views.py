@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.cache import cache
@@ -665,10 +665,18 @@ def close_week_start(request):
     ]
     for task in open_this_week:
         task["due_display"] = _format_date(task["due"])
+        # The move button's own label — otherwise "→ nächste Woche" doesn't
+        # say which date that actually is.
+        task["next_week_display"] = _format_date(task["due"] + timedelta(days=7))
     return render(
         request,
         "projects/close_week_start.html",
-        {"tasks": open_this_week, "today_display": _format_date(today)},
+        {
+            "tasks": open_this_week,
+            "today_display": _format_date(today),
+            # A weekend-specific empty state reads oddly on a Tuesday.
+            "is_weekend": today.weekday() >= 5,
+        },
     )
 
 

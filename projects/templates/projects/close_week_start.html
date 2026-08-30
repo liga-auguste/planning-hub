@@ -58,12 +58,16 @@ sidebar should compete with. See docs/wochenabschluss.md.
             <div class="triage-row" id="triage-row-{{ task.id }}" data-raw-date="{{ task.due|date:'Y-m-d' }}">
                 <input type="hidden" name="task_id" value="{{ task.id }}">
                 <span class="triage-task-name">{{ task.name }}<span class="triage-task-due">{{ task.due_display }}</span></span>
-                <button type="button" class="move-btn" data-task-id="{{ task.id }}">→ nächste Woche</button>
+                <button type="button" class="move-btn" data-task-id="{{ task.id }}">→ {{ task.next_week_display }}</button>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <div class="empty-state">Für diese Woche ist nichts mehr offen.</div>
+        {% if is_weekend %}
+        <div class="empty-state">Genieße dein Wochenende — für diese Woche ist nichts mehr offen.</div>
+        {% else %}
+        <div class="empty-state">Für diese Woche ist alles erledigt oder verschoben.</div>
+        {% endif %}
         {% endif %}
         <button type="submit" class="btn-confirm">Woche abschließen</button>
     </form>

@@ -6434,10 +6434,30 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
 
     @patch("django.utils.timezone.localdate")
     def test_nothing_open_this_week_is_an_empty_state(self, mock_localdate):
-        mock_localdate.return_value = CLOSEOUT_TODAY
+        mock_localdate.return_value = CLOSEOUT_TODAY  # a Monday
         self.given_session_plan(tasks=[])
         response = self.client.get(reverse("close_week_start"))
-        self.assertContains(response, "Für diese Woche ist nichts mehr offen.")
+        self.assertContains(
+            response, "Für diese Woche ist alles erledigt oder verschoben."
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_empty_state_greets_the_weekend_on_a_weekend(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=5)  # Saturday
+        self.given_session_plan(tasks=[])
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Genieße dein Wochenende")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_move_button_shows_the_target_date_not_a_generic_label(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        # "Diese Woche" +2 days is due 2026-06-17, +7 = 2026-06-24, a Wednesday.
+        self.assertContains(response, "→ Mi, 24. Juni")
+        self.assertNotContains(response, "→ nächste Woche")
 
 
 @override_settings(DEMO_MODE=False)
