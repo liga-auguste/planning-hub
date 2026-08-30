@@ -5630,6 +5630,13 @@ class MalformedJsonBodyTest(DemoModeTestCase):
             with self.subTest(endpoint=name):
                 self.assert_json_400(self.post_raw(url, b"{"))
 
+    def test_invalid_utf8_bytes_are_a_400(self):
+        # json.loads raises UnicodeDecodeError — not JSONDecodeError — for
+        # bytes that are not valid UTF-8, so it needs its own catch.
+        for name, url in self.all_four():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, b"\x80"))
+
     def test_a_non_dict_body_is_a_400(self):
         for name, url in self.all_four():
             with self.subTest(endpoint=name):

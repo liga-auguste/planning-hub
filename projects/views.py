@@ -270,10 +270,14 @@ def _allowed_sim_dates(request):
 
 def _parse_json_dict_body(request):
     """Returns (data, error_response). Unparseable JSON and non-dict
-    payloads are invalid client input — a 400, never a 500 (#154)."""
+    payloads are invalid client input — a 400, never a 500 (#154).
+
+    UnicodeDecodeError is caught alongside JSONDecodeError: json.loads
+    raises it for bytes that are not valid UTF-8, and it is not a
+    JSONDecodeError subclass."""
     try:
         data = json.loads(request.body)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return None, JsonResponse({"error": "invalid json"}, status=400)
     if not isinstance(data, dict):
         return None, JsonResponse({"error": "invalid json"}, status=400)
