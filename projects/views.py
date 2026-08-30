@@ -268,6 +268,22 @@ def _allowed_sim_dates(request):
     }
 
 
+def _parse_json_dict_body(request):
+    """Returns (data, error_response). Unparseable JSON and non-dict
+    payloads are invalid client input — a 400, never a 500 (#154).
+
+    UnicodeDecodeError is caught alongside JSONDecodeError: json.loads
+    raises it for bytes that are not valid UTF-8, and it is not a
+    JSONDecodeError subclass."""
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, JsonResponse({"error": "invalid json"}, status=400)
+    if not isinstance(data, dict):
+        return None, JsonResponse({"error": "invalid json"}, status=400)
+    return data, None
+
+
 def _parse_posted_date(request):
     """Returns (date_string, error_response). An absent date is valid — it clears the state.
 
@@ -282,12 +298,9 @@ def _parse_posted_date(request):
     """
     if not settings.DEMO_MODE:
         return None, JsonResponse({"error": "not available"}, status=404)
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return None, JsonResponse({"error": "invalid json"}, status=400)
-    if not isinstance(data, dict):
-        return None, JsonResponse({"error": "invalid json"}, status=400)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return None, error
     raw = data.get("date")
     if not raw:
         return None, None
@@ -516,8 +529,12 @@ def preload_timelapse_summary(request):
 def toggle_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    data = json.loads(request.body)
-    done = data["done"]
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    done = data.get("done")
+    if not isinstance(done, bool):
+        return JsonResponse({"error": "invalid done"}, status=400)
     if settings.DEMO_MODE:
         # Same collapse-to-404 rule as reschedule_task_view (#10 §5, #61):
         # answering ok for a task that was never saved is worse than an
@@ -546,11 +563,10 @@ def toggle_task_view(request, task_id):
 def reschedule_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "invalid json"}, status=400)
-    raw_date = data.get("date") if isinstance(data, dict) else None
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    raw_date = data.get("date")
     try:
         date.fromisoformat(raw_date)
     except (ValueError, TypeError):
@@ -751,8 +767,12 @@ def datenschutz(request):
 def toggle_session_task(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    data = json.loads(request.body)
-    done = data["done"]
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    done = data.get("done")
+    if not isinstance(done, bool):
+        return JsonResponse({"error": "invalid done"}, status=400)
     plan = request.session.get("demo_plan")
     task = (
         next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None

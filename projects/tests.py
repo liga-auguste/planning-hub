@@ -5599,6 +5599,60 @@ class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class MalformedJsonBodyTest(DemoModeTestCase):
+    """#154: invalid client input is a 400, never a 500. Four endpoints
+    parsed their JSON body unguarded — they now answer the way
+    reschedule_task_view and _parse_posted_date always did."""
+
+    def post_raw(self, url, body):
+        return self.client.post(url, data=body, content_type="application/json")
+
+    def all_four(self):
+        return [
+            ("toggle_task", reverse("toggle_task", args=["demo-session-0"])),
+            (
+                "toggle_session_task",
+                reverse("toggle_session_task", args=["demo-session-0"]),
+            ),
+            ("rule_update", reverse("rule_update", args=[1])),
+            ("rule_reorder", reverse("rule_reorder")),
+        ]
+
+    def toggles_only(self):
+        return self.all_four()[:2]
+
+    def assert_json_400(self, response):
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+
+    def test_malformed_json_is_a_400(self):
+        for name, url in self.all_four():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, b"{"))
+
+    def test_invalid_utf8_bytes_are_a_400(self):
+        # json.loads raises UnicodeDecodeError — not JSONDecodeError — for
+        # bytes that are not valid UTF-8, so it needs its own catch.
+        for name, url in self.all_four():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, b"\x80"))
+
+    def test_a_non_dict_body_is_a_400(self):
+        for name, url in self.all_four():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, json.dumps([1, 2])))
+
+    def test_a_missing_done_key_is_a_400(self):
+        for name, url in self.toggles_only():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, json.dumps({})))
+
+    def test_a_non_bool_done_is_a_400(self):
+        for name, url in self.toggles_only():
+            with self.subTest(endpoint=name):
+                self.assert_json_400(self.post_raw(url, json.dumps({"done": "yes"})))
+
+
 class RescheduleTaskDemoModeTest(DemoModeTestCase):
     """§5 of #10: reschedule_task_view answered {"ok": True} in demo mode
     without writing anything, so the date the JS had already moved optimistically

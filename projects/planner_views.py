@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from datetime import date, timedelta
@@ -24,7 +23,7 @@ from .notion import (
     get_historical_projects,
 )
 from .planner import generate_plan, get_clarifying_questions
-from .views import _bust_dashboard_cache
+from .views import _bust_dashboard_cache, _parse_json_dict_body
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +505,9 @@ def rule_toggle(request, rule_id):
 def rule_update(request, rule_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    data = json.loads(request.body)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
     if not rules_store.update_rule(
         request,
         rule_id,
@@ -528,6 +529,8 @@ def rule_delete(request, rule_id):
 def rule_reorder(request):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    data = json.loads(request.body)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
     rules_store.reorder_rules(request, data.get("order", []))
     return JsonResponse({"ok": True})
