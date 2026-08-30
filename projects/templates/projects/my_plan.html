@@ -202,14 +202,22 @@ async function toggleTask(btn) {
     const newDone = !currentDone;
     applyDone(taskId, newDone);
     updateProgress();
-    const response = await fetch(`/session-task/${taskId}/toggle/`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-        body: JSON.stringify({done: newDone}),
-    });
-    if (!response.ok) {
-        // The session didn't have this task (stale tab, expired session) —
-        // undo the optimistic update rather than show a state that isn't saved.
+    let response;
+    try {
+        response = await fetch(`/session-task/${taskId}/toggle/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+            body: JSON.stringify({done: newDone}),
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — treat it exactly like an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        // The session didn't have this task (stale tab, expired session) or
+        // the request never arrived — undo the optimistic update rather
+        // than show a state that isn't saved.
         applyDone(taskId, currentDone);
         updateProgress();
         flashActionFailed(btn);
