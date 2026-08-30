@@ -3764,6 +3764,35 @@ class AnnotateTasksTest(SimpleTestCase):
         self.assertEqual(self.names(project), ["Zuerst", "Danach"])
 
 
+class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
+    """#153: with a simulated moment active the dashboard showed two
+    "today"s at once — the sim banner's simulated date and the real
+    {{ today_display }} under the header. The header date now hides during
+    a simulation, leaving the banner as the single date authority."""
+
+    def given_active_simulation(self):
+        sim = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(sim)
+        session = self.client.session
+        session["demo_sim_date"] = sim
+        session.save()
+
+    def test_the_header_date_hides_during_a_simulation(self):
+        self.given_session_plan()
+        self.given_active_simulation()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, _format_date(date.today()))
+
+    def test_the_header_date_is_back_without_a_simulation(self):
+        # "Zurück zu heute" clears demo_sim_date, so the no-sim render is
+        # exactly the state that button restores.
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, _format_date(date.today()))
+        self.assertNotContains(response, "Simulierter Zeitpunkt")
+
+
 class UrgentDotColorTest(DemoModeTestCase):
     """The landing mockup and the dashboard overview tab paint urgent dots
     orange; the task lists painted them gray — a leftover from the first
