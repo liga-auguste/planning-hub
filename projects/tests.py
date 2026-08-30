@@ -5653,6 +5653,26 @@ class MalformedJsonBodyTest(DemoModeTestCase):
                 self.assert_json_400(self.post_raw(url, json.dumps({"done": "yes"})))
 
 
+class RuleReorderNonListOrderTest(DemoModeTestCase):
+    """#167: a non-list "order" value is a 400, never a 500 or a silent
+    reorder. An int or null crashed reorder_rules with a TypeError; a
+    string was iterated character by character."""
+
+    def post_order(self, order):
+        return self.client.post(
+            reverse("rule_reorder"),
+            data=json.dumps({"order": order}),
+            content_type="application/json",
+        )
+
+    def test_a_non_list_order_is_a_400(self):
+        for payload in (5, "12", None):
+            with self.subTest(order=payload):
+                response = self.post_order(payload)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("error", response.json())
+
+
 class RescheduleTaskDemoModeTest(DemoModeTestCase):
     """§5 of #10: reschedule_task_view answered {"ok": True} in demo mode
     without writing anything, so the date the JS had already moved optimistically
@@ -5938,6 +5958,23 @@ class PlannerRulesDemoModeTest(DemoModeTestCase):
         self.assertEqual(
             get_active_rule_texts(self.request_with_session(), "konzert"),
             ["Regel B", "Regel A"],
+        )
+
+    def test_a_string_order_does_not_silently_reorder_the_rules(self):
+        """#167: a string like "21" used to be iterated character by
+        character, applying a swap the client never validly asked for.
+        It is rejected and the stored order stays untouched."""
+        id_a = self.add_rule_id("Regel A")
+        id_b = self.add_rule_id("Regel B")
+        response = self.client.post(
+            reverse("rule_reorder"),
+            data=json.dumps({"order": f"{id_b}{id_a}"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            get_active_rule_texts(self.request_with_session(), "konzert"),
+            ["Regel A", "Regel B"],
         )
 
     def test_rules_are_filtered_by_project_type(self):
