@@ -13,16 +13,8 @@
     --color-accent-hover: #8989f0;
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
-    --color-urgent: #ca8a04;
-    /* yellow-600 mustard next to amber-700 (#170, #160): the retired urgent
-       orange sat at ΔE2000 19.7 from the overdue red — one urgency step read
-       as the same hue. Mustard measures 33.8 to red and 20.9 to today, both
-       above that retired distance; the today pair separates by lightness,
-       the axis #160 proved readable at 7 px dot size. */
-    --color-today: #b45309;
     --color-done: #22c55e;
     --color-overdue-tint: #fef2f2;
-    --color-urgent-tint: #fefce8;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
     /* Solid CTA fills (buttons, active states, progress fills) that reuse
@@ -40,18 +32,16 @@
     --color-notice-bg: #282a30;
     --color-notice-text: #e4e2e4;
 }
-/* #12: the dark values are Linear's own palette; the three status colors
-   are the app's own addition (Linear has none) — lighter than their light-
-   mode values since #ef4444/#ca8a04 read too low-contrast on #08090a.
-   #170's yellow-400 urgent forces today onto amber-600 here: every yellow
-   bright enough for these backgrounds sits within ΔE2000 ≈ 5-10 of
-   amber-400, at or below the distance #160 rejected at 7 px. Measured:
-   urgent↔red 46.0, urgent↔today 27.0, today↔red 25.8 — all above the
-   retired orange's 23.5.
-   --color-*-tint likewise has no Linear equivalent (the app's own badge/
-   notice backgrounds, #11's addition) — dark, desaturated versions of the
-   status hue rather than light tints, since a light tint would fight the
-   surrounding dark surface.
+/* #12: the dark values are Linear's own palette; the two status colors —
+   overdue red and done green — are the app's own addition (Linear has
+   none), lighter than their light-mode values since #ef4444 reads too
+   low-contrast on #08090a. #173 collapsed the warm urgency stages into
+   the neutral grays, so red is the only urgency signal left; #170 keeps
+   the ΔE tooling and sign-off workflow for reintroducing a warm stage.
+   --color-overdue-tint likewise has no Linear equivalent (the app's own
+   badge/notice background, #11's addition) — a dark, desaturated version
+   of the status hue rather than a light tint, since a light tint would
+   fight the surrounding dark surface.
 
    --color-bg-primary is the lighter of the two surface tones and
    --color-bg-secondary the darker: cards/tiles/panels use --color-bg-primary
@@ -83,11 +73,8 @@
     --color-accent-hover: #828fff;
     --color-accent-tint: #18182f;
     --color-overdue: #f87171;
-    --color-urgent: #facc15;
-    --color-today: #d97706;
     --color-done: #4ade80;
     --color-overdue-tint: #2d1517;
-    --color-urgent-tint: #2d2a12;
     --shadow-low: 0px 2px 4px #0000001a;
     --shadow-medium: 0px 4px 24px #0003;
     /* A lighter grey than a straight text-primary invert would give (that

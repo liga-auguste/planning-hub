@@ -13,21 +13,19 @@
         .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; background: var(--color-text-quaternary); }
         button.dot { border: none; padding: 0; cursor: pointer; background: var(--color-text-quaternary); }
         button.dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
-        .dot.urgent { background: var(--color-urgent); }
-        .dot.overdue { background: var(--color-overdue); }
         /* Kept above the done rule: equal specificity, and toggling only
            adds the done class — the later rule has to win on a checked-off
            task. */
-        .dot.today { background: var(--color-today); }
+        .dot.overdue { background: var(--color-overdue); }
         .dot.done { background: var(--color-border-secondary); }
         .progress-ring { flex-shrink: 0; }
         .progress-ring-track, .progress-ring-fill { fill: none; }
         .progress-ring-track { stroke: var(--color-border-primary); }
-        .progress-ring-fill { stroke-linecap: round; }
+        /* #173: neutral by default — overdue red is the only override left;
+           the today/urgent/ok ring classes stay in the markup as
+           classification and all render this neutral stroke. */
+        .progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
         .progress-ring-fill.overdue { stroke: var(--color-overdue); }
-        .progress-ring-fill.today { stroke: var(--color-today); }
-        .progress-ring-fill.urgent { stroke: var(--color-urgent); }
-        .progress-ring-fill.ok { stroke: var(--color-text-quaternary); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
         /* All six levels: the summary is markdown.markdown() output, so the
@@ -64,7 +62,7 @@
         .project-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-primary); }
         .project-name { font-size: 14px; font-weight: 600; }
         .project-date { font-size: 12px; color: var(--color-text-quaternary); }
-        .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-urgent); background: var(--color-urgent-tint); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+        .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
         .task-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
         .task-left { display: flex; align-items: center; flex: 1; min-width: 0; }
@@ -75,8 +73,6 @@
            data-task-id is wired up for rescheduling (#10 §5). */
         .task-due[data-task-id] { cursor: pointer; }
         .task-due[data-task-id]:hover { text-decoration: underline; }
-        .task-due.urgent { color: var(--color-urgent); font-weight: 500; }
-        .task-due.today { color: var(--color-today); font-weight: 500; }
         .task-due.overdue { color: var(--color-overdue); font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
@@ -106,28 +102,10 @@
         .moment-btn.loading .spinner { display: block; }
         .moment-preloaded::after { content: ''; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--color-done); position: absolute; top: 6px; right: 6px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .overview-tasks { margin-top: 36px; }
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
         .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: 99px; overflow: hidden; }
         .progress-fill { height: 100%; border-radius: 99px; background: var(--color-solid-bg); transition: width 0.4s ease; }
-        .overview-project-group { margin-bottom: 20px; }
-        .overview-project-name { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: baseline; }
-        .overview-project-date { font-weight: 400; font-size: 11px; color: var(--color-text-quaternary); }
-        .overview-task { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--color-border-primary); }
-        .overview-task:last-child { border-bottom: none; }
-        .ot-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-        .ot-dot.done { background: var(--color-border-secondary); }
-        .ot-dot.ok { background: var(--color-text-quaternary); }
-        .ot-dot.urgent { background: var(--color-urgent); }
-        .ot-dot.overdue { background: var(--color-overdue); }
-        .ot-name { font-size: 12px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .ot-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
-        .ot-name.urgent { color: var(--color-text-primary); }
-        .ot-name.overdue { color: var(--color-overdue); }
-        .ot-date { font-size: 11px; color: var(--color-text-quaternary); white-space: nowrap; }
-        .ot-date.urgent { color: var(--color-urgent); }
-        .ot-date.overdue { color: var(--color-overdue); }
         /* minmax() floor keeps a column from being forced wider than its
            container by an unshrinkable card (long project name + due date on
            one nowrap line, see .kanban-card-meta below) — plain 1fr's auto
@@ -136,24 +114,16 @@
         .kanban-col { background: var(--color-bg-secondary); border-radius: 8px; padding: 12px; min-height: 120px; }
         .kanban-col-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 7px; font-size: 10px; font-weight: 500; }
-        .kanban-col.col-urgent .kanban-col-header { color: var(--color-urgent); }
-        .kanban-col.col-urgent .kanban-col-count { background: var(--color-urgent-tint); color: var(--color-urgent); }
-        .kanban-col.col-overdue .kanban-col-header { color: var(--color-overdue); }
-        .kanban-col.col-overdue .kanban-col-count { background: var(--color-overdue-tint); color: var(--color-overdue); }
         .kanban-col.col-done .kanban-col-header { color: var(--color-text-quaternary); }
         .kanban-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
         .kanban-card:last-child { margin-bottom: 0; }
         .kanban-card.done { background: var(--color-bg-tertiary); border-color: var(--color-border-primary); }
-        .kanban-card.urgent { border-left: 3px solid var(--color-urgent); }
-        .kanban-card.today { border-left: 3px solid var(--color-today); }
         .kanban-card.overdue { border-left: 3px solid var(--color-overdue); }
         .kanban-card-name { font-weight: 500; color: var(--color-text-primary); margin-bottom: 4px; }
         .kanban-card.done .kanban-card-name { color: var(--color-text-quaternary); text-decoration: line-through; font-weight: 400; }
         .kanban-card-meta { font-size: 11px; color: var(--color-text-quaternary); display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
         .kanban-card-meta span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
         .kanban-card-meta span:last-child { white-space: nowrap; flex-shrink: 0; }
-        .kanban-card.urgent .kanban-card-meta { color: var(--color-urgent); }
-        .kanban-card.today .kanban-card-meta { color: var(--color-today); }
         .kanban-card.overdue .kanban-card-meta { color: var(--color-overdue); }
         .kanban-card.done .kanban-card-meta { color: var(--color-border-secondary); }
         .sim-banner { display: flex; align-items: center; gap: 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
