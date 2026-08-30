@@ -4,7 +4,11 @@
 {% block title %}{{ project.display_name }} – Planning Hub{% endblock %}
 
 {% block extra_css %}
-    .page { max-width: 720px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
+    /* width: 100% is load-bearing: body is a column flexbox (base.css), and
+       an auto side-margin on the cross axis overrides the default stretch
+       behavior, shrinking the box to its content width instead of 720px —
+       same fix as close_week_start.html/week_review.html. */
+    .page { width: 100%; max-width: 720px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
     /* .page already pads horizontally; keep the footer aligned with the content */
     .page-footer { padding-left: 0; padding-right: 0; }
     .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
