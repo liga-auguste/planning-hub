@@ -584,9 +584,10 @@ def reschedule_task_view(request, task_id):
         return error
     raw_date = data.get("date")
     try:
-        date.fromisoformat(raw_date)
+        parsed_date = date.fromisoformat(raw_date)
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
+    due_display = _format_date(parsed_date)
 
     if settings.DEMO_MODE:
         # In demo mode only the visitor's own session plan can be written to;
@@ -634,7 +635,9 @@ def reschedule_task_view(request, task_id):
             postpone_count = increment_postpone_count(task_id)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
-    return JsonResponse({"ok": True, "postpone_count": postpone_count})
+    return JsonResponse(
+        {"ok": True, "postpone_count": postpone_count, "due_display": due_display}
+    )
 
 
 def _current_tasks_for_closeout(request, today):

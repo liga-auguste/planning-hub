@@ -689,8 +689,9 @@ async function reschedule(taskId, newDate, dueSpan) {
         flashActionFailed(dueSpan);
         return false;
     }
+    const data = await response.json();
     dueSpan.dataset.rawDate = newDate;
-    dueSpan.textContent = newDate;
+    dueSpan.textContent = data.due_display;
     const todayBtn = dueSpan.closest('.task-right')?.querySelector('.today-btn');
     if (todayBtn) todayBtn.remove();
     dueSpan.classList.remove('overdue', 'urgent', 'today');
@@ -707,11 +708,10 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
         input.focus();
         input.showPicker();
         input.addEventListener('change', async () => {
-            // span.textContent only follows the new date if Notion accepted
-            // it — on failure reschedule() leaves the span untouched, so
-            // swapping back in shows the old value, not the rejected one.
-            const ok = await reschedule(span.dataset.taskId, input.value, span);
-            if (ok) span.textContent = input.value;
+            // reschedule() itself sets span.textContent from the server's
+            // due_display on success and leaves it untouched on failure, so
+            // there is nothing left to do here but swap the elements back.
+            await reschedule(span.dataset.taskId, input.value, span);
             input.replaceWith(span);
         });
         input.addEventListener('blur', () => input.replaceWith(span));
