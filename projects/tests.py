@@ -5743,6 +5743,30 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
             )
         self.assertEqual(response.status_code, 502)
 
+    def test_a_failing_increment_still_busts_the_cache(self):
+        # The date update itself already succeeded by this point, so the
+        # cache must not keep serving the pre-move date for the rest of its
+        # TTL just because the counter call afterwards failed (wf-review on
+        # PR #175 — _bust_dashboard_cache's own contract is "every confirmed
+        # Notion write").
+        self.addCleanup(cache.clear)
+        cache.set(CACHE_KEY, ([], "<p>alt</p>"), 60)
+        cache.set(STALE_CACHE_KEY, ([], "<p>alt</p>"), None)
+        with (
+            patch("projects.views.update_task_date"),
+            patch(
+                "projects.views.increment_postpone_count",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "2026-09-05"}',
+                content_type="application/json",
+            )
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
 
 @override_settings(DEMO_MODE=False)
 class PlannerCreateNotionFailureTest(TestCase):

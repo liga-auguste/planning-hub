@@ -620,13 +620,20 @@ def reschedule_task_view(request, task_id):
     else:
         try:
             update_task_date(task_id, raw_date)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+        # Busted right away, before the counter call: the date change is
+        # already confirmed in Notion at this point, so a failure below must
+        # not leave the cache serving the pre-move date (_bust_dashboard_cache
+        # promises this for "every confirmed Notion write").
+        _bust_dashboard_cache()
+        try:
             # #171 accepted gap: if this second call fails, the date has
             # already moved but the counter hasn't — reported as the same
             # 502 below, self-healing on the next reschedule.
             postpone_count = increment_postpone_count(task_id)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
-        _bust_dashboard_cache()
     return JsonResponse({"ok": True, "postpone_count": postpone_count})
 
 
