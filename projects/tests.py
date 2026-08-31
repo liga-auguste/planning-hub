@@ -26,6 +26,7 @@ from django.test import (
     override_settings,
 )
 from django.urls import reverse
+from django.utils import timezone
 from notion_client.errors import HTTPResponseError, RequestTimeoutError
 
 from .ai import (
@@ -41,7 +42,7 @@ from .ai import (
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
-from .dates import is_same_iso_week
+from .dates import is_same_iso_week, iso_week_bounds
 from .models import DemoEvent, PlannerRule, WeekCloseout
 from .notion import (
     TASKS_DB,
@@ -68,6 +69,7 @@ from .views import (
     SUMMARY_KEY,
     _annotate_tasks,
     _build_week_view,
+    _count_done_in_range,
     _format_date,
     _strip_trailing_date,
 )
@@ -3780,6 +3782,27 @@ class IsSameIsoWeekTest(SimpleTestCase):
         self.assertFalse(is_same_iso_week(date(2025, 1, 1), date(2026, 1, 1)))
 
 
+class IsoWeekBoundsTest(SimpleTestCase):
+    """#19: the Monday-Sunday range a date range query (the week bar, later
+    #180's per-day columns) needs — same week definition as is_same_iso_week."""
+
+    def test_returns_monday_and_sunday_of_the_containing_week(self):
+        # 2026-06-15 is itself a Monday (see AnnotateTasksTest).
+        self.assertEqual(
+            iso_week_bounds(date(2026, 6, 18)), (date(2026, 6, 15), date(2026, 6, 21))
+        )
+
+    def test_a_monday_is_its_own_start(self):
+        self.assertEqual(
+            iso_week_bounds(date(2026, 6, 15)), (date(2026, 6, 15), date(2026, 6, 21))
+        )
+
+    def test_a_sunday_is_its_own_end(self):
+        self.assertEqual(
+            iso_week_bounds(date(2026, 6, 21)), (date(2026, 6, 15), date(2026, 6, 21))
+        )
+
+
 class AnnotateTasksTest(SimpleTestCase):
     TODAY = date(2026, 6, 15)
 
@@ -4013,6 +4036,51 @@ class BuildWeekViewTest(SimpleTestCase):
         late = self._annotated({"name": "Spät", "due": self.TODAY + timedelta(days=5)}, name="B")
         result = _build_week_view([late, early], [])
         self.assertEqual([t["name"] for t in result["urgent"]], ["Früh", "Spät"])
+
+
+class CountDoneInRangeTest(SimpleTestCase):
+    """#19: the counting helper behind the week progress bar, shared with
+    #180's per-day indicator (same function, a narrower range). A task
+    counts toward `total` if its due date falls in the range OR it was
+    actually completed in the range — an overdue task from outside the
+    range that finally gets cleared inside it still counts as done, the
+    exact case #19's Notion addendum added completed_date to capture — while
+    keeping done a subset of total (no task counts as done without also
+    counting toward total, so the bar can never show more than 100%)."""
+
+    def _task(self, due=None, completed_date=None, **overrides):
+        return {"due": due, "completed_date": completed_date, **overrides}
+
+    def test_a_task_due_in_range_and_done_counts_both(self):
+        tasks = [self._task(due=date(2026, 6, 16), completed_date=date(2026, 6, 16))]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (1, 1)
+        )
+
+    def test_a_task_due_in_range_but_not_done_counts_toward_total_only(self):
+        tasks = [self._task(due=date(2026, 6, 16), completed_date=None)]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (0, 1)
+        )
+
+    def test_an_overdue_task_completed_inside_the_range_counts_as_done(self):
+        # Due last week, completed this week — the case the old Wann?-only
+        # proxy couldn't see and the addendum's completed_date now can.
+        tasks = [self._task(due=date(2026, 6, 8), completed_date=date(2026, 6, 16))]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (1, 1)
+        )
+
+    def test_a_task_outside_the_range_entirely_is_not_counted(self):
+        tasks = [self._task(due=date(2026, 6, 1), completed_date=date(2026, 6, 2))]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (0, 0)
+        )
+
+    def test_no_tasks_is_a_clean_zero_not_a_division_by_zero(self):
+        self.assertEqual(
+            _count_done_in_range([], date(2026, 6, 15), date(2026, 6, 21)), (0, 0)
+        )
 
 
 class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
@@ -5276,6 +5344,66 @@ class PostponeCountReadFromNotionTest(SimpleTestCase):
         self.assertIsNone(tasks[0]["created_time"])
 
 
+class CompletedDateReadFromNotionTest(SimpleTestCase):
+    """#19: _get_tasks reads the "Erledigt am" date property Notion gets
+    alongside Done — a manually-added property, so a page fetched before it
+    existed in the schema must not KeyError."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_reads_the_erledigt_am_date(self):
+        with patch("projects.notion.Client") as MockClient:
+            page = _fake_task_page("Test", "2026-08-20")
+            page["properties"]["Erledigt am"] = {"date": {"start": "2026-08-22"}}
+            page["properties"]["Done"] = {"checkbox": True}
+            MockClient.return_value.databases.query.return_value = {"results": [page]}
+            tasks = _get_tasks("project-id")
+        self.assertEqual(tasks[0]["completed_date"], date(2026, 8, 22))
+
+    def test_missing_property_is_none(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {
+                "results": [_fake_task_page("Test", "2026-08-20")]
+            }
+            tasks = _get_tasks("project-id")
+        self.assertIsNone(tasks[0]["completed_date"])
+
+
+class ToggleTaskWritesCompletedDateTest(SimpleTestCase):
+    """#19: toggle_task writes Done and Erledigt am in one pages.update call —
+    they change together, and there's no read-then-write race to guard
+    against here (unlike increment_postpone_count below)."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_marking_done_writes_both_properties_together(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            toggle_task("task-1", True, "2026-08-22")
+        instance.pages.update.assert_called_once_with(
+            page_id="task-1",
+            properties={
+                "Done": {"checkbox": True},
+                "Erledigt am": {"date": {"start": "2026-08-22"}},
+            },
+        )
+
+    def test_unmarking_clears_the_completed_date(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            toggle_task("task-1", False, None)
+        instance.pages.update.assert_called_once_with(
+            page_id="task-1",
+            properties={"Done": {"checkbox": False}, "Erledigt am": {"date": None}},
+        )
+
+
 class GetUnassignedTasksTest(SimpleTestCase):
     """#53: get_upcoming_projects only ever queries TASKS_DB per project via
     a relation.contains filter — a task with an empty "Related to Projekte"
@@ -5656,6 +5784,63 @@ class TodayWeekViewProductionTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
+class WeekProgressBarProductionTest(TestCase):
+    """#19: the "Diese Woche" bar is server-rendered from week_done_count /
+    week_total_count — not recomputed client-side from kanban-card classes,
+    which never were week-scoped."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_the_bar_shows_the_week_scoped_counts(self):
+        today = date.today()
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-done",
+                "name": "Erledigt",
+                "due": today,
+                "done": True,
+                "kontext": [],
+                "completed_date": today,
+            },
+            {
+                "id": "t-open",
+                "name": "Offen",
+                "due": today,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Diese Woche")
+        self.assertContains(response, "1 / 2 erledigt")
+
+    def test_zero_tasks_this_week_is_a_clean_blank_not_a_crash(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "erledigt</span>")
+
+
+@override_settings(DEMO_MODE=False)
 class SidebarProgressRingZeroTasksTest(TestCase):
     """#76: a project with no tasks yet must render an empty ring, not
     crash with a ZeroDivisionError."""
@@ -5805,7 +5990,16 @@ class ToggleTaskNotionFailureTest(TestCase):
                 content_type="application/json",
             )
         self.assertEqual(response.status_code, 200)
-        mock_toggle.assert_called_once_with("task-1", True)
+        mock_toggle.assert_called_once_with("task-1", True, date.today().isoformat())
+
+    def test_unmarking_a_task_clears_the_completed_date(self):
+        with patch("projects.views.toggle_task") as mock_toggle:
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": false}',
+                content_type="application/json",
+            )
+        mock_toggle.assert_called_once_with("task-1", False, None)
 
     def test_success_busts_the_dashboard_cache(self):
         """#52: with the cache shared across workers, a write that doesn't
@@ -6305,6 +6499,21 @@ class ToggleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_toggle("demo-session-0", done=True)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_marking_done_stamps_a_completed_date(self):
+        """#19: mirrors toggle_task's own Done/Erledigt am pairing in Notion."""
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"],
+            timezone.localdate().isoformat(),
+        )
+
+    def test_unmarking_clears_the_completed_date(self):
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.post_toggle("demo-session-0", done=False)
+        self.assertIsNone(self.client.session["demo_plan"]["tasks"][0]["completed_date"])
 
     def test_an_unknown_task_is_a_404(self):
         self.given_session_plan()

@@ -23,6 +23,7 @@ def get_demo_projects():
                     "name": "Ensemble anfragen",
                     "due": d(-40),
                     "done": True,
+                    "completed_date": d(-40),
                     "kontext": [],
                 },
                 {
@@ -30,6 +31,7 @@ def get_demo_projects():
                     "name": "Termin und Honorar bestätigen",
                     "due": d(-35),
                     "done": True,
+                    "completed_date": d(-35),
                     "kontext": [],
                 },
                 {
@@ -37,6 +39,7 @@ def get_demo_projects():
                     "name": "Programm festlegen",
                     "due": d(-14),
                     "done": True,
+                    "completed_date": d(-14),
                     "kontext": [],
                 },
                 {
@@ -44,6 +47,7 @@ def get_demo_projects():
                     "name": "Pressetext schreiben",
                     "due": d(-10),
                     "done": True,
+                    "completed_date": d(-10),
                     "kontext": [],
                 },
                 {
@@ -51,6 +55,7 @@ def get_demo_projects():
                     "name": "Pressetext an Lokalzeitung",
                     "due": d(-7),
                     "done": True,
+                    "completed_date": d(-7),
                     "kontext": [],
                 },
                 {
@@ -58,6 +63,7 @@ def get_demo_projects():
                     "name": "Facebook-Veranstaltung anlegen",
                     "due": d(-5),
                     "done": True,
+                    "completed_date": d(-5),
                     "kontext": [],
                 },
                 {
@@ -96,6 +102,7 @@ def get_demo_projects():
                     "name": "Musiker bestätigt",
                     "due": d(-30),
                     "done": True,
+                    "completed_date": d(-30),
                     "kontext": [],
                 },
                 {
@@ -103,6 +110,7 @@ def get_demo_projects():
                     "name": "Programm abstimmen",
                     "due": d(-7),
                     "done": True,
+                    "completed_date": d(-7),
                     "kontext": [],
                 },
                 {
@@ -169,6 +177,7 @@ def get_demo_projects():
                     "name": "Solistin anfragen",
                     "due": d(-10),
                     "done": True,
+                    "completed_date": d(-10),
                     "kontext": [],
                 },
                 {

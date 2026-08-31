@@ -403,11 +403,11 @@
 
         <div class="overview-progress" style="margin-top:36px;">
             <div class="overview-progress-label">
-                <span>Aufgaben</span>
-                <span id="progress-label"></span>
+                <span>Diese Woche</span>
+                <span id="progress-label">{% if week_total_count %}{{ week_done_count }} / {{ week_total_count }} erledigt{% endif %}</span>
             </div>
             <div class="progress-track">
-                <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+                <div class="progress-fill" id="progress-fill" style="width:{{ week_progress_pct }}%"></div>
             </div>
         </div>
 
@@ -677,16 +677,12 @@ function formatMomentDate(isoStr) {
 const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 
 (function() {
+    // #19: the progress-fill/-label above are server-rendered (week_done_count /
+    // week_total_count, context) — this only still fills the per-column kanban
+    // badges, which count everything on the board, not just this week.
     const open   = document.querySelectorAll('.kanban-card.ok, .kanban-card.undated').length;
     const urgent = document.querySelectorAll('.kanban-card.urgent, .kanban-card.overdue, .kanban-card.today').length;
     const done   = document.querySelectorAll('.kanban-card.done').length;
-    const total  = open + urgent + done;
-    if (!total) return;
-    const pct = Math.round(done / total * 100);
-    const fill = document.getElementById('progress-fill');
-    const label = document.getElementById('progress-label');
-    if (fill) fill.style.width = pct + '%';
-    if (label) label.textContent = `${done} / ${total} erledigt`;
     document.getElementById('count-open')   && (document.getElementById('count-open').textContent   = open);
     document.getElementById('count-urgent') && (document.getElementById('count-urgent').textContent = urgent);
     document.getElementById('count-done')   && (document.getElementById('count-done').textContent   = done);

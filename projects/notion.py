@@ -126,12 +126,28 @@ def _parse_task_page(page: dict) -> dict:
         # #169: only used by the close-out flow's "added this week" stat
         # (production only) — every Notion page carries it.
         "created_time": _date_from_iso_datetime(page.get("created_time")),
+        # #19: written by toggle_task alongside Done — .get() rather than a
+        # direct index, like Kontext/Verschoben above, so a page fetched
+        # before the property existed in the schema doesn't KeyError.
+        "completed_date": _date(props.get("Erledigt am", {})),
     }
 
 
-def toggle_task(task_id: str, done: bool) -> None:
+def toggle_task(task_id: str, done: bool, completed_date: str | None = None) -> None:
+    """#19: one call writes both Done and Erledigt am — they change together
+    (a task is done or it isn't, and the completion date follows) and
+    there's no read-then-write race here to guard against, unlike
+    increment_postpone_count below."""
     with translate_notion_errors():
-        _client().pages.update(page_id=task_id, properties={"Done": {"checkbox": done}})
+        _client().pages.update(
+            page_id=task_id,
+            properties={
+                "Done": {"checkbox": done},
+                "Erledigt am": {
+                    "date": {"start": completed_date} if completed_date else None
+                },
+            },
+        )
 
 
 def update_task_date(task_id: str, new_date: str) -> None:
