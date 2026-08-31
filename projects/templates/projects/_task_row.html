@@ -1,0 +1,33 @@
+<div class="task-row">
+    <div class="task-left">
+        <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
+        </form>
+        <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+        {% if task.project_name %}
+        {% if task.project_id %}
+        <span class="task-project ai-project-link" onclick="showProject('{{ task.project_id }}')">{{ task.project_name }}</span>
+        {% else %}
+        <span class="task-project">{{ task.project_name }}</span>
+        {% endif %}
+        {% endif %}
+        {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
+    </div>
+    <span class="task-right" style="display:flex;align-items:center;gap:4px;">
+        <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
+              {% if not demo_mode or has_session_plan %}
+              data-task-id="{{ task.id }}"
+              data-raw-date="{{ task.due|date:'Y-m-d' }}"
+              title="Datum ändern"
+              {% endif %}>
+            {{ task.due_display }}
+        </span>
+        {% if task.postpone_count and task.postpone_count >= 2 %}
+        <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
+        {% endif %}
+        {% if task.urgency == 'overdue' %}{% if not demo_mode or has_session_plan %}
+        <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
+        {% endif %}{% endif %}
+    </span>
+</div>

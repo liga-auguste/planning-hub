@@ -18,11 +18,12 @@ from .ai import (
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
-from .dates import is_same_iso_week
-from .demo_data import get_demo_projects
+from .dates import is_same_iso_week, iso_week_bounds
+from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
+    get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
     toggle_task,
@@ -81,14 +82,25 @@ def _format_date(d):
 # task_refs were numbered against the unsorted order; #160: v5 — the stored
 # projects are annotated, and a pre-deploy entry would keep rendering open
 # undated tasks as done; #169/#171: v6 — urgent is calendar-week based now,
-# and task dicts carry a new postpone_count) — otherwise a pre-deploy entry
-# in the old shape would crash or misrender under the new resolver.
-CACHE_KEY = "dashboard_data_v6"
+# and task dicts carry a new postpone_count; #19: v7 — task dicts carry a
+# new completed_date, and a pre-deploy entry would undercount "done this
+# week" until it expires) — otherwise a pre-deploy entry in the old shape
+# would crash or misrender under the new resolver.
+CACHE_KEY = "dashboard_data_v7"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v6"
+STALE_CACHE_KEY = "dashboard_data_stale_v7"
+
+# #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
+# is an independent Notion read (get_unassigned_tasks carries no AI summary,
+# no partial-success nuance) and keeping it apart avoids reshaping the
+# already-tested primary tuple for every existing cache test.
+# #19: v2 — task dicts carry the same new completed_date field.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v2"
+UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v2"
 
 
 def _bust_dashboard_cache():
@@ -96,6 +108,8 @@ def _bust_dashboard_cache():
     freshly saved project never hides behind CACHE_TTL or the stale fallback."""
     cache.delete(CACHE_KEY)
     cache.delete(STALE_CACHE_KEY)
+    cache.delete(UNASSIGNED_CACHE_KEY)
+    cache.delete(STALE_UNASSIGNED_CACHE_KEY)
 
 
 # Session key prefix for demo summaries; planner_create clears every version
@@ -174,6 +188,126 @@ def _annotate_tasks(projects, today):
     return projects
 
 
+def _build_week_view(projects, unassigned_tasks):
+    """#53: the flat Heute/Diese-Woche work surface — sourced from the
+    urgency _annotate_tasks already classified on every task, not re-derived
+    from dates, so there stays exactly one place that decides "overdue" vs
+    "today" vs "urgent". `projects` must already carry `display_name`
+    (dashboard() sets it right before calling this); `unassigned_tasks` are
+    already-annotated tasks with no project of their own — tagged
+    "Ohne Projekt" here rather than dropped, the gap #53 found in every
+    project-keyed read path.
+    """
+    entries = [
+        (task, project["id"], project["display_name"])
+        for project in projects
+        for task in project["tasks"]
+    ] + [(task, None, "Ohne Projekt") for task in unassigned_tasks]
+
+    buckets = {"overdue": [], "today": [], "urgent": []}
+    for task, project_id, project_name in entries:
+        if task["urgency"] not in buckets:
+            continue
+        buckets[task["urgency"]].append(
+            {**task, "project_id": project_id, "project_name": project_name}
+        )
+    for tasks in buckets.values():
+        tasks.sort(key=lambda t: (t["due"], t["project_name"]))
+    return buckets
+
+
+def _count_done_in_range(tasks, start, end):
+    """#19: the week progress bar's counting helper, shared with #180's
+    per-day indicator (same function, a single day as the range). A task
+    counts toward `total` if its due date falls in [start, end] OR it was
+    actually completed in that range — an overdue task from outside the
+    range that gets cleared inside it still counts (the Notion addendum
+    added `completed_date` specifically to capture that, superseding the
+    earlier Wann?-only proxy). Once a task clears that bar, `done` counts it
+    by its actual completion state (completed_date is set) rather than
+    re-checking the date range a second time — a task due today but checked
+    off yesterday, or a day column's card checked off a day late, is still
+    done; re-requiring completed_date to fall in the same narrow range made
+    `done` undercount below what the "done" styling on the card itself
+    already showed. `done` stays a subset of `total` regardless, since
+    completed_date being set is exactly the condition that let it into
+    `relevant` in the due-date-outside-range branch, and a due-date-inside-
+    range task is in `relevant` either way.
+    """
+    relevant = [
+        t
+        for t in tasks
+        if (t["due"] and start <= t["due"] <= end)
+        or (t.get("completed_date") and start <= t["completed_date"] <= end)
+    ]
+    done = sum(1 for t in relevant if t.get("completed_date"))
+    return done, len(relevant)
+
+
+_WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
+
+
+def _parse_week_param(request, default_monday):
+    """#180: ?week=2026-W37 navigates the day columns to that week. Anything
+    unparseable — absent, malformed, or a week number ISO doesn't have —
+    falls back to default_monday rather than erroring the whole page over a
+    query param a visitor is free to hand-edit."""
+    raw = request.GET.get("week")
+    if not raw:
+        return default_monday
+    match = _WEEK_PARAM_RE.fullmatch(raw)
+    if not match:
+        return default_monday
+    try:
+        return date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
+    except ValueError:
+        return default_monday
+
+
+def _bucket_by_day(projects, unassigned_tasks, week_start):
+    """#180: the day-column breakdown of a week — independent of urgency
+    (a browsed week need not be the current one, where overdue/today/urgent
+    don't apply), so this buckets directly by due date instead of building
+    on _build_week_view's urgency buckets. Each day also gets its own
+    done/total via #19's counting helper, parameterized to that single day.
+    """
+    tagged = [
+        {**task, "project_id": project["id"], "project_name": project["display_name"]}
+        for project in projects
+        for task in project["tasks"]
+    ] + [
+        {**task, "project_id": None, "project_name": "Ohne Projekt"}
+        for task in unassigned_tasks
+    ]
+    days = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_tasks = sorted(
+            (t for t in tagged if t["due"] == day), key=lambda t: t["project_name"]
+        )
+        done_count, total_count = _count_done_in_range(day_tasks, day, day)
+        days.append(
+            {
+                "date": day,
+                "date_iso": day.isoformat(),
+                "weekday_label": WEEKDAYS_SHORT[offset],
+                "tasks": day_tasks,
+                "done_count": done_count,
+                "total_count": total_count,
+            }
+        )
+    return days
+
+
+def _format_week_range(monday, sunday):
+    if monday.month == sunday.month:
+        return f"{monday.day}.–{sunday.day}. {MONTHS_DE[sunday.month]}"
+    return (
+        f"{monday.day}. {MONTHS_SHORT[monday.month]} – "
+        f"{sunday.day}. {MONTHS_DE[sunday.month]}"
+    )
+
+
 def _fetch_fresh_data(today):
     """Returns (projects, summary_data) — the summary as Claude's raw
     reference dict, resolved against live projects only at render time."""
@@ -240,6 +374,11 @@ def _build_session_project(session_plan):
             # #171: a session written before the counter existed has no
             # such key at all.
             "postpone_count": t.get("postpone_count", 0),
+            # #19: same fallback reasoning — a session written before this
+            # field existed has no such key at all.
+            "completed_date": date.fromisoformat(t["completed_date"])
+            if t.get("completed_date")
+            else None,
         }
         for t in session_plan["tasks"]
     ]
@@ -331,6 +470,7 @@ def _parse_posted_date(request):
 
 def dashboard(request):
     today = timezone.localdate()
+    effective_today = today
     has_session_plan = False
     plan_exists = False
     force_multi = request.GET.get("mode") == "multi"
@@ -354,6 +494,10 @@ def dashboard(request):
                     if task.get("due") and task["due"] <= sim_date:
                         task["done"] = True
             projects = _annotate_tasks([project], effective_today)
+            # #53: the planner always ties every task it generates to the one
+            # project it just created — a session plan never has a
+            # project-less task to show under "Ohne Projekt".
+            unassigned_tasks = []
             summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
             summary_data = request.session.get(summary_key)
             if not summary_data:
@@ -369,6 +513,9 @@ def dashboard(request):
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
             projects = _annotate_tasks(get_demo_projects(), today)
+            unassigned_tasks = _annotate_tasks(
+                [{"id": "_unassigned", "tasks": get_demo_unassigned_tasks()}], today
+            )[0]["tasks"]
             summary_cache_key = f"{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}"
             summary_data = cache.get(summary_cache_key)
             if summary_data is None:
@@ -406,11 +553,54 @@ def dashboard(request):
                     cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
                     cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
+        # #53: an independent read from get_upcoming_projects (own cache
+        # pair, see UNASSIGNED_CACHE_KEY above) — annotated and cached in
+        # that shape, same as `projects`, so a cache hit costs no recompute.
+        cached_unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+        if cached_unassigned is not None:
+            unassigned_tasks = cached_unassigned
+        else:
+            try:
+                fetched_unassigned = get_unassigned_tasks(today)
+            except NotionUnavailableError:
+                last_known_good_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
+                unassigned_tasks = last_known_good_unassigned or []
+            else:
+                unassigned_tasks = _annotate_tasks(
+                    [{"id": "_unassigned", "tasks": fetched_unassigned}], today
+                )[0]["tasks"]
+                cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_TTL)
+                cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
+
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 
     for project in projects:
         project["display_name"] = _strip_trailing_date(project["name"])
         project["event_date_display"] = _format_date(project["event_date"])
+
+    week_view = _build_week_view(projects, unassigned_tasks)
+
+    # #19: the week progress bar — same pool of tasks as the week view above,
+    # counted against the calendar week containing effective_today (not
+    # `today`, so demo time-travel moves the bar along with everything else).
+    week_start, week_end = iso_week_bounds(effective_today)
+    all_tasks = [t for project in projects for t in project["tasks"]] + unassigned_tasks
+    week_done_count, week_total_count = _count_done_in_range(
+        all_tasks, week_start, week_end
+    )
+    week_progress_pct = (
+        round(week_done_count / week_total_count * 100) if week_total_count else 0
+    )
+
+    # #180: the day-column breakdown can browse any week, independent of
+    # effective_today — week_start above stays the *current* week for the
+    # progress bar even while these columns show a different one.
+    browsed_monday = _parse_week_param(request, week_start)
+    browsed_sunday = browsed_monday + timedelta(days=6)
+    prev_monday = browsed_monday - timedelta(days=7)
+    next_monday = browsed_monday + timedelta(days=7)
+    is_current_week = browsed_monday == week_start
+    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
 
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
@@ -481,6 +671,17 @@ def dashboard(request):
             "demo_project_date_uncertain": demo_project_date_uncertain,
             "stale": stale,
             "data_unavailable": data_unavailable,
+            "heute_overdue": week_view["overdue"],
+            "heute_today": week_view["today"],
+            "diese_woche": week_view["urgent"],
+            "week_done_count": week_done_count,
+            "week_total_count": week_total_count,
+            "week_progress_pct": week_progress_pct,
+            "day_columns": day_columns,
+            "week_range_label": _format_week_range(browsed_monday, browsed_sunday),
+            "is_current_week": is_current_week,
+            "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
+            "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
         },
     )
 
@@ -555,6 +756,8 @@ def toggle_task_view(request, task_id):
         # Same collapse-to-404 rule as reschedule_task_view (#10 §5, #61):
         # answering ok for a task that was never saved is worse than an
         # honest miss.
+        sim_date, _ = _get_sim_date(request)
+        effective_today = sim_date or timezone.localdate()
         plan = request.session.get("demo_plan")
         task = (
             next((t for t in plan["tasks"] if t["id"] == task_id), None)
@@ -564,10 +767,13 @@ def toggle_task_view(request, task_id):
         if task is None:
             return JsonResponse({"error": "unknown task"}, status=404)
         task["done"] = done
+        # #19: mirrors toggle_task's own Done/Erledigt am pairing in Notion.
+        task["completed_date"] = effective_today.isoformat() if done else None
         request.session["demo_plan"] = plan
     else:
+        completed_date = timezone.localdate().isoformat() if done else None
         try:
-            toggle_task(task_id, done)
+            toggle_task(task_id, done, completed_date)
         except NotionUnavailableError:
             # A non-200 so the caller knows not to apply its optimistic
             # update — see the dashboard.html JS changes in the same commit.

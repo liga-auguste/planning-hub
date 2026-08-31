@@ -86,6 +86,67 @@
         .today-btn { font-size: 11px; color: var(--color-text-quaternary); background: none; border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
         .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
         .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
+        /* #53: the Heute/Diese-Woche view spans projects, so each row needs
+           its own project label — the single-project views never do. Sits
+           after task-name (not before) so every task-name starts at the
+           same indent right after the dot, instead of drifting with each
+           row's project-name width. */
+        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 8px; white-space: nowrap; flex-shrink: 0; }
+        .task-project.ai-project-link { color: var(--color-text-tertiary); }
+        .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
+        .today-week-heading:first-child { margin-top: 0; }
+        /* #180: week navigation sits beside the "Diese Woche" heading, so its
+           own text is intentionally not uppercase/letter-spaced like the
+           heading around it — it reads as a control, not a label. */
+        .week-nav-row { display: flex; align-items: center; justify-content: space-between; }
+        .week-nav { display: flex; align-items: center; gap: 6px; text-transform: none; font-weight: 400; letter-spacing: normal; }
+        .week-nav-btn { color: var(--color-text-quaternary); text-decoration: none; padding: 2px 7px; border-radius: 4px; font-size: 13px; }
+        .week-nav-btn:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+        .week-range-label { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; }
+        .week-nav-today { font-size: 11px; color: var(--color-accent); text-decoration: underline; margin-left: 4px; white-space: nowrap; }
+        /* minmax's 1fr still fills a wide screen edge to edge, same as
+           before — raising the floor from 120px just means a mid-width
+           screen that can't fit 7 columns at that floor scrolls sideways
+           (overflow-x below) instead of squeezing every column past the
+           point a task name has room to breathe. */
+        .day-columns { display: grid; grid-template-columns: repeat(7, minmax(160px, 1fr)); gap: 8px; overflow-x: auto; }
+        .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; }
+        .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
+        .day-column-body { min-height: 32px; }
+        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
+        /* Same click target as every other .dot, just a tighter margin —
+           on a ~160px card the shared 8px .dot margin was a third of the
+           gap eaten by chrome instead of the task name. */
+        .day-task-card .dot { margin-right: 3px; }
+        .day-task-card:last-child { margin-bottom: 0; }
+        .day-task-card.done { opacity: 0.55; }
+        /* Sortable never initializes on the read-only demo example projects
+           (see the script guard below) — the grab cursor would otherwise
+           promise a drag that just fails. */
+        .day-task-card.no-drag { cursor: default; }
+        /* .main caps every other view at a comfortable 920px reading width
+           (dashboard.css) — sensible for prose and task lists, but a
+           7-column calendar grid benefits from the rest of a wide monitor
+           instead of sitting inside that same cap. Breaking just this
+           element out needs the sidebar's own footprint (284px expanded /
+           72px collapsed, dashboard.css's .main / .main.sidebar-collapsed)
+           subtracted from 100vw, plus .main's own 48px left inset (measured,
+           not itself a token anywhere — this rule doesn't move the grid's
+           left edge, only how far right it's allowed to stretch) and a 20px
+           right-hand margin against the raw viewport edge, matching the
+           20px inset already used elsewhere in this file (e.g.
+           .sidebar-toggle-mobile's right offset). Skipped below 769px: the
+           mobile block further down replaces grid-template-columns entirely
+           with its own swipe-scroll sizing, so a viewport-based width here
+           would only fight it. */
+        @media (min-width: 769px) {
+            .day-columns { width: calc(100vw - 284px - 68px); max-width: none; }
+            .main.sidebar-collapsed .day-columns { width: calc(100vw - 72px - 68px); }
+        }
+        .day-task-card.sortable-ghost { opacity: 0.3; }
+        .day-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .day-task-name.done { text-decoration: line-through; }
         .timelapse-bar { margin-bottom: 32px; }
         .timelapse-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -167,6 +228,12 @@
                .project-header above: 20px content-body inset + the 36px
                button minus the box's own 14px side padding, plus a gap. */
             .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
+            /* #180: 7 fixed columns don't fit a phone-width viewport (the
+               primary form factor per #53) — horizontal swipe-scroll, one
+               day roughly a screen-width wide, rather than a tab/paginator
+               component that would need its own JS state. */
+            .day-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78vw; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+            .day-column { scroll-snap-align: start; }
         }
 {% endblock %}
 
@@ -177,6 +244,10 @@
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
         <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
         Dashboard
+    </a>
+    <a class="sidebar-item" id="nav-today" onclick="showToday()">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+        Heute
     </a>
     {% if demo_mode %}
         {% if has_session_plan %}
@@ -393,11 +464,11 @@
 
         <div class="overview-progress" style="margin-top:36px;">
             <div class="overview-progress-label">
-                <span>Aufgaben</span>
-                <span id="progress-label"></span>
+                <span>Diese Woche</span>
+                <span id="progress-label">{% if week_total_count %}{{ week_done_count }} / {{ week_total_count }} erledigt{% endif %}</span>
             </div>
             <div class="progress-track">
-                <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+                <div class="progress-fill" id="progress-fill" style="width:{{ week_progress_pct }}%"></div>
             </div>
         </div>
 
@@ -455,6 +526,47 @@
                 {% endif %}
                 {% endfor %}{% endfor %}{% endfor %}
             </div>
+        </div>
+    </div>
+
+    <div id="view-today" style="display: none;">
+        <div class="ai-card-header" style="margin-bottom: 24px;">
+            <div style="font-size: 22px; font-weight: 700;">Heute</div>
+        </div>
+
+        {% if heute_overdue %}
+        <div class="today-week-heading">Überfällig</div>
+        {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% endif %}
+
+        <div class="today-week-heading">Heute fällig</div>
+        {% if heute_today %}
+        {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% else %}
+        <p class="ai-error">Für heute liegt nichts an.</p>
+        {% endif %}
+
+        <div class="today-week-heading week-nav-row" style="margin-top: 36px;">
+            <span>Diese Woche</span>
+            <span class="week-nav">
+                <a class="week-nav-btn" href="?view=today&amp;week={{ prev_week_param }}" title="Vorherige Woche">←</a>
+                <span class="week-range-label">{{ week_range_label }}</span>
+                <a class="week-nav-btn" href="?view=today&amp;week={{ next_week_param }}" title="Nächste Woche">→</a>
+                {% if not is_current_week %}<a class="week-nav-today" href="?view=today">Diese Woche</a>{% endif %}
+            </span>
+        </div>
+        <div class="day-columns" id="day-columns">
+            {% for day in day_columns %}
+            <div class="day-column">
+                <div class="day-column-header">
+                    <span>{{ day.weekday_label }} {{ day.date|date:'d.m.' }}</span>
+                    {% if day.total_count %}<span class="day-column-count">{{ day.done_count }}/{{ day.total_count }}</span>{% endif %}
+                </div>
+                <div class="day-column-body" data-date="{{ day.date_iso }}">
+                    {% for task in day.tasks %}{% include "projects/_day_task_card.html" %}{% endfor %}
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
 
@@ -530,14 +642,25 @@
 
     function showOverview() {
         document.getElementById('view-overview').style.display = 'block';
+        document.getElementById('view-today').style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
         if (!syncingHistory) history.pushState({}, '', window.location.pathname);
     }
 
+    function showToday() {
+        document.getElementById('view-overview').style.display = 'none';
+        document.getElementById('view-today').style.display = 'block';
+        document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+        document.getElementById('nav-today').classList.add('active');
+        if (!syncingHistory) history.pushState({view: 'today'}, '', '?view=today');
+    }
+
     function showProject(id) {
         document.getElementById('view-overview').style.display = 'none';
+        document.getElementById('view-today').style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.getElementById('project-' + id).style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -550,6 +673,8 @@
         const projectId = event.state && event.state.project;
         if (projectId && document.getElementById('project-' + projectId)) {
             showProject(projectId);
+        } else if (event.state && event.state.view === 'today') {
+            showToday();
         } else {
             showOverview();
         }
@@ -557,11 +682,21 @@
     });
 
     (function() {
-        const projectId = new URLSearchParams(window.location.search).get('project');
+        const params = new URLSearchParams(window.location.search);
+        const projectId = params.get('project');
         if (projectId && document.getElementById('project-' + projectId)) {
             syncingHistory = true;
             history.replaceState({project: projectId}, '', '?project=' + projectId);
             showProject(projectId);
+            syncingHistory = false;
+        } else if (params.get('view') === 'today') {
+            syncingHistory = true;
+            // window.location.search, not the hardcoded '?view=today' below —
+            // a prev/next-week link lands here with a `week` param that must
+            // survive this sync, or a reload/share of the URL silently drops
+            // back to the current week.
+            history.replaceState({view: 'today'}, '', window.location.search);
+            showToday();
             syncingHistory = false;
         }
     })();
@@ -623,16 +758,12 @@ function formatMomentDate(isoStr) {
 const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 
 (function() {
+    // #19: the progress-fill/-label above are server-rendered (week_done_count /
+    // week_total_count, context) — this only still fills the per-column kanban
+    // badges, which count everything on the board, not just this week.
     const open   = document.querySelectorAll('.kanban-card.ok, .kanban-card.undated').length;
     const urgent = document.querySelectorAll('.kanban-card.urgent, .kanban-card.overdue, .kanban-card.today').length;
     const done   = document.querySelectorAll('.kanban-card.done').length;
-    const total  = open + urgent + done;
-    if (!total) return;
-    const pct = Math.round(done / total * 100);
-    const fill = document.getElementById('progress-fill');
-    const label = document.getElementById('progress-label');
-    if (fill) fill.style.width = pct + '%';
-    if (label) label.textContent = `${done} / ${total} erledigt`;
     document.getElementById('count-open')   && (document.getElementById('count-open').textContent   = open);
     document.getElementById('count-urgent') && (document.getElementById('count-urgent').textContent = urgent);
     document.getElementById('count-done')   && (document.getElementById('count-done').textContent   = done);
@@ -751,8 +882,61 @@ document.querySelectorAll('.today-btn').forEach(btn => {
         e.stopPropagation();
         const taskId = btn.dataset.taskId;
         const dueSpan = btn.closest('.task-right').querySelector('.task-due');
-        await reschedule(taskId, TODAY, dueSpan);
+        // Same reasoning as the day-columns drag handler below: the moved
+        // task's list section, day-column, week bar and sidebar ring all
+        // need reclassifying against the new date — reload rather than
+        // patch each by hand.
+        const ok = await reschedule(taskId, TODAY, dueSpan);
+        if (ok) window.location.reload();
     });
 });
 </script>
+{% if not demo_mode or has_session_plan %}
+{% comment %}
+Same reasoning as the task-due span above: dragging reschedules, and
+rescheduling is offered only where it persists. The demo example projects
+are in no session, so their cards stay visible but not draggable there.
+{% endcomment %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
+<script>
+// #180: drag-and-drop between day columns reuses the existing reschedule
+// endpoint (views.py:reschedule_task_view) — the day dropped on supplies the
+// new date, same as clicking a date and picking one above. A full reload on
+// success is deliberate: the moved task's urgency, the Heute bucket, the
+// week bar and the sidebar ring all need reclassifying against the new
+// date, and that's cheaper to get right by re-rendering than by hand.
+document.querySelectorAll('.day-column-body').forEach(column => {
+    new Sortable(column, {
+        group: 'day-columns',
+        animation: 150,
+        ghostClass: 'sortable-ghost',
+        onEnd: async (evt) => {
+            if (evt.from === evt.to) return;
+            const taskId = evt.item.dataset.taskId;
+            const newDate = evt.to.dataset.date;
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            let response;
+            try {
+                response = await fetch(`/task/${taskId}/reschedule/`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+                    body: JSON.stringify({date: newDate})
+                });
+            } catch {
+                response = null;
+            }
+            if (!response || !response.ok) {
+                // Undo the drag SortableJS already applied to the DOM —
+                // Notion disagreed or the request never arrived.
+                const ref = evt.from.children[evt.oldIndex] || null;
+                evt.from.insertBefore(evt.item, ref);
+                flashActionFailed(evt.item);
+                return;
+            }
+            window.location.reload();
+        }
+    });
+});
+</script>
+{% endif %}
 {% endblock %}
