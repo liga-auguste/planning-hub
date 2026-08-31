@@ -4095,6 +4095,19 @@ class CountDoneInRangeTest(SimpleTestCase):
             _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (0, 0)
         )
 
+    def test_a_task_due_in_range_but_completed_on_a_different_day_still_counts_as_done(
+        self,
+    ):
+        # #180's per-day columns call this with start==end==one day. A task
+        # due that day but checked off a day late (or early) is still done —
+        # the card itself renders struck through — so the badge must not
+        # undercount it just because completed_date lands outside that
+        # single-day window.
+        tasks = [self._task(due=date(2026, 6, 16), completed_date=date(2026, 6, 17))]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 16), date(2026, 6, 16)), (1, 1)
+        )
+
     def test_no_tasks_is_a_clean_zero_not_a_division_by_zero(self):
         self.assertEqual(
             _count_done_in_range([], date(2026, 6, 15), date(2026, 6, 21)), (0, 0)
@@ -4179,6 +4192,21 @@ class BucketByDayTest(SimpleTestCase):
         )
         days = _bucket_by_day([project], [], self.MONDAY)
         self.assertEqual((days[0]["done_count"], days[0]["total_count"]), (1, 2))
+
+    def test_a_task_checked_off_a_day_late_still_counts_as_done_on_its_due_day(self):
+        # The card renders struck through under its due day regardless of
+        # when it was actually completed (task["done"] is what the template
+        # reads) — the done_count badge above it must agree.
+        project = self._project(
+            {
+                "name": "Verspätet erledigt",
+                "due": self.MONDAY,
+                "done": True,
+                "completed_date": self.MONDAY + timedelta(days=1),
+            }
+        )
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual((days[0]["done_count"], days[0]["total_count"]), (1, 1))
 
 
 class ParseWeekParamTest(SimpleTestCase):

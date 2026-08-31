@@ -223,9 +223,16 @@ def _count_done_in_range(tasks, start, end):
     actually completed in that range — an overdue task from outside the
     range that gets cleared inside it still counts (the Notion addendum
     added `completed_date` specifically to capture that, superseding the
-    earlier Wann?-only proxy). `done` only ever counts completions inside
-    the range, so it's always a subset of `total` — the bar can't show more
-    than 100%.
+    earlier Wann?-only proxy). Once a task clears that bar, `done` counts it
+    by its actual completion state (completed_date is set) rather than
+    re-checking the date range a second time — a task due today but checked
+    off yesterday, or a day column's card checked off a day late, is still
+    done; re-requiring completed_date to fall in the same narrow range made
+    `done` undercount below what the "done" styling on the card itself
+    already showed. `done` stays a subset of `total` regardless, since
+    completed_date being set is exactly the condition that let it into
+    `relevant` in the due-date-outside-range branch, and a due-date-inside-
+    range task is in `relevant` either way.
     """
     relevant = [
         t
@@ -233,11 +240,7 @@ def _count_done_in_range(tasks, start, end):
         if (t["due"] and start <= t["due"] <= end)
         or (t.get("completed_date") and start <= t["completed_date"] <= end)
     ]
-    done = sum(
-        1
-        for t in relevant
-        if t.get("completed_date") and start <= t["completed_date"] <= end
-    )
+    done = sum(1 for t in relevant if t.get("completed_date"))
     return done, len(relevant)
 
 
