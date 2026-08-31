@@ -101,6 +101,14 @@ def _get_tasks(project_page_id: str) -> list:
                 "kontext": [
                     k["name"] for k in props.get("Kontext", {}).get("multi_select", [])
                 ],
+                # #171: read fresh on every fetch, or a task's count would
+                # reset to 0 on display even though the stored value is
+                # correct — Notion has no atomic increment, see
+                # increment_postpone_count below.
+                "postpone_count": props.get("Verschoben", {}).get("number") or 0,
+                # #169: only used by the close-out flow's "added this week"
+                # stat (production only) — every Notion page carries it.
+                "created_time": _date_from_iso_datetime(page.get("created_time")),
             }
         )
 
@@ -119,6 +127,22 @@ def update_task_date(task_id: str, new_date: str) -> None:
         )
 
 
+def increment_postpone_count(task_id: str) -> int:
+    """Read-then-write, since Notion has no atomic increment. Deliberately
+    not folded into update_task_date (#171): two calls instead of one costs
+    an extra Notion request per reschedule, but leaves update_task_date and
+    its own tests untouched. Acceptable for a single-user app."""
+    with translate_notion_errors():
+        client = _client()
+        page = client.pages.retrieve(page_id=task_id)
+        current = page["properties"].get("Verschoben", {}).get("number") or 0
+        new_value = current + 1
+        client.pages.update(
+            page_id=task_id, properties={"Verschoben": {"number": new_value}}
+        )
+        return new_value
+
+
 def _text(rich_text_list: list) -> str:
     return "".join(t["plain_text"] for t in rich_text_list)
 
@@ -128,6 +152,14 @@ def _date(date_prop: dict) -> date | None:
     if value and value.get("start"):
         return date.fromisoformat(value["start"])
     return None
+
+
+def _date_from_iso_datetime(value: str | None) -> date | None:
+    """Notion's created_time is an ISO 8601 UTC timestamp
+    ("2026-08-25T10:00:00.000Z") — only the calendar date matters here."""
+    if not value:
+        return None
+    return date.fromisoformat(value[:10])
 
 
 def get_historical_projects() -> list:

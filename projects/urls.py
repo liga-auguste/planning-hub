@@ -26,6 +26,13 @@ urlpatterns = [
         views.preload_timelapse_summary,
         name="preload_timelapse_summary",
     ),
+    path("woche-abschliessen/", views.close_week_start, name="close_week_start"),
+    path(
+        "woche-abschliessen/bestaetigen/",
+        views.close_week_confirm,
+        name="close_week_confirm",
+    ),
+    path("wochenrueckblick/", views.week_review, name="week_review"),
     path("impressum/", views.impressum, name="impressum"),
     path("datenschutz/", views.datenschutz, name="datenschutz"),
 ]

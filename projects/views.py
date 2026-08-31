@@ -3,7 +3,7 @@ import json
 import logging
 import math
 import re
-from datetime import date
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.cache import cache
@@ -11,12 +11,20 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
-from .ai import AIUnavailableError, generate_weekly_summary, resolve_weekly_summary
+from .ai import (
+    AIUnavailableError,
+    generate_closeout_summary,
+    generate_weekly_summary,
+    resolve_weekly_summary,
+)
+from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .dates import is_same_iso_week
 from .demo_data import get_demo_projects
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
     get_upcoming_projects,
+    increment_postpone_count,
     toggle_task,
     update_task_date,
 )
@@ -72,14 +80,15 @@ def _format_date(d):
 # (#20: v2/v4; #122: v3/v5; #140: v4/v6 — task order changed, and pre-deploy
 # task_refs were numbered against the unsorted order; #160: v5 — the stored
 # projects are annotated, and a pre-deploy entry would keep rendering open
-# undated tasks as done) — otherwise a pre-deploy entry in the old shape
-# would crash or misrender under the new resolver.
-CACHE_KEY = "dashboard_data_v5"
+# undated tasks as done; #169/#171: v6 — urgent is calendar-week based now,
+# and task dicts carry a new postpone_count) — otherwise a pre-deploy entry
+# in the old shape would crash or misrender under the new resolver.
+CACHE_KEY = "dashboard_data_v6"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v5"
+STALE_CACHE_KEY = "dashboard_data_stale_v6"
 
 
 def _bust_dashboard_cache():
@@ -140,7 +149,11 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "overdue"
             elif task["due"] == today:
                 task["urgency"] = "today"
-            elif (task["due"] - today).days <= 7:
+            elif is_same_iso_week(task["due"], today):
+                # #169: calendar-week based, not a rolling 7-day window — a
+                # task due next week is not urgent today. Closing the week
+                # (see closeout.py) is what arms next week's signal, and it
+                # does that for free just by the calendar rolling over.
                 task["urgency"] = "urgent"
             else:
                 task["urgency"] = "ok"
@@ -224,6 +237,9 @@ def _build_session_project(session_plan):
             # Demo-mode tasks carry no "kontext" key at all (#18) — this
             # only wraps a value for a session written before that change.
             "kontext": [t["kontext"]] if t.get("kontext") else [],
+            # #171: a session written before the counter existed has no
+            # such key at all.
+            "postpone_count": t.get("postpone_count", 0),
         }
         for t in session_plan["tasks"]
     ]
@@ -587,6 +603,11 @@ def reschedule_task_view(request, task_id):
         if task is None:
             return JsonResponse({"error": "unknown task"}, status=404)
         task["date"] = raw_date
+        # #171: awareness, not punishment — starts counting from the second
+        # move, but the counter itself increments on every reschedule from
+        # the first one (the badge threshold is a display concern, applied
+        # in the templates).
+        task["postpone_count"] = task.get("postpone_count", 0) + 1
         request.session["demo_plan"] = plan
         # The task order is chronological (#140), so a new date moves the
         # task — cached summaries would keep task_refs numbered against the
@@ -595,13 +616,145 @@ def reschedule_task_view(request, task_id):
         for key in list(request.session.keys()):
             if key.startswith("demo_plan_summary"):
                 del request.session[key]
+        postpone_count = task["postpone_count"]
     else:
         try:
             update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+        # Busted right away, before the counter call: the date change is
+        # already confirmed in Notion at this point, so a failure below must
+        # not leave the cache serving the pre-move date (_bust_dashboard_cache
+        # promises this for "every confirmed Notion write").
         _bust_dashboard_cache()
-    return JsonResponse({"ok": True})
+        try:
+            # #171 accepted gap: if this second call fails, the date has
+            # already moved but the counter hasn't — reported as the same
+            # 502 below, self-healing on the next reschedule.
+            postpone_count = increment_postpone_count(task_id)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+    return JsonResponse({"ok": True, "postpone_count": postpone_count})
+
+
+def _current_tasks_for_closeout(request, today):
+    """A flat list of this session's or production's tasks for the
+    close-out flow (#169) — read fresh, not from the dashboard cache: a
+    stale week's data would misclassify the triage list. Returns None if
+    there is nothing to close out (demo mode, no session plan)."""
+    if settings.DEMO_MODE:
+        session_plan = request.session.get("demo_plan")
+        if not session_plan:
+            return None
+        return _build_session_project(session_plan)["tasks"]
+    projects = get_upcoming_projects(today)
+    return [t for p in projects for t in p["tasks"]]
+
+
+def close_week_start(request):
+    today = timezone.localdate()
+    try:
+        tasks = _current_tasks_for_closeout(request, today)
+    except NotionUnavailableError:
+        return redirect("dashboard")
+    if tasks is None:
+        return redirect("index")
+    # Overdue tasks stay out — they already have their own signal, and the
+    # point of this list is the tasks that are still a conscious choice to
+    # move, not the ones already late.
+    open_this_week = [
+        t
+        for t in tasks
+        if not t["done"]
+        and t["due"]
+        and t["due"] >= today
+        and is_same_iso_week(t["due"], today)
+    ]
+    for task in open_this_week:
+        task["due_display"] = _format_date(task["due"])
+        # The move button's own label — otherwise "→ nächste Woche" doesn't
+        # say which date that actually is.
+        task["next_week_display"] = _format_date(task["due"] + timedelta(days=7))
+    iso_year, iso_week, _ = today.isocalendar()
+    # If the week is already closed and nothing new is open, confirming
+    # again would post an empty task_id list and overwrite the real stats
+    # with zeros — the template hides the button for exactly this case and
+    # points to the existing review instead.
+    already_closed = is_week_closed(request, iso_year, iso_week)
+    return render(
+        request,
+        "projects/close_week_start.html",
+        {
+            "tasks": open_this_week,
+            "already_closed": already_closed,
+            "today_display": _format_date(today),
+            # A weekend-specific empty state reads oddly on a Tuesday.
+            "is_weekend": today.weekday() >= 5,
+        },
+    )
+
+
+def close_week_confirm(request):
+    if request.method != "POST":
+        return redirect("close_week_start")
+    today = timezone.localdate()
+    iso_year, iso_week, _ = today.isocalendar()
+    task_ids = request.POST.getlist("task_id")
+
+    try:
+        tasks = _current_tasks_for_closeout(request, today)
+    except NotionUnavailableError:
+        return redirect("close_week_start")
+    if tasks is None:
+        return redirect("index")
+
+    live_by_id = {t["id"]: t for t in tasks}
+    completed_count = 0
+    rescheduled_count = 0
+    for task_id in task_ids:
+        task = live_by_id.get(task_id)
+        if task is None:
+            continue
+        if task["done"]:
+            completed_count += 1
+        elif task["due"] is None or not is_same_iso_week(task["due"], today):
+            # Moved since the triage list was loaded — by the "→ nächste
+            # Woche" action here or by any other reschedule path meanwhile.
+            rescheduled_count += 1
+
+    # Production only (#169): a freshly generated demo plan has no
+    # meaningful "added this week" — the whole plan is created in one shot.
+    added_count = (
+        sum(
+            1
+            for t in tasks
+            if t.get("created_time") and is_same_iso_week(t["created_time"], today)
+        )
+        if not settings.DEMO_MODE
+        else 0
+    )
+
+    stats_dict = {
+        "completed_count": completed_count,
+        "rescheduled_count": rescheduled_count,
+        "added_count": added_count,
+    }
+    try:
+        summary_text = generate_closeout_summary(stats_dict, today)
+    except AIUnavailableError:
+        summary_text = ""
+
+    save_closeout(request, iso_year, iso_week, stats_dict, summary_text)
+    return redirect("week_review")
+
+
+def week_review(request):
+    if settings.DEMO_MODE and not request.session.get("demo_plan"):
+        return redirect("index")
+    closeout = get_latest_closeout(request)
+    if closeout is None:
+        return redirect("close_week_start")
+    return render(request, "projects/week_review.html", {"closeout": closeout})
 
 
 def stats(request):

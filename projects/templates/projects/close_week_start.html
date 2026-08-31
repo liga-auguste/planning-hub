@@ -1,0 +1,132 @@
+{% extends 'projects/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Woche abschließen – Planning Hub{% endblock %}
+
+{% block extra_css %}
+    /* Matches planner_rules.html's effective width (.wrapper, public.css) —
+       960px, not my_plan.html's narrower 720px focused-list shape. width:
+       100% is load-bearing: body is a column flexbox (base.css), and an
+       auto side-margin on the cross axis overrides the default stretch
+       behavior, shrinking the box to its content width instead of 960px. */
+    .page { width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
+    .page-footer { padding-left: 0; padding-right: 0; }
+    .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .logo img { height: 40px; width: auto; }
+    .logo span { font-size: 11px; font-weight: 700; color: var(--color-text-primary); letter-spacing: 0.08em; text-transform: uppercase; }
+    .back-link { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    .page-title { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-subtitle { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 28px; }
+    .triage-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
+    .triage-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-border-primary); }
+    .triage-row:last-child { border-bottom: none; }
+    /* The row stays in the form after a move — close_week_confirm diffs the
+       original id list against live state server-side, this is display only. */
+    .triage-row.moved { opacity: 0.55; }
+    .triage-task-name { font-size: 14px; }
+    .triage-task-due { font-size: 12px; color: var(--color-text-quaternary); margin-left: 12px; }
+    .badge-neutral { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
+    .move-btn { font-size: 12px; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+    .move-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+    .empty-state { color: var(--color-text-quaternary); font-size: 13px; padding: 24px 0; }
+    .btn-confirm { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 9px 20px; font-size: 13px; font-weight: 500; cursor: pointer; align-self: flex-start; }
+    .btn-confirm:hover { opacity: 0.85; }
+{% endblock %}
+
+{% comment %}
+Deliberately a standalone page, same shape as my_plan.html: overrides the
+body block entirely and inherits only the CSS shell from
+base_dashboard.html — this is a focused, one-off ritual, not a view a
+sidebar should compete with. See docs/wochenabschluss.md.
+{% endcomment %}
+{% block body %}
+<div class="page">
+    <div class="top-nav">
+        <a href="{% url 'dashboard' %}" class="logo"><img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light"><img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark"><span>Planning Hub</span></a>
+        <a href="{% url 'dashboard' %}" class="back-link">← Zurück zum Dashboard</a>
+    </div>
+
+    <div class="page-title">Woche abschließen</div>
+    {% if already_closed and not tasks %}
+    <div class="page-subtitle">{{ today_display }} — bereits abgeschlossen</div>
+    {% else %}
+    <div class="page-subtitle">{{ today_display }} — noch offene Aufgaben dieser Woche</div>
+    {% endif %}
+
+    <form method="post" action="{% url 'close_week_confirm' %}" id="closeout-form">
+        {% csrf_token %}
+        {% if tasks %}
+        <div class="triage-list">
+            {% for task in tasks %}
+            <div class="triage-row" id="triage-row-{{ task.id }}" data-raw-date="{{ task.due|date:'Y-m-d' }}">
+                <input type="hidden" name="task_id" value="{{ task.id }}">
+                <span class="triage-task-name">{{ task.name }}<span class="triage-task-due">{{ task.due_display }}</span></span>
+                <button type="button" class="move-btn" data-task-id="{{ task.id }}">→ {{ task.next_week_display }}</button>
+            </div>
+            {% endfor %}
+        </div>
+        <button type="submit" class="btn-confirm">Woche abschließen</button>
+        {% elif already_closed %}
+        {% comment %}
+        Nothing left to triage and this week's stats already exist —
+        confirming now would post an empty task_id list and overwrite the
+        real completed/rescheduled counts with zeros (#169 review).
+        {% endcomment %}
+        <div class="empty-state">Diese Woche hast du bereits abgeschlossen.</div>
+        <a href="{% url 'week_review' %}" class="btn-confirm" style="text-decoration:none; display:inline-block;">→ Rückblick ansehen</a>
+        {% else %}
+        {% if is_weekend %}
+        <div class="empty-state">Genieße dein Wochenende — für diese Woche ist nichts mehr offen.</div>
+        {% else %}
+        <div class="empty-state">Für diese Woche ist alles erledigt oder verschoben.</div>
+        {% endif %}
+        <button type="submit" class="btn-confirm">Woche abschließen</button>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+async function reschedule(taskId, newDate) {
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/reschedule/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+            body: JSON.stringify({date: newDate})
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — treat it exactly like an error response.
+        response = null;
+    }
+    return !!response && response.ok;
+}
+
+document.querySelectorAll('.move-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const taskId = btn.dataset.taskId;
+        const row = document.getElementById(`triage-row-${taskId}`);
+        const newDate = new Date(row.dataset.rawDate + 'T12:00:00');
+        newDate.setDate(newDate.getDate() + 7);
+        const iso = newDate.toISOString().slice(0, 10);
+        btn.disabled = true;
+        const ok = await reschedule(taskId, iso);
+        if (ok) {
+            row.classList.add('moved');
+            row.dataset.rawDate = iso;
+            const tag = document.createElement('span');
+            tag.className = 'badge-neutral';
+            tag.textContent = 'verschoben';
+            btn.replaceWith(tag);
+        } else {
+            btn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

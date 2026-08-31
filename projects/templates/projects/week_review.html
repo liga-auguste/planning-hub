@@ -1,0 +1,69 @@
+{% extends 'projects/base_dashboard.html' %}
+{% load static %}
+
+{% block title %}Wochenrückblick – Planning Hub{% endblock %}
+
+{% block extra_css %}
+    /* Matches planner_rules.html's effective width (.wrapper, public.css) —
+       960px, not my_plan.html's narrower 720px focused-list shape. width:
+       100% is load-bearing: body is a column flexbox (base.css), and an
+       auto side-margin on the cross axis overrides the default stretch
+       behavior, shrinking the box to its content width instead of 960px. */
+    .page { width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
+    .page-footer { padding-left: 0; padding-right: 0; }
+    .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .logo img { height: 40px; width: auto; }
+    .logo span { font-size: 11px; font-weight: 700; color: var(--color-text-primary); letter-spacing: 0.08em; text-transform: uppercase; }
+    .back-link { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    .page-title { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+    .page-subtitle { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 28px; }
+    .review-stats { display: flex; gap: 12px; margin-bottom: 28px; }
+    .review-stat { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 16px; text-align: center; }
+    .review-stat-value { font-size: 24px; font-weight: 700; }
+    .review-stat-label { font-size: 12px; color: var(--color-text-quaternary); margin-top: 4px; }
+    .review-summary { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 20px 24px; font-size: 14px; line-height: 1.7; margin-bottom: 28px; }
+    .review-summary.ai-error { color: var(--color-text-quaternary); font-style: italic; }
+    .btn-new { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; align-self: flex-start; }
+    .btn-new:hover { opacity: 0.85; }
+{% endblock %}
+
+{% comment %}
+Same shape as close_week_start.html / my_plan.html — a standalone review
+page, not part of the persistent sidebar navigation. See
+docs/wochenabschluss.md.
+{% endcomment %}
+{% block body %}
+<div class="page">
+    <div class="top-nav">
+        <a href="{% url 'dashboard' %}" class="logo"><img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light"><img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark"><span>Planning Hub</span></a>
+        <a href="{% url 'dashboard' %}" class="back-link">← Zurück zum Dashboard</a>
+    </div>
+
+    <div class="page-title">Wochenrückblick</div>
+    <div class="page-subtitle">KW {{ closeout.iso_week }}/{{ closeout.iso_year }}</div>
+
+    <div class="review-stats">
+        <div class="review-stat">
+            <div class="review-stat-value">{{ closeout.completed_count }}</div>
+            <div class="review-stat-label">Erledigt</div>
+        </div>
+        <div class="review-stat">
+            <div class="review-stat-value">{{ closeout.rescheduled_count }}</div>
+            <div class="review-stat-label">Verschoben</div>
+        </div>
+        <div class="review-stat">
+            <div class="review-stat-value">{{ closeout.added_count }}</div>
+            <div class="review-stat-label">Neu dazugekommen</div>
+        </div>
+    </div>
+
+    {% if closeout.summary_text %}
+    <div class="review-summary">{{ closeout.summary_text }}</div>
+    {% else %}
+    <div class="review-summary ai-error">Die KI-Rückschau ist gerade nicht verfügbar.</div>
+    {% endif %}
+
+    <a href="{% url 'dashboard' %}" class="btn-new">Zum Dashboard →</a>
+</div>
+{% endblock %}

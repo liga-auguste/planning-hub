@@ -7,6 +7,8 @@ from datetime import date
 import anthropic
 from django.utils import timezone
 
+from .dates import is_same_iso_week
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,9 +122,14 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
                 urgency = " — ohne Termin"
             else:
                 diff = (t["due"] - today).days
+                # #169: calendar-week based, not a rolling 7-day window — but
+                # due<=today (overdue or today) is handled first and keeps
+                # its exact old label, so an overdue task from a *past*
+                # calendar week still reads "DIESE WOCHE" rather than
+                # falling into the days-remaining else branch below.
                 if diff == 0:
                     urgency = " — HEUTE fällig"
-                elif diff <= 7:
+                elif diff < 0 or is_same_iso_week(t["due"], today):
                     urgency = " — DIESE WOCHE"
                 else:
                     urgency = f" (fällig in {diff} Tagen)"
@@ -311,6 +318,78 @@ def generate_weekly_summary(
         return data
     raise AIUnavailableError(
         "Claude returned an unusable weekly summary twice"
+    ) from last_error
+
+
+def build_closeout_prompt(stats: dict, today: date) -> str:
+    """#169: the close-out review's summary — appreciative by design, not a
+    second status report. Rescheduled tasks are named as decisions, not as
+    a shortfall against the week.
+    """
+    return "\n".join(
+        [
+            f"Heute ist der {today.strftime('%d.%m.%Y')}. Ich schließe die Woche ab.",
+            "",
+            f"Erledigt: {stats['completed_count']} Aufgaben",
+            f"Verschoben in die nächste Woche: {stats['rescheduled_count']} Aufgaben",
+            f"Neu dazugekommen: {stats['added_count']} Aufgaben",
+            "",
+            "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend:",
+            "was erledigt wurde, zählt. Verschobene Aufgaben sind bewusste",
+            "Planungsentscheidungen, keine verpassten Deadlines — benenne sie neutral,",
+            "nicht als Rückstand. Auf Deutsch, Du-Form, 2–3 Sätze.",
+            "",
+            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+            '{"summary_text": "..."}',
+        ]
+    )
+
+
+def generate_closeout_summary(stats: dict, today: date) -> str:
+    """Returns the close-out review's German summary text.
+
+    Same retry contract as generate_weekly_summary: one re-ask on
+    unparseable or wrong-shape JSON, AIUnavailableError after the second bad
+    response, SDK failures never spent as a JSON retry.
+    """
+    client = anthropic.Anthropic()
+    prompt = build_closeout_prompt(stats, today)
+
+    last_error = None
+    for attempt in (1, 2):
+        with (
+            log_claude_call("generate_closeout_summary") as result,
+            client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream,
+        ):
+            text = stream.get_final_text()
+            result["message"] = stream.get_final_message()
+        raw = text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        try:
+            data = _json.loads(raw)
+        except _json.JSONDecodeError as exc:
+            last_error = exc
+            logger.warning(
+                "Claude returned an unparseable close-out summary (attempt %d/2): %s",
+                attempt,
+                exc,
+            )
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("summary_text"), str):
+            last_error = None
+            logger.warning(
+                "Claude returned a close-out summary without summary_text (attempt %d/2)",
+                attempt,
+            )
+            continue
+        return data["summary_text"]
+    raise AIUnavailableError(
+        "Claude returned an unusable close-out summary twice"
     ) from last_error
 
 
