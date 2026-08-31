@@ -4121,6 +4121,16 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
 
+    def test_reschedule_js_displays_the_servers_formatted_date(self):
+        # #176: the raw ISO date (newDate/input.value) must never land in the
+        # UI directly — only the server's human-readable due_display may.
+        self.given_mixed_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const data = await response.json();")
+        self.assertContains(response, "dueSpan.textContent = data.due_display;")
+        self.assertNotContains(response, "dueSpan.textContent = newDate;")
+        self.assertNotContains(response, "span.textContent = input.value;")
+
     def test_the_overdue_dot_rule_precedes_the_done_rule(self):
         # Equal specificity — the later rule wins, and a checked-off task
         # must turn gray even while the JS leaves the overdue class in place.
@@ -5723,7 +5733,14 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
                 data='{"date": "2026-09-05"}',
                 content_type="application/json",
             )
-        self.assertEqual(response.json(), {"ok": True, "postpone_count": 4})
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "postpone_count": 4,
+                "due_display": _format_date(date(2026, 9, 5)),
+            },
+        )
         mock_increment.assert_called_once_with("task-1")
 
     def test_a_failing_increment_after_a_successful_date_update_is_still_a_502(self):
@@ -6336,7 +6353,14 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         self.given_session_plan()
         new_date = (date.today() + timedelta(days=14)).isoformat()
         response = self.post_date("demo-session-0", new_date)
-        self.assertEqual(response.json(), {"ok": True, "postpone_count": 1})
+        self.assertEqual(
+            response.json(),
+            {
+                "ok": True,
+                "postpone_count": 1,
+                "due_display": _format_date(date.fromisoformat(new_date)),
+            },
+        )
         self.assertEqual(
             self.client.session["demo_plan"]["tasks"][0]["postpone_count"], 1
         )
