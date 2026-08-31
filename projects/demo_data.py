@@ -364,6 +364,34 @@ def get_demo_projects():
     ]
 
 
+def get_demo_unassigned_tasks():
+    """#53: example "Kleinkram" with no project relation, for the multi-project
+    example view's "Ohne Projekt" bucket. The single-project session plan a
+    visitor generates has no equivalent — the planner always ties every task
+    to the one project it just created, so that path stays without one."""
+    today = timezone.localdate()
+
+    def d(offset):
+        return today + timedelta(days=offset)
+
+    return [
+        {
+            "id": "demo-unassigned-1",
+            "name": "Blumen fürs Foyer besorgen",
+            "due": d(0),
+            "done": False,
+            "kontext": [],
+        },
+        {
+            "id": "demo-unassigned-2",
+            "name": "Rechnungen ablegen",
+            "due": d(2),
+            "done": False,
+            "kontext": [],
+        },
+    ]
+
+
 def get_demo_history():
     today = timezone.localdate()
 

@@ -44,12 +44,14 @@ from .closeout import get_latest_closeout, is_week_closed, save_closeout
 from .dates import is_same_iso_week
 from .models import DemoEvent, PlannerRule, WeekCloseout
 from .notion import (
+    TASKS_DB,
     NotionUnavailableError,
     _get_tasks,
     create_project,
     create_tasks,
     find_project,
     get_historical_projects,
+    get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
     toggle_task,
@@ -65,6 +67,7 @@ from .views import (
     STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
+    _build_week_view,
     _format_date,
     _strip_trailing_date,
 )
@@ -859,6 +862,7 @@ class ProjectDateBadgeTest(DemoModeTestCase):
         project = _fake_upcoming_project_with_task()
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
@@ -1236,6 +1240,7 @@ class ProductionSidebarIconSlotWidthTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project_with_task()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
@@ -3477,6 +3482,7 @@ class ProductionKontextBadgeTest(TestCase):
         project["tasks"][0]["kontext"] = ["Büro"]
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
@@ -3499,6 +3505,7 @@ class ProductionRulesSidebarLinkTest(TestCase):
     def test_dashboard_links_to_the_rules_page(self):
         with (
             patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
@@ -3554,6 +3561,7 @@ class ProductionDateUncertainBadgeTest(TestCase):
         project["event_date_uncertain"] = True
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
@@ -3944,6 +3952,67 @@ class AnnotateTasksTest(SimpleTestCase):
             {"name": "Danach", "due": due},
         )
         self.assertEqual(self.names(project), ["Zuerst", "Danach"])
+
+
+class BuildWeekViewTest(SimpleTestCase):
+    """#53: the flat Heute/Diese-Woche work surface, built from tasks whose
+    urgency _annotate_tasks already classified — not re-derived dates, so
+    classification stays in exactly one place."""
+
+    TODAY = date(2026, 6, 15)  # a Monday, see AnnotateTasksTest
+
+    def _annotated(self, *tasks, name="P"):
+        project = {
+            "id": "p1",
+            "display_name": name,
+            "tasks": [
+                {"name": "Aufgabe", "kontext": [], "done": False, "due": None, **t}
+                for t in tasks
+            ],
+        }
+        return _annotate_tasks([project], self.TODAY)[0]
+
+    def test_overdue_and_today_are_separated(self):
+        project = self._annotated(
+            {"name": "Überfällig", "due": self.TODAY - timedelta(days=1)},
+            {"name": "Heute fällig", "due": self.TODAY},
+        )
+        result = _build_week_view([project], [])
+        self.assertEqual([t["name"] for t in result["overdue"]], ["Überfällig"])
+        self.assertEqual([t["name"] for t in result["today"]], ["Heute fällig"])
+
+    def test_rest_of_the_calendar_week_is_urgent(self):
+        # TODAY is a Monday — Sunday is the last day of its ISO week.
+        project = self._annotated({"name": "Diese Woche", "due": self.TODAY + timedelta(days=6)})
+        result = _build_week_view([project], [])
+        self.assertEqual([t["name"] for t in result["urgent"]], ["Diese Woche"])
+
+    def test_next_week_and_done_and_undated_tasks_are_excluded(self):
+        project = self._annotated(
+            {"name": "Nächste Woche", "due": self.TODAY + timedelta(days=8)},
+            {"name": "Erledigt", "due": self.TODAY, "done": True},
+            {"name": "Ohne Datum", "due": None},
+        )
+        result = _build_week_view([project], [])
+        self.assertEqual(result["overdue"] + result["today"] + result["urgent"], [])
+
+    def test_unassigned_tasks_carry_no_project_and_are_labelled(self):
+        unassigned = _annotate_tasks(
+            [{"id": "_unassigned", "tasks": [
+                {"name": "Blumen", "kontext": [], "done": False, "due": self.TODAY}
+            ]}],
+            self.TODAY,
+        )[0]["tasks"]
+        result = _build_week_view([], unassigned)
+        [task] = result["today"]
+        self.assertIsNone(task["project_id"])
+        self.assertEqual(task["project_name"], "Ohne Projekt")
+
+    def test_tasks_across_projects_are_sorted_by_due_date(self):
+        early = self._annotated({"name": "Früh", "due": self.TODAY + timedelta(days=1)}, name="A")
+        late = self._annotated({"name": "Spät", "due": self.TODAY + timedelta(days=5)}, name="B")
+        result = _build_week_view([late, early], [])
+        self.assertEqual([t["name"] for t in result["urgent"]], ["Früh", "Spät"])
 
 
 class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
@@ -5207,6 +5276,47 @@ class PostponeCountReadFromNotionTest(SimpleTestCase):
         self.assertIsNone(tasks[0]["created_time"])
 
 
+class GetUnassignedTasksTest(SimpleTestCase):
+    """#53: get_upcoming_projects only ever queries TASKS_DB per project via
+    a relation.contains filter — a task with an empty "Related to Projekte"
+    relation is never picked up by any existing read path. get_unassigned_tasks
+    is the deliberate second read path for that "Kleinkram" residue."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_queries_tasks_db_with_an_is_empty_relation_filter(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = {"results": []}
+            get_unassigned_tasks(date(2026, 8, 31))
+        instance.databases.query.assert_called_once_with(
+            database_id=TASKS_DB,
+            filter={
+                "property": "Related to Projekte",
+                "relation": {"is_empty": True},
+            },
+        )
+
+    def test_returns_tasks_with_no_project_relation(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = {
+                "results": [_fake_task_page("Blumen besorgen", "2026-09-01")]
+            }
+            tasks = get_unassigned_tasks(date(2026, 8, 31))
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Blumen besorgen")
+        self.assertEqual(tasks[0]["due"], date(2026, 9, 1))
+
+    def test_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.side_effect = RequestTimeoutError()
+            with self.assertRaises(NotionUnavailableError):
+                get_unassigned_tasks(date(2026, 8, 31))
+
+
 class IncrementPostponeCountTest(SimpleTestCase):
     """#171: read-then-write, since Notion has no atomic increment."""
 
@@ -5427,9 +5537,12 @@ class DashboardNotionFailureTest(TestCase):
         self.addCleanup(cache.clear)
 
     def test_cold_cache_and_a_failure_is_an_honest_empty_state_not_a_500(self):
-        with patch(
-            "projects.views.get_upcoming_projects",
-            side_effect=NotionUnavailableError("boom"),
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertEqual(response.status_code, 200)
@@ -5441,6 +5554,7 @@ class DashboardNotionFailureTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data(),
@@ -5468,6 +5582,7 @@ class DashboardNotionFailureTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data(),
@@ -5475,6 +5590,69 @@ class DashboardNotionFailureTest(TestCase):
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, "evtl. nicht")
+
+
+@override_settings(DEMO_MODE=False)
+class TodayWeekViewProductionTest(TestCase):
+    """#53: the Heute/Diese-Woche work surface in production — the
+    unassigned-tasks read is independent of the project read, with its own
+    cache and its own graceful degradation on a Notion failure."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_unassigned_task_renders_under_ohne_projekt(self):
+        task = {
+            "id": "u-1",
+            "name": "Blumen besorgen",
+            "due": date.today(),
+            "done": False,
+            "kontext": [],
+        }
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[task]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Blumen besorgen")
+        self.assertContains(response, "Ohne Projekt")
+
+    def test_unassigned_read_failure_degrades_to_no_unassigned_tasks(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch(
+                "projects.views.get_unassigned_tasks",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Ohne Projekt")
+
+    def test_the_sidebar_offers_the_today_week_view(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "showToday()")
+        self.assertContains(response, "Heute")
 
 
 @override_settings(DEMO_MODE=False)
@@ -5492,6 +5670,7 @@ class SidebarProgressRingZeroTasksTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data(),
@@ -5519,6 +5698,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 side_effect=AIUnavailableError("boom"),
@@ -5533,6 +5713,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data("Wieder da"),
@@ -5547,6 +5728,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data("Letzte gute Übersicht"),
@@ -5560,6 +5742,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 side_effect=AIUnavailableError("boom"),
@@ -5935,6 +6118,7 @@ class DashboardSyncButtonLabelTest(TestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project_with_task()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data(),
@@ -6852,6 +7036,7 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
                 "projects.views.get_upcoming_projects",
                 return_value=[_fake_upcoming_project_with_task()],
             ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary",
                 return_value=_summary_data(),
@@ -7502,6 +7687,7 @@ class DashboardDisplayNameStripsFullDateTest(TestCase):
         project["name"] = "Adventskonzert 12.09.2026"
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch(
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),

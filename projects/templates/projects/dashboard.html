@@ -86,6 +86,12 @@
         .today-btn { font-size: 11px; color: var(--color-text-quaternary); background: none; border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
         .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
         .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
+        /* #53: the Heute/Diese-Woche view spans projects, so each row needs
+           its own project label — the single-project views never do. */
+        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 10px; margin-right: 2px; white-space: nowrap; flex-shrink: 0; }
+        .task-project.ai-project-link { color: var(--color-text-tertiary); }
+        .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
+        .today-week-heading:first-child { margin-top: 0; }
         .timelapse-bar { margin-bottom: 32px; }
         .timelapse-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -177,6 +183,10 @@
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
         <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
         Dashboard
+    </a>
+    <a class="sidebar-item" id="nav-today" onclick="showToday()">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+        Heute
     </a>
     {% if demo_mode %}
         {% if has_session_plan %}
@@ -458,6 +468,31 @@
         </div>
     </div>
 
+    <div id="view-today" style="display: none;">
+        <div class="ai-card-header" style="margin-bottom: 24px;">
+            <div style="font-size: 22px; font-weight: 700;">Heute</div>
+        </div>
+
+        {% if heute_overdue %}
+        <div class="today-week-heading">Überfällig</div>
+        {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% endif %}
+
+        <div class="today-week-heading">Heute fällig</div>
+        {% if heute_today %}
+        {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% else %}
+        <p class="ai-error">Für heute liegt nichts an.</p>
+        {% endif %}
+
+        <div class="today-week-heading" style="margin-top: 36px;">Diese Woche</div>
+        {% if diese_woche %}
+        {% for task in diese_woche %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% else %}
+        <p class="ai-error">Für diese Woche liegt nichts weiter an.</p>
+        {% endif %}
+    </div>
+
     {% for group in month_groups %}
     {% for project in group.projects %}
     <div class="project-section" id="project-{{ project.id }}" style="display: none;"
@@ -530,14 +565,25 @@
 
     function showOverview() {
         document.getElementById('view-overview').style.display = 'block';
+        document.getElementById('view-today').style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
         if (!syncingHistory) history.pushState({}, '', window.location.pathname);
     }
 
+    function showToday() {
+        document.getElementById('view-overview').style.display = 'none';
+        document.getElementById('view-today').style.display = 'block';
+        document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+        document.getElementById('nav-today').classList.add('active');
+        if (!syncingHistory) history.pushState({view: 'today'}, '', '?view=today');
+    }
+
     function showProject(id) {
         document.getElementById('view-overview').style.display = 'none';
+        document.getElementById('view-today').style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.getElementById('project-' + id).style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -550,6 +596,8 @@
         const projectId = event.state && event.state.project;
         if (projectId && document.getElementById('project-' + projectId)) {
             showProject(projectId);
+        } else if (event.state && event.state.view === 'today') {
+            showToday();
         } else {
             showOverview();
         }
@@ -557,11 +605,17 @@
     });
 
     (function() {
-        const projectId = new URLSearchParams(window.location.search).get('project');
+        const params = new URLSearchParams(window.location.search);
+        const projectId = params.get('project');
         if (projectId && document.getElementById('project-' + projectId)) {
             syncingHistory = true;
             history.replaceState({project: projectId}, '', '?project=' + projectId);
             showProject(projectId);
+            syncingHistory = false;
+        } else if (params.get('view') === 'today') {
+            syncingHistory = true;
+            history.replaceState({view: 'today'}, '', '?view=today');
+            showToday();
             syncingHistory = false;
         }
     })();

@@ -19,10 +19,11 @@ from .ai import (
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
 from .dates import is_same_iso_week
-from .demo_data import get_demo_projects
+from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
+    get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
     toggle_task,
@@ -90,12 +91,22 @@ CACHE_TTL = 60 * 60 * 8  # 8 hours
 # entry has already expired. See DashboardNotionFailureTest.
 STALE_CACHE_KEY = "dashboard_data_stale_v6"
 
+# #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
+# is an independent Notion read (get_unassigned_tasks carries no AI summary,
+# no partial-success nuance) and keeping it apart avoids reshaping the
+# already-tested primary tuple for every existing cache test.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v1"
+UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v1"
+
 
 def _bust_dashboard_cache():
     """Called after every confirmed Notion write, so a completed task or a
     freshly saved project never hides behind CACHE_TTL or the stale fallback."""
     cache.delete(CACHE_KEY)
     cache.delete(STALE_CACHE_KEY)
+    cache.delete(UNASSIGNED_CACHE_KEY)
+    cache.delete(STALE_UNASSIGNED_CACHE_KEY)
 
 
 # Session key prefix for demo summaries; planner_create clears every version
@@ -172,6 +183,34 @@ def _annotate_tasks(projects, today):
         # SVG attribute.
         project["ring_dashoffset"] = f"{RING_CIRCUMFERENCE * (1 - fraction):.2f}"
     return projects
+
+
+def _build_week_view(projects, unassigned_tasks):
+    """#53: the flat Heute/Diese-Woche work surface — sourced from the
+    urgency _annotate_tasks already classified on every task, not re-derived
+    from dates, so there stays exactly one place that decides "overdue" vs
+    "today" vs "urgent". `projects` must already carry `display_name`
+    (dashboard() sets it right before calling this); `unassigned_tasks` are
+    already-annotated tasks with no project of their own — tagged
+    "Ohne Projekt" here rather than dropped, the gap #53 found in every
+    project-keyed read path.
+    """
+    entries = [
+        (task, project["id"], project["display_name"])
+        for project in projects
+        for task in project["tasks"]
+    ] + [(task, None, "Ohne Projekt") for task in unassigned_tasks]
+
+    buckets = {"overdue": [], "today": [], "urgent": []}
+    for task, project_id, project_name in entries:
+        if task["urgency"] not in buckets:
+            continue
+        buckets[task["urgency"]].append(
+            {**task, "project_id": project_id, "project_name": project_name}
+        )
+    for tasks in buckets.values():
+        tasks.sort(key=lambda t: (t["due"], t["project_name"]))
+    return buckets
 
 
 def _fetch_fresh_data(today):
@@ -354,6 +393,10 @@ def dashboard(request):
                     if task.get("due") and task["due"] <= sim_date:
                         task["done"] = True
             projects = _annotate_tasks([project], effective_today)
+            # #53: the planner always ties every task it generates to the one
+            # project it just created — a session plan never has a
+            # project-less task to show under "Ohne Projekt".
+            unassigned_tasks = []
             summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
             summary_data = request.session.get(summary_key)
             if not summary_data:
@@ -369,6 +412,9 @@ def dashboard(request):
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
             projects = _annotate_tasks(get_demo_projects(), today)
+            unassigned_tasks = _annotate_tasks(
+                [{"id": "_unassigned", "tasks": get_demo_unassigned_tasks()}], today
+            )[0]["tasks"]
             summary_cache_key = f"{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}"
             summary_data = cache.get(summary_cache_key)
             if summary_data is None:
@@ -406,11 +452,32 @@ def dashboard(request):
                     cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
                     cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
+        # #53: an independent read from get_upcoming_projects (own cache
+        # pair, see UNASSIGNED_CACHE_KEY above) — annotated and cached in
+        # that shape, same as `projects`, so a cache hit costs no recompute.
+        cached_unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+        if cached_unassigned is not None:
+            unassigned_tasks = cached_unassigned
+        else:
+            try:
+                fetched_unassigned = get_unassigned_tasks(today)
+            except NotionUnavailableError:
+                last_known_good_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
+                unassigned_tasks = last_known_good_unassigned or []
+            else:
+                unassigned_tasks = _annotate_tasks(
+                    [{"id": "_unassigned", "tasks": fetched_unassigned}], today
+                )[0]["tasks"]
+                cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_TTL)
+                cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
+
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 
     for project in projects:
         project["display_name"] = _strip_trailing_date(project["name"])
         project["event_date_display"] = _format_date(project["event_date"])
+
+    week_view = _build_week_view(projects, unassigned_tasks)
 
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
@@ -481,6 +548,9 @@ def dashboard(request):
             "demo_project_date_uncertain": demo_project_date_uncertain,
             "stale": stale,
             "data_unavailable": data_unavailable,
+            "heute_overdue": week_view["overdue"],
+            "heute_today": week_view["today"],
+            "diese_woche": week_view["urgent"],
         },
     )
 

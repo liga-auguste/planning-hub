@@ -88,31 +88,45 @@ def _get_tasks(project_page_id: str) -> list:
             "relation": {"contains": project_page_id},
         },
     )
+    return [_parse_task_page(page) for page in response["results"]]
 
-    tasks = []
-    for page in response["results"]:
-        props = page["properties"]
-        tasks.append(
-            {
-                "id": page["id"],
-                "name": _text(props["Aufgabe"]["title"]),
-                "due": _date(props["Wann?"]),
-                "done": props["Done"]["checkbox"],
-                "kontext": [
-                    k["name"] for k in props.get("Kontext", {}).get("multi_select", [])
-                ],
-                # #171: read fresh on every fetch, or a task's count would
-                # reset to 0 on display even though the stored value is
-                # correct — Notion has no atomic increment, see
-                # increment_postpone_count below.
-                "postpone_count": props.get("Verschoben", {}).get("number") or 0,
-                # #169: only used by the close-out flow's "added this week"
-                # stat (production only) — every Notion page carries it.
-                "created_time": _date_from_iso_datetime(page.get("created_time")),
-            }
+
+def get_unassigned_tasks(today: date) -> list:
+    """#53: get_upcoming_projects/_get_tasks only ever query TASKS_DB per
+    project via relation.contains — a task with an empty "Related to
+    Projekte" relation ("Kleinkram" with no project) is never picked up by
+    that path. This is its own top-level read, wrapped like
+    get_upcoming_projects/get_historical_projects rather than nested inside
+    one of their translate_notion_errors() blocks."""
+    with translate_notion_errors():
+        response = _client().databases.query(
+            database_id=TASKS_DB,
+            filter={
+                "property": "Related to Projekte",
+                "relation": {"is_empty": True},
+            },
         )
+        return [_parse_task_page(page) for page in response["results"]]
 
-    return tasks
+
+def _parse_task_page(page: dict) -> dict:
+    props = page["properties"]
+    return {
+        "id": page["id"],
+        "name": _text(props["Aufgabe"]["title"]),
+        "due": _date(props["Wann?"]),
+        "done": props["Done"]["checkbox"],
+        "kontext": [
+            k["name"] for k in props.get("Kontext", {}).get("multi_select", [])
+        ],
+        # #171: read fresh on every fetch, or a task's count would reset to 0
+        # on display even though the stored value is correct — Notion has no
+        # atomic increment, see increment_postpone_count below.
+        "postpone_count": props.get("Verschoben", {}).get("number") or 0,
+        # #169: only used by the close-out flow's "added this week" stat
+        # (production only) — every Notion page carries it.
+        "created_time": _date_from_iso_datetime(page.get("created_time")),
+    }
 
 
 def toggle_task(task_id: str, done: bool) -> None:
