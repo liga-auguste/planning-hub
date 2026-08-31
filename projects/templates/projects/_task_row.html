@@ -4,6 +4,7 @@
             {% csrf_token %}
             <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
         </form>
+        <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
         {% if task.project_name %}
         {% if task.project_id %}
         <span class="task-project ai-project-link" onclick="showProject('{{ task.project_id }}')">{{ task.project_name }}</span>
@@ -11,7 +12,6 @@
         <span class="task-project">{{ task.project_name }}</span>
         {% endif %}
         {% endif %}
-        <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
         {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
     </div>
     <span class="task-right" style="display:flex;align-items:center;gap:4px;">

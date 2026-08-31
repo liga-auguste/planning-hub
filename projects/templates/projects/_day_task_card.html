@@ -1,8 +1,8 @@
-<div class="day-task-card {{ task.urgency }}{% if task.done %} done{% endif %}" data-task-id="{{ task.id }}">
+<div class="day-task-card {{ task.urgency }}{% if task.done %} done{% endif %}" data-task-id="{{ task.id }}"
+     {% if task.project_name %}title="{{ task.project_name }} · {{ task.due|date:'d.m.' }}"{% endif %}>
     <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
         {% csrf_token %}
         <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
     </form>
     <span class="day-task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-    {% if task.project_name %}<span class="day-task-project">{{ task.project_name }}</span>{% endif %}
 </div>

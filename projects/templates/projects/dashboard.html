@@ -87,8 +87,11 @@
         .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
         .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
         /* #53: the Heute/Diese-Woche view spans projects, so each row needs
-           its own project label — the single-project views never do. */
-        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 10px; margin-right: 2px; white-space: nowrap; flex-shrink: 0; }
+           its own project label — the single-project views never do. Sits
+           after task-name (not before) so every task-name starts at the
+           same indent right after the dot, instead of drifting with each
+           row's project-name width. */
+        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 8px; white-space: nowrap; flex-shrink: 0; }
         .task-project.ai-project-link { color: var(--color-text-tertiary); }
         .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
         .today-week-heading:first-child { margin-top: 0; }
@@ -101,18 +104,45 @@
         .week-nav-btn:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
         .week-range-label { font-size: 11px; color: var(--color-text-tertiary); white-space: nowrap; }
         .week-nav-today { font-size: 11px; color: var(--color-accent); text-decoration: underline; margin-left: 4px; white-space: nowrap; }
-        .day-columns { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); gap: 8px; }
+        /* minmax's 1fr still fills a wide screen edge to edge, same as
+           before — raising the floor from 120px just means a mid-width
+           screen that can't fit 7 columns at that floor scrolls sideways
+           (overflow-x below) instead of squeezing every column past the
+           point a task name has room to breathe. */
+        .day-columns { display: grid; grid-template-columns: repeat(7, minmax(160px, 1fr)); gap: 8px; overflow-x: auto; }
         .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; }
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; }
-        .day-task-card { display: flex; align-items: center; gap: 6px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
+        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
+        /* Same click target as every other .dot, just a tighter margin —
+           on a ~160px card the shared 8px .dot margin was a third of the
+           gap eaten by chrome instead of the task name. */
+        .day-task-card .dot { margin-right: 3px; }
         .day-task-card:last-child { margin-bottom: 0; }
         .day-task-card.done { opacity: 0.55; }
+        /* .main caps every other view at a comfortable 920px reading width
+           (dashboard.css) — sensible for prose and task lists, but a
+           7-column calendar grid benefits from the rest of a wide monitor
+           instead of sitting inside that same cap. Breaking just this
+           element out needs the sidebar's own footprint (284px expanded /
+           72px collapsed, dashboard.css's .main / .main.sidebar-collapsed)
+           subtracted from 100vw, plus .main's own 48px left inset (measured,
+           not itself a token anywhere — this rule doesn't move the grid's
+           left edge, only how far right it's allowed to stretch) and a 20px
+           right-hand margin against the raw viewport edge, matching the
+           20px inset already used elsewhere in this file (e.g.
+           .sidebar-toggle-mobile's right offset). Skipped below 769px: the
+           mobile block further down replaces grid-template-columns entirely
+           with its own swipe-scroll sizing, so a viewport-based width here
+           would only fight it. */
+        @media (min-width: 769px) {
+            .day-columns { width: calc(100vw - 284px - 68px); max-width: none; }
+            .main.sidebar-collapsed .day-columns { width: calc(100vw - 72px - 68px); }
+        }
         .day-task-card.sortable-ghost { opacity: 0.3; }
         .day-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .day-task-name.done { text-decoration: line-through; }
-        .day-task-project { font-size: 10px; color: var(--color-text-quaternary); margin-left: auto; flex-shrink: 0; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .timelapse-bar { margin-bottom: 32px; }
         .timelapse-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -844,7 +874,12 @@ document.querySelectorAll('.today-btn').forEach(btn => {
         e.stopPropagation();
         const taskId = btn.dataset.taskId;
         const dueSpan = btn.closest('.task-right').querySelector('.task-due');
-        await reschedule(taskId, TODAY, dueSpan);
+        // Same reasoning as the day-columns drag handler below: the moved
+        // task's list section, day-column, week bar and sidebar ring all
+        // need reclassifying against the new date — reload rather than
+        // patch each by hand.
+        const ok = await reschedule(taskId, TODAY, dueSpan);
+        if (ok) window.location.reload();
     });
 });
 </script>

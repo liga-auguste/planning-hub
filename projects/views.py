@@ -599,6 +599,7 @@ def dashboard(request):
     browsed_sunday = browsed_monday + timedelta(days=6)
     prev_monday = browsed_monday - timedelta(days=7)
     next_monday = browsed_monday + timedelta(days=7)
+    is_current_week = browsed_monday == week_start
     day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
 
     month_groups = _group_by_month(projects)
@@ -678,7 +679,7 @@ def dashboard(request):
             "week_progress_pct": week_progress_pct,
             "day_columns": day_columns,
             "week_range_label": _format_week_range(browsed_monday, browsed_sunday),
-            "is_current_week": browsed_monday == week_start,
+            "is_current_week": is_current_week,
             "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
             "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
         },
