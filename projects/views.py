@@ -234,9 +234,75 @@ def _count_done_in_range(tasks, start, end):
         or (t.get("completed_date") and start <= t["completed_date"] <= end)
     ]
     done = sum(
-        1 for t in relevant if t.get("completed_date") and start <= t["completed_date"] <= end
+        1
+        for t in relevant
+        if t.get("completed_date") and start <= t["completed_date"] <= end
     )
     return done, len(relevant)
+
+
+_WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
+
+
+def _parse_week_param(request, default_monday):
+    """#180: ?week=2026-W37 navigates the day columns to that week. Anything
+    unparseable — absent, malformed, or a week number ISO doesn't have —
+    falls back to default_monday rather than erroring the whole page over a
+    query param a visitor is free to hand-edit."""
+    raw = request.GET.get("week")
+    if not raw:
+        return default_monday
+    match = _WEEK_PARAM_RE.fullmatch(raw)
+    if not match:
+        return default_monday
+    try:
+        return date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
+    except ValueError:
+        return default_monday
+
+
+def _bucket_by_day(projects, unassigned_tasks, week_start):
+    """#180: the day-column breakdown of a week — independent of urgency
+    (a browsed week need not be the current one, where overdue/today/urgent
+    don't apply), so this buckets directly by due date instead of building
+    on _build_week_view's urgency buckets. Each day also gets its own
+    done/total via #19's counting helper, parameterized to that single day.
+    """
+    tagged = [
+        {**task, "project_id": project["id"], "project_name": project["display_name"]}
+        for project in projects
+        for task in project["tasks"]
+    ] + [
+        {**task, "project_id": None, "project_name": "Ohne Projekt"}
+        for task in unassigned_tasks
+    ]
+    days = []
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        day_tasks = sorted(
+            (t for t in tagged if t["due"] == day), key=lambda t: t["project_name"]
+        )
+        done_count, total_count = _count_done_in_range(day_tasks, day, day)
+        days.append(
+            {
+                "date": day,
+                "date_iso": day.isoformat(),
+                "weekday_label": WEEKDAYS_SHORT[offset],
+                "tasks": day_tasks,
+                "done_count": done_count,
+                "total_count": total_count,
+            }
+        )
+    return days
+
+
+def _format_week_range(monday, sunday):
+    if monday.month == sunday.month:
+        return f"{monday.day}.–{sunday.day}. {MONTHS_DE[sunday.month]}"
+    return (
+        f"{monday.day}. {MONTHS_SHORT[monday.month]} – "
+        f"{sunday.day}. {MONTHS_DE[sunday.month]}"
+    )
 
 
 def _fetch_fresh_data(today):
@@ -523,6 +589,15 @@ def dashboard(request):
         round(week_done_count / week_total_count * 100) if week_total_count else 0
     )
 
+    # #180: the day-column breakdown can browse any week, independent of
+    # effective_today — week_start above stays the *current* week for the
+    # progress bar even while these columns show a different one.
+    browsed_monday = _parse_week_param(request, week_start)
+    browsed_sunday = browsed_monday + timedelta(days=6)
+    prev_monday = browsed_monday - timedelta(days=7)
+    next_monday = browsed_monday + timedelta(days=7)
+    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
+
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
 
@@ -598,6 +673,11 @@ def dashboard(request):
             "week_done_count": week_done_count,
             "week_total_count": week_total_count,
             "week_progress_pct": week_progress_pct,
+            "day_columns": day_columns,
+            "week_range_label": _format_week_range(browsed_monday, browsed_sunday),
+            "is_current_week": browsed_monday == week_start,
+            "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
+            "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
         },
     )
 

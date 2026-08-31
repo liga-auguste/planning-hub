@@ -68,9 +68,11 @@ from .views import (
     STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
+    _bucket_by_day,
     _build_week_view,
     _count_done_in_range,
     _format_date,
+    _parse_week_param,
     _strip_trailing_date,
 )
 
@@ -4006,7 +4008,9 @@ class BuildWeekViewTest(SimpleTestCase):
 
     def test_rest_of_the_calendar_week_is_urgent(self):
         # TODAY is a Monday — Sunday is the last day of its ISO week.
-        project = self._annotated({"name": "Diese Woche", "due": self.TODAY + timedelta(days=6)})
+        project = self._annotated(
+            {"name": "Diese Woche", "due": self.TODAY + timedelta(days=6)}
+        )
         result = _build_week_view([project], [])
         self.assertEqual([t["name"] for t in result["urgent"]], ["Diese Woche"])
 
@@ -4021,9 +4025,19 @@ class BuildWeekViewTest(SimpleTestCase):
 
     def test_unassigned_tasks_carry_no_project_and_are_labelled(self):
         unassigned = _annotate_tasks(
-            [{"id": "_unassigned", "tasks": [
-                {"name": "Blumen", "kontext": [], "done": False, "due": self.TODAY}
-            ]}],
+            [
+                {
+                    "id": "_unassigned",
+                    "tasks": [
+                        {
+                            "name": "Blumen",
+                            "kontext": [],
+                            "done": False,
+                            "due": self.TODAY,
+                        }
+                    ],
+                }
+            ],
             self.TODAY,
         )[0]["tasks"]
         result = _build_week_view([], unassigned)
@@ -4032,8 +4046,12 @@ class BuildWeekViewTest(SimpleTestCase):
         self.assertEqual(task["project_name"], "Ohne Projekt")
 
     def test_tasks_across_projects_are_sorted_by_due_date(self):
-        early = self._annotated({"name": "Früh", "due": self.TODAY + timedelta(days=1)}, name="A")
-        late = self._annotated({"name": "Spät", "due": self.TODAY + timedelta(days=5)}, name="B")
+        early = self._annotated(
+            {"name": "Früh", "due": self.TODAY + timedelta(days=1)}, name="A"
+        )
+        late = self._annotated(
+            {"name": "Spät", "due": self.TODAY + timedelta(days=5)}, name="B"
+        )
         result = _build_week_view([late, early], [])
         self.assertEqual([t["name"] for t in result["urgent"]], ["Früh", "Spät"])
 
@@ -4081,6 +4099,111 @@ class CountDoneInRangeTest(SimpleTestCase):
         self.assertEqual(
             _count_done_in_range([], date(2026, 6, 15), date(2026, 6, 21)), (0, 0)
         )
+
+
+class BucketByDayTest(SimpleTestCase):
+    """#180: day columns build on top of #53's flat "Diese Woche" — tasks
+    grouped by weekday within a given week, independent of urgency (a
+    browsed week may not be the current one, where overdue/today/urgent
+    don't apply)."""
+
+    MONDAY = date(2026, 6, 15)  # see AnnotateTasksTest
+
+    def _project(self, *tasks):
+        return {
+            "id": "p1",
+            "display_name": "P",
+            "tasks": [
+                {
+                    "name": "Aufgabe",
+                    "kontext": [],
+                    "done": False,
+                    "due": None,
+                    "completed_date": None,
+                    **t,
+                }
+                for t in tasks
+            ],
+        }
+
+    def test_tasks_land_on_their_own_weekday(self):
+        project = self._project(
+            {"name": "Montag", "due": self.MONDAY},
+            {"name": "Sonntag", "due": self.MONDAY + timedelta(days=6)},
+        )
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual(len(days), 7)
+        self.assertEqual([t["name"] for t in days[0]["tasks"]], ["Montag"])
+        self.assertEqual([t["name"] for t in days[6]["tasks"]], ["Sonntag"])
+
+    def test_a_task_the_day_before_the_week_starts_is_excluded(self):
+        project = self._project(
+            {"name": "Vorwoche", "due": self.MONDAY - timedelta(days=1)}
+        )
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual(sum(len(d["tasks"]) for d in days), 0)
+
+    def test_undated_tasks_land_on_no_day(self):
+        project = self._project({"name": "Ohne Datum", "due": None})
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual(sum(len(d["tasks"]) for d in days), 0)
+
+    def test_unassigned_tasks_are_tagged_ohne_projekt(self):
+        unassigned = [
+            {
+                "name": "Kleinkram",
+                "kontext": [],
+                "done": False,
+                "due": self.MONDAY,
+                "completed_date": None,
+            }
+        ]
+        days = _bucket_by_day([], unassigned, self.MONDAY)
+        self.assertEqual(days[0]["tasks"][0]["project_name"], "Ohne Projekt")
+        self.assertIsNone(days[0]["tasks"][0]["project_id"])
+
+    def test_a_day_with_zero_tasks_has_a_clean_zero_count(self):
+        days = _bucket_by_day([], [], self.MONDAY)
+        for day in days:
+            self.assertEqual((day["done_count"], day["total_count"]), (0, 0))
+
+    def test_per_day_done_total_counts_done_tasks_on_that_day(self):
+        project = self._project(
+            {
+                "name": "Erledigt",
+                "due": self.MONDAY,
+                "done": True,
+                "completed_date": self.MONDAY,
+            },
+            {"name": "Offen", "due": self.MONDAY},
+        )
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual((days[0]["done_count"], days[0]["total_count"]), (1, 2))
+
+
+class ParseWeekParamTest(SimpleTestCase):
+    """#180: ?week=2026-W37 navigates to that week; anything unparseable
+    falls back to the given default rather than erroring the page."""
+
+    DEFAULT = date(2026, 6, 15)
+
+    def _request(self, week=None):
+        factory = RequestFactory()
+        return factory.get("/dashboard/", {"week": week} if week else {})
+
+    def test_valid_week_param_wins(self):
+        result = _parse_week_param(self._request("2026-W25"), self.DEFAULT)
+        self.assertEqual(result, date(2026, 6, 15))
+
+    def test_absent_param_falls_back_to_default(self):
+        result = _parse_week_param(self._request(), self.DEFAULT)
+        self.assertEqual(result, self.DEFAULT)
+
+    def test_malformed_param_falls_back_to_default(self):
+        for bad in ["not-a-week", "2026-W99", "2026", "'; DROP TABLE", ""]:
+            with self.subTest(bad=bad):
+                result = _parse_week_param(self._request(bad), self.DEFAULT)
+                self.assertEqual(result, self.DEFAULT)
 
 
 class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
@@ -5841,6 +5964,95 @@ class WeekProgressBarProductionTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
+class DayColumnsProductionTest(TestCase):
+    """#180: the day-column breakdown of "Diese Woche" — task placement and
+    week navigation, end to end through the real dashboard() view."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_a_task_renders_in_its_own_day_column(self):
+        monday = iso_week_bounds(date.today())[0]
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-1",
+                "name": "Programm-Entwurf",
+                "due": monday + timedelta(days=2),
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            }
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard") + "?view=today")
+        self.assertContains(response, "Programm-Entwurf")
+        self.assertContains(response, 'data-date="%s"' % (monday + timedelta(days=2)))
+
+    def _day_columns_html(self, response):
+        """The task also renders in the always-present kanban board and its
+        own (hidden-by-default) project-section — this slices out just the
+        day-columns markup so presence there specifically is what's checked.
+        """
+        content = response.content.decode()
+        start = content.index('id="day-columns">')
+        end = content.index('<div class="project-section"', start)
+        return content[start:end]
+
+    def test_week_param_navigates_to_a_different_week(self):
+        monday = iso_week_bounds(date.today())[0]
+        next_monday = monday + timedelta(days=7)
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-1",
+                "name": "Nächste-Woche-Aufgabe",
+                "due": next_monday,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            }
+        ]
+        iso_year, iso_week, _ = next_monday.isocalendar()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            this_week = self.client.get(reverse("dashboard") + "?view=today")
+            next_week = self.client.get(
+                reverse("dashboard") + f"?view=today&week={iso_year}-W{iso_week:02d}"
+            )
+        self.assertNotIn("Nächste-Woche-Aufgabe", self._day_columns_html(this_week))
+        self.assertIn("Nächste-Woche-Aufgabe", self._day_columns_html(next_week))
+
+    def test_malformed_week_param_does_not_500(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(
+                reverse("dashboard") + "?view=today&week=not-a-week"
+            )
+        self.assertEqual(response.status_code, 200)
+
+
+@override_settings(DEMO_MODE=False)
 class SidebarProgressRingZeroTasksTest(TestCase):
     """#76: a project with no tasks yet must render an empty ring, not
     crash with a ZeroDivisionError."""
@@ -6475,9 +6687,10 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # Both handlers — the toggle listener and reschedule() — carry the
-        # widened guard; their error paths (flash / return false) stay.
-        self.assertContains(response, self.GUARD, count=2)
+        # All three handlers — the toggle listener, reschedule(), and #180's
+        # day-column drag handler — carry the widened guard; their error
+        # paths (flash / return false / revert the drag) stay.
+        self.assertContains(response, self.GUARD, count=3)
         self.assertContains(response, "flashActionFailed(dueSpan);")
 
 
@@ -6513,7 +6726,9 @@ class ToggleTaskDemoModeTest(DemoModeTestCase):
         self.given_session_plan()
         self.post_toggle("demo-session-0", done=True)
         self.post_toggle("demo-session-0", done=False)
-        self.assertIsNone(self.client.session["demo_plan"]["tasks"][0]["completed_date"])
+        self.assertIsNone(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"]
+        )
 
     def test_an_unknown_task_is_a_404(self):
         self.given_session_plan()
