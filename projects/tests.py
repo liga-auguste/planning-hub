@@ -7530,3 +7530,17 @@ class DownloadPlanDisplayNameTest(DemoModeTestCase):
             'filename="Adventskonzert_12.09.2026.md"',
             response["Content-Disposition"],
         )
+
+
+class DashboardDeepLinkTest(DemoModeTestCase):
+    """#177: the project view has to be reachable via a URL and survive
+    browser back/forward — no headless browser here (same limit as the #176
+    JS assertions), so this only checks the right JS source is present."""
+
+    def test_dashboard_contains_the_history_sync_js(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "history.pushState")
+        self.assertContains(response, "history.replaceState")
+        self.assertContains(response, "URLSearchParams")
+        self.assertContains(response, "addEventListener('popstate'")

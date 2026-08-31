@@ -523,11 +523,17 @@
 
 {% block extra_js %}
 <script>
+    // Set while a popstate handler or the initial deep-link sync is driving
+    // the view, so showProject/showOverview update the DOM without also
+    // pushing a redundant history entry on top of the one that triggered them.
+    let syncingHistory = false;
+
     function showOverview() {
         document.getElementById('view-overview').style.display = 'block';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
+        if (!syncingHistory) history.pushState({}, '', window.location.pathname);
     }
 
     function showProject(id) {
@@ -536,7 +542,29 @@
         document.getElementById('project-' + id).style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-' + id).classList.add('active');
+        if (!syncingHistory) history.pushState({project: id}, '', '?project=' + id);
     }
+
+    window.addEventListener('popstate', (event) => {
+        syncingHistory = true;
+        const projectId = event.state && event.state.project;
+        if (projectId && document.getElementById('project-' + projectId)) {
+            showProject(projectId);
+        } else {
+            showOverview();
+        }
+        syncingHistory = false;
+    });
+
+    (function() {
+        const projectId = new URLSearchParams(window.location.search).get('project');
+        if (projectId && document.getElementById('project-' + projectId)) {
+            syncingHistory = true;
+            history.replaceState({project: projectId}, '', '?project=' + projectId);
+            showProject(projectId);
+            syncingHistory = false;
+        }
+    })();
 </script>
 <script>
 document.querySelectorAll('.toggle-form').forEach(form => {
