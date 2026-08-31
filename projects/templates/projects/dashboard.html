@@ -121,6 +121,10 @@
         .day-task-card .dot { margin-right: 3px; }
         .day-task-card:last-child { margin-bottom: 0; }
         .day-task-card.done { opacity: 0.55; }
+        /* Sortable never initializes on the read-only demo example projects
+           (see the script guard below) — the grab cursor would otherwise
+           promise a drag that just fails. */
+        .day-task-card.no-drag { cursor: default; }
         /* .main caps every other view at a comfortable 920px reading width
            (dashboard.css) — sensible for prose and task lists, but a
            7-column calendar grid benefits from the rest of a wide monitor
@@ -687,7 +691,11 @@
             syncingHistory = false;
         } else if (params.get('view') === 'today') {
             syncingHistory = true;
-            history.replaceState({view: 'today'}, '', '?view=today');
+            // window.location.search, not the hardcoded '?view=today' below —
+            // a prev/next-week link lands here with a `week` param that must
+            // survive this sync, or a reload/share of the URL silently drops
+            // back to the current week.
+            history.replaceState({view: 'today'}, '', window.location.search);
             showToday();
             syncingHistory = false;
         }
@@ -883,6 +891,12 @@ document.querySelectorAll('.today-btn').forEach(btn => {
     });
 });
 </script>
+{% if not demo_mode or has_session_plan %}
+{% comment %}
+Same reasoning as the task-due span above: dragging reschedules, and
+rescheduling is offered only where it persists. The demo example projects
+are in no session, so their cards stay visible but not draggable there.
+{% endcomment %}
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.3/Sortable.min.js"></script>
 <script>
 // #180: drag-and-drop between day columns reuses the existing reschedule
@@ -924,4 +938,5 @@ document.querySelectorAll('.day-column-body').forEach(column => {
     });
 });
 </script>
+{% endif %}
 {% endblock %}
