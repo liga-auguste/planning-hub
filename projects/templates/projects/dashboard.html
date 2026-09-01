@@ -530,6 +530,18 @@
     </div>
 
     <div id="view-today" style="display: none;">
+        {% comment %}
+        Same banner as view-overview above, same reasoning (#50): without it,
+        switching to "Heute" during a simulated moment shows a "today" that
+        silently isn't the real one — the exact confusion #153 already fixed
+        for the overview.
+        {% endcomment %}
+        {% if sim_date %}
+        <div class="sim-banner">
+            <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
+            <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
+        </div>
+        {% endif %}
         <div class="ai-card-header" style="margin-bottom: 24px;">
             <div style="font-size: 22px; font-weight: 700;">Heute</div>
         </div>
