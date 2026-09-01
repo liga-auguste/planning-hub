@@ -37,9 +37,12 @@ consolidates all of that without any visual change.
 1. **`planner_questions` and `planner_review` have no GET handler** — both views return `None`
    on GET. Smoke tests for these must POST with mocked AI calls, or only assert file existence.
 
-2. **`my_plan.html` and `stats.html` have no sidebar** — they override `{% block full_page %}`
-   in `base_dashboard.html` to render a simple centered layout. The sidebar div must not appear
-   on these pages.
+2. **`stats.html` has no sidebar** — it overrides `{% block body %}` (named `full_page` when
+   this doc was written) in `base_dashboard.html` to render a simple centered layout. It's a
+   maintainer-only page linked from nowhere in the UI, so this stayed true. `my_plan.html` did
+   the same at the time, but was later converted to the normal `sidebar_content`/`content`
+   blocks — see [`demo-mode.md`](demo-mode.md)'s "`my_plan.html` now keeps the sidebar" section
+   (#183 follow-up).
 
 3. **`planner_start.html` has two progress tracker states** in one template (`{% if show_tiles %}`):
    step 1 (tile selection) and step 2 (description). The child template handles this with a
@@ -149,9 +152,11 @@ top-of-page layouts.
 </html>
 ```
 
-`my_plan.html` and `stats.html` override `{% block full_page %}` with their own centered
-layout. `dashboard.html` fills `{% block sidebar_content %}`, `{% block content %}`, and
-`{% block extra_js %}` (sidebar JS + task/timelapse JS).
+`stats.html` overrides `{% block body %}` (`full_page` above) with its own centered layout —
+`my_plan.html` did too, until #183's follow-up moved it onto the normal
+`sidebar_content`/`content` blocks (see point 2 above). `dashboard.html` fills
+`{% block sidebar_content %}`, `{% block content %}`, and `{% block extra_js %}` (sidebar JS +
+task/timelapse JS).
 
 ### `_progress.html`
 

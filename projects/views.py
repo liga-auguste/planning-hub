@@ -905,6 +905,13 @@ def close_week_start(request):
             "today_display": _format_date(today),
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,
+            # #183 follow-up: the sidebar is now shared with dashboard() via
+            # _sidebar_nav.html. In DEMO_MODE a session plan is guaranteed
+            # here (_current_tasks_for_closeout redirects to index
+            # otherwise); in production has_session_plan never applies.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": settings.DEMO_MODE,
+            "active_nav": "close_week",
         },
     )
 
@@ -969,7 +976,18 @@ def week_review(request):
     closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
-    return render(request, "projects/week_review.html", {"closeout": closeout})
+    return render(
+        request,
+        "projects/week_review.html",
+        {
+            "closeout": closeout,
+            # #183 follow-up: same reasoning as close_week_start() — the
+            # sidebar is now shared via _sidebar_nav.html.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": settings.DEMO_MODE,
+            "active_nav": "close_week",
+        },
+    )
 
 
 def stats(request):
@@ -1069,6 +1087,13 @@ def my_plan(request):
             "today_display": _format_date(today),
             "summary": summary,
             "summary_error": summary_error,
+            # #183 follow-up: the sidebar is now shared with dashboard() via
+            # _sidebar_nav.html — a session plan is guaranteed here (redirect
+            # above), so has_session_plan is always true whenever this
+            # actually renders.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": True,
+            "active_nav": "my_plan",
         },
     )
 

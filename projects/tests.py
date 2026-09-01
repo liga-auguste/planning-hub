@@ -874,13 +874,94 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         )
 
     def test_pages_without_a_sidebar_render_no_header(self):
-        # my_plan.html and stats.html override {% block body %} entirely and
-        # ship no sidebar at all.
+        # stats.html overrides {% block body %} entirely and ships no
+        # sidebar — it's a maintainer-only page, linked from nowhere in the
+        # UI, so it sits outside the "sidebar guides you through the app"
+        # principle #183's follow-up applied to my_plan/close_week/
+        # week_review (see SidebarNavOnStandalonePagesTest).
+        response = self.client.get(reverse("stats"))
+        self.assertNotContains(response, "sidebar-header")
+
+
+class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
+    """#183 follow-up: my_plan.html, close_week_start.html and
+    week_review.html used to override {% block body %} entirely, same as
+    stats.html — but unlike stats.html, these three ARE reachable by
+    clicking through the sidebar (Plan als Liste, Woche abschließen), so
+    leaving without a sidebar meant navigating away from the very thing
+    meant to guide the visitor through the app. Dashboard/Heute can't use
+    the fast client-side toggle here (view-overview/view-today don't exist
+    on these pages), so they render as real links into dashboard.html
+    instead — and whichever nav item matches the current page gets marked
+    active via active_nav, since there's no JS toggle to do it dynamically."""
+
+    def test_my_plan_has_the_sidebar_with_plan_als_liste_active(self):
         self.given_session_plan()
-        for name in ("my_plan", "stats"):
-            with self.subTest(page=name):
-                response = self.client.get(reverse(name))
-                self.assertNotContains(response, "sidebar-header")
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, f'class="sidebar-item active" href="{reverse("my_plan")}"'
+        )
+        self.assertContains(response, f'href="{reverse("dashboard")}"')
+        self.assertNotContains(response, 'onclick="showOverview()"')
+
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(
+            response,
+            f'class="sidebar-item active" href="{reverse("close_week_start")}"',
+        )
+
+    def test_week_review_has_the_sidebar(self):
+        self.given_session_plan()
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 25,
+            "completed_count": 1,
+            "rescheduled_count": 0,
+            "added_count": 0,
+            "summary_text": "Text.",
+            "closed_at": "2026-06-15T12:00:00",
+        }
+        session.save()
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, 'class="sidebar-header"')
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarNavOnStandalonePagesProductionTest(TestCase):
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(
+            response,
+            f'class="sidebar-item active" href="{reverse("close_week_start")}"',
+        )
+
+    def test_week_review_has_the_sidebar(self):
+        WeekCloseout.objects.create(
+            iso_year=2026,
+            iso_week=25,
+            completed_count=1,
+            rescheduled_count=0,
+            added_count=0,
+            summary_text="Text.",
+        )
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, 'class="sidebar-header"')
 
 
 class AiCardDeboxTest(DemoModeTestCase):
@@ -1637,17 +1718,6 @@ class DarkThemeTest(DemoModeTestCase):
         ).read_text()
         start = css.index(".wordmark img")
         rule = css[start : css.index("}", start)]
-        self.assertNotIn("display", rule)
-
-    def test_my_plan_css_does_not_override_the_logo_swap_display_rule(self):
-        """#143: same specificity trap as #103, this time in my_plan.html's
-        inline extra_css — `.logo img { display: block }` outranked
-        `.logo-dark { display: none }`, so both logo variants rendered at
-        once in the top nav. The rule must only size the logo."""
-        self.given_session_plan()
-        html = self.client.get("/mein-plan/").content.decode()
-        start = html.index(".logo img {")
-        rule = html[start : html.index("}", start)]
         self.assertNotIn("display", rule)
 
 

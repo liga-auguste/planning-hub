@@ -114,15 +114,25 @@ redirect: right after generating a plan, the time-lapse bar on `/dashboard/` is 
 highlight, and adding a second competing redirect target there would only add a decision the
 visitor doesn't need yet.
 
-## Why `my_plan.html` stays a standalone page
+## `my_plan.html` now keeps the sidebar (#183 follow-up)
 
-`my_plan.html` overrides `{% block full_page %}` from `base_dashboard.html` (see
-[`template-refactoring.md`](template-refactoring.md)) and renders a focused, centered list
-view with no sidebar at all — navigation runs through its own top-of-page links instead. This
-is deliberate, not an oversight: the page's purpose is a clean, printable/downloadable plan
-view, and a sidebar would compete with that. The decision is recorded as a comment above
-`{% block body %}` in the template itself, matching how `docs/template-refactoring.md` point 2
-already called this out.
+Originally `my_plan.html` overrode `{% block body %}` from `base_dashboard.html` entirely — a
+focused, centered list view with no sidebar, navigation running through its own top-of-page
+logo/back-link instead. That was deliberate at the time: the sidebar's own navigation didn't
+yet exist in a form worth reusing here.
+
+It doesn't hold once the sidebar is the thing meant to guide a visitor through the whole app
+(#183's Tier 1/2 follow-ups): a page reachable *from* the sidebar ("Plan als Liste") that then
+drops the sidebar entirely defeats that. `my_plan.html`, `close_week_start.html` and
+`week_review.html` all use the normal `sidebar_content`/`content` blocks now, `{% include
+"projects/_sidebar_nav.html" %}`d the same way `dashboard.html` does — see `_sidebar_nav.html`'s
+own comment for how `active_nav` adapts it (Dashboard/Heute become real links instead of the
+client-side toggle, since `view-overview`/`view-today` don't exist on these pages; whichever of
+"Plan als Liste"/"Woche abschließen" matches the current page is marked active).
+
+`stats.html` is the one exception, left as a standalone page on purpose: it's a maintainer-only
+usage-stats view linked from nowhere in the UI, so no sidebar click ever leads there — the
+"guides you through the app" rationale doesn't apply to a page nothing points at.
 
 ---
 
