@@ -71,6 +71,8 @@ is gone; the sidebar already covers that.
 {% endcomment %}
 {% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="my_plan" %}{% endblock %}
 
+{% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
+
 {% block content %}
 <div class="page">
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 24px;">

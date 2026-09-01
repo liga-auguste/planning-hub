@@ -27,6 +27,8 @@ docs/wochenabschluss.md.
 {% endcomment %}
 {% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="close_week" %}{% endblock %}
 
+{% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
+
 {% block content %}
 <div class="page">
     <div class="page-title">Wochenrückblick</div>

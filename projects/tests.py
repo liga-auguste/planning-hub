@@ -858,8 +858,12 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         self.assertNotIn("height:40px;width:auto;", self.dashboard_html)
 
     def test_about_overlay_keeps_its_own_logo_copy(self):
-        self.assertIn('height:36px;" class="logo-light"', self.dashboard_html)
-        self.assertIn('height:36px;" class="logo-dark"', self.dashboard_html)
+        # #183 follow-up: moved from dashboard.html into _about_overlay.html
+        # so "Über dieses Projekt" (and the overlay it opens) is shared with
+        # my_plan.html/close_week_start.html/week_review.html too.
+        about_overlay_html = (self.templates / "_about_overlay.html").read_text()
+        self.assertIn('height:36px;" class="logo-light"', about_overlay_html)
+        self.assertIn('height:36px;" class="logo-dark"', about_overlay_html)
 
     def test_first_content_row_clears_the_mobile_launcher(self):
         # The removed wordmark row used to keep the top-of-page band free
@@ -906,6 +910,16 @@ class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
         self.assertContains(response, f'href="{reverse("dashboard")}"')
         self.assertNotContains(response, 'onclick="showOverview()"')
 
+    def test_my_plan_has_the_about_link_and_overlay(self):
+        # #183 follow-up: "Über dieses Projekt" lived only in dashboard.html's
+        # own sidebar_content, not the shared _sidebar_nav.html partial, so
+        # the link (and the #about-overlay it opens) went missing on every
+        # other page using it.
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
+
     @patch("django.utils.timezone.localdate")
     def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
         self, mock_localdate
@@ -918,6 +932,8 @@ class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
             response,
             f'class="sidebar-item active" href="{reverse("close_week_start")}"',
         )
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
 
     def test_week_review_has_the_sidebar(self):
         self.given_session_plan()
@@ -934,6 +950,8 @@ class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
         session.save()
         response = self.client.get(reverse("week_review"))
         self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
 
 
 @override_settings(DEMO_MODE=False)
@@ -950,6 +968,9 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
             response,
             f'class="sidebar-item active" href="{reverse("close_week_start")}"',
         )
+        # "Über dieses Projekt" explains the demo instance — not relevant,
+        # so not offered, in production.
+        self.assertNotContains(response, "Über dieses Projekt")
 
     def test_week_review_has_the_sidebar(self):
         WeekCloseout.objects.create(
@@ -962,6 +983,7 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
         )
         response = self.client.get(reverse("week_review"))
         self.assertContains(response, 'class="sidebar-header"')
+        self.assertNotContains(response, "Über dieses Projekt")
 
 
 class AiCardDeboxTest(DemoModeTestCase):
