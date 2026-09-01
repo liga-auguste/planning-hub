@@ -7826,9 +7826,12 @@ class StaleNoticeSharedAcrossViewsTest(TestCase):
         self.addCleanup(cache.clear)
 
     def test_data_unavailable_notice_appears_for_both_views(self):
-        with patch(
-            "projects.views._fetch_fresh_data",
-            side_effect=NotionUnavailableError("boom"),
+        with (
+            patch(
+                "projects.views._fetch_fresh_data",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(
