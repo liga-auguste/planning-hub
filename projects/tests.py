@@ -733,6 +733,40 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         )
 
 
+class SidebarModeBadgeTest(DemoModeTestCase):
+    """#183: nothing in the sidebar persistently signalled which of the two
+    demo states a visitor was in — only the swapped nav link did, and that
+    swap is easy to miss (or misread in a screenshot). This badge sits right
+    under the existing "Demo" eyebrow, visible regardless of which view or
+    nav item is active."""
+
+    def test_a_session_plan_shows_dein_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "sidebar-mode-badge")
+        self.assertContains(response, "Dein Plan")
+
+    def test_the_multi_project_example_data_shows_beispieldaten(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "sidebar-mode-badge")
+        self.assertContains(response, "Beispieldaten")
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarModeBadgeProductionTest(TestCase):
+    def test_production_shows_no_mode_badge(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "sidebar-mode-badge")
+
+
 class SidebarLogoHeaderTest(DemoModeTestCase):
     """#95: the logo moves from the content area into a sidebar header row —
     a real link to /dashboard/ above the nav. Collapsed, only the icon mark
@@ -6079,6 +6113,86 @@ class WeekProgressBarProductionTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "erledigt</span>")
 
+    def test_the_bar_excludes_unassigned_tasks_not_shown_on_the_kanban_board(self):
+        # #182: the Kanban board only ever renders project.tasks — an
+        # unassigned ("Ohne Projekt") task can never appear on it, so the
+        # bar above it must not count one either, or the two numbers on the
+        # same screen stop matching.
+        today = date.today()
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-open",
+                "name": "Offen",
+                "due": today,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        unassigned = [
+            {
+                "id": "t-unassigned",
+                "name": "Kleinkram",
+                "due": today,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=unassigned),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "0 / 1 erledigt")
+
+
+class WeekProgressBarDemoModeTest(DemoModeTestCase):
+    """#182: reproduces the reported bug on the demo multi-project example
+    view — get_demo_unassigned_tasks() feeds the same "Ohne Projekt" bucket
+    the production get_unassigned_tasks() call does, through the same
+    dashboard() code path and the same all_tasks expression."""
+
+    def test_the_bar_excludes_demo_unassigned_tasks_not_shown_on_the_kanban_board(
+        self,
+    ):
+        today = date.today()
+        project = {
+            "id": "demo-p1",
+            "name": "Testkonzert",
+            "event_date": today + timedelta(days=10),
+            "tasks": [
+                {
+                    "id": "t-open",
+                    "name": "Offen",
+                    "due": today,
+                    "done": False,
+                    "kontext": [],
+                    "completed_date": None,
+                },
+            ],
+        }
+        unassigned = [
+            {
+                "id": "demo-unassigned-1",
+                "name": "Kleinkram",
+                "due": today,
+                "done": False,
+                "kontext": [],
+            },
+        ]
+        with (
+            patch("projects.views.get_demo_projects", return_value=[project]),
+            patch("projects.views.get_demo_unassigned_tasks", return_value=unassigned),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "0 / 1 erledigt")
+
 
 @override_settings(DEMO_MODE=False)
 class DayColumnsProductionTest(TestCase):
@@ -7586,6 +7700,142 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'title="Datum ändern"')
         self.assertContains(response, 'data-task-id="task-1"')
+
+
+class DayTaskCardNoDragTest(DemoModeTestCase):
+    """#183 Tier 2 regression net: .no-drag disables SortableJS's grab
+    cursor on the read-only demo example cards specifically — a flipped
+    condition here would silently make example data draggable (harmless,
+    since the drag handler itself still checks server-side, but the cursor
+    would promise an interaction that fails)."""
+
+    def test_example_data_day_cards_are_no_drag(self):
+        today = date.today()
+        project = {
+            "id": "demo-p1",
+            "name": "Testkonzert",
+            "event_date": today + timedelta(days=10),
+            "tasks": [
+                {
+                    "id": "t-today",
+                    "name": "Heute fällig",
+                    "due": today,
+                    "done": False,
+                    "kontext": [],
+                    "completed_date": None,
+                },
+            ],
+        }
+        with patch("projects.views.get_demo_projects", return_value=[project]):
+            response = self.client.get(reverse("dashboard"))
+        # "no-drag" alone would also match the always-present CSS rule
+        # (.day-task-card.no-drag { ... }) — assert on the class actually
+        # landing on this task's card instead.
+        self.assertContains(response, 'no-drag" data-task-id="t-today"')
+
+    def test_session_plan_day_cards_are_draggable(self):
+        today = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "s-today",
+                    "name": "Heute fällig",
+                    "date": today.isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'no-drag" data-task-id="s-today"')
+
+
+class SortableScriptInclusionTest(DemoModeTestCase):
+    """#183 Tier 2 regression net: the SortableJS include itself must follow
+    the same demo/session-plan split as the reschedule affordances it
+    powers — omitted entirely for the read-only demo example data."""
+
+    def test_included_for_a_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Sortable.min.js")
+
+    def test_excluded_for_the_multi_project_example_data(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Sortable.min.js")
+
+
+@override_settings(DEMO_MODE=False)
+class SortableScriptInclusionProductionTest(TestCase):
+    def test_included_in_production(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Sortable.min.js")
+
+
+class StatusBannersSharedAcrossViewsTest(DemoModeTestCase):
+    """#183 Tier 2: view-overview and view-today render in the same
+    response (JS just toggles which is visible) — the demo-banner and
+    stale-notice must appear in both, not just view-overview, or switching
+    to "Heute" during example data silently drops the only reminder that
+    it's not the visitor's own plan."""
+
+    def test_demo_banner_appears_for_both_views(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "Das sind <strong>Beispieldaten</strong>", count=2
+        )
+
+
+@override_settings(DEMO_MODE=False)
+class StaleNoticeSharedAcrossViewsTest(TestCase):
+    """#183 Tier 2: same reasoning as StatusBannersSharedAcrossViewsTest,
+    for the production-only stale-notice — data_unavailable/stale are only
+    ever set on the production branch's NotionUnavailableError fallback."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_data_unavailable_notice_appears_for_both_views(self):
+        with patch(
+            "projects.views._fetch_fresh_data",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            "Die Projektdaten sind gerade nicht verfügbar. Bitte versuche es in Kürze erneut.",
+            count=2,
+        )
+
+
+class OhneProjektExplanationTest(DemoModeTestCase):
+    """#183 Tier 3: a session plan is always tied to the one project the
+    planner just created (views.py, unassigned_tasks = [] in that branch),
+    so "Ohne Projekt" tasks structurally never occur there — explain the
+    absence instead of leaving it unexplained silence."""
+
+    def test_session_plan_shows_the_explanation(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            "Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.",
+        )
+
+    def test_multi_project_example_data_shows_no_explanation(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(
+            response,
+            "Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.",
+        )
 
 
 class PlannerRulesBackLinkTest(DemoModeTestCase):

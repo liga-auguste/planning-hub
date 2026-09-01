@@ -581,11 +581,16 @@ def dashboard(request):
 
     week_view = _build_week_view(projects, unassigned_tasks)
 
-    # #19: the week progress bar — same pool of tasks as the week view above,
-    # counted against the calendar week containing effective_today (not
-    # `today`, so demo time-travel moves the bar along with everything else).
+    # #19: the week progress bar — counted against the calendar week
+    # containing effective_today (not `today`, so demo time-travel moves the
+    # bar along with everything else).
+    #
+    # #182: deliberately excludes unassigned_tasks, unlike week_view above.
+    # The Kanban board beneath this bar renders strictly from
+    # project["tasks"] and can never show a project-less task, so counting
+    # one here made the bar and the board disagree on the same number.
     week_start, week_end = iso_week_bounds(effective_today)
-    all_tasks = [t for project in projects for t in project["tasks"]] + unassigned_tasks
+    all_tasks = [t for project in projects for t in project["tasks"]]
     week_done_count, week_total_count = _count_done_in_range(
         all_tasks, week_start, week_end
     )

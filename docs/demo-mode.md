@@ -31,34 +31,57 @@ has_session_plan = plan_exists and not force_multi
 viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 ```
 
-| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` |
-|---|---|---|---|---|---|---|
-| 1 | no | `/dashboard/` | False | False | False | True |
-| 2 | no | `/dashboard/?mode=multi` | False | False | True | True |
-| 3 | yes | `/dashboard/` | True | True | False | False |
-| 4 | yes | `/dashboard/?mode=multi` | True | False | True | True |
+| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` | Sidebar badge |
+|---|---|---|---|---|---|---|---|
+| 1 | no | `/dashboard/` | False | False | False | True | "Beispieldaten" |
+| 2 | no | `/dashboard/?mode=multi` | False | False | True | True | "Beispieldaten" |
+| 3 | yes | `/dashboard/` | True | True | False | False | "Dein Plan" |
+| 4 | yes | `/dashboard/?mode=multi` | True | False | True | True | "Beispieldaten" |
 
 `has_session_plan` answers "is the visitor's own plan on screen right now?" — it drives the
 time-lapse bar and suppresses the project name on Kanban cards, since there is only one
 project to show. `plan_exists` answers "does a plan exist at all, regardless of what's on
 screen?" — it decides whether the sidebar can offer a way back to it. `viewing_demo_data`
-answers "is what's on screen the example fixtures?" — it drives the banner below. All four
-states share the same `dashboard.html` template; only the sidebar and the banner change.
+answers "is what's on screen the example fixtures?" — it drives the banner below and the
+sidebar badge. All four states share the same `dashboard.html` template; only the sidebar and
+the banner change.
+
+**Sidebar badge (#183):** a permanent `.sidebar-mode-badge` under the "Demo" eyebrow label,
+switched on `has_session_plan` alone (`"Dein Plan"` vs. `"Beispieldaten"`). It sits in
+`{% block sidebar_content %}`, which is not duplicated between `view-overview` and
+`view-today` — so unlike the banners below, it needed no separate fix to show up in both.
 
 ---
 
 ## The demo-data banner
 
 `viewing_demo_data` is true in states 1, 2, and 4 — every state where the example projects,
-not the visitor's own plan, are what's rendered. The banner sits in `dashboard.html` between
-the existing time-lapse banner (`{% if sim_date %}`) and the stale-data notice
-(`{% if data_unavailable %}`); the two are mutually exclusive by construction, since one needs
-`has_session_plan` and the other needs its negation. It does **not** reuse `.sim-banner` —
-that surface is deliberately dark in both themes (see its comment in `base.css`), the right
+not the visitor's own plan, are what's rendered. The banner, the time-lapse banner
+(`{% if sim_date %}`) and the stale-data notice (`{% if data_unavailable %}`) all live in one
+shared partial, `_status_banners.html`, `{% include %}`d identically at the top of both
+`view-overview` and `view-today` (#183). Before that, each new banner had to be copied into
+both view `<div>`s by hand — the demo banner was, and stayed missing from `view-today` for a
+while, exactly the class of bug the shared partial closes off for future banners too. The
+demo banner and the time-lapse banner remain mutually exclusive by construction, since one
+needs `has_session_plan` and the other needs its negation. It does **not** reuse `.sim-banner`
+— that surface is deliberately dark in both themes (see its comment in `base.css`), the right
 weight for a cookie notice or an active time-lapse simulation, but too heavy for a banner that
 sits on screen through most of a demo visit. `.demo-banner` copies `.sim-banner`'s layout with
 `--color-bg-tertiary`/`--color-text-secondary` instead — the same neutral grey the sidebar's
 active state and the task-context badges already use, rather than a new colour.
+
+**One condition instead of six (#183):** every place that used to gate demo-data
+write-protection off an inline `demo_mode and not has_session_plan` (or its negation) —
+`_day_task_card.html`'s `no-drag` class, `_task_row.html`'s reschedule affordances, the
+project-detail task rows and the SortableJS include in `dashboard.html` — now reads
+`viewing_demo_data` (or `not viewing_demo_data`) instead, the same value already computed once
+in `views.dashboard`. `{% include %}` without `only` passes the parent context through
+automatically, so no new context key was needed to reach `_day_task_card.html`/`_task_row.html`.
+
+**"Ohne Projekt" explanation (#183 Tier 3):** a session plan (state 3) is always tied to the
+one project the planner just created, so it structurally never has an unassigned task to show
+in the Heute view. Rather than leaving that silent, `view-today` shows a one-line note when
+`has_session_plan` is true, right after the shared banner partial.
 
 ---
 

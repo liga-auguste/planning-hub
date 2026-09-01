@@ -239,7 +239,8 @@
 
 {% block sidebar_content %}
     {% if demo_mode %}
-    <div style="font-size: 10px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 16px; margin-bottom: 14px;">Demo</div>
+    <div style="font-size: 10px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.08em; text-transform: uppercase; padding: 0 16px; margin-bottom: 2px;">Demo</div>
+    <div class="sidebar-mode-badge" style="font-size: 11px; color: var(--color-text-tertiary); padding: 0 16px; margin-bottom: 14px;">{% if has_session_plan %}Dein Plan{% else %}Beispieldaten{% endif %}</div>
     {% endif %}
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
         <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
@@ -372,35 +373,7 @@
             </div>
         </div>
         {% endif %}
-        {% comment %}
-        The banner hangs off the same condition as the AI card's simulation
-        label below, so a label announcing a simulation without a notice and a
-        way back to today is structurally impossible (#50).
-        {% endcomment %}
-        {% if sim_date %}
-        <div class="sim-banner">
-            <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
-            <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
-        </div>
-        {% endif %}
-        {% comment %}
-        Nothing else on the page said the 5 example projects are sample data
-        rather than something real (#7). Mutually exclusive with the
-        time-lapse banner above: that one needs has_session_plan, this one
-        needs its opposite.
-        {% endcomment %}
-        {% if viewing_demo_data %}
-        <div class="demo-banner">
-            <span>Das sind <strong>Beispieldaten</strong> — fünf simulierte Projekte zeigen, wie Planning Hub im Betrieb aussieht.</span>
-            <a class="demo-banner-cta" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
-        </div>
-        {% endif %}
-
-        {% if data_unavailable %}
-        <div class="stale-notice">Die Projektdaten sind gerade nicht verfügbar. Bitte versuche es in Kürze erneut.</div>
-        {% elif stale %}
-        <div class="stale-notice">Diese Ansicht zeigt evtl. nicht den aktuellsten Stand — Notion ist gerade nicht erreichbar.</div>
-        {% endif %}
+        {% include "projects/_status_banners.html" %}
 
         <div class="ai-card">
             <div class="ai-card-header" style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
@@ -531,20 +504,25 @@
 
     <div id="view-today" style="display: none;">
         {% comment %}
-        Same banner as view-overview above, same reasoning (#50): without it,
-        switching to "Heute" during a simulated moment shows a "today" that
-        silently isn't the real one — the exact confusion #153 already fixed
-        for the overview.
+        Same banners as view-overview above, same reasoning (#50, #183):
+        without them, switching to "Heute" during a simulated moment or while
+        looking at demo example data silently drops the only notice of it.
         {% endcomment %}
-        {% if sim_date %}
-        <div class="sim-banner">
-            <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
-            <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
-        </div>
-        {% endif %}
+        {% include "projects/_status_banners.html" %}
+
         <div class="ai-card-header" style="margin-bottom: 24px;">
             <div style="font-size: 22px; font-weight: 700;">Heute</div>
         </div>
+
+        {% comment %}
+        #183 Tier 3: a session plan is always tied to the one project the
+        planner just created, so it structurally never has an "Ohne
+        Projekt" task to show here — explained rather than left as
+        unremarked silence.
+        {% endcomment %}
+        {% if has_session_plan %}
+        <p class="ai-error">Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.</p>
+        {% endif %}
 
         {% if heute_overdue %}
         <div class="today-week-heading">Überfällig</div>
@@ -616,7 +594,7 @@
                 projects are in no session, so there the date only renders (#10 §5).
                 {% endcomment %}
                 <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
-                      {% if not demo_mode or has_session_plan %}
+                      {% if not viewing_demo_data %}
                       data-task-id="{{ task.id }}"
                       data-raw-date="{{ task.due|date:'Y-m-d' }}"
                       title="Datum ändern"
@@ -626,7 +604,7 @@
                 {% if task.postpone_count and task.postpone_count >= 2 %}
                 <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
                 {% endif %}
-                {% if task.urgency == 'overdue' %}{% if not demo_mode or has_session_plan %}
+                {% if task.urgency == 'overdue' %}{% if not viewing_demo_data %}
                 <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
                 {% endif %}{% endif %}
             </span>
@@ -903,7 +881,7 @@ document.querySelectorAll('.today-btn').forEach(btn => {
     });
 });
 </script>
-{% if not demo_mode or has_session_plan %}
+{% if not viewing_demo_data %}
 {% comment %}
 Same reasoning as the task-due span above: dragging reschedules, and
 rescheduling is offered only where it persists. The demo example projects

@@ -1,0 +1,29 @@
+{% comment %}
+The banner hangs off the same condition as the AI card's simulation
+label below, so a label announcing a simulation without a notice and a
+way back to today is structurally impossible (#50).
+{% endcomment %}
+{% if sim_date %}
+<div class="sim-banner">
+    <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
+    <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
+</div>
+{% endif %}
+{% comment %}
+Nothing else on the page said the 5 example projects are sample data
+rather than something real (#7). Mutually exclusive with the
+time-lapse banner above: that one needs has_session_plan, this one
+needs its opposite.
+{% endcomment %}
+{% if viewing_demo_data %}
+<div class="demo-banner">
+    <span>Das sind <strong>Beispieldaten</strong> — fünf simulierte Projekte zeigen, wie Planning Hub im Betrieb aussieht.</span>
+    <a class="demo-banner-cta" href="{% url 'planner_start' %}">Eigenes Projekt planen →</a>
+</div>
+{% endif %}
+
+{% if data_unavailable %}
+<div class="stale-notice">Die Projektdaten sind gerade nicht verfügbar. Bitte versuche es in Kürze erneut.</div>
+{% elif stale %}
+<div class="stale-notice">Diese Ansicht zeigt evtl. nicht den aktuellsten Stand — Notion ist gerade nicht erreichbar.</div>
+{% endif %}
