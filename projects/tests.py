@@ -734,39 +734,49 @@ class SidebarFloatingTileTest(DemoModeTestCase):
 
 
 class SidebarModeGroupingTest(DemoModeTestCase):
-    """#183 follow-up: a single "Demo" eyebrow plus one swapped nav link
-    wasn't enough — "Dashboard"/"Heute" render identically in both demo
-    states while showing entirely different data, and the one link that
-    actually switches state sat undistinguished among links that don't.
-    The sidebar now groups items under a header naming whose data is
-    currently on screen ("Dein Projekt" / "Beispieldaten"), with any link
-    that jumps to the *other* state under its own second header — so the
-    swap is never mixed in with same-context actions."""
+    """#183 follow-up, second round: grouping the sidebar by which data was
+    currently on screen still meant the *set* of visible links reshuffled
+    between states — one group had four links, the other one, and which was
+    which kept swapping. That reshuffling itself read as "too much back and
+    forth". Both "Dein Projekt" and "Demo" headers, and each one's full link
+    set, are now always present regardless of state — only the project list
+    further down still switches by context. Whichever group matches the
+    currently-loaded page keeps the fast client-side toggle
+    (id="nav-overview"/"nav-today"); the other group's Dashboard/Heute are
+    plain links to the other mode, since that data isn't loaded here."""
 
-    def test_session_plan_groups_under_dein_projekt(self):
+    def test_session_plan_shows_full_links_in_both_groups(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
         self.assertContains(
             response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
         )
+        self.assertContains(response, "Plan als Liste")
+        self.assertContains(response, "Woche abschließen")
         self.assertContains(response, "Mehrprojekt-Dashboard")
 
-    def test_multi_project_example_data_groups_under_beispieldaten(self):
+    def test_no_plan_yet_still_shows_both_group_headers(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, '<div class="sidebar-title">Beispieldaten</div>')
-        self.assertNotContains(response, "Dein Projekt")
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+        )
+        self.assertContains(response, "Projekt selbst planen")
 
-    def test_multi_project_view_with_a_plan_shows_both_groups(self):
+    def test_multi_project_view_with_a_plan_shows_full_links_in_both_groups(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(response, '<div class="sidebar-title">Beispieldaten</div>')
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
         self.assertContains(
-            response,
-            '<div class="sidebar-title" style="margin-top: 16px;">Dein Projekt</div>',
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
         )
-        self.assertContains(response, "Zu deinem Plan")
-        self.assertNotContains(response, "Mein Plan<")
+        self.assertContains(response, "Plan als Liste")
+        self.assertContains(response, "Woche abschließen")
+        # Currently on the demo view — "Demo" group uses the fast toggle,
+        # not the "Mehrprojekt-Dashboard" jump-in link (that's for reaching
+        # this view from elsewhere, not for a view you're already on).
+        self.assertNotContains(response, "Mehrprojekt-Dashboard")
 
 
 @override_settings(DEMO_MODE=False)
@@ -783,9 +793,6 @@ class SidebarModeGroupingProductionTest(TestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertNotContains(
             response, '<div class="sidebar-title">Dein Projekt</div>'
-        )
-        self.assertNotContains(
-            response, '<div class="sidebar-title">Beispieldaten</div>'
         )
 
 
@@ -3304,12 +3311,12 @@ class MultiViewSidebarLinkTest(DemoModeTestCase):
     def test_shows_create_link_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, "Projekt selbst planen")
-        self.assertNotContains(response, "Zu deinem Plan")
+        self.assertNotContains(response, "Plan als Liste")
 
-    def test_shows_zu_deinem_plan_link_with_a_session_plan(self):
+    def test_shows_plan_links_with_a_session_plan(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(response, "Zu deinem Plan")
+        self.assertContains(response, "Plan als Liste")
         self.assertNotContains(response, "Projekt selbst planen")
 
 
