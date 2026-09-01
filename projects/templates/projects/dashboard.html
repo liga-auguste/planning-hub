@@ -367,7 +367,7 @@
 
         <div class="overview-progress" style="margin-top:36px;">
             <div class="overview-progress-label">
-                <span>Diese Woche</span>
+                <span>{% if has_session_plan %}Projektfortschritt{% else %}Diese Woche{% endif %}</span>
                 <span id="progress-label">{% if week_total_count %}{{ week_done_count }} / {{ week_total_count }} erledigt{% endif %}</span>
             </div>
             <div class="progress-track">

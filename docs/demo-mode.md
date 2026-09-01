@@ -103,6 +103,14 @@ one project the planner just created, so it structurally never has an unassigned
 in the Heute view. Rather than leaving that silent, `view-today` shows a one-line note when
 `has_session_plan` is true, right after the shared banner partial.
 
+**The overview progress bar tracks the whole plan for a session plan (#183 follow-up):**
+everywhere else it's week-scoped (#182), but for `has_session_plan` a week-scoped count barely
+moved between Zeitreise moments — a session plan's tasks rarely all fall in one calendar week,
+so the bar often sat at 0/0 several moments in a row. `dashboard()` marks every task due on or
+before the simulated moment "done" on a deep copy (`views.py`, right where `sim_date` is read),
+so a whole-plan count does visibly progress as you scrub through moments; the label switches
+to "Projektfortschritt" so it doesn't keep promising a week-scoped number it no longer shows.
+
 ---
 
 ## Why `/mein-plan/` is sidebar-only

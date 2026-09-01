@@ -6293,6 +6293,84 @@ class WeekProgressBarDemoModeTest(DemoModeTestCase):
         self.assertContains(response, "0 / 1 erledigt")
 
 
+class SessionPlanProgressBarTest(DemoModeTestCase):
+    """#183 follow-up: for a session plan, the bar tracks the whole plan's
+    completion instead of the current calendar week — a week-scoped count
+    barely moved between Zeitreise moments and often sat at 0/0 several
+    moments in a row, since a session plan's own tasks rarely all fall in
+    one week. The whole-plan count does visibly progress: each Zeitreise
+    moment marks every task due on/before it "done" (dashboard()'s deepcopy
+    mutation), so scrubbing through moments now fills the bar moment to
+    moment instead of resetting to an unrelated week's tiny subset."""
+
+    def test_the_bar_counts_the_whole_plan_not_just_this_week(self):
+        today = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-long-past",
+                    "name": "Lange her",
+                    "date": (today - timedelta(days=60)).isoformat(),
+                    "done": True,
+                },
+                {
+                    "id": "t-this-week",
+                    "name": "Diese Woche",
+                    "date": today.isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-far-future",
+                    "name": "Weit weg",
+                    "date": (today + timedelta(days=90)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("dashboard"))
+        # Week-scoped would have counted only "Diese Woche" (0/1) — the
+        # whole plan is 1 done out of 3.
+        self.assertContains(response, "1 / 3 erledigt")
+
+    def test_the_label_says_projektfortschritt(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "<span>Projektfortschritt</span>")
+
+    def test_the_bar_fills_further_at_a_later_zeitreise_moment(self):
+        today = date.today()
+        moment = (today + timedelta(days=30)).isoformat()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-before-moment",
+                    "name": "Vor dem Moment",
+                    "date": (today + timedelta(days=10)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-after-moment",
+                    "name": "Nach dem Moment",
+                    "date": (today + timedelta(days=60)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        self.given_timelapse_moments(moment)
+
+        response_today = self.client.get(reverse("dashboard"))
+        self.assertContains(response_today, "0 / 2 erledigt")
+
+        session = self.client.session
+        session["demo_sim_date"] = moment
+        session.save()
+        response_at_moment = self.client.get(reverse("dashboard"))
+        # "Vor dem Moment" is due before the simulated date and counts as
+        # done there (see dashboard()'s deepcopy mutation); "Nach dem
+        # Moment" isn't due yet at that point in the story.
+        self.assertContains(response_at_moment, "1 / 2 erledigt")
+
+
 @override_settings(DEMO_MODE=False)
 class DayColumnsProductionTest(TestCase):
     """#180: the day-column breakdown of "Diese Woche" — task placement and

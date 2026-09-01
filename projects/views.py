@@ -591,9 +591,19 @@ def dashboard(request):
     # one here made the bar and the board disagree on the same number.
     week_start, week_end = iso_week_bounds(effective_today)
     all_tasks = [t for project in projects for t in project["tasks"]]
-    week_done_count, week_total_count = _count_done_in_range(
-        all_tasks, week_start, week_end
-    )
+    if has_session_plan:
+        # #183 follow-up: a week-scoped count barely moved between Zeitreise
+        # moments, often showing 0/0 several moments in a row — the story
+        # the bar should tell here is the plan's overall completion, which
+        # does visibly progress: a moment marks every task due on/before it
+        # "done" (see the deepcopy mutation above), so the whole-plan count
+        # fills up moment to moment the way the week-scoped one didn't.
+        week_done_count = sum(1 for t in all_tasks if t["done"])
+        week_total_count = len(all_tasks)
+    else:
+        week_done_count, week_total_count = _count_done_in_range(
+            all_tasks, week_start, week_end
+        )
     week_progress_pct = (
         round(week_done_count / week_total_count * 100) if week_total_count else 0
     )
