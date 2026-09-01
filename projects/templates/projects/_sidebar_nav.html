@@ -19,7 +19,7 @@ page is marked active instead, since there's no JS toggle to do it.
 {% if has_session_plan %}
     {% if not active_nav %}
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
-        <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
         Dashboard
     </a>
     <a class="sidebar-item" id="nav-today" onclick="showToday()">
@@ -28,7 +28,7 @@ page is marked active instead, since there's no JS toggle to do it.
     </a>
     {% else %}
     <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
     </a>
     <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
@@ -42,7 +42,7 @@ page is marked active instead, since there's no JS toggle to do it.
     </a>
 {% elif plan_exists %}
     <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
     </a>
     <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
@@ -71,7 +71,7 @@ page is marked active instead, since there's no JS toggle to do it.
 {% else %}
     {% if not active_nav %}
     <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
-        <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
         Dashboard
     </a>
     <a class="sidebar-item" id="nav-today" onclick="showToday()">
@@ -80,7 +80,7 @@ page is marked active instead, since there's no JS toggle to do it.
     </a>
     {% else %}
     <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><span class="dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
     </a>
     <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi&view=today" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute

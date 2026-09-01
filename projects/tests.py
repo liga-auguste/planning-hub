@@ -1269,12 +1269,20 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
     .sidebar-icon gives every icon the same fixed, centered 16px slot."""
 
     def test_sidebar_icon_css_defines_a_fixed_centered_slot(self):
-        response = self.client.get("/dashboard/")
-        self.assertContains(
-            response,
+        # #183 follow-up: .sidebar-icon moved from dashboard.html's own
+        # extra_css into the shared dashboard.css, since _sidebar_nav.html
+        # (which uses it) is now included from my_plan.html/
+        # close_week_start.html/week_review.html too — each of those
+        # replaces extra_css with its own page-specific styles rather than
+        # extending dashboard.html's.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(
             ".sidebar-icon { display: inline-flex; align-items: center; "
             "justify-content: center; width: 16px; flex-shrink: 0; "
             "margin-right: 8px; }",
+            css,
         )
 
     def test_progress_ring_no_longer_carries_its_own_margin(self):
@@ -1282,8 +1290,13 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         self.assertContains(response, ".progress-ring { flex-shrink: 0; }")
 
     def test_sidebar_icon_neutralizes_the_dot_margin(self):
-        response = self.client.get("/dashboard/")
-        self.assertContains(response, ".sidebar-icon > .dot { margin-right: 0; }")
+        # Renamed .sidebar-icon > .dot to .sidebar-icon > .sidebar-dot in the
+        # same move: a shared .dot rule would have collided with my_plan.html's
+        # own differently-sized .dot for its task list (see dashboard.css).
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".sidebar-icon > .sidebar-dot { margin-right: 0; }", css)
 
     def test_the_base_dot_rule_still_carries_its_own_margin(self):
         """The task-completion checkbox reuses .dot outside the sidebar and
@@ -1321,7 +1334,7 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
-            '<span class="sidebar-icon"><span class="dot" '
+            '<span class="sidebar-icon"><span class="sidebar-dot" '
             'style="background: var(--color-solid-bg);"></span></span>',
         )
 
