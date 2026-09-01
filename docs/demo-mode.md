@@ -65,19 +65,30 @@ no separate fix to show up in both.
 ## The demo-data banner
 
 `viewing_demo_data` is true in states 1, 2, and 4 — every state where the example projects,
-not the visitor's own plan, are what's rendered. The banner, the time-lapse banner
+not the visitor's own plan, are what's rendered. The banner, the sim-date notice
 (`{% if sim_date %}`) and the stale-data notice (`{% if data_unavailable %}`) all live in one
 shared partial, `_status_banners.html`, `{% include %}`d identically at the top of both
 `view-overview` and `view-today` (#183). Before that, each new banner had to be copied into
 both view `<div>`s by hand — the demo banner was, and stayed missing from `view-today` for a
 while, exactly the class of bug the shared partial closes off for future banners too. The
-demo banner and the time-lapse banner remain mutually exclusive by construction, since one
+demo banner and the sim-date notice remain mutually exclusive by construction, since one
 needs `has_session_plan` and the other needs its negation. It does **not** reuse `.sim-banner`
 — that surface is deliberately dark in both themes (see its comment in `base.css`), the right
 weight for a cookie notice or an active time-lapse simulation, but too heavy for a banner that
 sits on screen through most of a demo visit. `.demo-banner` copies `.sim-banner`'s layout with
 `--color-bg-tertiary`/`--color-text-secondary` instead — the same neutral grey the sidebar's
 active state and the task-context badges already use, rather than a new colour.
+
+**The Zeitreise bar itself (#183 follow-up):** the sim-date *notice* (passive: "you're looking
+at a simulated date") is one thing; the Zeitreise *bar* (active: buttons to jump between
+moments) is another, and had the identical duplication bug — only in `view-overview`, so
+switching to "Heute" lost the ability to change the simulated date at all. Extracted into its
+own `_timelapse_bar.html` partial, included at the top of both views, same as the status
+banners. Since it now renders twice, its container elements lost their page-unique
+`id="timelapse-bar"`/`id="timelapse-moments"`/`id="btn-today"` (duplicate IDs are invalid HTML,
+and `getElementById` only ever finds the first) — the populating JS now uses
+`document.querySelectorAll('.timelapse-bar')` and builds the moment buttons into every
+instance found, so both bars stay in sync from the same `TIMELAPSE_MOMENTS`/`SIM_DATE` data.
 
 **One condition instead of six (#183):** every place that used to gate demo-data
 write-protection off an inline `demo_mode and not has_session_plan` (or its negation) —

@@ -380,14 +380,7 @@
 
 {% block content %}
     <div id="view-overview">
-        {% if demo_mode and has_session_plan %}
-        <div class="timelapse-bar" id="timelapse-bar" style="display:none;">
-            <div class="timelapse-label">Zeitreise</div>
-            <div class="timelapse-moments" id="timelapse-moments">
-                <button class="moment-btn-today" id="btn-today" onclick="setSimDate(null)">Heute</button>
-            </div>
-        </div>
-        {% endif %}
+        {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
 
         <div class="ai-card">
@@ -519,10 +512,12 @@
 
     <div id="view-today" style="display: none;">
         {% comment %}
-        Same banners as view-overview above, same reasoning (#50, #183):
-        without them, switching to "Heute" during a simulated moment or while
-        looking at demo example data silently drops the only notice of it.
+        Same timelapse bar and banners as view-overview above, same
+        reasoning (#50, #183): without them, switching to "Heute" during a
+        simulated moment (or while looking at demo example data) silently
+        drops the only way to change it, or the only notice of it.
         {% endcomment %}
+        {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
 
         <div class="ai-card-header" style="margin-bottom: 24px;">
@@ -803,8 +798,10 @@ async function preloadOne(dateStr) {
         });
         if (!response.ok) return;
         preloaded.add(dateStr);
-        const btn = document.querySelector(`[data-moment-date="${dateStr}"]`);
-        if (btn) btn.classList.add('moment-preloaded');
+        // #183: the bar now renders once per view (view-overview and
+        // view-today) instead of a single id="timelapse-moments" — mark
+        // every matching button across both, not just the first found.
+        document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
     } catch(e) {}
 }
 
@@ -813,9 +810,9 @@ async function preloadAll() {
 }
 
 if (TIMELAPSE_MOMENTS.length > 0) {
-    const bar = document.getElementById('timelapse-bar');
-    const container = document.getElementById('timelapse-moments');
-    if (bar && container) {
+    document.querySelectorAll('.timelapse-bar').forEach(bar => {
+        const container = bar.querySelector('.timelapse-moments');
+        if (!container) return;
         bar.style.display = 'block';
         TIMELAPSE_MOMENTS.forEach(m => {
             const btn = document.createElement('button');
@@ -826,11 +823,13 @@ if (TIMELAPSE_MOMENTS.length > 0) {
             btn.addEventListener('click', () => setSimDate(m.date, btn));
             container.appendChild(btn);
         });
-        const todayBtn = document.getElementById('btn-today');
-        if (!SIM_DATE) { todayBtn.style.fontWeight = '600'; todayBtn.style.color = 'var(--color-text-primary)'; }
-        todayBtn.addEventListener('click', () => setSimDate(null, todayBtn));
-        setTimeout(preloadAll, 800);
-    }
+        const todayBtn = bar.querySelector('.moment-btn-today');
+        if (todayBtn) {
+            if (!SIM_DATE) { todayBtn.style.fontWeight = '600'; todayBtn.style.color = 'var(--color-text-primary)'; }
+            todayBtn.addEventListener('click', () => setSimDate(null, todayBtn));
+        }
+    });
+    setTimeout(preloadAll, 800);
 }
 
 async function reschedule(taskId, newDate, dueSpan) {

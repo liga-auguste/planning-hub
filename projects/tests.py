@@ -7822,6 +7822,23 @@ class StatusBannersSharedAcrossViewsTest(DemoModeTestCase):
         )
 
 
+class TimelapseBarSharedAcrossViewsTest(DemoModeTestCase):
+    """Same reasoning as StatusBannersSharedAcrossViewsTest, for the
+    Zeitreise bar: it only ever rendered in view-overview, so switching to
+    "Heute" lost the ability to jump between simulated moments — the visitor
+    had to flip back to "Dashboard" just to change the simulated date."""
+
+    def test_timelapse_bar_appears_for_both_views(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="timelapse-bar"', count=2)
+        self.assertContains(response, 'class="timelapse-moments"', count=2)
+
+    def test_absent_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="timelapse-bar"')
+
+
 @override_settings(DEMO_MODE=False)
 class StaleNoticeSharedAcrossViewsTest(TestCase):
     """#183 Tier 2: same reasoning as StatusBannersSharedAcrossViewsTest,
