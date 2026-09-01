@@ -4066,8 +4066,16 @@ class CountDoneInRangeTest(SimpleTestCase):
     keeping done a subset of total (no task counts as done without also
     counting toward total, so the bar can never show more than 100%)."""
 
-    def _task(self, due=None, completed_date=None, **overrides):
-        return {"due": due, "completed_date": completed_date, **overrides}
+    def _task(self, due=None, completed_date=None, done=None, **overrides):
+        # done defaults to "whatever completed_date implies" so most cases
+        # below don't have to spell out both — the one test that needs them
+        # to diverge (done=True, no completed_date) passes done explicitly.
+        return {
+            "due": due,
+            "completed_date": completed_date,
+            "done": bool(completed_date) if done is None else done,
+            **overrides,
+        }
 
     def test_a_task_due_in_range_and_done_counts_both(self):
         tasks = [self._task(due=date(2026, 6, 16), completed_date=date(2026, 6, 16))]
@@ -4106,6 +4114,17 @@ class CountDoneInRangeTest(SimpleTestCase):
         tasks = [self._task(due=date(2026, 6, 16), completed_date=date(2026, 6, 17))]
         self.assertEqual(
             _count_done_in_range(tasks, date(2026, 6, 16), date(2026, 6, 16)), (1, 1)
+        )
+
+    def test_a_task_done_with_no_completed_date_still_counts_as_done(self):
+        # A task checked off before "Erledigt am" existed in the Notion
+        # schema, or checked off directly in Notion instead of through this
+        # app, has done=True but no completed_date. It's relevant here via
+        # its due date, same as any open task — the card already renders it
+        # struck through, so the badge must not silently disagree.
+        tasks = [self._task(due=date(2026, 6, 16), completed_date=None, done=True)]
+        self.assertEqual(
+            _count_done_in_range(tasks, date(2026, 6, 15), date(2026, 6, 21)), (1, 1)
         )
 
     def test_no_tasks_is_a_clean_zero_not_a_division_by_zero(self):
@@ -4208,6 +4227,23 @@ class BucketByDayTest(SimpleTestCase):
         days = _bucket_by_day([project], [], self.MONDAY)
         self.assertEqual((days[0]["done_count"], days[0]["total_count"]), (1, 1))
 
+    def test_a_task_done_before_erledigt_am_existed_still_counts_as_done(self):
+        # Notion's "Done" checkbox predates "Erledigt am" — a task checked
+        # off before the property existed, or checked off directly in
+        # Notion instead of through this app, has done=True but no
+        # completed_date. Same card, same struck-through rendering — the
+        # badge must not disagree just because the newer property is empty.
+        project = self._project(
+            {
+                "name": "Alt erledigt",
+                "due": self.MONDAY,
+                "done": True,
+                "completed_date": None,
+            }
+        )
+        days = _bucket_by_day([project], [], self.MONDAY)
+        self.assertEqual((days[0]["done_count"], days[0]["total_count"]), (1, 1))
+
 
 class ParseWeekParamTest(SimpleTestCase):
     """#180: ?week=2026-W37 navigates to that week; anything unparseable
@@ -4261,6 +4297,30 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, _format_date(date.today()))
         self.assertNotContains(response, "Simulierter Zeitpunkt")
+
+    def _view_today_html(self, response):
+        """Isolates the "Heute" panel's own markup — the same banner text
+        also lives in view-overview, so a page-wide assertContains would
+        pass even if this panel specifically were missing it."""
+        content = response.content.decode()
+        start = content.index('id="view-today"')
+        end = content.index('class="project-section" id=', start)
+        return content[start:end]
+
+    def test_the_today_view_carries_the_same_sim_banner(self):
+        # #53 added a second "today" surface after #153 fixed the first one
+        # — without its own banner, switching to "Heute" during a
+        # simulation silently drops back into the two-todays confusion
+        # #153 was meant to have settled for good.
+        self.given_session_plan()
+        self.given_active_simulation()
+        response = self.client.get(reverse("dashboard"))
+        self.assertIn("Simulierter Zeitpunkt", self._view_today_html(response))
+
+    def test_no_sim_banner_in_the_today_view_without_a_simulation(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotIn("Simulierter Zeitpunkt", self._view_today_html(response))
 
 
 class OverdueDotColorTest(DemoModeTestCase):
@@ -5976,6 +6036,35 @@ class WeekProgressBarProductionTest(TestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "Diese Woche")
         self.assertContains(response, "1 / 2 erledigt")
+
+    def test_a_task_done_with_no_completed_date_still_counts(self):
+        # The real-world gap this covers: a task marked Done in Notion
+        # before "Erledigt am" existed, or checked off directly in Notion's
+        # own UI, carries done=True with no completed_date. It still renders
+        # struck through in the Erledigt column, so the bar above it must
+        # count it too instead of reporting it as open.
+        today = date.today()
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-legacy-done",
+                "name": "Alt erledigt",
+                "due": today,
+                "done": True,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "1 / 1 erledigt")
 
     def test_zero_tasks_this_week_is_a_clean_blank_not_a_crash(self):
         with (

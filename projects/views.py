@@ -223,16 +223,17 @@ def _count_done_in_range(tasks, start, end):
     actually completed in that range — an overdue task from outside the
     range that gets cleared inside it still counts (the Notion addendum
     added `completed_date` specifically to capture that, superseding the
-    earlier Wann?-only proxy). Once a task clears that bar, `done` counts it
-    by its actual completion state (completed_date is set) rather than
-    re-checking the date range a second time — a task due today but checked
-    off yesterday, or a day column's card checked off a day late, is still
-    done; re-requiring completed_date to fall in the same narrow range made
-    `done` undercount below what the "done" styling on the card itself
-    already showed. `done` stays a subset of `total` regardless, since
-    completed_date being set is exactly the condition that let it into
-    `relevant` in the due-date-outside-range branch, and a due-date-inside-
-    range task is in `relevant` either way.
+    earlier Wann?-only proxy).
+
+    `done` reads `task["done"]` — the real "Done" checkbox, always present on
+    every task — rather than `completed_date`. A task checked off before
+    "Erledigt am" existed in the Notion schema, or checked off directly in
+    Notion's own UI instead of through this app, has `done=True` with no
+    `completed_date`; counting by `completed_date` there undercounts a task
+    the card itself already renders as done. `done` stays a subset of
+    `total` regardless: `relevant` already requires the due date or the
+    completed date to fall in range, and any task toggled through this app
+    has `done` and `completed_date` set together (see toggle_task).
     """
     relevant = [
         t
@@ -240,7 +241,7 @@ def _count_done_in_range(tasks, start, end):
         if (t["due"] and start <= t["due"] <= end)
         or (t.get("completed_date") and start <= t["completed_date"] <= end)
     ]
-    done = sum(1 for t in relevant if t.get("completed_date"))
+    done = sum(1 for t in relevant if t.get("done"))
     return done, len(relevant)
 
 
