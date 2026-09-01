@@ -98,10 +98,12 @@ project-detail task rows and the SortableJS include in `dashboard.html` — now 
 in `views.dashboard`. `{% include %}` without `only` passes the parent context through
 automatically, so no new context key was needed to reach `_day_task_card.html`/`_task_row.html`.
 
-**"Ohne Projekt" explanation (#183 Tier 3):** a session plan (state 3) is always tied to the
-one project the planner just created, so it structurally never has an unassigned task to show
-in the Heute view. Rather than leaving that silent, `view-today` shows a one-line note when
-`has_session_plan` is true, right after the shared banner partial.
+**No "Ohne Projekt" explanation for a session plan:** a session plan (state 3) is always tied
+to the one project the planner just created, so it structurally never has an unassigned task to
+show in the Heute view. #183 Tier 3 originally added a one-line note explaining the absence —
+removed again on live feedback: in the demo instance there's only ever the visitor's one new
+project and the example projects, so nothing sets up an expectation of an "Ohne Projekt" bucket
+in the first place. Explaining the absence of something nobody expected wasn't useful.
 
 **The overview progress bar tracks the whole plan for a session plan (#183 follow-up):**
 everywhere else it's week-scoped (#182), but for `has_session_plan` a week-scoped count barely

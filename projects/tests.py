@@ -8013,28 +8013,6 @@ class StaleNoticeSharedAcrossViewsTest(TestCase):
         )
 
 
-class OhneProjektExplanationTest(DemoModeTestCase):
-    """#183 Tier 3: a session plan is always tied to the one project the
-    planner just created (views.py, unassigned_tasks = [] in that branch),
-    so "Ohne Projekt" tasks structurally never occur there — explain the
-    absence instead of leaving it unexplained silence."""
-
-    def test_session_plan_shows_the_explanation(self):
-        self.given_session_plan()
-        response = self.client.get(reverse("dashboard"))
-        self.assertContains(
-            response,
-            "Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.",
-        )
-
-    def test_multi_project_example_data_shows_no_explanation(self):
-        response = self.client.get(reverse("dashboard"))
-        self.assertNotContains(
-            response,
-            "Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.",
-        )
-
-
 class PlannerRulesBackLinkTest(DemoModeTestCase):
     """#7 (inherited from #22): the rules page's "← Planer" link always
     returned to the empty tile step, discarding whatever project type the

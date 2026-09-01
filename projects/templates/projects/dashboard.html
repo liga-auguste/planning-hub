@@ -446,16 +446,6 @@
             <div style="font-size: 22px; font-weight: 700;">Heute</div>
         </div>
 
-        {% comment %}
-        #183 Tier 3: a session plan is always tied to the one project the
-        planner just created, so it structurally never has an "Ohne
-        Projekt" task to show here — explained rather than left as
-        unremarked silence.
-        {% endcomment %}
-        {% if has_session_plan %}
-        <p class="ai-error">Dein Plan gehört zu einem Projekt – daher keine „Ohne Projekt“-Aufgaben hier.</p>
-        {% endif %}
-
         {% if heute_overdue %}
         <div class="today-week-heading">Überfällig</div>
         {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
