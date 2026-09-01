@@ -31,25 +31,34 @@ has_session_plan = plan_exists and not force_multi
 viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 ```
 
-| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` | Sidebar badge |
+| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` | Sidebar top group |
 |---|---|---|---|---|---|---|---|
 | 1 | no | `/dashboard/` | False | False | False | True | "Beispieldaten" |
 | 2 | no | `/dashboard/?mode=multi` | False | False | True | True | "Beispieldaten" |
-| 3 | yes | `/dashboard/` | True | True | False | False | "Dein Plan" |
+| 3 | yes | `/dashboard/` | True | True | False | False | "Dein Projekt" |
 | 4 | yes | `/dashboard/?mode=multi` | True | False | True | True | "Beispieldaten" |
 
 `has_session_plan` answers "is the visitor's own plan on screen right now?" — it drives the
 time-lapse bar and suppresses the project name on Kanban cards, since there is only one
 project to show. `plan_exists` answers "does a plan exist at all, regardless of what's on
 screen?" — it decides whether the sidebar can offer a way back to it. `viewing_demo_data`
-answers "is what's on screen the example fixtures?" — it drives the banner below and the
-sidebar badge. All four states share the same `dashboard.html` template; only the sidebar and
-the banner change.
+answers "is what's on screen the example fixtures?" — it drives the banner below. All four
+states share the same `dashboard.html` template; only the sidebar and the banner change.
 
-**Sidebar badge (#183):** a permanent `.sidebar-mode-badge` under the "Demo" eyebrow label,
-switched on `has_session_plan` alone (`"Dein Plan"` vs. `"Beispieldaten"`). It sits in
-`{% block sidebar_content %}`, which is not duplicated between `view-overview` and
-`view-today` — so unlike the banners below, it needed no separate fix to show up in both.
+**Sidebar grouping (#183):** a single "Demo" eyebrow plus one swapped nav link wasn't enough —
+"Dashboard"/"Heute" render identically worded in every state while showing entirely different
+data, and the one link that actually jumps to the other state sat undistinguished among links
+that stay in the current one (state 3 mixed "Mehrprojekt-Dashboard" in among the visitor's own
+plan actions; state 4 did the same in reverse). The sidebar now opens with a
+`.sidebar-title` header naming whose data is currently on screen ("Dein Projekt" /
+"Beispieldaten"), directly above "Dashboard"/"Heute". Any link that jumps to the *other*
+state gets its own second `.sidebar-title` group below, so switching context is never mixed
+in among actions that stay put. Link text itself is unchanged from before except the one
+place it was project-local rather than reused elsewhere ("Mein Plan" → "Zu deinem Plan");
+"Mehrprojekt-Dashboard" keeps its established wording, shared with the landing page and
+`/mein-plan/`'s CTA (#48). This lives in `{% block sidebar_content %}`, which is not
+duplicated between `view-overview` and `view-today` — so unlike the banners below, it needed
+no separate fix to show up in both.
 
 ---
 

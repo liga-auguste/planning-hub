@@ -733,28 +733,45 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         )
 
 
-class SidebarModeBadgeTest(DemoModeTestCase):
-    """#183: nothing in the sidebar persistently signalled which of the two
-    demo states a visitor was in — only the swapped nav link did, and that
-    swap is easy to miss (or misread in a screenshot). This badge sits right
-    under the existing "Demo" eyebrow, visible regardless of which view or
-    nav item is active."""
+class SidebarModeGroupingTest(DemoModeTestCase):
+    """#183 follow-up: a single "Demo" eyebrow plus one swapped nav link
+    wasn't enough — "Dashboard"/"Heute" render identically in both demo
+    states while showing entirely different data, and the one link that
+    actually switches state sat undistinguished among links that don't.
+    The sidebar now groups items under a header naming whose data is
+    currently on screen ("Dein Projekt" / "Beispieldaten"), with any link
+    that jumps to the *other* state under its own second header — so the
+    swap is never mixed in with same-context actions."""
 
-    def test_a_session_plan_shows_dein_plan(self):
+    def test_session_plan_groups_under_dein_projekt(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "sidebar-mode-badge")
-        self.assertContains(response, "Dein Plan")
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+        )
+        self.assertContains(response, "Mehrprojekt-Dashboard")
 
-    def test_the_multi_project_example_data_shows_beispieldaten(self):
+    def test_multi_project_example_data_groups_under_beispieldaten(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "sidebar-mode-badge")
-        self.assertContains(response, "Beispieldaten")
+        self.assertContains(response, '<div class="sidebar-title">Beispieldaten</div>')
+        self.assertNotContains(response, "Dein Projekt")
+
+    def test_multi_project_view_with_a_plan_shows_both_groups(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, '<div class="sidebar-title">Beispieldaten</div>')
+        self.assertContains(
+            response,
+            '<div class="sidebar-title" style="margin-top: 16px;">Dein Projekt</div>',
+        )
+        self.assertContains(response, "Zu deinem Plan")
+        self.assertNotContains(response, "Mein Plan<")
 
 
 @override_settings(DEMO_MODE=False)
-class SidebarModeBadgeProductionTest(TestCase):
-    def test_production_shows_no_mode_badge(self):
+class SidebarModeGroupingProductionTest(TestCase):
+    def test_production_shows_no_mode_grouping(self):
         with (
             patch("projects.views.get_upcoming_projects", return_value=[]),
             patch("projects.views.get_unassigned_tasks", return_value=[]),
@@ -764,7 +781,12 @@ class SidebarModeBadgeProductionTest(TestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertNotContains(response, "sidebar-mode-badge")
+        self.assertNotContains(
+            response, '<div class="sidebar-title">Dein Projekt</div>'
+        )
+        self.assertNotContains(
+            response, '<div class="sidebar-title">Beispieldaten</div>'
+        )
 
 
 class SidebarLogoHeaderTest(DemoModeTestCase):
@@ -3276,18 +3298,18 @@ class PoisonedSessionHealingTest(DemoModeTestCase):
 
 class MultiViewSidebarLinkTest(DemoModeTestCase):
     """Part C of #39: has_session_plan is unconditionally False under
-    ?mode=multi, so the sidebar used to show a dead-end "Mein Plan" link
+    ?mode=multi, so the sidebar used to show a dead-end back-to-plan link
     even when no plan had ever been generated in this session."""
 
     def test_shows_create_link_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, "Projekt selbst planen")
-        self.assertNotContains(response, "Mein Plan")
+        self.assertNotContains(response, "Zu deinem Plan")
 
-    def test_shows_mein_plan_link_with_a_session_plan(self):
+    def test_shows_zu_deinem_plan_link_with_a_session_plan(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(response, "Mein Plan")
+        self.assertContains(response, "Zu deinem Plan")
         self.assertNotContains(response, "Projekt selbst planen")
 
 
