@@ -1096,13 +1096,13 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
 
 @override_settings(DEMO_MODE=False)
 class SidebarProjectsCacheTest(TestCase):
-    """#185: the sidebar's project list on close_week_start/week_review
-    prefers dashboard()'s own warm CACHE_KEY entry over a fresh Notion
-    fetch — close_week_start's own triage fetch stays deliberately
-    uncached (_current_tasks_for_closeout, views.py:865), this is only
-    about the sidebar list. Exercised via week_review(), the one of the
-    two views with no other project fetch of its own, so a cache hit here
-    means zero Notion calls for the whole request."""
+    """#185: the sidebar's project list on week_review() prefers
+    dashboard()'s own warm CACHE_KEY entry over a fresh Notion fetch.
+    Exercised via week_review() because it is the view with no other
+    project fetch of its own, so a cache hit here means zero Notion calls
+    for the whole request — close_week_start() never consults this cache
+    at all since the #185 follow-up, it hands _sidebar_projects() the
+    triage fetch it already made (see SidebarProjectsSingleFetchTest)."""
 
     def setUp(self):
         cache.clear()
@@ -1133,6 +1133,24 @@ class SidebarProjectsCacheTest(TestCase):
         mock_fetch.assert_called_once()
         self.assertContains(response, project["name"])
 
+    def test_the_cache_entry_survives_the_in_place_annotation(self):
+        # #185 follow-up: _sidebar_projects() annotates the cached
+        # projects in place instead of deep-copying them first. That is
+        # safe only because every Django cache backend serializes on both
+        # set and get, so cache.get() hands back an object graph no other
+        # request shares — dashboard() already depends on it when it
+        # writes display_name onto its own cached projects. This test
+        # guards that assumption, not the removal of the copy: a backend
+        # handing out shared objects would let one request's annotation
+        # leak into the next request's data, and only this assertion
+        # would notice.
+        project = _fake_upcoming_project_with_task()
+        cache.set(CACHE_KEY, ([project], _summary_data()), 60)
+        self.client.get(reverse("week_review"))
+        still_cached, _ = cache.get(CACHE_KEY)
+        self.assertNotIn("display_name", still_cached[0])
+        self.assertNotIn("urgency", still_cached[0])
+
     def test_degrades_to_an_empty_project_list_on_notion_failure(self):
         with patch(
             "projects.views.get_upcoming_projects",
@@ -1143,6 +1161,52 @@ class SidebarProjectsCacheTest(TestCase):
         self.assertNotContains(
             response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
         )
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarProjectsSingleFetchTest(TestCase):
+    """#185 follow-up: close_week_start() reads Notion exactly once per
+    request. Its triage list is a deliberately uncached fetch and #185's
+    sidebar list was a second one, so on a cold cache the view issued two
+    identical reads — and get_upcoming_projects is 1 + N requests (one per
+    project for its tasks, notion.py _get_tasks), so that doubled the
+    whole thing.
+    Cold is the normal state in this very flow: every task toggle and
+    every "→ nächste Woche" move calls _bust_dashboard_cache().
+
+    Counting calls, not asserting on the markup: what the sidebar renders
+    from that one fetch is covered by
+    SidebarNavOnStandalonePagesProductionTest."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_close_week_start_fetches_once_on_a_cold_cache(self):
+        with patch(
+            "projects.views.get_upcoming_projects",
+            return_value=[_fake_upcoming_project_with_task()],
+        ) as mock_fetch:
+            response = self.client.get(reverse("close_week_start"))
+        self.assertEqual(response.status_code, 200)
+        mock_fetch.assert_called_once()
+
+    def test_close_week_start_still_ignores_the_dashboard_cache(self):
+        # The triage list must not come from a cache a stale week could
+        # have filled (#169) — feeding the sidebar from the same fetch
+        # must not have quietly turned this view into a cache reader.
+        cached = _fake_upcoming_project_with_task()
+        cached["name"] = "Aus dem Cache"
+        cache.set(CACHE_KEY, ([cached], _summary_data()), 60)
+        fresh = _fake_upcoming_project_with_task()
+        fresh["name"] = "Frisch aus Notion"
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=[fresh]
+        ) as mock_fetch:
+            response = self.client.get(reverse("close_week_start"))
+        mock_fetch.assert_called_once()
+        self.assertContains(response, "Frisch aus Notion")
+        self.assertNotContains(response, "Aus dem Cache")
 
 
 class AiCardDeboxTest(DemoModeTestCase):
