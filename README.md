@@ -238,8 +238,16 @@ docker compose -f docker-compose.demo.yml up --build -d
 
 ```bash
 cp .env.example .env  # fill in all keys including NOTION_API_KEY + DB_PASSWORD
+htpasswd -c .htpasswd admin  # Basic Auth login, prompts for the password
 docker compose up --build -d
 ```
+
+`.htpasswd` has to exist before the first start: `nginx.conf` checks passwords
+against it and `docker-compose.yml` mounts it into the nginx container, but the
+file itself is untracked (it holds a password hash) and lives only on the host.
+Compose creates a missing bind-mount source as an empty directory rather than
+failing outright, so a forgotten file surfaces as a confusing nginx error, not
+as "no such file".
 
 ---
 
