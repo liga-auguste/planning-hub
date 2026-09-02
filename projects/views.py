@@ -336,6 +336,61 @@ def _group_by_month(projects):
     ]
 
 
+def _sidebar_projects(request, today, projects=None):
+    """month_groups/years for the sidebar's "Projekte" list (#185) — the
+    same shape dashboard() builds inline for its own project-section
+    rendering, rebuilt here for close_week_start()/week_review(), which
+    don't otherwise fetch project data. Not shared code with dashboard()
+    itself: its own `projects` is already sequenced through several other
+    steps (week view, day columns, sim-date mutation) this lighter fetch
+    has no reason to duplicate.
+
+    `projects` skips the read entirely for a caller that already holds
+    the same data — close_week_start() does, and passes its own uncached
+    triage fetch in (#185 follow-up). It is an already-fetched list, never
+    None as a "nothing found" answer: an empty list is passed through as
+    the empty sidebar it means.
+
+    Without it, demo mode always reflects the visitor's own session plan,
+    never the example catalog — matching dashboard()'s own rule that the
+    catalog only ever shows with no session plan yet or ?mode=multi
+    forced, neither a state reachable from these two views. Production
+    prefers dashboard()'s own cache to avoid a redundant Notion
+    round-trip, falling back to a direct fetch on a cold cache; either
+    way, a NotionUnavailableError degrades to an empty list rather than
+    breaking a page that exists for reasons other than showing this list.
+
+    The cached projects are annotated in place, not copied first (#185
+    follow-up): every Django cache backend serializes on set and get —
+    DatabaseCache (settings.CACHES) stores a pickled blob in a table — so
+    cache.get() already hands back an object graph no other request
+    shares. dashboard() relies on that same guarantee when it writes
+    display_name onto its own cached projects, and a copy here would only
+    pay for it twice. See SidebarProjectsCacheTest."""
+    if projects is None:
+        if settings.DEMO_MODE:
+            session_plan = request.session.get("demo_plan")
+            if not session_plan:
+                return [], []
+            projects = [_build_session_project(session_plan)]
+        else:
+            cached = cache.get(CACHE_KEY)
+            if cached:
+                projects = cached[0]
+            else:
+                try:
+                    projects = get_upcoming_projects(today)
+                except NotionUnavailableError:
+                    return [], []
+    projects = _annotate_tasks(projects, today)
+    for project in projects:
+        project["display_name"] = _strip_trailing_date(project["name"])
+        project["event_date_display"] = _format_date(project["event_date"])
+    month_groups = _group_by_month(projects)
+    years = sorted({g["year"] for g in month_groups if g["year"]})
+    return month_groups, years
+
+
 # A trailing German date or bare year, with an optional comma/dash separator
 # and an optional "am" — the maintainer's Notion naming habit (#134). Covers
 # the numeric forms (12.09.2026, 1.9.) and the spelled-out ones the live
@@ -862,28 +917,33 @@ def reschedule_task_view(request, task_id):
     )
 
 
-def _current_tasks_for_closeout(request, today):
-    """A flat list of this session's or production's tasks for the
-    close-out flow (#169) — read fresh, not from the dashboard cache: a
-    stale week's data would misclassify the triage list. Returns None if
-    there is nothing to close out (demo mode, no session plan)."""
+def _current_projects_for_closeout(request, today):
+    """This session's or production's projects for the close-out flow
+    (#169) — read fresh, not from the dashboard cache: a stale week's data
+    would misclassify the triage list. Returns None if there is nothing to
+    close out (demo mode, no session plan).
+
+    Returns projects rather than the flat task list both callers actually
+    triage on, so close_week_start() can hand the same fetch to
+    _sidebar_projects() (#185 follow-up). An empty list is a real answer
+    (production with nothing upcoming) and stays distinct from None."""
     if settings.DEMO_MODE:
         session_plan = request.session.get("demo_plan")
         if not session_plan:
             return None
-        return _build_session_project(session_plan)["tasks"]
-    projects = get_upcoming_projects(today)
-    return [t for p in projects for t in p["tasks"]]
+        return [_build_session_project(session_plan)]
+    return get_upcoming_projects(today)
 
 
 def close_week_start(request):
     today = timezone.localdate()
     try:
-        tasks = _current_tasks_for_closeout(request, today)
+        projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
         return redirect("dashboard")
-    if tasks is None:
+    if projects is None:
         return redirect("index")
+    tasks = [t for p in projects for t in p["tasks"]]
     # Overdue tasks stay out — they already have their own signal, and the
     # point of this list is the tasks that are still a conscious choice to
     # move, not the ones already late.
@@ -906,6 +966,15 @@ def close_week_start(request):
     # with zeros — the template hides the button for exactly this case and
     # points to the existing review instead.
     already_closed = is_week_closed(request, iso_year, iso_week)
+    # #185 follow-up: the projects fetched above, not a second read — on a
+    # cold cache this view used to pair its own uncached triage fetch with
+    # an identical one inside _sidebar_projects(), and every task toggle or
+    # move in this very flow busts that cache (_bust_dashboard_cache), so
+    # cold is the normal state here. Sharing the dicts is safe:
+    # _annotate_tasks only adds `urgency` (which the triage template doesn't
+    # render) and rewrites `due_display` to the same value, and it sorts
+    # project["tasks"], not the separate open_this_week list built above.
+    month_groups, years = _sidebar_projects(request, today, projects=projects)
     return render(
         request,
         "projects/close_week_start.html",
@@ -918,13 +987,15 @@ def close_week_start(request):
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html, so this view owes it the same three flags
             # (see the contract note in that partial). In DEMO_MODE a session
-            # plan is guaranteed here (_current_tasks_for_closeout redirects
+            # plan is guaranteed here (_current_projects_for_closeout redirects
             # to index otherwise), which makes plan_exists true for the same
             # reason has_session_plan is; in production neither applies.
             "demo_mode": settings.DEMO_MODE,
             "has_session_plan": settings.DEMO_MODE,
             "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 
@@ -937,11 +1008,12 @@ def close_week_confirm(request):
     task_ids = request.POST.getlist("task_id")
 
     try:
-        tasks = _current_tasks_for_closeout(request, today)
+        projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
         return redirect("close_week_start")
-    if tasks is None:
+    if projects is None:
         return redirect("index")
+    tasks = [t for p in projects for t in p["tasks"]]
 
     live_by_id = {t["id"]: t for t in tasks}
     completed_count = 0
@@ -989,6 +1061,8 @@ def week_review(request):
     closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
+    today = timezone.localdate()
+    month_groups, years = _sidebar_projects(request, today)
     return render(
         request,
         "projects/week_review.html",
@@ -1002,6 +1076,8 @@ def week_review(request):
             "has_session_plan": settings.DEMO_MODE,
             "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 
@@ -1068,6 +1144,12 @@ def my_plan(request):
     project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
 
+    # #185: the sidebar's "Projekte" list, same shape dashboard() builds for
+    # itself — a single-entry list here, matching how dashboard() itself
+    # only ever lists the one session project once has_session_plan is true.
+    month_groups = _group_by_month([project])
+    years = sorted({g["year"] for g in month_groups if g["year"]})
+
     tasks = project["tasks"]
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
@@ -1111,6 +1193,8 @@ def my_plan(request):
             "has_session_plan": True,
             "plan_exists": True,
             "active_nav": "my_plan",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 

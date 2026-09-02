@@ -69,7 +69,10 @@ entirely) — now uses the normal sidebar_content/content blocks so
 guide the visitor through the app. The top-nav's own logo/back-navigation
 is gone; the sidebar already covers that.
 {% endcomment %}
-{% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="my_plan" %}{% endblock %}
+{% block sidebar_content %}
+{% include "projects/_sidebar_nav.html" with active_nav="my_plan" %}
+{% include "projects/_sidebar_project_list.html" with active_nav="my_plan" %}
+{% endblock %}
 
 {% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
 

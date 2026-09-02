@@ -144,6 +144,71 @@ client-side toggle, since `view-overview`/`view-today` don't exist on these page
 usage-stats view linked from nowhere in the UI, so no sidebar click ever leads there — the
 "guides you through the app" rationale doesn't apply to a page nothing points at.
 
+## The sidebar's project list, not just its links (#185)
+
+The above covered the nav *links* (Dashboard/Heute/Plan als Liste/Woche abschließen). The
+"Projekte" block further down the sidebar — projects grouped by month, each with a progress
+ring, `dashboard.html`'s own `showProject()` toggle — used to render only inside `dashboard.html`
+itself. `my_plan.html`, `close_week_start.html` and `week_review.html` carried the nav links but
+not this list, so leaving Dashboard still meant losing sight of every other project.
+
+The block is now `projects/_sidebar_project_list.html`, included by all four pages. It branches
+on `active_nav` exactly like `_sidebar_nav.html`'s own Dashboard/Heute links do: unset (rendering
+inside `dashboard.html`) keeps the client-side `showProject()` toggle; set (the three standalone
+pages) renders a real link into `{% url 'dashboard' %}?project=<id>` instead — `dashboard.html`'s
+own deep-link handling already opens the right project detail from that query param, so no new
+client-side code was needed on the standalone pages.
+
+`views._sidebar_projects()` supplies `month_groups`/`years` to `close_week_start()` and
+`week_review()`, mirroring what `dashboard()` already builds for itself: the visitor's own
+session plan in demo mode (never the example catalog — that state isn't reachable from these
+pages), or production's real projects. `my_plan()` builds its single-entry list inline, since it
+already has everything needed from its own session-plan fetch.
+
+### One Notion read per request
+
+Where the projects come from differs per view, and the rule is "never read the same thing twice":
+
+- `close_week_start()` already fetches projects for its triage list, deliberately uncached so a
+  stale week can't misclassify it. It passes that fetch straight into `_sidebar_projects()`
+  (`projects=`), so the sidebar costs nothing. `_current_projects_for_closeout()` returns projects
+  rather than a flat task list for exactly this reason; the two callers flatten it themselves.
+  Sharing the dicts is safe because `_annotate_tasks()` only adds `urgency` (which the triage
+  template never renders) and rewrites `due_display` to the same value.
+- `week_review()` has no fetch of its own, so `_sidebar_projects()` reads for it: `dashboard()`'s
+  warm `CACHE_KEY` entry when there is one, a direct Notion call otherwise.
+
+The distinction matters because `get_upcoming_projects()` is 1 + N requests (one per project for
+its tasks, `notion._get_tasks`), and because the cold cache is the *normal* state in this flow —
+every task toggle and every "→ nächste Woche" move calls `_bust_dashboard_cache()`. Either way a
+`NotionUnavailableError` degrades to an empty list rather than breaking a page that exists for
+reasons other than showing this list.
+
+The cached projects are annotated in place rather than deep-copied first. Every Django cache
+backend serializes on both `set` and `get` — the configured `DatabaseCache` stores a pickled blob
+in a table — so `cache.get()` already returns an object graph no other request shares.
+`dashboard()` has always relied on that (it writes `display_name` onto its own cached projects),
+so a copy here would have paid for the same guarantee twice.
+
+### The Zeitreise stays a dashboard device
+
+The sidebar's progress ring reads `timezone.localdate()` on the three standalone pages, so with a
+simulated moment active it shows *real* progress there while `dashboard()`'s own ring shows the
+simulated one. This is deliberate, not an oversight to fix later:
+
+- The Zeitreise bar, the "⏱ Simulierter Zeitpunkt" banner and its "Zurück zu heute" reset all
+  live on `dashboard.html` only. A simulated ring on a page with no banner and no way back would
+  be a state the visitor can see but not explain or leave.
+- `my_plan()` has always rendered its task list and its "x von y" count against the real date.
+  Making only the sidebar ring simulation-aware would put it in direct conflict with the progress
+  number in the body of the very same page — worse than the current split, not better.
+- `close_week_start()`/`week_review()` write state keyed by the real ISO week (`WeekCloseout`,
+  `is_week_closed`). A simulated clock there would mean closing out a simulated week, which is a
+  product decision about what the close-out *is*, not a display detail.
+
+Each page is internally consistent with its own notion of today; the boundary runs along the
+dashboard, which is the one place the simulation is announced and reversible.
+
 ---
 
 ## Other fixes in this branch
