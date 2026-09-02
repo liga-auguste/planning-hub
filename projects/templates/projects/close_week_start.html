@@ -32,7 +32,10 @@ sidebar_content/content blocks so "Woche abschließen" doesn't navigate
 away from the sidebar that's supposed to guide the visitor through the
 app. See docs/wochenabschluss.md.
 {% endcomment %}
-{% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="close_week" %}{% endblock %}
+{% block sidebar_content %}
+{% include "projects/_sidebar_nav.html" with active_nav="close_week" %}
+{% include "projects/_sidebar_project_list.html" with active_nav="close_week" %}
+{% endblock %}
 
 {% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
 

@@ -144,6 +144,28 @@ client-side toggle, since `view-overview`/`view-today` don't exist on these page
 usage-stats view linked from nowhere in the UI, so no sidebar click ever leads there — the
 "guides you through the app" rationale doesn't apply to a page nothing points at.
 
+## The sidebar's project list, not just its links (#185)
+
+The above covered the nav *links* (Dashboard/Heute/Plan als Liste/Woche abschließen). The
+"Projekte" block further down the sidebar — projects grouped by month, each with a progress
+ring, `dashboard.html`'s own `showProject()` toggle — used to render only inside `dashboard.html`
+itself. `my_plan.html`, `close_week_start.html` and `week_review.html` carried the nav links but
+not this list, so leaving Dashboard still meant losing sight of every other project.
+
+The block is now `projects/_sidebar_project_list.html`, included by all four pages. It branches
+on `active_nav` exactly like `_sidebar_nav.html`'s own Dashboard/Heute links do: unset (rendering
+inside `dashboard.html`) keeps the client-side `showProject()` toggle; set (the three standalone
+pages) renders a real link into `{% url 'dashboard' %}?project=<id>` instead — `dashboard.html`'s
+own deep-link handling already opens the right project detail from that query param, so no new
+client-side code was needed on the standalone pages.
+
+`views._sidebar_projects()` supplies `month_groups`/`years` to `close_week_start()` and
+`week_review()`, mirroring what `dashboard()` already builds for itself: the visitor's own
+session plan in demo mode (never the example catalog — that state isn't reachable from these
+pages), or production's real projects, preferring `dashboard()`'s own cache to avoid a redundant
+Notion round-trip. `my_plan()` builds its single-entry list inline, since it already has
+everything needed from its own session-plan fetch.
+
 ---
 
 ## Other fixes in this branch

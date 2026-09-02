@@ -55,6 +55,18 @@
    stylesheet, it would otherwise win the cascade for the sidebar's dot too. */
 .sidebar-icon > .sidebar-dot { margin-right: 0; }
 .sidebar-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-quaternary); }
+/* #185: same reasoning as the sidebar-item rules above — _sidebar_project_list.html
+   is now included from my_plan.html, close_week_start.html and week_review.html
+   too, and without these the ring SVG falls back to a plain filled black circle
+   (no `fill: none`, no stroke) on those pages. */
+.progress-ring { flex-shrink: 0; }
+.progress-ring-track, .progress-ring-fill { fill: none; }
+.progress-ring-track { stroke: var(--color-border-primary); }
+/* #173: neutral by default — overdue red is the only override left; the
+   today/urgent/ok ring classes stay in the markup as classification and all
+   render this neutral stroke. */
+.progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
+.progress-ring-fill.overdue { stroke: var(--color-overdue); }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */
 .sidebar .theme-toggle {

@@ -336,6 +336,48 @@ def _group_by_month(projects):
     ]
 
 
+def _sidebar_projects(request, today):
+    """month_groups/years for the sidebar's "Projekte" list (#185) — the
+    same shape dashboard() builds inline for its own project-section
+    rendering, rebuilt here for close_week_start()/week_review(), which
+    don't otherwise fetch project data. Not shared code with dashboard()
+    itself: its own `projects` is already sequenced through several other
+    steps (week view, day columns, sim-date mutation) this lighter fetch
+    has no reason to duplicate.
+
+    Demo mode always reflects the visitor's own session plan, never the
+    example catalog — matching dashboard()'s own rule that the catalog
+    only ever shows with no session plan yet or ?mode=multi forced,
+    neither a state reachable from these two views. Production prefers
+    dashboard()'s own cache to avoid a redundant Notion round-trip (a
+    deepcopy, since _annotate_tasks mutates in place and the cached tuple
+    may be read again by a concurrent request), falling back to a direct
+    fetch on a cold cache; either way, a NotionUnavailableError degrades
+    to an empty list rather than breaking a page that exists for reasons
+    other than showing this list."""
+    if settings.DEMO_MODE:
+        session_plan = request.session.get("demo_plan")
+        if not session_plan:
+            return [], []
+        projects = [_build_session_project(session_plan)]
+    else:
+        cached = cache.get(CACHE_KEY)
+        if cached:
+            projects = copy.deepcopy(cached[0])
+        else:
+            try:
+                projects = get_upcoming_projects(today)
+            except NotionUnavailableError:
+                return [], []
+    projects = _annotate_tasks(projects, today)
+    for project in projects:
+        project["display_name"] = _strip_trailing_date(project["name"])
+        project["event_date_display"] = _format_date(project["event_date"])
+    month_groups = _group_by_month(projects)
+    years = sorted({g["year"] for g in month_groups if g["year"]})
+    return month_groups, years
+
+
 # A trailing German date or bare year, with an optional comma/dash separator
 # and an optional "am" — the maintainer's Notion naming habit (#134). Covers
 # the numeric forms (12.09.2026, 1.9.) and the spelled-out ones the live
@@ -906,6 +948,7 @@ def close_week_start(request):
     # with zeros — the template hides the button for exactly this case and
     # points to the existing review instead.
     already_closed = is_week_closed(request, iso_year, iso_week)
+    month_groups, years = _sidebar_projects(request, today)
     return render(
         request,
         "projects/close_week_start.html",
@@ -925,6 +968,8 @@ def close_week_start(request):
             "has_session_plan": settings.DEMO_MODE,
             "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 
@@ -989,6 +1034,8 @@ def week_review(request):
     closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
+    today = timezone.localdate()
+    month_groups, years = _sidebar_projects(request, today)
     return render(
         request,
         "projects/week_review.html",
@@ -1002,6 +1049,8 @@ def week_review(request):
             "has_session_plan": settings.DEMO_MODE,
             "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 
@@ -1068,6 +1117,12 @@ def my_plan(request):
     project["event_date_display"] = _format_date(project["event_date"])
     _annotate_tasks([project], today)
 
+    # #185: the sidebar's "Projekte" list, same shape dashboard() builds for
+    # itself — a single-entry list here, matching how dashboard() itself
+    # only ever lists the one session project once has_session_plan is true.
+    month_groups = _group_by_month([project])
+    years = sorted({g["year"] for g in month_groups if g["year"]})
+
     tasks = project["tasks"]
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
@@ -1111,6 +1166,8 @@ def my_plan(request):
             "has_session_plan": True,
             "plan_exists": True,
             "active_nav": "my_plan",
+            "month_groups": month_groups,
+            "years": years,
         },
     )
 

@@ -954,8 +954,74 @@ class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
         self.assertContains(response, 'id="about-overlay"')
 
 
+class SidebarProjectListOnStandalonePagesTest(DemoModeTestCase):
+    """#185: the "Projekte" sidebar block (grouped by month, progress ring)
+    used to render only inside dashboard.html's own sidebar_content. These
+    three standalone pages fall back to a real link into the dashboard's
+    ?project= deep link (dashboard.html's own JS, views.py:552-558, already
+    opens the right project detail from that param) instead of the
+    showProject() JS toggle that only exists inside dashboard.html's DOM."""
+
+    def test_my_plan_shows_the_project_list_sidebar(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
+        self.assertContains(response, "Testkonzert")
+        self.assertContains(response, 'class="progress-ring"')
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project=session-plan"'
+        )
+        self.assertNotContains(response, 'onclick="showProject(')
+
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_shows_the_project_list_sidebar(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
+        self.assertContains(response, "Testkonzert")
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project=session-plan"'
+        )
+        self.assertNotContains(response, 'onclick="showProject(')
+
+    def test_week_review_shows_the_project_list_sidebar(self):
+        self.given_session_plan()
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 25,
+            "completed_count": 1,
+            "rescheduled_count": 0,
+            "added_count": 0,
+            "summary_text": "Text.",
+            "closed_at": "2026-06-15T12:00:00",
+        }
+        session.save()
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
+        self.assertContains(response, "Testkonzert")
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project=session-plan"'
+        )
+        self.assertNotContains(response, 'onclick="showProject(')
+
+
 @override_settings(DEMO_MODE=False)
 class SidebarNavOnStandalonePagesProductionTest(TestCase):
+    def setUp(self):
+        # These tests exercise the production project-fetch path (#185's
+        # sidebar list) — a stale CACHE_KEY entry left by an earlier test in
+        # the run would make the cold-cache assertions below flaky.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
     @patch("django.utils.timezone.localdate")
     def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
         self, mock_localdate
@@ -968,6 +1034,13 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
             response,
             f'class="sidebar-item active" href="{reverse("close_week_start")}"',
         )
+        # No view-overview/view-today or showOverview()/showToday() JS exist
+        # on this standalone page, so Dashboard/Heute must be real links back
+        # into dashboard.html, same as in demo mode — not the client-side
+        # toggle (id="nav-overview"/"nav-today"), which would be dead here.
+        self.assertContains(response, f'href="{reverse("dashboard")}"')
+        self.assertContains(response, f'href="{reverse("dashboard")}?view=today"')
+        self.assertNotContains(response, 'id="nav-overview"')
         # "Über dieses Projekt" explains the demo instance — not relevant,
         # so not offered, in production.
         self.assertNotContains(response, "Über dieses Projekt")
@@ -981,9 +1054,95 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
             added_count=0,
             summary_text="Text.",
         )
-        response = self.client.get(reverse("week_review"))
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            response = self.client.get(reverse("week_review"))
         self.assertContains(response, 'class="sidebar-header"')
         self.assertNotContains(response, "Über dieses Projekt")
+
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_shows_the_project_list_sidebar(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        project = _fake_upcoming_project_with_task()
+        with patch("projects.views.get_upcoming_projects", return_value=[project]):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
+        self.assertContains(response, project["name"])
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project={project["id"]}"'
+        )
+
+    def test_week_review_shows_the_project_list_sidebar(self):
+        WeekCloseout.objects.create(
+            iso_year=2026,
+            iso_week=25,
+            completed_count=1,
+            rescheduled_count=0,
+            added_count=0,
+            summary_text="Text.",
+        )
+        project = _fake_upcoming_project_with_task()
+        with patch("projects.views.get_upcoming_projects", return_value=[project]):
+            response = self.client.get(reverse("week_review"))
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
+        self.assertContains(response, project["name"])
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project={project["id"]}"'
+        )
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarProjectsCacheTest(TestCase):
+    """#185: the sidebar's project list on close_week_start/week_review
+    prefers dashboard()'s own warm CACHE_KEY entry over a fresh Notion
+    fetch — close_week_start's own triage fetch stays deliberately
+    uncached (_current_tasks_for_closeout, views.py:865), this is only
+    about the sidebar list. Exercised via week_review(), the one of the
+    two views with no other project fetch of its own, so a cache hit here
+    means zero Notion calls for the whole request."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        WeekCloseout.objects.create(
+            iso_year=2026,
+            iso_week=25,
+            completed_count=1,
+            rescheduled_count=0,
+            added_count=0,
+            summary_text="Text.",
+        )
+
+    def test_reuses_the_warm_dashboard_cache(self):
+        project = _fake_upcoming_project_with_task()
+        cache.set(CACHE_KEY, ([project], _summary_data()), 60)
+        with patch("projects.views.get_upcoming_projects") as mock_fetch:
+            response = self.client.get(reverse("week_review"))
+        mock_fetch.assert_not_called()
+        self.assertContains(response, project["name"])
+
+    def test_falls_back_to_a_direct_fetch_on_a_cold_cache(self):
+        project = _fake_upcoming_project_with_task()
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=[project]
+        ) as mock_fetch:
+            response = self.client.get(reverse("week_review"))
+        mock_fetch.assert_called_once()
+        self.assertContains(response, project["name"])
+
+    def test_degrades_to_an_empty_project_list_on_notion_failure(self):
+        with patch(
+            "projects.views.get_upcoming_projects",
+            side_effect=NotionUnavailableError("boom"),
+        ):
+            response = self.client.get(reverse("week_review"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
+        )
 
 
 class AiCardDeboxTest(DemoModeTestCase):
@@ -1264,14 +1423,20 @@ class SidebarProgressRingCssTest(DemoModeTestCase):
     def test_ring_css_references_the_status_tokens(self):
         # #173: overdue is the only stroke override left — every other open
         # stage rides the neutral base default.
-        response = self.client.get("/dashboard/")
-        self.assertContains(
-            response, ".progress-ring-fill.overdue { stroke: var(--color-overdue)"
-        )
-        self.assertContains(
-            response,
+        # #185 follow-up: .progress-ring* moved from dashboard.html's own
+        # extra_css into the shared dashboard.css, alongside .sidebar-icon
+        # (see SidebarIconSlotWidthTest) — _sidebar_project_list.html (which
+        # renders the ring) is now included from my_plan.html/
+        # close_week_start.html/week_review.html too, and without this the
+        # ring rendered as a plain filled black circle on those pages.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".progress-ring-fill.overdue { stroke: var(--color-overdue)", css)
+        self.assertIn(
             ".progress-ring-fill { stroke: var(--color-text-quaternary); "
             "stroke-linecap: round; }",
+            css,
         )
 
     def test_the_old_sidebar_item_urgency_css_is_gone(self):
@@ -1308,8 +1473,10 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         )
 
     def test_progress_ring_no_longer_carries_its_own_margin(self):
-        response = self.client.get("/dashboard/")
-        self.assertContains(response, ".progress-ring { flex-shrink: 0; }")
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".progress-ring { flex-shrink: 0; }", css)
 
     def test_sidebar_icon_neutralizes_the_dot_margin(self):
         # Renamed .sidebar-icon > .dot to .sidebar-icon > .sidebar-dot in the
@@ -6149,6 +6316,12 @@ class TodayWeekViewProductionTest(TestCase):
         self.assertNotContains(response, "Ohne Projekt")
 
     def test_the_sidebar_offers_the_today_week_view(self):
+        # A bare assertContains(response, "showToday()") or "Heute" also
+        # matches the function's own definition and the hidden view-today
+        # heading regardless of whether the sidebar link exists — it missed
+        # the #183 regression where _sidebar_nav.html's production branch
+        # dropped nav-overview/nav-today entirely. Assert on the actual
+        # clickable link instead.
         with (
             patch("projects.views.get_upcoming_projects", return_value=[]),
             patch("projects.views.get_unassigned_tasks", return_value=[]),
@@ -6158,8 +6331,10 @@ class TodayWeekViewProductionTest(TestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "showToday()")
-        self.assertContains(response, "Heute")
+        self.assertContains(
+            response, '<a class="sidebar-item active" id="nav-overview"'
+        )
+        self.assertContains(response, 'id="nav-today" onclick="showToday()"')
 
 
 @override_settings(DEMO_MODE=False)
