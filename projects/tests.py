@@ -7957,7 +7957,12 @@ class CloseWeekConfirmProductionTest(TestCase):
             response = self.client.post(
                 reverse("close_week_confirm"), data={"task_id": ["t-done"]}
             )
-        self.assertRedirects(response, reverse("week_review"))
+        # fetch_redirect_response=False: week_review() builds the sidebar
+        # project list (#185) and would fetch Notion on the follow-up GET,
+        # outside the patch above. What it renders has its own test.
+        self.assertRedirects(
+            response, reverse("week_review"), fetch_redirect_response=False
+        )
         closeout = WeekCloseout.objects.get()
         self.assertEqual(closeout.completed_count, 1)
         self.assertEqual(closeout.added_count, 1)
@@ -8008,7 +8013,11 @@ class WeekReviewProductionTest(TestCase):
             added_count=2,
             summary_text="Gute Woche.",
         )
-        response = self.client.get(reverse("week_review"))
+        # The sidebar project list (#185) makes this view fetch Notion on a
+        # cold cache — stubbed here so the assertions below stay about the
+        # closeout, not about project data this test never sets up.
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            response = self.client.get(reverse("week_review"))
         self.assertContains(response, "Gute Woche.")
         self.assertContains(response, "KW 25/2026")
 
