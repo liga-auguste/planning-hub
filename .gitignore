@@ -2,6 +2,9 @@ CHANGELOG.md
 SESSIONLOG.md
 staticfiles/
 .env
+# Basic Auth credentials for the production nginx (docker-compose.yml mounts
+# it). Holds a password hash — belongs on the host, never in the repo.
+.htpasswd
 demo.sqlite3
 .venv/
 __pycache__/

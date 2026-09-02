@@ -28,6 +28,12 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - static_files:/staticfiles:ro
+      # nginx.conf's auth_basic_user_file points at this path, so without the
+      # mount the password check has no file to read. Create .htpasswd before
+      # the first start (see README) — Compose creates a missing bind-mount
+      # source as an empty *directory*, which fails in a way that doesn't
+      # name the real cause. Untracked on purpose: it holds a password hash.
+      - ./.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - web
 
