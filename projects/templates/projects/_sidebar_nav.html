@@ -7,6 +7,14 @@ gets the fast client-side toggle (id="nav-overview"/"nav-today",
 onclick=showOverview()/showToday()); the other group's Dashboard/Heute are
 real links, since that data isn't loaded into this page at all.
 
+Every view that includes this partial owes it three flags: demo_mode,
+has_session_plan and plan_exists. Missing ones resolve to falsy in a
+Django template without raising, so an incomplete context does not fail —
+it silently renders the wrong branch (the plan_exists elif below is where
+that would show up first). dashboard() derives all three; the standalone
+pages set them explicitly, where their own redirect guards make both plan
+flags equal to whether DEMO_MODE is on at all.
+
 active_nav tells this partial whether it's rendering inside dashboard.html
 itself (unset — the JS toggle applies, same as always) or on one of the
 standalone pages that also use it (my_plan.html, close_week_start.html,

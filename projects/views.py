@@ -916,11 +916,14 @@ def close_week_start(request):
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,
             # #183 follow-up: the sidebar is now shared with dashboard() via
-            # _sidebar_nav.html. In DEMO_MODE a session plan is guaranteed
-            # here (_current_tasks_for_closeout redirects to index
-            # otherwise); in production has_session_plan never applies.
+            # _sidebar_nav.html, so this view owes it the same three flags
+            # (see the contract note in that partial). In DEMO_MODE a session
+            # plan is guaranteed here (_current_tasks_for_closeout redirects
+            # to index otherwise), which makes plan_exists true for the same
+            # reason has_session_plan is; in production neither applies.
             "demo_mode": settings.DEMO_MODE,
             "has_session_plan": settings.DEMO_MODE,
+            "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
         },
     )
@@ -991,10 +994,13 @@ def week_review(request):
         "projects/week_review.html",
         {
             "closeout": closeout,
-            # #183 follow-up: same reasoning as close_week_start() — the
-            # sidebar is now shared via _sidebar_nav.html.
+            # #183 follow-up: same three flags as close_week_start() — the
+            # sidebar is shared via _sidebar_nav.html. The guard above is
+            # this view's own (a demo_plan check, not the closeout lookup),
+            # so a session plan is equally guaranteed by the time we render.
             "demo_mode": settings.DEMO_MODE,
             "has_session_plan": settings.DEMO_MODE,
+            "plan_exists": settings.DEMO_MODE,
             "active_nav": "close_week",
         },
     )
@@ -1099,10 +1105,11 @@ def my_plan(request):
             "summary_error": summary_error,
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html — a session plan is guaranteed here (redirect
-            # above), so has_session_plan is always true whenever this
-            # actually renders.
+            # above), so both has_session_plan and plan_exists are always
+            # true whenever this actually renders.
             "demo_mode": settings.DEMO_MODE,
             "has_session_plan": True,
+            "plan_exists": True,
             "active_nav": "my_plan",
         },
     )
