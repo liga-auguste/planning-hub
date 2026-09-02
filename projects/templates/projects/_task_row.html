@@ -16,7 +16,7 @@
     </div>
     <span class="task-right" style="display:flex;align-items:center;gap:4px;">
         <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
-              {% if not demo_mode or has_session_plan %}
+              {% if not viewing_demo_data %}
               data-task-id="{{ task.id }}"
               data-raw-date="{{ task.due|date:'Y-m-d' }}"
               title="Datum ändern"
@@ -26,7 +26,7 @@
         {% if task.postpone_count and task.postpone_count >= 2 %}
         <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
         {% endif %}
-        {% if task.urgency == 'overdue' %}{% if not demo_mode or has_session_plan %}
+        {% if task.urgency == 'overdue' %}{% if not viewing_demo_data %}
         <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
         {% endif %}{% endif %}
     </span>

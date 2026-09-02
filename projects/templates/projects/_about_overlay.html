@@ -1,0 +1,35 @@
+{% load static %}
+<div id="about-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:9999; align-items:center; justify-content:center;" onclick="if(event.target===this)this.style.display='none'">
+    <div style="background:var(--color-bg-primary); border-radius:12px; padding:36px; max-width:480px; width:90%; position:relative;">
+        <button onclick="document.getElementById('about-overlay').style.display='none'"
+            style="position:absolute; top:16px; right:16px; background:none; border:none; font-size:18px; color:var(--color-text-quaternary); cursor:pointer; line-height:1;">×</button>
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:20px;">
+            <img src="{% static 'projects/logo_schwarz.png' %}" alt="" style="height:36px;" class="logo-light">
+            <img src="{% static 'projects/logo_weiss.png' %}" alt="" style="height:36px;" class="logo-dark">
+            <span style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase;">Planning Hub</span>
+        </div>
+        <p style="font-size:14px; line-height:1.7; color:var(--color-text-secondary); margin-bottom:14px;">
+            Was du hier siehst ist eine <strong>Demo mit simulierten Daten</strong>. Im echten Betrieb
+            liest und schreibt die App direkt in <strong>Notion</strong> — Projekte, Tasks und Deadlines
+            werden dort gepflegt und hier live angezeigt.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:var(--color-text-secondary); margin-bottom:14px;">
+            Der Stack: <strong>Django 6</strong> · <strong>PostgreSQL</strong> · <strong>Claude API</strong>
+            (Anthropic) für KI-Zusammenfassungen und Planerstellung · <strong>Notion API</strong> als
+            Datenquelle · <strong>Nginx + Docker</strong> auf Hetzner VPS.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:var(--color-text-secondary); margin-bottom:14px;">
+            Die KI analysiert beim Planen historische Projekte als Kontext (RAG ohne Vektordatenbank),
+            stellt gezielte Rückfragen und generiert daraus einen vollständigen Aufgabenplan mit
+            realistischen Deadlines.
+        </p>
+        <p style="font-size:14px; line-height:1.7; color:var(--color-text-secondary); margin-bottom:24px;">
+            Den generierten Plan kannst du als <strong>Markdown-Datei herunterladen</strong> —
+            direkt nutzbar in Notion, Obsidian oder als Eingabe für weitere KI-Tools.
+        </p>
+        <a href="https://github.com/liga-auguste/planning-hub" target="_blank"
+            style="font-size:13px; font-weight:600; color:var(--color-text-primary); text-decoration:none; border:1px solid var(--color-border-primary); border-radius:6px; padding:8px 16px; display:inline-block;">
+            GitHub → README
+        </a>
+    </div>
+</div>

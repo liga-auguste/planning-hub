@@ -1,0 +1,116 @@
+{% if demo_mode %}
+{% comment %}
+#183 follow-up: both groups stay visible with their full link set at all
+times, whichever is currently on screen — only the project list on
+dashboard.html still switches by context. Only the currently-loaded group
+gets the fast client-side toggle (id="nav-overview"/"nav-today",
+onclick=showOverview()/showToday()); the other group's Dashboard/Heute are
+real links, since that data isn't loaded into this page at all.
+
+Every view that includes this partial owes it three flags: demo_mode,
+has_session_plan and plan_exists. Missing ones resolve to falsy in a
+Django template without raising, so an incomplete context does not fail —
+it silently renders the wrong branch (the plan_exists elif below is where
+that would show up first). dashboard() derives all three; the standalone
+pages set them explicitly, where their own redirect guards make both plan
+flags equal to whether DEMO_MODE is on at all.
+
+active_nav tells this partial whether it's rendering inside dashboard.html
+itself (unset — the JS toggle applies, same as always) or on one of the
+standalone pages that also use it (my_plan.html, close_week_start.html,
+week_review.html — "my_plan"/"close_week"): there, view-overview/view-today
+don't exist in the DOM at all, so Dashboard/Heute have to be real links
+too, and whichever of Plan-als-Liste/Woche-abschließen matches the current
+page is marked active instead, since there's no JS toggle to do it.
+{% endcomment %}
+<div class="sidebar-title">Dein Projekt</div>
+{% if has_session_plan %}
+    {% if not active_nav %}
+    <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
+        Dashboard
+    </a>
+    <a class="sidebar-item" id="nav-today" onclick="showToday()">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+        Heute
+    </a>
+    {% else %}
+    <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+    </a>
+    <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
+    </a>
+    {% endif %}
+    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon">☰</span>Plan als Liste
+    </a>
+    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
+    </a>
+{% elif plan_exists %}
+    <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+    </a>
+    <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
+    </a>
+    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon">☰</span>Plan als Liste
+    </a>
+    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
+    </a>
+{% else %}
+    <a class="sidebar-item" href="{% url 'planner_start' %}" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>
+        Projekt selbst planen
+    </a>
+{% endif %}
+
+<div class="sidebar-title" style="margin-top: 16px;">Demo</div>
+{% if has_session_plan %}
+<a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
+    <span class="sidebar-icon">⊞</span>Mehrprojekt-Dashboard
+</a>
+<a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi&view=today" style="color: var(--color-text-tertiary);">
+    <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
+</a>
+{% else %}
+    {% if not active_nav %}
+    <a class="sidebar-item active" id="nav-overview" onclick="showOverview()">
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
+        Dashboard
+    </a>
+    <a class="sidebar-item" id="nav-today" onclick="showToday()">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+        Heute
+    </a>
+    {% else %}
+    <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+    </a>
+    <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi&view=today" style="color: var(--color-text-tertiary);">
+        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
+    </a>
+    {% endif %}
+{% endif %}
+
+<a class="sidebar-item" href="{% url 'index' %}" style="color: var(--color-text-quaternary); font-size: 12px; margin-top: 16px;">
+    <span class="sidebar-icon">←</span>Zurück zur Startseite
+</a>
+<a class="sidebar-item" onclick="document.getElementById('about-overlay').style.display='flex'" style="cursor:pointer; color:var(--color-text-tertiary);">
+    <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></span>Über dieses Projekt
+</a>
+{% else %}
+<a class="sidebar-item" href="{% url 'planner_start' %}" style="color: var(--color-text-tertiary);">
+    <span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>
+    Neue Veranstaltung
+</a>
+<a class="sidebar-item" href="{% url 'rules_list' %}" style="color: var(--color-text-tertiary);">
+    <span class="sidebar-icon">⚙</span>Planungsregeln
+</a>
+<a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+    <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
+</a>
+{% endif %}

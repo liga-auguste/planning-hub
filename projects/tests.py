@@ -733,6 +733,69 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         )
 
 
+class SidebarModeGroupingTest(DemoModeTestCase):
+    """#183 follow-up, second round: grouping the sidebar by which data was
+    currently on screen still meant the *set* of visible links reshuffled
+    between states — one group had four links, the other one, and which was
+    which kept swapping. That reshuffling itself read as "too much back and
+    forth". Both "Dein Projekt" and "Demo" headers, and each one's full link
+    set, are now always present regardless of state — only the project list
+    further down still switches by context. Whichever group matches the
+    currently-loaded page keeps the fast client-side toggle
+    (id="nav-overview"/"nav-today"); the other group's Dashboard/Heute are
+    plain links to the other mode, since that data isn't loaded here."""
+
+    def test_session_plan_shows_full_links_in_both_groups(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+        )
+        self.assertContains(response, "Plan als Liste")
+        self.assertContains(response, "Woche abschließen")
+        self.assertContains(response, "Mehrprojekt-Dashboard")
+
+    def test_no_plan_yet_still_shows_both_group_headers(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+        )
+        self.assertContains(response, "Projekt selbst planen")
+
+    def test_multi_project_view_with_a_plan_shows_full_links_in_both_groups(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+        )
+        self.assertContains(response, "Plan als Liste")
+        self.assertContains(response, "Woche abschließen")
+        # Currently on the demo view — "Demo" group uses the fast toggle,
+        # not the "Mehrprojekt-Dashboard" jump-in link (that's for reaching
+        # this view from elsewhere, not for a view you're already on).
+        self.assertNotContains(response, "Mehrprojekt-Dashboard")
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarModeGroupingProductionTest(TestCase):
+    def test_production_shows_no_mode_grouping(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(
+            response, '<div class="sidebar-title">Dein Projekt</div>'
+        )
+
+
 class SidebarLogoHeaderTest(DemoModeTestCase):
     """#95: the logo moves from the content area into a sidebar header row —
     a real link to /dashboard/ above the nav. Collapsed, only the icon mark
@@ -795,8 +858,12 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         self.assertNotIn("height:40px;width:auto;", self.dashboard_html)
 
     def test_about_overlay_keeps_its_own_logo_copy(self):
-        self.assertIn('height:36px;" class="logo-light"', self.dashboard_html)
-        self.assertIn('height:36px;" class="logo-dark"', self.dashboard_html)
+        # #183 follow-up: moved from dashboard.html into _about_overlay.html
+        # so "Über dieses Projekt" (and the overlay it opens) is shared with
+        # my_plan.html/close_week_start.html/week_review.html too.
+        about_overlay_html = (self.templates / "_about_overlay.html").read_text()
+        self.assertIn('height:36px;" class="logo-light"', about_overlay_html)
+        self.assertIn('height:36px;" class="logo-dark"', about_overlay_html)
 
     def test_first_content_row_clears_the_mobile_launcher(self):
         # The removed wordmark row used to keep the top-of-page band free
@@ -811,13 +878,112 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         )
 
     def test_pages_without_a_sidebar_render_no_header(self):
-        # my_plan.html and stats.html override {% block body %} entirely and
-        # ship no sidebar at all.
+        # stats.html overrides {% block body %} entirely and ships no
+        # sidebar — it's a maintainer-only page, linked from nowhere in the
+        # UI, so it sits outside the "sidebar guides you through the app"
+        # principle #183's follow-up applied to my_plan/close_week/
+        # week_review (see SidebarNavOnStandalonePagesTest).
+        response = self.client.get(reverse("stats"))
+        self.assertNotContains(response, "sidebar-header")
+
+
+class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
+    """#183 follow-up: my_plan.html, close_week_start.html and
+    week_review.html used to override {% block body %} entirely, same as
+    stats.html — but unlike stats.html, these three ARE reachable by
+    clicking through the sidebar (Plan als Liste, Woche abschließen), so
+    leaving without a sidebar meant navigating away from the very thing
+    meant to guide the visitor through the app. Dashboard/Heute can't use
+    the fast client-side toggle here (view-overview/view-today don't exist
+    on these pages), so they render as real links into dashboard.html
+    instead — and whichever nav item matches the current page gets marked
+    active via active_nav, since there's no JS toggle to do it dynamically."""
+
+    def test_my_plan_has_the_sidebar_with_plan_als_liste_active(self):
         self.given_session_plan()
-        for name in ("my_plan", "stats"):
-            with self.subTest(page=name):
-                response = self.client.get(reverse(name))
-                self.assertNotContains(response, "sidebar-header")
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
+        self.assertContains(
+            response, f'class="sidebar-item active" href="{reverse("my_plan")}"'
+        )
+        self.assertContains(response, f'href="{reverse("dashboard")}"')
+        self.assertNotContains(response, 'onclick="showOverview()"')
+
+    def test_my_plan_has_the_about_link_and_overlay(self):
+        # #183 follow-up: "Über dieses Projekt" lived only in dashboard.html's
+        # own sidebar_content, not the shared _sidebar_nav.html partial, so
+        # the link (and the #about-overlay it opens) went missing on every
+        # other page using it.
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
+
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(
+            response,
+            f'class="sidebar-item active" href="{reverse("close_week_start")}"',
+        )
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
+
+    def test_week_review_has_the_sidebar(self):
+        self.given_session_plan()
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 25,
+            "completed_count": 1,
+            "rescheduled_count": 0,
+            "added_count": 0,
+            "summary_text": "Text.",
+            "closed_at": "2026-06-15T12:00:00",
+        }
+        session.save()
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(response, "Über dieses Projekt")
+        self.assertContains(response, 'id="about-overlay"')
+
+
+@override_settings(DEMO_MODE=False)
+class SidebarNavOnStandalonePagesProductionTest(TestCase):
+    @patch("django.utils.timezone.localdate")
+    def test_close_week_start_has_the_sidebar_with_woche_abschliessen_active(
+        self, mock_localdate
+    ):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertContains(
+            response,
+            f'class="sidebar-item active" href="{reverse("close_week_start")}"',
+        )
+        # "Über dieses Projekt" explains the demo instance — not relevant,
+        # so not offered, in production.
+        self.assertNotContains(response, "Über dieses Projekt")
+
+    def test_week_review_has_the_sidebar(self):
+        WeekCloseout.objects.create(
+            iso_year=2026,
+            iso_week=25,
+            completed_count=1,
+            rescheduled_count=0,
+            added_count=0,
+            summary_text="Text.",
+        )
+        response = self.client.get(reverse("week_review"))
+        self.assertContains(response, 'class="sidebar-header"')
+        self.assertNotContains(response, "Über dieses Projekt")
 
 
 class AiCardDeboxTest(DemoModeTestCase):
@@ -1125,12 +1291,20 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
     .sidebar-icon gives every icon the same fixed, centered 16px slot."""
 
     def test_sidebar_icon_css_defines_a_fixed_centered_slot(self):
-        response = self.client.get("/dashboard/")
-        self.assertContains(
-            response,
+        # #183 follow-up: .sidebar-icon moved from dashboard.html's own
+        # extra_css into the shared dashboard.css, since _sidebar_nav.html
+        # (which uses it) is now included from my_plan.html/
+        # close_week_start.html/week_review.html too — each of those
+        # replaces extra_css with its own page-specific styles rather than
+        # extending dashboard.html's.
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(
             ".sidebar-icon { display: inline-flex; align-items: center; "
             "justify-content: center; width: 16px; flex-shrink: 0; "
             "margin-right: 8px; }",
+            css,
         )
 
     def test_progress_ring_no_longer_carries_its_own_margin(self):
@@ -1138,8 +1312,13 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         self.assertContains(response, ".progress-ring { flex-shrink: 0; }")
 
     def test_sidebar_icon_neutralizes_the_dot_margin(self):
-        response = self.client.get("/dashboard/")
-        self.assertContains(response, ".sidebar-icon > .dot { margin-right: 0; }")
+        # Renamed .sidebar-icon > .dot to .sidebar-icon > .sidebar-dot in the
+        # same move: a shared .dot rule would have collided with my_plan.html's
+        # own differently-sized .dot for its task list (see dashboard.css).
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".sidebar-icon > .sidebar-dot { margin-right: 0; }", css)
 
     def test_the_base_dot_rule_still_carries_its_own_margin(self):
         """The task-completion checkbox reuses .dot outside the sidebar and
@@ -1177,7 +1356,7 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
-            '<span class="sidebar-icon"><span class="dot" '
+            '<span class="sidebar-icon"><span class="sidebar-dot" '
             'style="background: var(--color-solid-bg);"></span></span>',
         )
 
@@ -1574,17 +1753,6 @@ class DarkThemeTest(DemoModeTestCase):
         ).read_text()
         start = css.index(".wordmark img")
         rule = css[start : css.index("}", start)]
-        self.assertNotIn("display", rule)
-
-    def test_my_plan_css_does_not_override_the_logo_swap_display_rule(self):
-        """#143: same specificity trap as #103, this time in my_plan.html's
-        inline extra_css — `.logo img { display: block }` outranked
-        `.logo-dark { display: none }`, so both logo variants rendered at
-        once in the top nav. The rule must only size the logo."""
-        self.given_session_plan()
-        html = self.client.get("/mein-plan/").content.decode()
-        start = html.index(".logo img {")
-        rule = html[start : html.index("}", start)]
         self.assertNotIn("display", rule)
 
 
@@ -3242,18 +3410,18 @@ class PoisonedSessionHealingTest(DemoModeTestCase):
 
 class MultiViewSidebarLinkTest(DemoModeTestCase):
     """Part C of #39: has_session_plan is unconditionally False under
-    ?mode=multi, so the sidebar used to show a dead-end "Mein Plan" link
+    ?mode=multi, so the sidebar used to show a dead-end back-to-plan link
     even when no plan had ever been generated in this session."""
 
     def test_shows_create_link_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, "Projekt selbst planen")
-        self.assertNotContains(response, "Mein Plan")
+        self.assertNotContains(response, "Plan als Liste")
 
-    def test_shows_mein_plan_link_with_a_session_plan(self):
+    def test_shows_plan_links_with_a_session_plan(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
-        self.assertContains(response, "Mein Plan")
+        self.assertContains(response, "Plan als Liste")
         self.assertNotContains(response, "Projekt selbst planen")
 
 
@@ -6079,6 +6247,164 @@ class WeekProgressBarProductionTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "erledigt</span>")
 
+    def test_the_bar_excludes_unassigned_tasks_not_shown_on_the_kanban_board(self):
+        # #182: the Kanban board only ever renders project.tasks — an
+        # unassigned ("Ohne Projekt") task can never appear on it, so the
+        # bar above it must not count one either, or the two numbers on the
+        # same screen stop matching.
+        today = date.today()
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            {
+                "id": "t-open",
+                "name": "Offen",
+                "due": today,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        unassigned = [
+            {
+                "id": "t-unassigned",
+                "name": "Kleinkram",
+                "due": today,
+                "done": False,
+                "kontext": [],
+                "completed_date": None,
+            },
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=unassigned),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "0 / 1 erledigt")
+
+
+class WeekProgressBarDemoModeTest(DemoModeTestCase):
+    """#182: reproduces the reported bug on the demo multi-project example
+    view — get_demo_unassigned_tasks() feeds the same "Ohne Projekt" bucket
+    the production get_unassigned_tasks() call does, through the same
+    dashboard() code path and the same all_tasks expression."""
+
+    def test_the_bar_excludes_demo_unassigned_tasks_not_shown_on_the_kanban_board(
+        self,
+    ):
+        today = date.today()
+        project = {
+            "id": "demo-p1",
+            "name": "Testkonzert",
+            "event_date": today + timedelta(days=10),
+            "tasks": [
+                {
+                    "id": "t-open",
+                    "name": "Offen",
+                    "due": today,
+                    "done": False,
+                    "kontext": [],
+                    "completed_date": None,
+                },
+            ],
+        }
+        unassigned = [
+            {
+                "id": "demo-unassigned-1",
+                "name": "Kleinkram",
+                "due": today,
+                "done": False,
+                "kontext": [],
+            },
+        ]
+        with (
+            patch("projects.views.get_demo_projects", return_value=[project]),
+            patch("projects.views.get_demo_unassigned_tasks", return_value=unassigned),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "0 / 1 erledigt")
+
+
+class SessionPlanProgressBarTest(DemoModeTestCase):
+    """#183 follow-up: for a session plan, the bar tracks the whole plan's
+    completion instead of the current calendar week — a week-scoped count
+    barely moved between Zeitreise moments and often sat at 0/0 several
+    moments in a row, since a session plan's own tasks rarely all fall in
+    one week. The whole-plan count does visibly progress: each Zeitreise
+    moment marks every task due on/before it "done" (dashboard()'s deepcopy
+    mutation), so scrubbing through moments now fills the bar moment to
+    moment instead of resetting to an unrelated week's tiny subset."""
+
+    def test_the_bar_counts_the_whole_plan_not_just_this_week(self):
+        today = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-long-past",
+                    "name": "Lange her",
+                    "date": (today - timedelta(days=60)).isoformat(),
+                    "done": True,
+                },
+                {
+                    "id": "t-this-week",
+                    "name": "Diese Woche",
+                    "date": today.isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-far-future",
+                    "name": "Weit weg",
+                    "date": (today + timedelta(days=90)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("dashboard"))
+        # Week-scoped would have counted only "Diese Woche" (0/1) — the
+        # whole plan is 1 done out of 3.
+        self.assertContains(response, "1 / 3 erledigt")
+
+    def test_the_label_says_projektfortschritt(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "<span>Projektfortschritt</span>")
+
+    def test_the_bar_fills_further_at_a_later_zeitreise_moment(self):
+        today = date.today()
+        moment = (today + timedelta(days=30)).isoformat()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-before-moment",
+                    "name": "Vor dem Moment",
+                    "date": (today + timedelta(days=10)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-after-moment",
+                    "name": "Nach dem Moment",
+                    "date": (today + timedelta(days=60)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        self.given_timelapse_moments(moment)
+
+        response_today = self.client.get(reverse("dashboard"))
+        self.assertContains(response_today, "0 / 2 erledigt")
+
+        session = self.client.session
+        session["demo_sim_date"] = moment
+        session.save()
+        response_at_moment = self.client.get(reverse("dashboard"))
+        # "Vor dem Moment" is due before the simulated date and counts as
+        # done there (see dashboard()'s deepcopy mutation); "Nach dem
+        # Moment" isn't due yet at that point in the story.
+        self.assertContains(response_at_moment, "1 / 2 erledigt")
+
 
 @override_settings(DEMO_MODE=False)
 class DayColumnsProductionTest(TestCase):
@@ -7586,6 +7912,140 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'title="Datum ändern"')
         self.assertContains(response, 'data-task-id="task-1"')
+
+
+class DayTaskCardNoDragTest(DemoModeTestCase):
+    """#183 Tier 2 regression net: .no-drag disables SortableJS's grab
+    cursor on the read-only demo example cards specifically — a flipped
+    condition here would silently make example data draggable (harmless,
+    since the drag handler itself still checks server-side, but the cursor
+    would promise an interaction that fails)."""
+
+    def test_example_data_day_cards_are_no_drag(self):
+        today = date.today()
+        project = {
+            "id": "demo-p1",
+            "name": "Testkonzert",
+            "event_date": today + timedelta(days=10),
+            "tasks": [
+                {
+                    "id": "t-today",
+                    "name": "Heute fällig",
+                    "due": today,
+                    "done": False,
+                    "kontext": [],
+                    "completed_date": None,
+                },
+            ],
+        }
+        with patch("projects.views.get_demo_projects", return_value=[project]):
+            response = self.client.get(reverse("dashboard"))
+        # "no-drag" alone would also match the always-present CSS rule
+        # (.day-task-card.no-drag { ... }) — assert on the class actually
+        # landing on this task's card instead.
+        self.assertContains(response, 'no-drag" data-task-id="t-today"')
+
+    def test_session_plan_day_cards_are_draggable(self):
+        today = date.today()
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "s-today",
+                    "name": "Heute fällig",
+                    "date": today.isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'no-drag" data-task-id="s-today"')
+
+
+class SortableScriptInclusionTest(DemoModeTestCase):
+    """#183 Tier 2 regression net: the SortableJS include itself must follow
+    the same demo/session-plan split as the reschedule affordances it
+    powers — omitted entirely for the read-only demo example data."""
+
+    def test_included_for_a_session_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Sortable.min.js")
+
+    def test_excluded_for_the_multi_project_example_data(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Sortable.min.js")
+
+
+@override_settings(DEMO_MODE=False)
+class SortableScriptInclusionProductionTest(TestCase):
+    def test_included_in_production(self):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Sortable.min.js")
+
+
+class StatusBannersSharedAcrossViewsTest(DemoModeTestCase):
+    """#183 Tier 2: view-overview and view-today render in the same
+    response (JS just toggles which is visible) — the demo-banner and
+    stale-notice must appear in both, not just view-overview, or switching
+    to "Heute" during example data silently drops the only reminder that
+    it's not the visitor's own plan."""
+
+    def test_demo_banner_appears_for_both_views(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "Das sind <strong>Beispieldaten</strong>", count=2
+        )
+
+
+class TimelapseBarSharedAcrossViewsTest(DemoModeTestCase):
+    """Same reasoning as StatusBannersSharedAcrossViewsTest, for the
+    Zeitreise bar: it only ever rendered in view-overview, so switching to
+    "Heute" lost the ability to jump between simulated moments — the visitor
+    had to flip back to "Dashboard" just to change the simulated date."""
+
+    def test_timelapse_bar_appears_for_both_views(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="timelapse-bar"', count=2)
+        self.assertContains(response, 'class="timelapse-moments"', count=2)
+
+    def test_absent_without_a_session_plan(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="timelapse-bar"')
+
+
+@override_settings(DEMO_MODE=False)
+class StaleNoticeSharedAcrossViewsTest(TestCase):
+    """#183 Tier 2: same reasoning as StatusBannersSharedAcrossViewsTest,
+    for the production-only stale-notice — data_unavailable/stale are only
+    ever set on the production branch's NotionUnavailableError fallback."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_data_unavailable_notice_appears_for_both_views(self):
+        with (
+            patch(
+                "projects.views._fetch_fresh_data",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            "Die Projektdaten sind gerade nicht verfügbar. Bitte versuche es in Kürze erneut.",
+            count=2,
+        )
 
 
 class PlannerRulesBackLinkTest(DemoModeTestCase):

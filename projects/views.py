@@ -581,14 +581,29 @@ def dashboard(request):
 
     week_view = _build_week_view(projects, unassigned_tasks)
 
-    # #19: the week progress bar — same pool of tasks as the week view above,
-    # counted against the calendar week containing effective_today (not
-    # `today`, so demo time-travel moves the bar along with everything else).
+    # #19: the week progress bar — counted against the calendar week
+    # containing effective_today (not `today`, so demo time-travel moves the
+    # bar along with everything else).
+    #
+    # #182: deliberately excludes unassigned_tasks, unlike week_view above.
+    # The Kanban board beneath this bar renders strictly from
+    # project["tasks"] and can never show a project-less task, so counting
+    # one here made the bar and the board disagree on the same number.
     week_start, week_end = iso_week_bounds(effective_today)
-    all_tasks = [t for project in projects for t in project["tasks"]] + unassigned_tasks
-    week_done_count, week_total_count = _count_done_in_range(
-        all_tasks, week_start, week_end
-    )
+    all_tasks = [t for project in projects for t in project["tasks"]]
+    if has_session_plan:
+        # #183 follow-up: a week-scoped count barely moved between Zeitreise
+        # moments, often showing 0/0 several moments in a row — the story
+        # the bar should tell here is the plan's overall completion, which
+        # does visibly progress: a moment marks every task due on/before it
+        # "done" (see the deepcopy mutation above), so the whole-plan count
+        # fills up moment to moment the way the week-scoped one didn't.
+        week_done_count = sum(1 for t in all_tasks if t["done"])
+        week_total_count = len(all_tasks)
+    else:
+        week_done_count, week_total_count = _count_done_in_range(
+            all_tasks, week_start, week_end
+        )
     week_progress_pct = (
         round(week_done_count / week_total_count * 100) if week_total_count else 0
     )
@@ -900,6 +915,16 @@ def close_week_start(request):
             "today_display": _format_date(today),
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,
+            # #183 follow-up: the sidebar is now shared with dashboard() via
+            # _sidebar_nav.html, so this view owes it the same three flags
+            # (see the contract note in that partial). In DEMO_MODE a session
+            # plan is guaranteed here (_current_tasks_for_closeout redirects
+            # to index otherwise), which makes plan_exists true for the same
+            # reason has_session_plan is; in production neither applies.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": settings.DEMO_MODE,
+            "plan_exists": settings.DEMO_MODE,
+            "active_nav": "close_week",
         },
     )
 
@@ -964,7 +989,21 @@ def week_review(request):
     closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
-    return render(request, "projects/week_review.html", {"closeout": closeout})
+    return render(
+        request,
+        "projects/week_review.html",
+        {
+            "closeout": closeout,
+            # #183 follow-up: same three flags as close_week_start() — the
+            # sidebar is shared via _sidebar_nav.html. The guard above is
+            # this view's own (a demo_plan check, not the closeout lookup),
+            # so a session plan is equally guaranteed by the time we render.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": settings.DEMO_MODE,
+            "plan_exists": settings.DEMO_MODE,
+            "active_nav": "close_week",
+        },
+    )
 
 
 def stats(request):
@@ -1064,6 +1103,14 @@ def my_plan(request):
             "today_display": _format_date(today),
             "summary": summary,
             "summary_error": summary_error,
+            # #183 follow-up: the sidebar is now shared with dashboard() via
+            # _sidebar_nav.html — a session plan is guaranteed here (redirect
+            # above), so both has_session_plan and plan_exists are always
+            # true whenever this actually renders.
+            "demo_mode": settings.DEMO_MODE,
+            "has_session_plan": True,
+            "plan_exists": True,
+            "active_nav": "my_plan",
         },
     )
 

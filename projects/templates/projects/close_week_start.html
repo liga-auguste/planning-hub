@@ -1,21 +1,12 @@
 {% extends 'projects/base_dashboard.html' %}
-{% load static %}
 
 {% block title %}Woche abschließen – Planning Hub{% endblock %}
 
 {% block extra_css %}
-    /* Matches planner_rules.html's effective width (.wrapper, public.css) —
-       960px, not my_plan.html's narrower 720px focused-list shape. width:
-       100% is load-bearing: body is a column flexbox (base.css), and an
-       auto side-margin on the cross axis overrides the default stretch
-       behavior, shrinking the box to its content width instead of 960px. */
-    .page { width: 100%; max-width: 960px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
-    .page-footer { padding-left: 0; padding-right: 0; }
-    .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
-    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
-    .logo img { height: 40px; width: auto; }
-    .logo span { font-size: 11px; font-weight: 700; color: var(--color-text-primary); letter-spacing: 0.08em; text-transform: uppercase; }
-    .back-link { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    /* #183 follow-up: now rendered inside .content-body (base_dashboard.html),
+       which already provides its own outer padding — .page only needs to
+       constrain and center the width, matching planner_rules.html's 960px. */
+    .page { width: 100%; max-width: 960px; margin: 0 auto; }
     .page-title { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
     .page-subtitle { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 28px; }
     .triage-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; margin-bottom: 28px; }
@@ -35,18 +26,18 @@
 {% endblock %}
 
 {% comment %}
-Deliberately a standalone page, same shape as my_plan.html: overrides the
-body block entirely and inherits only the CSS shell from
-base_dashboard.html — this is a focused, one-off ritual, not a view a
-sidebar should compete with. See docs/wochenabschluss.md.
+#183 follow-up: was a standalone page (overriding {% block body %}
+entirely), same shape as my_plan.html — now uses the normal
+sidebar_content/content blocks so "Woche abschließen" doesn't navigate
+away from the sidebar that's supposed to guide the visitor through the
+app. See docs/wochenabschluss.md.
 {% endcomment %}
-{% block body %}
-<div class="page">
-    <div class="top-nav">
-        <a href="{% url 'dashboard' %}" class="logo"><img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light"><img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark"><span>Planning Hub</span></a>
-        <a href="{% url 'dashboard' %}" class="back-link">← Zurück zum Dashboard</a>
-    </div>
+{% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="close_week" %}{% endblock %}
 
+{% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
+
+{% block content %}
+<div class="page">
     <div class="page-title">Woche abschließen</div>
     {% if already_closed and not tasks %}
     <div class="page-subtitle">{{ today_display }} — bereits abgeschlossen</div>

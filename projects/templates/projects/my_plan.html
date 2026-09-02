@@ -1,23 +1,12 @@
 {% extends 'projects/base_dashboard.html' %}
-{% load static %}
 
 {% block title %}{{ project.display_name }} – Planning Hub{% endblock %}
 
 {% block extra_css %}
-    /* width: 100% is load-bearing: body is a column flexbox (base.css), and
-       an auto side-margin on the cross axis overrides the default stretch
-       behavior, shrinking the box to its content width instead of 720px —
-       same fix as close_week_start.html/week_review.html. */
-    .page { width: 100%; max-width: 720px; margin: 0 auto; padding: 32px 24px 0; flex: 1; display: flex; flex-direction: column; }
-    /* .page already pads horizontally; keep the footer aligned with the content */
-    .page-footer { padding-left: 0; padding-right: 0; }
-    .top-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; }
-    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
-    /* Size only, never `display` — .logo img outranks base.css's
-       .logo-dark { display: none } theme swap (#103, #143). */
-    .logo img { height: 40px; width: auto; }
-    .logo span { font-size: 11px; font-weight: 700; color: var(--color-text-primary); letter-spacing: 0.08em; text-transform: uppercase; }
-    .logo:hover span { color: var(--color-text-secondary); }
+    /* #183 follow-up: now rendered inside .content-body (base_dashboard.html),
+       which already provides its own outer padding — .page only needs to
+       constrain and center the width, not fill/pad a standalone body. */
+    .page { width: 100%; max-width: 720px; margin: 0 auto; }
     .btn-new { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 7px 16px; font-size: 13px; cursor: pointer; text-decoration: none; }
     .btn-new:hover { opacity: 0.85; }
     .project-header { margin-bottom: 32px; }
@@ -74,23 +63,25 @@
 {% endblock %}
 
 {% comment %}
-Deliberately a standalone page: overrides {% block body %} entirely and
-inherits only the CSS shell from base_dashboard.html. A focused list view
-without a sidebar — navigation runs through the top-nav above instead. See
-docs/demo-mode.md.
+#183 follow-up: was a standalone page (overriding {% block body %}
+entirely) — now uses the normal sidebar_content/content blocks so
+"Plan als Liste" doesn't navigate away from the sidebar that's supposed to
+guide the visitor through the app. The top-nav's own logo/back-navigation
+is gone; the sidebar already covers that.
 {% endcomment %}
-{% block body %}
+{% block sidebar_content %}{% include "projects/_sidebar_nav.html" with active_nav="my_plan" %}{% endblock %}
+
+{% block body_extras %}{% include "projects/_about_overlay.html" %}{% endblock %}
+
+{% block content %}
 <div class="page">
-    <div class="top-nav">
-        <a href="{% url 'index' %}" class="logo"><img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light"><img src="{% static 'projects/logo_weiss.png' %}" alt="" class="logo-dark"><span>Planning Hub</span></a>
-        <div style="display:flex; gap:8px; align-items:center;">
-            <a href="{% url 'download_plan' %}"
-               style="font-size:13px; color:var(--color-text-quaternary); text-decoration:none; padding:7px 12px; border:1px solid var(--color-border-primary); border-radius:6px;"
-               title="Als Markdown-Datei speichern — nutzbar in Notion, Obsidian, KI-Tools">
-                ↓ Plan herunterladen
-            </a>
-            <a href="{% url 'planner_start' %}" class="btn-new">+ Neu planen</a>
-        </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 24px;">
+        <a href="{% url 'download_plan' %}"
+           style="font-size:13px; color:var(--color-text-quaternary); text-decoration:none; padding:7px 12px; border:1px solid var(--color-border-primary); border-radius:6px;"
+           title="Als Markdown-Datei speichern — nutzbar in Notion, Obsidian, KI-Tools">
+            ↓ Plan herunterladen
+        </a>
+        <a href="{% url 'planner_start' %}" class="btn-new">+ Neu planen</a>
     </div>
 
     <div class="project-header">
@@ -179,8 +170,6 @@ docs/demo-mode.md.
             </a>
         </div>
     </div>
-
-    {% include 'projects/_footer.html' %}
 </div>
 {% endblock %}
 
