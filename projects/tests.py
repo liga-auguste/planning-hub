@@ -7335,12 +7335,17 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
 
     def test_sim_date_awaits_preload_before_reloading(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "if (dateStr) {\n        await preloadOne(dateStr);\n    }")
+        self.assertContains(
+            response, "if (dateStr) {\n        await preloadOne(dateStr);\n    }"
+        )
 
     def test_preload_one_dedupes_concurrent_calls_for_the_same_date(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "const preloadPromises = new Map();")
-        self.assertContains(response, "if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);")
+        self.assertContains(
+            response,
+            "if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);",
+        )
 
     def test_preload_one_checks_json_ok_not_just_http_status(self):
         response = self.client.get(reverse("dashboard"))
@@ -7370,6 +7375,22 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         which came back null. This CSS fade is the fallback."""
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "document.body.style.opacity = '0';")
+
+    def test_loading_spinner_lives_next_to_the_heading_not_inside_each_tile(self):
+        """Toggling a spinner's display inside a moment-btn changed that
+        tile's height, so every click reflowed the whole row — one shared
+        spinner next to the "Zeitreise" label avoids that; the tiles
+        themselves now only ever change color, never size."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<div class="timelapse-label">Zeitreise<span class="timelapse-spinner"></span></div>',
+        )
+        self.assertContains(
+            response, ".timelapse-bar.loading .timelapse-spinner { display: block; }"
+        )
+        self.assertNotContains(response, '<div class="spinner"></div>')
 
 
 class MyPlanProgressBarTest(DemoModeTestCase):
