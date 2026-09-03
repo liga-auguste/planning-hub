@@ -43,7 +43,7 @@ from .ai import (
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
 from .dates import is_same_iso_week, iso_week_bounds
-from .models import DemoEvent, PlannerRule, WeekCloseout
+from .models import DemoEvent, PlannerRule, RulesSeeded, WeekCloseout
 from .notion import (
     TASKS_DB,
     NotionUnavailableError,
@@ -231,6 +231,31 @@ class StaticCacheHeadersConfTest(SimpleTestCase):
                 self.assertIn("expires 1y;", conf)
 
 
+class EntrypointConfTest(SimpleTestCase):
+    """#24: entrypoint.sh ran migrate and collectstatic but never seed_rules,
+    so a stack built from scratch starts with an empty PlannerRule table —
+    get_active_rule_texts() returns [] and the planner prompt is silently
+    missing every maintainer rule. seed_rules is idempotent (see
+    SeedRulesCommandTest for how), so it is safe to run on every container
+    start, including the demo container where it runs but has no effect
+    (demo reads the session backend, not this table)."""
+
+    def test_seed_rules_runs_between_migrate_and_gunicorn(self):
+        entrypoint = (settings.BASE_DIR / "entrypoint.sh").read_text()
+        self.assertIn("manage.py migrate", entrypoint)
+        self.assertIn("manage.py seed_rules", entrypoint)
+        self.assertLess(
+            entrypoint.index("manage.py migrate"),
+            entrypoint.index("manage.py seed_rules"),
+            "seed_rules must run after migrate",
+        )
+        self.assertLess(
+            entrypoint.index("manage.py seed_rules"),
+            entrypoint.index("gunicorn"),
+            "seed_rules must run before gunicorn starts serving",
+        )
+
+
 class StaticStorageConfigTest(SimpleTestCase):
     """#74: settings.py picks the staticfiles backend by process type —
     ManifestStaticFilesStorage for the server, the plain storage under the
@@ -331,6 +356,35 @@ class DebugDefaultConfTest(SimpleTestCase):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)
         self.assertTrue(debug)
+
+
+class EnvExampleConfTest(SimpleTestCase):
+    """#24: settings.py reads CSRF_TRUSTED_ORIGINS from the environment, but
+    .env.example never documented it, so a fresh deploy that only copies
+    .env.example starts with an empty value and nothing errors — the failure
+    surfaces later as a rejected POST behind the reverse proxy. This guards
+    every settings.py env var against the same drift, not just this one
+    key."""
+
+    def test_env_example_documents_every_settings_env_var(self):
+        settings_source = (
+            settings.BASE_DIR / "planning_hub" / "settings.py"
+        ).read_text()
+        read_keys = set(
+            re.findall(r'os\.environ(?:\.get\(|\[)"([A-Z_]+)"', settings_source)
+        )
+
+        env_example_source = (settings.BASE_DIR / ".env.example").read_text()
+        documented_keys = set(
+            re.findall(r"^([A-Z_]+)=", env_example_source, re.MULTILINE)
+        )
+
+        undocumented = read_keys - documented_keys
+        self.assertEqual(
+            undocumented,
+            set(),
+            f".env.example is missing: {sorted(undocumented)}",
+        )
 
 
 class LocaleAndTimeZoneConfTest(SimpleTestCase):
@@ -8740,10 +8794,26 @@ class SeedRulesCommandTest(TestCase):
             self.assertEqual(stored.order, i)
             self.assertTrue(stored.active)
 
-    def test_is_a_no_op_when_rules_already_exist(self):
-        PlannerRule.objects.create(text="Bereits vorhanden", active=True, order=0)
+    def test_marks_itself_seeded(self):
         call_command("seed_rules")
-        self.assertEqual(PlannerRule.objects.count(), 1)
+        self.assertTrue(RulesSeeded.objects.exists())
+
+    def test_is_a_no_op_on_a_second_run(self):
+        call_command("seed_rules")
+        call_command("seed_rules")
+        self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
+
+    def test_does_not_reseed_after_every_rule_is_deleted(self):
+        """A maintainer can clear PlannerRule down to zero via the rules UI
+        (rules.py exposes full add/delete). entrypoint.sh now runs seed_rules
+        on every container start, and a deploy reruns the whole stack, so an
+        idempotency check based on PlannerRule's row count would silently
+        resurrect the deleted defaults on the next deploy. Tracking "already
+        seeded" via RulesSeeded instead avoids that."""
+        call_command("seed_rules")
+        PlannerRule.objects.all().delete()
+        call_command("seed_rules")
+        self.assertEqual(PlannerRule.objects.count(), 0)
 
 
 @override_settings(DEMO_MODE=False)
@@ -8789,6 +8859,33 @@ class BackfillPlannerRuleProjectTypesMigrationTest(TestCase):
         self.backfill(self.apps, None)
         rule.refresh_from_db()
         self.assertEqual(rule.project_types, [])
+
+
+@override_settings(DEMO_MODE=False)
+class MarkSeededIfRulesAlreadyExistMigrationTest(TestCase):
+    """Migration 0009 backfills a RulesSeeded marker for any environment that
+    already ran the old, row-count-based seed_rules before this migration
+    existed — e.g. a maintainer who invoked it by hand before entrypoint.sh
+    called it automatically. Without this, deploying the fix would find no
+    marker and duplicate the INITIAL_RULES on top of what is already there.
+    """
+
+    def setUp(self):
+        from django.apps import apps
+
+        self.mark_seeded = importlib.import_module(
+            "projects.migrations.0009_rulesseeded"
+        ).mark_seeded_if_rules_already_exist
+        self.apps = apps
+
+    def test_marks_seeded_when_rules_already_exist(self):
+        PlannerRule.objects.create(text="Vorhandene Regel", active=True, order=0)
+        self.mark_seeded(self.apps, None)
+        self.assertTrue(RulesSeeded.objects.exists())
+
+    def test_is_a_no_op_on_a_fresh_empty_table(self):
+        self.mark_seeded(self.apps, None)
+        self.assertFalse(RulesSeeded.objects.exists())
 
 
 class OverviewPageNamingTest(DemoModeTestCase):
