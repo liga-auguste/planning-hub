@@ -63,10 +63,20 @@ for production (see `hosts.md`).
 
 ### 4. Stack-specific gotchas
 
-- **demo**: HTTPS certificate renewal — not yet documented here. Verify
-  the actual setup on the host (`certbot certificates`, `crontab -l`,
-  `systemctl list-timers`) before relying on this section; do not assume
-  it renews automatically without checking.
+- **demo**: HTTPS certificate renewal is a latent problem, verified on the
+  host on 2026-09-03. The `certbot.timer` systemd unit (twice daily, the
+  distro package default — no crontab entry) runs `certbot renew` with
+  `authenticator = standalone`, which binds ports 80/443 itself while it
+  runs. But `docker-compose.demo.yml` maps those same host ports to the
+  nginx container, and `/etc/letsencrypt/renewal-hooks/{pre,deploy,post}`
+  are all empty — nothing stops the stack first. Every renewal run logged
+  so far has been a no-op ("not yet due"); the cert expires 2026-11-02, so
+  the first real attempt (30 days out, ~2026-10-03) is likely to fail on
+  a port-bind conflict, with the demo running on an expiring cert
+  afterward. Not fixed here — tracked in #202: either switch the
+  authenticator to work through the running container (webroot/nginx
+  plugin) or add a pre/deploy hook that stops/restarts compose around the
+  renewal.
 - **production**: `.htpasswd` must exist on the host before the first
   start, or nginx fails in a way that doesn't say "no such file" — see the
   README's "Docker (production)" section for why and how to create it.
