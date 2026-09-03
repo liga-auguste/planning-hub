@@ -52,10 +52,7 @@ Resolve or stash anything found; do not pull over it.
 ### 3. Deploy
 
 ```bash
-ssh <host>
-cd <path>
-git pull
-docker compose -f <compose-file> up --build -d
+ssh <host> 'cd <path> && git pull && docker compose -f <compose-file> up --build -d'
 ```
 
 `<compose-file>` is `docker-compose.demo.yml` for demo, `docker-compose.yml`
@@ -99,9 +96,6 @@ host and rebuild. Database backup/restore is out of scope (tracked
 separately).
 
 ```bash
-ssh <host>
-cd <path>
-git log --oneline -5   # find the last-known-good commit
-git checkout <commit>
-docker compose -f <compose-file> up --build -d
+ssh <host> 'cd <path> && git log --oneline -5'   # find the last-known-good commit
+ssh <host> 'cd <path> && git checkout <commit> && docker compose -f <compose-file> up --build -d'
 ```
