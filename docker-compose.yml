@@ -19,6 +19,11 @@ services:
       - db
     volumes:
       - static_files:/app/staticfiles
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/health/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   nginx:
     image: nginx:alpine
@@ -35,7 +40,8 @@ services:
       # name the real cause. Untracked on purpose: it holds a password hash.
       - ./.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
-      - web
+      web:
+        condition: service_healthy
 
 volumes:
   postgres_data:

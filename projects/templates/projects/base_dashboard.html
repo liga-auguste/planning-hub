@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Planning Hub{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{% static 'projects/logo_schwarz.png' %}" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" href="{% static 'projects/logo_weiss.png' %}" media="(prefers-color-scheme: dark)">
+    <link rel="apple-touch-icon" href="{% static 'projects/logo_schwarz.png' %}">
     {% include 'projects/_theme_preload.html' %}
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/base.css' %}" rel="stylesheet">

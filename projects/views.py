@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import Error, connection
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -1248,6 +1249,15 @@ def download_plan(request):
     response = HttpResponse(content, content_type="text/markdown; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
+
+
+def health(request):
+    if not settings.DEMO_MODE:
+        try:
+            connection.ensure_connection()
+        except Error:
+            return HttpResponse("db unavailable", status=503)
+    return HttpResponse("ok")
 
 
 def impressum(request):

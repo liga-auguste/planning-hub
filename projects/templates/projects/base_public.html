@@ -5,6 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Planning Hub{% endblock %}</title>
+    <link rel="icon" type="image/png" href="{% static 'projects/logo_schwarz.png' %}" media="(prefers-color-scheme: light)">
+    <link rel="icon" type="image/png" href="{% static 'projects/logo_weiss.png' %}" media="(prefers-color-scheme: dark)">
+    <link rel="apple-touch-icon" href="{% static 'projects/logo_schwarz.png' %}">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{% block og_title %}Planning Hub{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}KI-gestützte Projektplanung: Idee beschreiben, Rückfragen beantworten, fertigen Aufgabenplan bekommen.{% endblock %}">
+    <meta property="og:image" content="{% block og_image %}{{ request.scheme }}://{{ request.get_host }}{% static 'projects/og-image.png' %}{% endblock %}">
+    <meta property="og:url" content="{{ request.scheme }}://{{ request.get_host }}{{ request.path }}">
+    <meta property="og:locale" content="de_DE">
     {% include 'projects/_theme_preload.html' %}
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/base.css' %}" rel="stylesheet">

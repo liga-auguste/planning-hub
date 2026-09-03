@@ -263,19 +263,21 @@ projects/
   notion.py          # Notion API read/write
   demo_data.py       # Fixture data for DEMO_MODE
   rules.py           # Planning rules: database in production, session in demo mode
-  views.py           # Dashboard, task toggle, time-lapse, stats
+  views.py           # Dashboard, task toggle, time-lapse, stats, health check
   planner_views.py   # 4-step planner flow
   models.py          # PlannerRule, DemoEvent
   startup.py         # Fail-fast API-key checks at server start
   tests.py           # Test suite, fully offline (Claude stubbed)
-  urls.py            # Dashboard, task actions, legal pages
+  urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 15 templates, all JS inline
+  templates/404.html, 500.html  # Custom error pages (top level, not projects/)
   management/commands/seed_rules.py  # Seed initial planner rules
 docs/
   template-refactoring.md      # Base-template inheritance layout, as carried out
   demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
   planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
+  production-readiness.md       # Favicon, social tags, error pages, robots.txt, health check
   screenshots/                  # README images
 ```
 
