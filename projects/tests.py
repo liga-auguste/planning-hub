@@ -7358,6 +7358,19 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         self.assertContains(response, "withSessionLock(() => fetch('/timelapse/', {")
         self.assertContains(response, "const promise = withSessionLock(async () => {")
 
+    def test_moment_tiles_stretch_to_fill_the_row(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".moment-btn { flex: 1;")
+        self.assertContains(response, ".moment-btn-today { flex: 1;")
+
+    def test_reload_fades_out_before_reloading(self):
+        """A cross-document view transition would be the native fix, but
+        Chrome doesn't grant one to a same-URL reload — verified by listening
+        for `pagereveal`'s `viewTransition` around a real setSimDate() click,
+        which came back null. This CSS fade is the fallback."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "document.body.style.opacity = '0';")
+
 
 class MyPlanProgressBarTest(DemoModeTestCase):
     """§4 of #10: the bar rendered `width: {{ done_count }}00%` — the done count

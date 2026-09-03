@@ -135,13 +135,13 @@
         .timelapse-bar { margin-bottom: 32px; }
         .timelapse-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
-        .moment-btn { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
+        .moment-btn { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
         .moment-btn:hover { border-color: var(--color-text-primary); box-shadow: var(--shadow-low); }
         .moment-btn.active { border-color: var(--color-solid-bg); background: var(--color-solid-bg); color: var(--color-solid-text); }
         .moment-btn.active .moment-date { color: var(--color-text-quaternary); }
         .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; }
         .moment-date { font-size: 11px; color: var(--color-text-quaternary); margin-top: 2px; white-space: nowrap; }
-        .moment-btn-today { background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
+        .moment-btn-today { flex: 1; background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
         .moment-btn-today:hover { border-color: var(--color-text-quaternary); color: var(--color-text-primary); }
         .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
         .moment-btn .spinner { display: none; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--color-bg-primary); border-radius: 50%; animation: spin 0.7s linear infinite; margin-top: 4px; }
@@ -645,6 +645,15 @@ async function setSimDate(dateStr, clickedBtn) {
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify({date: dateStr})
     }));
+    // The reload now usually lands on an already-cached summary (#93), so it
+    // happens fast enough that the browser's blank-frame swap between the
+    // old and new document reads as a flicker instead of a load. Chrome
+    // doesn't apply a cross-document view transition to a same-URL reload,
+    // so there's no built-in crossfade to opt into — fading the outgoing
+    // page out first at least softens that cut.
+    document.body.style.transition = 'opacity 0.12s ease-out';
+    document.body.style.opacity = '0';
+    await new Promise(resolve => setTimeout(resolve, 120));
     window.location.reload();
 }
 
