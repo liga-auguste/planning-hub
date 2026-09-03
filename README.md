@@ -249,6 +249,15 @@ Compose creates a missing bind-mount source as an empty directory rather than
 failing outright, so a forgotten file surfaces as a confusing nginx error, not
 as "no such file".
 
+`ALLOWED_HOSTS` must include `localhost` on both stacks, matching
+`.env.example` — the `web` service's own `healthcheck:` calls `/health/` as
+`http://localhost:8000`, and Django's host validation runs before that request
+ever reaches the view. Without it, `docker compose ps` reports `web` as
+`unhealthy` and `nginx`'s `depends_on: condition: service_healthy` blocks it
+from (re)starting, even though the app itself is otherwise fine — this bit an
+already-deployed demo host whose `.env` predated the healthcheck and had
+`ALLOWED_HOSTS` set to only its public hostname.
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 
