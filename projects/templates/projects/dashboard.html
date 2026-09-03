@@ -613,6 +613,7 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 })();
 
 const preloaded = new Set(PRECACHED_MOMENTS);
+const preloadPromises = new Map();
 
 async function setSimDate(dateStr, clickedBtn) {
     document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
@@ -622,6 +623,9 @@ async function setSimDate(dateStr, clickedBtn) {
         const spinner = clickedBtn.querySelector('.spinner');
         if (spinner) spinner.style.display = 'block';
         clickedBtn.querySelector('.moment-title') && (clickedBtn.querySelector('.moment-title').style.opacity = '0.7');
+    }
+    if (dateStr) {
+        await preloadOne(dateStr);
     }
     await fetch('/timelapse/', {
         method: 'POST',
@@ -633,19 +637,28 @@ async function setSimDate(dateStr, clickedBtn) {
 
 async function preloadOne(dateStr) {
     if (preloaded.has(dateStr)) return;
-    try {
-        const response = await fetch('/timelapse/preload/', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-            body: JSON.stringify({date: dateStr})
-        });
-        if (!response.ok) return;
-        preloaded.add(dateStr);
-        // #183: the bar now renders once per view (view-overview and
-        // view-today) instead of a single id="timelapse-moments" — mark
-        // every matching button across both, not just the first found.
-        document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
-    } catch(e) {}
+    if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);
+    const promise = (async () => {
+        try {
+            const response = await fetch('/timelapse/preload/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({date: dateStr})
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (!data.ok) return;
+            preloaded.add(dateStr);
+            // #183: the bar now renders once per view (view-overview and
+            // view-today) instead of a single id="timelapse-moments" — mark
+            // every matching button across both, not just the first found.
+            document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
+        } finally {
+            preloadPromises.delete(dateStr);
+        }
+    })();
+    preloadPromises.set(dateStr, promise);
+    return promise;
 }
 
 async function preloadAll() {

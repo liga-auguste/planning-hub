@@ -7333,6 +7333,19 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         self.assertContains(response, "const PRECACHED_MOMENTS = ")
         self.assertContains(response, "const preloaded = new Set(PRECACHED_MOMENTS);")
 
+    def test_sim_date_awaits_preload_before_reloading(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "if (dateStr) {\n        await preloadOne(dateStr);\n    }")
+
+    def test_preload_one_dedupes_concurrent_calls_for_the_same_date(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const preloadPromises = new Map();")
+        self.assertContains(response, "if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);")
+
+    def test_preload_one_checks_json_ok_not_just_http_status(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "if (!data.ok) return;")
+
 
 class MyPlanProgressBarTest(DemoModeTestCase):
     """§4 of #10: the bar rendered `width: {{ done_count }}00%` — the done count
