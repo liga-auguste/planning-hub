@@ -9135,3 +9135,104 @@ class DashboardDeepLinkTest(DemoModeTestCase):
         self.assertContains(response, "history.replaceState")
         self.assertContains(response, "URLSearchParams")
         self.assertContains(response, "addEventListener('popstate'")
+
+
+class FaviconTest(DemoModeTestCase):
+    """#27: no base template linked a favicon, so every tab showed the
+    browser default. Both logos are already 2000x2000px — no new assets."""
+
+    def test_favicon_links_on_public_pages(self):
+        response = self.client.get(reverse("index"))
+        self.assertContains(
+            response,
+            '<link rel="icon" type="image/png" href="/static/projects/logo_schwarz.png"',
+        )
+        self.assertContains(
+            response,
+            '<link rel="icon" type="image/png" href="/static/projects/logo_weiss.png"',
+        )
+
+    def test_favicon_links_on_dashboard(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<link rel="icon" type="image/png" href="/static/projects/logo_schwarz.png"',
+        )
+        self.assertContains(
+            response,
+            '<link rel="icon" type="image/png" href="/static/projects/logo_weiss.png"',
+        )
+
+    def test_apple_touch_icon_present(self):
+        response = self.client.get(reverse("index"))
+        self.assertContains(response, '<link rel="apple-touch-icon"')
+
+
+class SocialMetaTagsTest(DemoModeTestCase):
+    """#27: no og:* tags anywhere, so the demo link previewed as a bare URL
+    wherever it was shared."""
+
+    def test_default_og_tags_present(self):
+        response = self.client.get(reverse("index"))
+        self.assertContains(response, 'property="og:title"')
+        self.assertContains(response, 'property="og:type"')
+        self.assertContains(response, 'property="og:description"')
+        self.assertContains(response, 'property="og:locale"')
+        self.assertContains(
+            response,
+            'property="og:image" content="http://testserver/static/projects/og-image.png"',
+        )
+        self.assertContains(response, 'property="og:url" content="http://testserver/"')
+
+
+class Custom404Test(TestCase):
+    """#27: with DEBUG=False, no 404.html meant Django's unstyled default
+    page — and it leaked that this is Django."""
+
+    def test_unknown_url_renders_the_custom_page(self):
+        response = self.client.get("/this-page-does-not-exist/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "Seite nicht gefunden", status_code=404)
+
+
+class Custom500Test(SimpleTestCase):
+    """#27: exercises django.views.defaults.server_error directly — the same
+    function Django's own error handling calls in production, independent of
+    which application code happens to raise. Renders with an empty Context
+    (no request, no context processors), which base_public.html tolerates —
+    neither it nor its includes reference request/user/messages."""
+
+    def test_server_error_view_renders_the_custom_page(self):
+        from django.views.defaults import server_error
+
+        response = server_error(RequestFactory().get("/"))
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("Etwas ist schiefgelaufen", response.content.decode())
+
+
+class HealthCheckTest(TestCase):
+    """#27: docker compose up -d reported success for a container that was
+    up but not yet serving, since neither compose file defined a
+    healthcheck. In production the check is DB-aware; the demo stack has no
+    Postgres service, so it stays a pure liveness probe there."""
+
+    @override_settings(DEMO_MODE=True)
+    def test_returns_200_in_demo_mode(self):
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(DEMO_MODE=False)
+    def test_returns_200_when_database_reachable(self):
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(DEMO_MODE=False)
+    def test_returns_503_when_database_unreachable(self):
+        from django.db import Error
+
+        with patch(
+            "django.db.connection.ensure_connection",
+            side_effect=Error("down"),
+        ):
+            response = self.client.get(reverse("health"))
+        self.assertEqual(response.status_code, 503)

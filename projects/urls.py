@@ -35,4 +35,5 @@ urlpatterns = [
     path("wochenrueckblick/", views.week_review, name="week_review"),
     path("impressum/", views.impressum, name="impressum"),
     path("datenschutz/", views.datenschutz, name="datenschutz"),
+    path("health/", views.health, name="health"),
 ]

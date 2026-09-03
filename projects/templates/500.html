@@ -1,0 +1,16 @@
+{% extends 'projects/base_public.html' %}
+
+{% block title %}Etwas ist schiefgelaufen – Planning Hub{% endblock %}
+
+{% block extra_css %}
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+    p { font-size: 14px; line-height: 1.7; color: var(--color-text-secondary); margin-bottom: 24px; max-width: 640px; }
+    .back { display: inline-block; font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; }
+    .back:hover { color: var(--color-text-primary); }
+{% endblock %}
+
+{% block content %}
+    <h1>Etwas ist schiefgelaufen</h1>
+    <p>Das lag nicht an dir — bitte versuche es gleich noch einmal.</p>
+    <a class="back" href="{% url 'index' %}">← Zur Startseite</a>
+{% endblock %}
