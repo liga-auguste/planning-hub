@@ -133,21 +133,19 @@
         .day-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .day-task-name.done { text-decoration: line-through; }
         .timelapse-bar { margin-bottom: 32px; }
-        .timelapse-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+        .timelapse-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+        .timelapse-spinner { display: none; width: 9px; height: 9px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-text-quaternary); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        .timelapse-bar.loading .timelapse-spinner { display: block; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
-        .moment-btn { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
+        .moment-btn { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
         .moment-btn:hover { border-color: var(--color-text-primary); box-shadow: var(--shadow-low); }
         .moment-btn.active { border-color: var(--color-solid-bg); background: var(--color-solid-bg); color: var(--color-solid-text); }
         .moment-btn.active .moment-date { color: var(--color-text-quaternary); }
         .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; }
         .moment-date { font-size: 11px; color: var(--color-text-quaternary); margin-top: 2px; white-space: nowrap; }
-        .moment-btn-today { background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
+        .moment-btn-today { flex: 1; background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
         .moment-btn-today:hover { border-color: var(--color-text-quaternary); color: var(--color-text-primary); }
         .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
-        .moment-btn .spinner { display: none; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--color-bg-primary); border-radius: 50%; animation: spin 0.7s linear infinite; margin-top: 4px; }
-        .moment-btn.active.loading .spinner { display: block; }
-        .moment-btn:not(.active) .spinner { border-top-color: var(--color-text-primary); border-color: rgba(0,0,0,0.15); border-top-color: var(--color-text-primary); }
-        .moment-btn.loading .spinner { display: block; }
         .moment-preloaded::after { content: ''; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--color-done); position: absolute; top: 6px; right: 6px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .overview-progress { margin-bottom: 24px; }
@@ -386,7 +384,7 @@
         {% if heute_today %}
         {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
         {% else %}
-        <p class="ai-error">Für heute liegt nichts an.</p>
+        <p class="ai-error">Für heute liegt nichts mehr an.</p>
         {% endif %}
 
         <div class="today-week-heading week-nav-row" style="margin-top: 36px;">
@@ -613,39 +611,77 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 })();
 
 const preloaded = new Set(PRECACHED_MOMENTS);
+const preloadPromises = new Map();
+
+// Django saves the whole session dict on every response, not just the keys
+// a request touched. Two /timelapse/preload/ (or /timelapse/) calls in
+// flight at once each start from their own snapshot, so the one that saves
+// last silently overwrites the other's write — one moment's cached summary
+// vanishes even though its own request reported ok:true. Routing every
+// session-writing fetch through this queue keeps them from ever overlapping.
+let sessionWriteQueue = Promise.resolve();
+function withSessionLock(fn) {
+    const run = sessionWriteQueue.then(fn, fn);
+    sessionWriteQueue = run.catch(() => {});
+    return run;
+}
 
 async function setSimDate(dateStr, clickedBtn) {
     document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
+    // The spinner used to live inside the clicked tile, but toggling its
+    // display there changed the tile's height and made the whole row
+    // reflow on every click. One shared spinner next to the "Zeitreise"
+    // label avoids that — the tiles below it now only ever change color.
+    document.querySelectorAll('.timelapse-bar').forEach(bar => bar.classList.add('loading'));
     if (clickedBtn) {
-        clickedBtn.classList.remove('loading');
         clickedBtn.classList.add('active', 'loading');
-        const spinner = clickedBtn.querySelector('.spinner');
-        if (spinner) spinner.style.display = 'block';
         clickedBtn.querySelector('.moment-title') && (clickedBtn.querySelector('.moment-title').style.opacity = '0.7');
     }
-    await fetch('/timelapse/', {
+    if (dateStr) {
+        await preloadOne(dateStr);
+    }
+    await withSessionLock(() => fetch('/timelapse/', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify({date: dateStr})
-    });
+    }));
+    // The reload now usually lands on an already-cached summary (#93), so it
+    // happens fast enough that the browser's blank-frame swap between the
+    // old and new document reads as a flicker instead of a load. Chrome
+    // doesn't apply a cross-document view transition to a same-URL reload,
+    // so there's no built-in crossfade to opt into — fading the outgoing
+    // page out first at least softens that cut.
+    document.body.style.transition = 'opacity 0.12s ease-out';
+    document.body.style.opacity = '0';
+    await new Promise(resolve => setTimeout(resolve, 120));
     window.location.reload();
 }
 
 async function preloadOne(dateStr) {
     if (preloaded.has(dateStr)) return;
-    try {
-        const response = await fetch('/timelapse/preload/', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-            body: JSON.stringify({date: dateStr})
-        });
-        if (!response.ok) return;
-        preloaded.add(dateStr);
-        // #183: the bar now renders once per view (view-overview and
-        // view-today) instead of a single id="timelapse-moments" — mark
-        // every matching button across both, not just the first found.
-        document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
-    } catch(e) {}
+    if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);
+    const promise = withSessionLock(async () => {
+        if (preloaded.has(dateStr)) return;
+        try {
+            const response = await fetch('/timelapse/preload/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+                body: JSON.stringify({date: dateStr})
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (!data.ok) return;
+            preloaded.add(dateStr);
+            // #183: the bar now renders once per view (view-overview and
+            // view-today) instead of a single id="timelapse-moments" — mark
+            // every matching button across both, not just the first found.
+            document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
+        } finally {
+            preloadPromises.delete(dateStr);
+        }
+    });
+    preloadPromises.set(dateStr, promise);
+    return promise;
 }
 
 async function preloadAll() {
@@ -662,7 +698,7 @@ if (TIMELAPSE_MOMENTS.length > 0) {
             btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '') + (PRECACHED_MOMENTS.includes(m.date) ? ' moment-preloaded' : '');
             btn.title = m.description;
             btn.dataset.momentDate = m.date;
-            btn.innerHTML = `<div class="moment-title">${m.label}</div><div class="moment-date">${formatMomentDate(m.date)}</div><div class="spinner"></div>`;
+            btn.innerHTML = `<div class="moment-title">${m.label}</div><div class="moment-date">${formatMomentDate(m.date)}</div>`;
             btn.addEventListener('click', () => setSimDate(m.date, btn));
             container.appendChild(btn);
         });

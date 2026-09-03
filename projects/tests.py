@@ -7333,6 +7333,65 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         self.assertContains(response, "const PRECACHED_MOMENTS = ")
         self.assertContains(response, "const preloaded = new Set(PRECACHED_MOMENTS);")
 
+    def test_sim_date_awaits_preload_before_reloading(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "if (dateStr) {\n        await preloadOne(dateStr);\n    }"
+        )
+
+    def test_preload_one_dedupes_concurrent_calls_for_the_same_date(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const preloadPromises = new Map();")
+        self.assertContains(
+            response,
+            "if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);",
+        )
+
+    def test_preload_one_checks_json_ok_not_just_http_status(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "if (!data.ok) return;")
+
+    def test_session_writing_fetches_are_serialized_through_one_queue(self):
+        """#93 follow-up: Django saves the whole session dict per response, so
+        concurrent /timelapse/preload/ calls (fired together from
+        preloadAll's Promise.all) raced and silently dropped each other's
+        cached summary — reproduced by clearing all moment summaries and
+        observing only some survive a fresh preloadAll(). withSessionLock
+        forces every session-writing fetch onto one queue."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "let sessionWriteQueue = Promise.resolve();")
+        self.assertContains(response, "withSessionLock(() => fetch('/timelapse/', {")
+        self.assertContains(response, "const promise = withSessionLock(async () => {")
+
+    def test_moment_tiles_stretch_to_fill_the_row(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".moment-btn { flex: 1;")
+        self.assertContains(response, ".moment-btn-today { flex: 1;")
+
+    def test_reload_fades_out_before_reloading(self):
+        """A cross-document view transition would be the native fix, but
+        Chrome doesn't grant one to a same-URL reload — verified by listening
+        for `pagereveal`'s `viewTransition` around a real setSimDate() click,
+        which came back null. This CSS fade is the fallback."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "document.body.style.opacity = '0';")
+
+    def test_loading_spinner_lives_next_to_the_heading_not_inside_each_tile(self):
+        """Toggling a spinner's display inside a moment-btn changed that
+        tile's height, so every click reflowed the whole row — one shared
+        spinner next to the "Zeitreise" label avoids that; the tiles
+        themselves now only ever change color, never size."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<div class="timelapse-label">Zeitreise<span class="timelapse-spinner"></span></div>',
+        )
+        self.assertContains(
+            response, ".timelapse-bar.loading .timelapse-spinner { display: block; }"
+        )
+        self.assertNotContains(response, '<div class="spinner"></div>')
+
 
 class MyPlanProgressBarTest(DemoModeTestCase):
     """§4 of #10: the bar rendered `width: {{ done_count }}00%` — the done count
