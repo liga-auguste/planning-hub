@@ -386,7 +386,7 @@
         {% if heute_today %}
         {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
         {% else %}
-        <p class="ai-error">Für heute liegt nichts an.</p>
+        <p class="ai-error">Für heute liegt nichts mehr an.</p>
         {% endif %}
 
         <div class="today-week-heading week-nav-row" style="margin-top: 36px;">
@@ -615,6 +615,19 @@ const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 const preloaded = new Set(PRECACHED_MOMENTS);
 const preloadPromises = new Map();
 
+// Django saves the whole session dict on every response, not just the keys
+// a request touched. Two /timelapse/preload/ (or /timelapse/) calls in
+// flight at once each start from their own snapshot, so the one that saves
+// last silently overwrites the other's write — one moment's cached summary
+// vanishes even though its own request reported ok:true. Routing every
+// session-writing fetch through this queue keeps them from ever overlapping.
+let sessionWriteQueue = Promise.resolve();
+function withSessionLock(fn) {
+    const run = sessionWriteQueue.then(fn, fn);
+    sessionWriteQueue = run.catch(() => {});
+    return run;
+}
+
 async function setSimDate(dateStr, clickedBtn) {
     document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
     if (clickedBtn) {
@@ -627,18 +640,19 @@ async function setSimDate(dateStr, clickedBtn) {
     if (dateStr) {
         await preloadOne(dateStr);
     }
-    await fetch('/timelapse/', {
+    await withSessionLock(() => fetch('/timelapse/', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify({date: dateStr})
-    });
+    }));
     window.location.reload();
 }
 
 async function preloadOne(dateStr) {
     if (preloaded.has(dateStr)) return;
     if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);
-    const promise = (async () => {
+    const promise = withSessionLock(async () => {
+        if (preloaded.has(dateStr)) return;
         try {
             const response = await fetch('/timelapse/preload/', {
                 method: 'POST',
@@ -656,7 +670,7 @@ async function preloadOne(dateStr) {
         } finally {
             preloadPromises.delete(dateStr);
         }
-    })();
+    });
     preloadPromises.set(dateStr, promise);
     return promise;
 }

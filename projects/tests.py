@@ -7346,6 +7346,18 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "if (!data.ok) return;")
 
+    def test_session_writing_fetches_are_serialized_through_one_queue(self):
+        """#93 follow-up: Django saves the whole session dict per response, so
+        concurrent /timelapse/preload/ calls (fired together from
+        preloadAll's Promise.all) raced and silently dropped each other's
+        cached summary — reproduced by clearing all moment summaries and
+        observing only some survive a fresh preloadAll(). withSessionLock
+        forces every session-writing fetch onto one queue."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "let sessionWriteQueue = Promise.resolve();")
+        self.assertContains(response, "withSessionLock(() => fetch('/timelapse/', {")
+        self.assertContains(response, "const promise = withSessionLock(async () => {")
+
 
 class MyPlanProgressBarTest(DemoModeTestCase):
     """§4 of #10: the bar rendered `width: {{ done_count }}00%` — the done count
