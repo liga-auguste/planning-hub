@@ -71,3 +71,13 @@ class PlannerRule(models.Model):
 
     def __str__(self):
         return self.text[:60]
+
+
+class RulesSeeded(models.Model):
+    """Marks that seed_rules has run, independent of PlannerRule's row count
+    — a maintainer can delete every rule via the rules UI, and entrypoint.sh
+    now runs seed_rules on every container start, so "PlannerRule has any
+    rows" cannot be the idempotency check without resurrecting deleted
+    defaults on the next deploy."""
+
+    seeded_at = models.DateTimeField(auto_now_add=True)
