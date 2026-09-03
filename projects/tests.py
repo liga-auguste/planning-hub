@@ -231,6 +231,31 @@ class StaticCacheHeadersConfTest(SimpleTestCase):
                 self.assertIn("expires 1y;", conf)
 
 
+class EntrypointConfTest(SimpleTestCase):
+    """#24: entrypoint.sh ran migrate and collectstatic but never seed_rules,
+    so a stack built from scratch starts with an empty PlannerRule table —
+    get_active_rule_texts() returns [] and the planner prompt is silently
+    missing every maintainer rule. seed_rules is idempotent (bails out if
+    rows already exist), so it is safe to run on every container start,
+    including the demo container where it runs but has no effect (demo
+    reads the session backend, not this table)."""
+
+    def test_seed_rules_runs_between_migrate_and_gunicorn(self):
+        entrypoint = (settings.BASE_DIR / "entrypoint.sh").read_text()
+        self.assertIn("manage.py migrate", entrypoint)
+        self.assertIn("manage.py seed_rules", entrypoint)
+        self.assertLess(
+            entrypoint.index("manage.py migrate"),
+            entrypoint.index("manage.py seed_rules"),
+            "seed_rules must run after migrate",
+        )
+        self.assertLess(
+            entrypoint.index("manage.py seed_rules"),
+            entrypoint.index("gunicorn"),
+            "seed_rules must run before gunicorn starts serving",
+        )
+
+
 class StaticStorageConfigTest(SimpleTestCase):
     """#74: settings.py picks the staticfiles backend by process type —
     ManifestStaticFilesStorage for the server, the plain storage under the
@@ -331,6 +356,35 @@ class DebugDefaultConfTest(SimpleTestCase):
             debug = importlib.reload(settings_module).DEBUG
         importlib.reload(settings_module)
         self.assertTrue(debug)
+
+
+class EnvExampleConfTest(SimpleTestCase):
+    """#24: settings.py reads CSRF_TRUSTED_ORIGINS from the environment, but
+    .env.example never documented it, so a fresh deploy that only copies
+    .env.example starts with an empty value and nothing errors — the failure
+    surfaces later as a rejected POST behind the reverse proxy. This guards
+    every settings.py env var against the same drift, not just this one
+    key."""
+
+    def test_env_example_documents_every_settings_env_var(self):
+        settings_source = (
+            settings.BASE_DIR / "planning_hub" / "settings.py"
+        ).read_text()
+        read_keys = set(
+            re.findall(r'os\.environ(?:\.get\(|\[)"([A-Z_]+)"', settings_source)
+        )
+
+        env_example_source = (settings.BASE_DIR / ".env.example").read_text()
+        documented_keys = set(
+            re.findall(r"^([A-Z_]+)=", env_example_source, re.MULTILINE)
+        )
+
+        undocumented = read_keys - documented_keys
+        self.assertEqual(
+            undocumented,
+            set(),
+            f".env.example is missing: {sorted(undocumented)}",
+        )
 
 
 class LocaleAndTimeZoneConfTest(SimpleTestCase):

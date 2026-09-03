@@ -249,6 +249,9 @@ Compose creates a missing bind-mount source as an empty directory rather than
 failing outright, so a forgotten file surfaces as a confusing nginx error, not
 as "no such file".
 
+For deploying to either running stack (pulling, rebuilding, verifying) see
+`.claude/skills/deploy/SKILL.md`.
+
 ---
 
 ## Project structure
