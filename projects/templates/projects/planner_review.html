@@ -186,9 +186,13 @@ function sortRows() {
     const rows = Array.from(tbody.querySelectorAll('tr'));
 
     // Re-inserting the focused element's row can blur it, so capture focus
-    // and caret position now and restore them after the move.
+    // and caret position now and restore them after the move. 'selectionStart'
+    // exists on every <input> regardless of type, but setSelectionRange()
+    // throws on types like date that don't support text selection — so the
+    // capability check has to be type-aware, not just a property check.
     const active = document.activeElement;
-    const hasSelection = active && 'selectionStart' in active;
+    const hasSelection = active && (active.tagName === 'TEXTAREA' ||
+        (active.tagName === 'INPUT' && ['text', 'search', 'url', 'tel', 'password'].includes(active.type)));
     const selStart = hasSelection ? active.selectionStart : null;
     const selEnd = hasSelection ? active.selectionEnd : null;
 
