@@ -175,7 +175,40 @@ function updateDates() {
         }
     });
     document.getElementById('event-date-hidden').value = val;
+    sortRows();
 }
+
+// ISO date strings ("YYYY-MM-DD") sort correctly as plain strings, so no
+// Date parsing is needed. Datumless rows sort last. Array.prototype.sort has
+// been stable since ES2019, so same-day rows keep their relative order.
+function sortRows() {
+    const tbody = document.querySelector('.task-table tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    // Re-inserting the focused element's row can blur it, so capture focus
+    // and caret position now and restore them after the move.
+    const active = document.activeElement;
+    const hasSelection = active && 'selectionStart' in active;
+    const selStart = hasSelection ? active.selectionStart : null;
+    const selEnd = hasSelection ? active.selectionEnd : null;
+
+    rows.sort((a, b) => {
+        const da = a.querySelector('input[name="task_date"]').value;
+        const db = b.querySelector('input[name="task_date"]').value;
+        if (!da) return da === db ? 0 : 1;
+        if (!db) return -1;
+        return da < db ? -1 : da > db ? 1 : 0;
+    });
+    rows.forEach(row => tbody.appendChild(row));
+
+    if (active && active !== document.body && active !== document.activeElement) {
+        active.focus();
+        if (hasSelection) active.setSelectionRange(selStart, selEnd);
+    }
+}
+document.querySelector('.task-table tbody').addEventListener('change', function (e) {
+    if (e.target.matches('input[name="task_date"]')) sortRows();
+});
 
 // A manual edit means the visitor has looked at and confirmed the date, so
 // the "kein Termin erkannt" guess it may have replaced no longer applies.
