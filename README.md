@@ -92,6 +92,12 @@ Each production task belongs to a workflow context (e.g. planning, admin, on-sit
 
 `urgent` used to be a rolling 7-day window — reschedule a task past a deadline and it read as urgent again the moment it was saved, indistinguishable from procrastination. It is now a comparison against the current ISO calendar week (`projects/dates.py`), and "closing the week" is a deliberate ritual (triage the week's open tasks, reschedule what needs moving, see a stats snapshot and an appreciative AI review) rather than a persisted state machine — no stored "current effective week" pointer, just the calendar's own rollover. `projects/closeout.py` follows `rules.py`'s two-backend shape: a `WeekCloseout` row in production, the visitor's own session in demo mode, one interface either way. Full writeup: [`docs/wochenabschluss.md`](docs/wochenabschluss.md).
 
+### Derived values come back from the server, not from a second implementation
+
+Every count on the dashboard — the week progress bar, the day-column counters, the Kanban column counts, the sidebar rings — is derived in one place on the server, and a write answers with the numbers it changed instead of the page reloading or the client recounting what it can see. This is not a preference: membership is subtler than the cards on screen. A task counts toward a week if its due date falls in it *or* it was completed in it, so checking a task off can raise the **denominator** — an overdue task from an earlier week, cleared today, joins this week's total without a single card moving. The same applies to urgency, which is calendar-week based and, in a demo session, measured against the simulated date rather than the real today.
+
+That only stays cheap because a confirmed write patches the cache instead of invalidating it. A toggle moves no task (`done` is deliberately not part of the sort key), so the cached lists and the AI summary's references both survive; a reschedule does move one, so the projects are re-sorted and only the summary is dropped. Where a patch cannot be applied safely — a cold cache, a task no cached list carries — the code falls back to the full invalidation it replaced. Full writeup: [`docs/dashboard-write-paths.md`](docs/dashboard-write-paths.md).
+
 ---
 
 ## How this was built
@@ -102,7 +108,7 @@ Every change runs on its own branch and lands through a pull request; nothing go
 
 - **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
 - **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
-- **The test suite** is where the delegation is actually checked: 7,411 lines of tests against 3,351 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
+- **The test suite** is where the delegation is actually checked: 10,586 lines of tests against 4,485 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
 
 A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/planning-hub/issues/116) → [`docs/planner-step-navigation.md`](docs/planner-step-navigation.md) → [PR #123](https://github.com/liga-auguste/planning-hub/pull/123).
 
