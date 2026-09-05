@@ -312,8 +312,8 @@
             <div class="kanban-col col-open">
                 <div class="kanban-col-header">Offen <span class="kanban-col-count" id="count-open">0</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'ok' or task.urgency == 'undated' %}
-                <div class="kanban-card {{ task.urgency }}">
+                {% if task.kanban_column == 'open' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
@@ -327,17 +327,8 @@
             <div class="kanban-col col-urgent">
                 <div class="kanban-col-header">Dringend <span class="kanban-col-count" id="count-urgent">0</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'overdue' %}
-                <div class="kanban-card overdue">
-                    <div class="kanban-card-name">{{ task.name }}</div>
-                    <div class="kanban-card-meta">
-                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
-                    </div>
-                </div>
-                {% endif %}
-                {% if task.urgency == 'urgent' or task.urgency == 'today' %}
-                <div class="kanban-card {{ task.urgency }}">
+                {% if task.kanban_column == 'urgent' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
@@ -351,8 +342,8 @@
             <div class="kanban-col col-done">
                 <div class="kanban-col-header">Erledigt <span class="kanban-col-count" id="count-done">0</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'done' %}
-                <div class="kanban-card done">
+                {% if task.kanban_column == 'done' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}

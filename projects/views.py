@@ -48,20 +48,22 @@ logger = logging.getLogger(__name__)
 # and task dicts carry a new postpone_count; #19: v7 — task dicts carry a
 # new completed_date, and a pre-deploy entry would undercount "done this
 # week" until it expires; #189: v8 — task dicts no longer carry
-# due_display, see below) — otherwise a pre-deploy entry in the old shape
-# would crash or misrender under the new resolver.
+# due_display, see below; #210: v9 — task dicts carry a new kanban_column,
+# and a pre-deploy entry would render an empty Kanban board) — otherwise a
+# pre-deploy entry in the old shape would crash or misrender under the new
+# resolver.
 #
 # #189 is the one bump that is not correctness-critical: a pre-deploy entry
 # still renders right, because the leftover due_display is simply no longer
 # read. It is bumped anyway so that STALE_CACHE_KEY, which never expires,
 # cannot keep serving a shape no code writes any more — and because a
 # formatted date living in this cache was the bug in the first place.
-CACHE_KEY = "dashboard_data_v8"
+CACHE_KEY = "dashboard_data_v9"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v8"
+STALE_CACHE_KEY = "dashboard_data_stale_v9"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -70,9 +72,10 @@ STALE_CACHE_KEY = "dashboard_data_stale_v8"
 # #19: v2 — task dicts carry the same new completed_date field.
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v3"
+# #210: v4 — and they gained kanban_column, bumped in the same lockstep.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v4"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v3"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v4"
 
 
 def _bust_dashboard_cache():
@@ -112,6 +115,26 @@ _URGENCY_RANK = {
     "done": 0,
     "undated": 0,
 }
+
+
+# The Kanban board's three columns, keyed by the stage _annotate_tasks
+# already assigned. The board used to spell this out three times in the
+# template as `{% if task.urgency == ... %}`; a toggle that moves a card
+# needs the same rule client-side, and a fourth copy of it in JavaScript is
+# exactly the drift #210 is about. So the mapping lives here once, ships as
+# a field on every task, and the template renders from that field.
+_KANBAN_COLUMN = {
+    "overdue": "urgent",
+    "today": "urgent",
+    "urgent": "urgent",
+    "ok": "open",
+    "undated": "open",
+    "done": "done",
+}
+
+
+def _kanban_column(urgency):
+    return _KANBAN_COLUMN[urgency]
 
 
 def _classify_due_urgency(due, today):
@@ -156,6 +179,7 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "done"
             else:
                 task["urgency"] = _classify_due_urgency(task["due"], today)
+            task["kanban_column"] = _kanban_column(task["urgency"])
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
             if task["done"]:

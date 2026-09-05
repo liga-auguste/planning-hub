@@ -65,16 +65,19 @@ from .planner_views import _get_history, _parse_event_date
 from .rules import DEMO_RULES_KEY, INITIAL_RULES, add_rule, get_active_rule_texts
 from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
+    _KANBAN_COLUMN,
     _URGENCY_RANK,
     CACHE_KEY,
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
+    STALE_UNASSIGNED_CACHE_KEY,
     SUMMARY_KEY,
     UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
     _bucket_by_day,
     _build_week_view,
     _count_done_in_range,
+    _kanban_column,
     _parse_week_param,
     _strip_trailing_date,
 )
@@ -9806,3 +9809,98 @@ class ToggleSyncCoversEveryCardShapeTest(DemoModeTestCase):
         html = self.dashboard_html()
         self.assertIn(".day-task-card.done { opacity: 0.55; }", html)
         self.assertIn("card.classList.toggle('done', done);", html)
+
+
+class KanbanColumnTest(SimpleTestCase):
+    """#210: the urgency -> column mapping was spelled out three times in
+    dashboard.html as `{% if task.urgency == ... %}`. Moving a card on
+    toggle would have made that a fourth copy in JavaScript, so the rule
+    became a function and ships as a field on every task instead."""
+
+    def test_done_has_its_own_column(self):
+        self.assertEqual(_kanban_column("done"), "done")
+
+    def test_everything_with_a_deadline_this_week_or_earlier_is_urgent(self):
+        for urgency in ("overdue", "today", "urgent"):
+            with self.subTest(urgency=urgency):
+                self.assertEqual(_kanban_column(urgency), "urgent")
+
+    def test_later_and_undated_work_is_open(self):
+        for urgency in ("ok", "undated"):
+            with self.subTest(urgency=urgency):
+                self.assertEqual(_kanban_column(urgency), "open")
+
+    def test_every_stage_a_task_can_carry_has_a_column(self):
+        # A stage added to _annotate_tasks without a column here would
+        # silently drop its cards off the board.
+        self.assertEqual(set(_KANBAN_COLUMN), set(_URGENCY_RANK))
+
+    def test_annotate_tasks_sets_the_field(self):
+        today = date(2026, 9, 5)
+        projects = _annotate_tasks(
+            [
+                {
+                    "id": "p1",
+                    "tasks": [
+                        {"id": "t1", "due": today - timedelta(days=1), "done": False},
+                        {"id": "t2", "due": today + timedelta(days=90), "done": False},
+                        {"id": "t3", "due": today, "done": True},
+                    ],
+                }
+            ],
+            today,
+        )
+        self.assertEqual(
+            [t["kanban_column"] for t in projects[0]["tasks"]],
+            ["urgent", "done", "open"],
+        )
+
+
+class KanbanCardMarkupTest(TestCase):
+    """The card has to be findable by task id before it can be moved."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_every_card_carries_its_task_id(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            html = self.client.get(reverse("dashboard")).content.decode()
+        cards = re.findall(r'<div class="kanban-card [^"]*"[^>]*>', html)
+        self.assertTrue(cards)
+        for card in cards:
+            self.assertIn("data-task-id=", card)
+
+    def test_the_template_renders_from_the_column_field(self):
+        # Not from a fourth copy of the urgency -> column mapping.
+        template = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn("{% if task.kanban_column == 'open' %}", template)
+        self.assertIn("{% if task.kanban_column == 'urgent' %}", template)
+        self.assertIn("{% if task.kanban_column == 'done' %}", template)
+        self.assertNotIn(
+            "{% if task.urgency == 'ok' or task.urgency == 'undated' %}", template
+        )
+
+
+class DashboardCacheVersionTest(SimpleTestCase):
+    """#210 adds kanban_column to every cached task dict. The cache stores
+    already-annotated projects and does not re-annotate on a hit, so a
+    pre-deploy entry would render an empty board — and STALE_CACHE_KEY never
+    expires, so it would serve that shape indefinitely."""
+
+    def test_both_key_pairs_are_bumped_together(self):
+        self.assertEqual(CACHE_KEY, "dashboard_data_v9")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v9")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v4")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v4")
