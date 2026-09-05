@@ -9762,3 +9762,47 @@ class MyPlanSummaryShowsTaskDatesTest(DemoModeTestCase):
             format_date(date.today() + timedelta(days=7)),
             self._summary_box_html(response),
         )
+
+
+class ToggleSyncCoversEveryCardShapeTest(DemoModeTestCase):
+    """#210: the toggle's DOM sync was written for the two card shapes that
+    existed when #122 added it — the task row and the AI summary's list item.
+    The day-column card, added later, carries a matching toggle-form and so
+    got its dot flipped, but its name span is `.day-task-name` and the card
+    itself is no `.task-row` or `<li>`, so neither the strike-through nor the
+    dimming ever arrived. Half an update reads as "it worked", which is why
+    this is asserted per shape rather than on the selector as a whole."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_sync_is_one_named_function(self):
+        # Inline in the submit handler it could only ever serve the toggle;
+        # named, it is the one place that knows what "this task is done"
+        # looks like across the document.
+        self.assertIn("function applyTaskDone(taskId, done) {", self.dashboard_html())
+
+    def test_the_handler_calls_it_instead_of_carrying_its_own_copy(self):
+        html = self.dashboard_html()
+        self.assertIn("applyTaskDone(taskId, done);", html)
+        self.assertNotIn(
+            "const nameSpan = f.closest('.task-row, li')?.querySelector('.task-name');",
+            html,
+        )
+
+    def test_all_three_card_shapes_are_reachable(self):
+        self.assertIn(
+            "f.closest('.task-row, li, .day-task-card')", self.dashboard_html()
+        )
+
+    def test_the_day_columns_own_name_span_is_in_the_selector(self):
+        self.assertIn("'.task-name, .day-task-name'", self.dashboard_html())
+
+    def test_the_day_card_itself_is_dimmed_not_only_its_name(self):
+        # .day-task-card.done { opacity: 0.55 } sits on the card, so the
+        # class has to land there too — the name span alone leaves a card
+        # at full strength with a struck-through label inside it.
+        html = self.dashboard_html()
+        self.assertIn(".day-task-card.done { opacity: 0.55; }", html)
+        self.assertIn("card.classList.toggle('done', done);", html)

@@ -572,16 +572,30 @@ document.querySelectorAll('.toggle-form').forEach(form => {
             flashActionFailed(form.querySelector('button'));
             return;
         }
-        // The same task renders in more than one place (task list + AI
-        // summary card, #122) — update every copy, not just the clicked one.
-        document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
-            f.dataset.done = done ? 'true' : 'false';
-            f.querySelector('button').classList.toggle('done', done);
-            const nameSpan = f.closest('.task-row, li')?.querySelector('.task-name');
-            if (nameSpan) nameSpan.classList.toggle('done', done);
-        });
+        applyTaskDone(taskId, done);
     });
 });
+
+// The same task renders in more than one place — update every copy, not
+// just the clicked one. #122 wrote this for the two shapes that existed
+// then (the task row and the AI summary's list item); the day-column card
+// arrived later with a matching toggle-form, so its dot flipped while its
+// strike-through and its dimming never did. One function, one selector
+// list, so the next shape is added here rather than forgotten.
+function applyTaskDone(taskId, done) {
+    document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
+        f.dataset.done = done ? 'true' : 'false';
+        f.querySelector('button').classList.toggle('done', done);
+        const card = f.closest('.task-row, li, .day-task-card');
+        if (!card) return;
+        const nameSpan = card.querySelector('.task-name, .day-task-name');
+        if (nameSpan) nameSpan.classList.toggle('done', done);
+        // .day-task-card.done dims the whole card (opacity: 0.55), so that
+        // class belongs on the card itself — the name span alone leaves a
+        // card at full strength with a struck-through label inside it.
+        if (card.classList.contains('day-task-card')) card.classList.toggle('done', done);
+    });
+}
 
 function flashActionFailed(el) {
     el.classList.add('action-failed');
