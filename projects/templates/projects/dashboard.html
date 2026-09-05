@@ -310,7 +310,7 @@
 
         <div class="kanban">
             <div class="kanban-col col-open">
-                <div class="kanban-col-header">Offen <span class="kanban-col-count" id="count-open">0</span></div>
+                <div class="kanban-col-header">Offen <span class="kanban-col-count" id="count-open">{{ kanban_counts.open }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
                 {% if task.kanban_column == 'open' %}
                 <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
@@ -325,7 +325,7 @@
             </div>
 
             <div class="kanban-col col-urgent">
-                <div class="kanban-col-header">Dringend <span class="kanban-col-count" id="count-urgent">0</span></div>
+                <div class="kanban-col-header">Dringend <span class="kanban-col-count" id="count-urgent">{{ kanban_counts.urgent }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
                 {% if task.kanban_column == 'urgent' %}
                 <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
@@ -340,7 +340,7 @@
             </div>
 
             <div class="kanban-col col-done">
-                <div class="kanban-col-header">Erledigt <span class="kanban-col-count" id="count-done">0</span></div>
+                <div class="kanban-col-header">Erledigt <span class="kanban-col-count" id="count-done">{{ kanban_counts.done }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
                 {% if task.kanban_column == 'done' %}
                 <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
@@ -606,18 +606,6 @@ function formatMomentDate(isoStr) {
 }
 
 const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
-
-(function() {
-    // #19: the progress-fill/-label above are server-rendered (week_done_count /
-    // week_total_count, context) — this only still fills the per-column kanban
-    // badges, which count everything on the board, not just this week.
-    const open   = document.querySelectorAll('.kanban-card.ok, .kanban-card.undated').length;
-    const urgent = document.querySelectorAll('.kanban-card.urgent, .kanban-card.overdue, .kanban-card.today').length;
-    const done   = document.querySelectorAll('.kanban-card.done').length;
-    document.getElementById('count-open')   && (document.getElementById('count-open').textContent   = open);
-    document.getElementById('count-urgent') && (document.getElementById('count-urgent').textContent = urgent);
-    document.getElementById('count-done')   && (document.getElementById('count-done').textContent   = done);
-})();
 
 const preloaded = new Set(PRECACHED_MOMENTS);
 const preloadPromises = new Map();

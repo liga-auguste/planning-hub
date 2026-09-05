@@ -398,6 +398,66 @@ def _bucket_by_day(projects, unassigned_tasks, week_start):
     return days
 
 
+def _derive_dashboard_figures(
+    projects, unassigned_tasks, effective_today, browsed_monday, whole_plan=False
+):
+    """Every count a surface on the dashboard renders task state from. One
+    place, called by dashboard() on load and by toggle_task_view after a
+    write — a second implementation of these rules is what #210 was.
+
+    They cannot be recomputed in the browser: membership is subtler than
+    counting the cards on screen. `_count_done_in_range` admits a task whose
+    due date falls in the range *or* that was completed in it, so checking a
+    task off can raise the denominator — an overdue task from an earlier
+    week, cleared today, joins this week's total without any card moving.
+    #194 states the same rule for urgency, and for the same reason.
+
+    `whole_plan` is #183's exception: in a demo session the bar counts the
+    plan's overall completion rather than the current week, because a
+    week-scoped count barely moved between Zeitreise moments.
+    """
+    week_start, week_end = iso_week_bounds(effective_today)
+    # #182: deliberately excludes unassigned_tasks, unlike the day columns
+    # below. The Kanban board beneath this bar renders strictly from
+    # project["tasks"] and can never show a project-less task, so counting
+    # one here made the bar and the board disagree on the same number.
+    all_tasks = [t for project in projects for t in project["tasks"]]
+    if whole_plan:
+        week_done = sum(1 for t in all_tasks if t["done"])
+        week_total = len(all_tasks)
+    else:
+        week_done, week_total = _count_done_in_range(all_tasks, week_start, week_end)
+
+    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
+
+    kanban = dict.fromkeys(set(_KANBAN_COLUMN.values()), 0)
+    for task in all_tasks:
+        kanban[task["kanban_column"]] += 1
+
+    return {
+        "week": {
+            "done": week_done,
+            "total": week_total,
+            "pct": round(week_done / week_total * 100) if week_total else 0,
+        },
+        "days": {
+            day["date_iso"]: {"done": day["done_count"], "total": day["total_count"]}
+            for day in day_columns
+        },
+        "kanban": kanban,
+        "projects": {
+            project["id"]: {
+                "urgency": project["urgency"],
+                "ring_dashoffset": project["ring_dashoffset"],
+            }
+            for project in projects
+        },
+        # The rendered shape day_columns needs, kept next to the counts it
+        # was derived from so the load path takes no second walk over it.
+        "day_columns": day_columns,
+    }
+
+
 def _fetch_fresh_data(today):
     """Returns (projects, summary_data) — the summary as Claude's raw
     reference dict, resolved against live projects only at render time."""
@@ -725,42 +785,30 @@ def dashboard(request):
 
     week_view = _build_week_view(projects, unassigned_tasks)
 
-    # #19: the week progress bar — counted against the calendar week
-    # containing effective_today (not `today`, so demo time-travel moves the
-    # bar along with everything else).
-    #
-    # #182: deliberately excludes unassigned_tasks, unlike week_view above.
-    # The Kanban board beneath this bar renders strictly from
-    # project["tasks"] and can never show a project-less task, so counting
-    # one here made the bar and the board disagree on the same number.
-    week_start, week_end = iso_week_bounds(effective_today)
-    all_tasks = [t for project in projects for t in project["tasks"]]
-    if has_session_plan:
-        # #183 follow-up: a week-scoped count barely moved between Zeitreise
-        # moments, often showing 0/0 several moments in a row — the story
-        # the bar should tell here is the plan's overall completion, which
-        # does visibly progress: a moment marks every task due on/before it
-        # "done" (see the deepcopy mutation above), so the whole-plan count
-        # fills up moment to moment the way the week-scoped one didn't.
-        week_done_count = sum(1 for t in all_tasks if t["done"])
-        week_total_count = len(all_tasks)
-    else:
-        week_done_count, week_total_count = _count_done_in_range(
-            all_tasks, week_start, week_end
-        )
-    week_progress_pct = (
-        round(week_done_count / week_total_count * 100) if week_total_count else 0
-    )
-
     # #180: the day-column breakdown can browse any week, independent of
-    # effective_today — week_start above stays the *current* week for the
-    # progress bar even while these columns show a different one.
+    # effective_today — the progress bar stays on the *current* week even
+    # while these columns show a different one.
+    week_start = iso_week_bounds(effective_today)[0]
     browsed_monday = _parse_week_param(request, week_start)
     browsed_sunday = browsed_monday + timedelta(days=6)
     prev_monday = browsed_monday - timedelta(days=7)
     next_monday = browsed_monday + timedelta(days=7)
     is_current_week = browsed_monday == week_start
-    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
+
+    # #210: every count on the page comes from here, and so does the
+    # toggle's answer — one implementation, so the load path and the write
+    # path cannot show different numbers for the same board.
+    figures = _derive_dashboard_figures(
+        projects,
+        unassigned_tasks,
+        effective_today,
+        browsed_monday,
+        whole_plan=has_session_plan,
+    )
+    week_done_count = figures["week"]["done"]
+    week_total_count = figures["week"]["total"]
+    week_progress_pct = figures["week"]["pct"]
+    day_columns = figures["day_columns"]
 
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
@@ -837,6 +885,7 @@ def dashboard(request):
             "week_done_count": week_done_count,
             "week_total_count": week_total_count,
             "week_progress_pct": week_progress_pct,
+            "kanban_counts": figures["kanban"],
             "day_columns": day_columns,
             "week_range_label": format_week_range(browsed_monday, browsed_sunday),
             "is_current_week": is_current_week,
@@ -903,6 +952,50 @@ def preload_timelapse_summary(request):
     return JsonResponse({"ok": True})
 
 
+def _parse_week_start(data, default_monday):
+    """#210: the client posts the Monday of the week its day columns are
+    showing — ?week= navigates them to any week and the server cannot guess
+    which one is on screen. Anything unparseable falls back to the current
+    week, the same tolerance _parse_week_param already applies to the query
+    param a visitor is free to hand-edit."""
+    raw = data.get("week_start")
+    if not isinstance(raw, str):
+        return default_monday
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return default_monday
+
+
+def _toggle_answer(
+    projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+):
+    """The figures a toggle changes, next to the stage the task now carries.
+    An empty dict means there was nothing to derive from — the client then
+    reloads rather than being handed numbers the server had to guess at."""
+    task, project = _find_task(projects, unassigned_tasks, task_id)
+    if task is None:
+        return {}
+    for cached_project in projects:
+        # _bucket_by_day tags every task with its project's display name;
+        # the cache holds the raw Notion name, so this is set here the way
+        # dashboard() sets it before its own call.
+        cached_project["display_name"] = _strip_trailing_date(cached_project["name"])
+    figures = _derive_dashboard_figures(
+        projects, unassigned_tasks, effective_today, browsed_monday, whole_plan
+    )
+    answer = {
+        "urgency": task["urgency"],
+        "kanban_column": task["kanban_column"],
+        "week": figures["week"],
+        "days": figures["days"],
+        "kanban": figures["kanban"],
+    }
+    if project is not None:
+        answer["project"] = {"id": project["id"], **figures["projects"][project["id"]]}
+    return answer
+
+
 def toggle_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
@@ -930,6 +1023,23 @@ def toggle_task_view(request, task_id):
         # #19: mirrors toggle_task's own Done/Erledigt am pairing in Notion.
         task["completed_date"] = effective_today.isoformat() if done else None
         request.session["demo_plan"] = plan
+        # Time travel counts here the way it does on the dashboard: the same
+        # deepcopy mutation, so the figures match what a reload would render.
+        project = copy.deepcopy(_build_session_project(plan))
+        if sim_date:
+            for plan_task in project["tasks"]:
+                if plan_task.get("due") and plan_task["due"] <= sim_date:
+                    plan_task["done"] = True
+        projects = _annotate_tasks([project], effective_today)
+        figures = _toggle_answer(
+            projects,
+            [],
+            task_id,
+            effective_today,
+            _parse_week_start(data, iso_week_bounds(effective_today)[0]),
+            # #183: a demo session's bar counts the whole plan, not the week.
+            whole_plan=True,
+        )
     else:
         today = timezone.localdate()
         completed_date = today if done else None
@@ -947,9 +1057,19 @@ def toggle_task_view(request, task_id):
             task["done"] = done
             task["completed_date"] = completed_date
 
-        if _patch_cached_tasks(task_id, mark, today) is None:
+        patched = _patch_cached_tasks(task_id, mark, today)
+        if patched is None:
             _bust_dashboard_cache()
-    return JsonResponse({"ok": True})
+            figures = {}
+        else:
+            figures = _toggle_answer(
+                *patched,
+                task_id,
+                today,
+                _parse_week_start(data, iso_week_bounds(today)[0]),
+                whole_plan=False,
+            )
+    return JsonResponse({"ok": True, **figures})
 
 
 def reschedule_task_view(request, task_id):

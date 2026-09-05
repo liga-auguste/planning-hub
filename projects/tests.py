@@ -77,6 +77,7 @@ from .views import (
     _bucket_by_day,
     _build_week_view,
     _count_done_in_range,
+    _derive_dashboard_figures,
     _kanban_column,
     _parse_week_param,
     _strip_trailing_date,
@@ -5052,11 +5053,15 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         self.assertNotIn("Erledigt-Aufgabe", open_col)
 
     def test_the_progress_counters_include_undated_and_today(self):
+        # #210: the badges used to be counted in the browser from
+        # .kanban-card classes, and a stage missing from that selector list
+        # was a card on the board the badge above it did not count. They are
+        # rendered from _KANBAN_COLUMN now, so the same guard asks the
+        # rendered numbers instead of the selectors that used to produce them.
         self.given_mixed_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".kanban-card.ok, .kanban-card.undated")
-        self.assertContains(
-            response, ".kanban-card.urgent, .kanban-card.overdue, .kanban-card.today"
+        self.assertEqual(
+            response.context["kanban_counts"], {"open": 1, "urgent": 1, "done": 1}
         )
 
     def test_reschedule_js_clears_the_today_class_too(self):
@@ -10045,3 +10050,223 @@ class ToggleKeepsTheDashboardCacheWarmTest(TestCase):
                 content_type="application/json",
             )
         self.assertFalse(_cached_task_by_id(CACHE_KEY, "task-1")["done"])
+
+
+@override_settings(DEMO_MODE=False)
+class ToggleAnswersTheRecomputedFiguresTest(TestCase):
+    """#210: every count on the dashboard is server-derived, and a toggle
+    can change a denominator, not just a numerator — an overdue task from an
+    earlier week, cleared today, enters this week's total. So the server,
+    which already knows the answer, hands it back instead of leaving the
+    client to reimplement _count_done_in_range in JavaScript."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_toggle(self, task_id, done=True, **body):
+        with patch("projects.views.toggle_task"):
+            return self.client.post(
+                reverse("toggle_task", args=[task_id]),
+                data=json.dumps({"done": done, **body}),
+                content_type="application/json",
+            )
+
+    def test_the_week_bar_counts_come_back(self):
+        today = date.today()
+        _warm_dashboard_cache(
+            [_cached_task("task-1", today), _cached_task("task-2", today)]
+        )
+        data = self.post_toggle("task-1").json()
+        self.assertEqual(data["week"], {"done": 1, "total": 2, "pct": 50})
+
+    def test_all_seven_day_counts_come_back_keyed_by_iso_date(self):
+        today = date.today()
+        monday = iso_week_bounds(today)[0]
+        _warm_dashboard_cache([_cached_task("task-1", monday)])
+        data = self.post_toggle("task-1", week_start=monday.isoformat()).json()
+        self.assertEqual(len(data["days"]), 7)
+        self.assertEqual(data["days"][monday.isoformat()], {"done": 1, "total": 1})
+
+    def test_the_browsed_week_is_the_one_the_client_is_showing(self):
+        # ?week= navigates the day columns to any week; the server cannot
+        # guess which one is on screen, so the client sends its Monday.
+        today = date.today()
+        next_monday = iso_week_bounds(today)[0] + timedelta(days=7)
+        _warm_dashboard_cache([_cached_task("task-1", next_monday)])
+        data = self.post_toggle("task-1", week_start=next_monday.isoformat()).json()
+        self.assertIn(next_monday.isoformat(), data["days"])
+        self.assertEqual(data["days"][next_monday.isoformat()], {"done": 1, "total": 1})
+
+    def test_an_unparseable_week_start_falls_back_to_the_current_week(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        data = self.post_toggle("task-1", week_start="übermorgen").json()
+        self.assertIn(iso_week_bounds(today)[0].isoformat(), data["days"])
+
+    def test_the_kanban_column_counts_come_back(self):
+        today = date.today()
+        _warm_dashboard_cache(
+            [
+                _cached_task("task-1", today),
+                _cached_task("task-2", today + timedelta(days=90)),
+            ]
+        )
+        data = self.post_toggle("task-1").json()
+        self.assertEqual(data["kanban"], {"open": 1, "urgent": 0, "done": 1})
+
+    def test_the_toggled_task_names_the_column_it_belongs_in_now(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        data = self.post_toggle("task-1").json()
+        self.assertEqual(data["urgency"], "done")
+        self.assertEqual(data["kanban_column"], "done")
+        self.assertEqual(
+            self.post_toggle("task-1", done=False).json()["urgency"], "today"
+        )
+
+    def test_the_affected_projects_ring_comes_back(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        data = self.post_toggle("task-1").json()
+        self.assertEqual(data["project"]["id"], "p1")
+        self.assertEqual(data["project"]["ring_dashoffset"], "0.00")
+        self.assertEqual(data["project"]["urgency"], "ok")
+
+    def test_a_task_without_a_project_carries_no_ring(self):
+        today = date.today()
+        _warm_dashboard_cache(
+            [_cached_task("task-1", today)],
+            unassigned=[_cached_task("loose-1", today)],
+        )
+        data = self.post_toggle("loose-1").json()
+        self.assertNotIn("project", data)
+        # It still moves the week-independent figures it does belong to.
+        self.assertEqual(data["days"][today.isoformat()]["done"], 1)
+
+    def test_clearing_an_older_overdue_task_changes_the_weeks_denominator(self):
+        # The effect that rules out recomputing in JavaScript: the task is
+        # due outside this week, so it counts toward nothing here — until it
+        # is completed inside it, at which point it joins both halves of the
+        # fraction. A card that never moved on screen changed the total.
+        today = date.today()
+        long_overdue = iso_week_bounds(today)[0] - timedelta(days=14)
+        _warm_dashboard_cache(
+            [
+                _cached_task("task-1", today),
+                _cached_task("task-2", today),
+                _cached_task("old", long_overdue),
+            ]
+        )
+        # Two tasks in range, one outside it counting toward neither half.
+        self.assertEqual(
+            self.post_toggle("task-1").json()["week"],
+            {"done": 1, "total": 2, "pct": 50},
+        )
+        # Completing the third pulls it into both halves at once — the
+        # denominator moved without a single card moving on screen.
+        self.assertEqual(
+            self.post_toggle("old").json()["week"], {"done": 2, "total": 3, "pct": 67}
+        )
+
+    def test_a_cold_cache_answers_without_figures(self):
+        # Nothing to derive from — the client reloads rather than being
+        # handed numbers the server had to guess at.
+        data = self.post_toggle("task-1").json()
+        self.assertEqual(data, {"ok": True})
+
+    def test_the_load_path_and_the_toggle_path_share_one_helper(self):
+        # A second implementation is what #210 is; asserting the call is
+        # what keeps the two from drifting apart again.
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+            patch(
+                "projects.views._derive_dashboard_figures",
+                side_effect=_derive_dashboard_figures,
+            ) as derive,
+        ):
+            self.client.get(reverse("dashboard"))
+        derive.assert_called_once()
+
+
+@override_settings(DEMO_MODE=False)
+class KanbanCountsComeFromTheServerTest(TestCase):
+    """They used to be counted in the browser from .kanban-card classes, so
+    the toggle path and the load path could show different numbers for the
+    same board."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_the_badges_are_rendered_not_counted_in_the_browser(self):
+        project = _fake_upcoming_project()
+        project["tasks"] = [
+            _cached_task("t-open", date.today() + timedelta(days=90)),
+            _cached_task("t-urgent", date.today()),
+            _cached_task(
+                "t-done", date.today(), done=True, completed_date=date.today()
+            ),
+        ]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            html = self.client.get(reverse("dashboard")).content.decode()
+        for badge_id, count in (("open", 1), ("urgent", 1), ("done", 1)):
+            self.assertIn(
+                f'<span class="kanban-col-count" id="count-{badge_id}">{count}</span>',
+                html,
+            )
+        self.assertNotIn("document.querySelectorAll('.kanban-card.ok", html)
+
+
+class ToggleFiguresFromTheSessionPlanTest(DemoModeTestCase):
+    """#183's exception has to survive the extraction: in a demo session the
+    bar counts the whole plan, not the week — a week-scoped count barely
+    moved between Zeitreise moments."""
+
+    def test_the_bar_counts_the_whole_plan_not_the_week(self):
+        far = (date.today() + timedelta(days=60)).isoformat()
+        self.given_session_plan(
+            tasks=[
+                {"id": "demo-session-0", "name": "Nah", "date": far, "done": False},
+                {"id": "demo-session-1", "name": "Fern", "date": far, "done": False},
+            ]
+        )
+        response = self.client.post(
+            reverse("toggle_task", args=["demo-session-0"]),
+            data='{"done": true}',
+            content_type="application/json",
+        )
+        # Week-scoped both tasks would be out of range entirely (0 / 0).
+        self.assertEqual(response.json()["week"], {"done": 1, "total": 2, "pct": 50})
+
+    def test_the_session_plan_is_its_own_project_for_the_ring(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("toggle_task", args=["demo-session-0"]),
+            data='{"done": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.json()["project"]["id"], "session-plan")
+        self.assertEqual(response.json()["project"]["ring_dashoffset"], "0.00")
+
+    def test_an_unknown_task_still_answers_404_without_figures(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("toggle_task", args=["nope"]),
+            data='{"done": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
