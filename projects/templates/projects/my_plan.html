@@ -23,10 +23,12 @@
     /* Kept above the done rule: equal specificity, and toggling only adds
        the done class — the later rule has to win on a checked-off task. */
     .dot.overdue { background: var(--color-overdue); }
-    .dot.done { background: var(--color-border-secondary); }
+    .dot.today { background: var(--color-today); }
+    .dot.done { background: var(--color-done); }
     .dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
     .task-name { flex: 1; line-height: 1.4; }
     .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
+    .task-date.today { color: var(--color-today); }
     .task-date.overdue { color: var(--color-overdue); }
     .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
     .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
