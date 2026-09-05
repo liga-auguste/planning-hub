@@ -4,8 +4,25 @@
 times, whichever is currently on screen — only the project list on
 dashboard.html still switches by context. Only the currently-loaded group
 gets the fast client-side toggle (id="nav-overview"/"nav-today",
-onclick=showOverview()/showToday()); the other group's Dashboard/Heute are
-real links, since that data isn't loaded into this page at all.
+onclick=showOverview()/showToday()); the other group's links are real
+ones, since that data isn't loaded into this page at all.
+
+One view, one name — and the group heading says whose data it is. Both
+groups list the same two entries, "Dashboard" and "Heute", because that is
+what they are: one view each, over a different set of projects. The
+headings ("Dein Projekt" / "Demo-Projekte") carry the difference, so no
+entry has to. Previously the demo overview read "Mehrprojekt-Dashboard"
+where it was the jump-in link and "Dashboard" where it was the toggle, so
+the same view changed its name as the visitor moved between the two.
+
+"Mehrprojekt-Dashboard" stays where it is still doing the work: the landing
+page and /mein-plan/'s CTA have no sidebar and no group heading, so their
+link text has to name the view and the data at once. That is the wording
+#48 settled on, from before this partial had groups to lean on.
+
+Known and deliberate for now: the icon still differs between the states (a
+dot where the entry is the toggle, the grid glyph where it is the jump-in
+link). Left for a separate pass.
 
 Every view that includes this partial owes it three flags: demo_mode,
 has_session_plan and plan_exists. Missing ones resolve to falsy in a
@@ -68,10 +85,10 @@ page is marked active instead, since there's no JS toggle to do it.
     </a>
 {% endif %}
 
-<div class="sidebar-title" style="margin-top: 16px;">Demo</div>
+<div class="sidebar-title" style="margin-top: 16px;">Demo-Projekte</div>
 {% if has_session_plan %}
 <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
-    <span class="sidebar-icon">⊞</span>Mehrprojekt-Dashboard
+    <span class="sidebar-icon">⊞</span>Dashboard
 </a>
 <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi&view=today" style="color: var(--color-text-tertiary);">
     <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute

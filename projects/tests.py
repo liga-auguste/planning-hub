@@ -790,6 +790,26 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         )
 
 
+def _sidebar_group(html, heading, count):
+    """The first `count` entry labels under one .sidebar-title heading.
+
+    A bare assertContains cannot tell the groups apart any more: both list
+    "Dashboard" and "Heute", which is exactly what the headings exist to
+    disambiguate. The leading icon is stripped off each label — it is still
+    a dot in one state and the grid glyph in another, deliberately, so an
+    assertion about wording must not trip over it.
+    """
+    _, after = html.split(f">{heading}</div>", 1)
+    entries = re.findall(
+        r'<a class="sidebar-item[^"]*"[^>]*>(.*?)</a>', after, re.DOTALL
+    )
+    labels = []
+    for entry in entries[:count]:
+        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", entry)).strip()
+        labels.append(re.sub(r"^[^\wÄÖÜäöüß]+", "", text))
+    return labels
+
+
 class SidebarModeGroupingTest(DemoModeTestCase):
     """#183 follow-up, second round: grouping the sidebar by which data was
     currently on screen still meant the *set* of visible links reshuffled
@@ -807,17 +827,22 @@ class SidebarModeGroupingTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
         self.assertContains(
-            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+            response,
+            '<div class="sidebar-title" style="margin-top: 16px;">Demo-Projekte</div>',
         )
         self.assertContains(response, "Plan als Liste")
         self.assertContains(response, "Woche abschließen")
-        self.assertContains(response, "Mehrprojekt-Dashboard")
+        html = response.content.decode()
+        self.assertEqual(
+            _sidebar_group(html, "Demo-Projekte", 2), ["Dashboard", "Heute"]
+        )
 
     def test_no_plan_yet_still_shows_both_group_headers(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
         self.assertContains(
-            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+            response,
+            '<div class="sidebar-title" style="margin-top: 16px;">Demo-Projekte</div>',
         )
         self.assertContains(response, "Projekt selbst planen")
 
@@ -826,14 +851,47 @@ class SidebarModeGroupingTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, '<div class="sidebar-title">Dein Projekt</div>')
         self.assertContains(
-            response, '<div class="sidebar-title" style="margin-top: 16px;">Demo</div>'
+            response,
+            '<div class="sidebar-title" style="margin-top: 16px;">Demo-Projekte</div>',
         )
         self.assertContains(response, "Plan als Liste")
         self.assertContains(response, "Woche abschließen")
-        # Currently on the demo view — "Demo" group uses the fast toggle,
-        # not the "Mehrprojekt-Dashboard" jump-in link (that's for reaching
-        # this view from elsewhere, not for a view you're already on).
-        self.assertNotContains(response, "Mehrprojekt-Dashboard")
+        # Both groups carry the same two entries; the headings say which
+        # data each one is over. Asserted as a pair rather than by substring,
+        # because "Dashboard" now appears in both by design.
+        html = response.content.decode()
+        self.assertEqual(
+            _sidebar_group(html, "Dein Projekt", 2), ["Dashboard", "Heute"]
+        )
+        self.assertEqual(
+            _sidebar_group(html, "Demo-Projekte", 2), ["Dashboard", "Heute"]
+        )
+
+    def test_the_demo_overview_reads_the_same_in_every_state(self):
+        """One view, one name. The demo overview is reachable in three
+        states, and it used to read "Mehrprojekt-Dashboard" in the first —
+        where it is a jump-in link — and "Dashboard" in the other two, where
+        it is the fast toggle for the view already on screen. Same view,
+        different data, so the entry is "Dashboard" throughout and the group
+        heading carries the difference.
+
+        The three are asserted together on purpose: each state already had a
+        test of its own, and the wording drifted apart anyway, because
+        nothing compared them.
+        """
+        self.given_session_plan()
+        states = {
+            "own plan on screen": self.client.get(reverse("dashboard")),
+            "demo on screen, plan saved": self.client.get(
+                reverse("dashboard") + "?mode=multi"
+            ),
+            # A second client, so this one has no plan in its session.
+            "demo on screen, no plan": Client().get(reverse("dashboard")),
+        }
+        for state, response in states.items():
+            with self.subTest(state=state):
+                labels = _sidebar_group(response.content.decode(), "Demo-Projekte", 2)
+                self.assertEqual(labels, ["Dashboard", "Heute"])
 
 
 @override_settings(DEMO_MODE=False)
@@ -9272,12 +9330,19 @@ class MultiProjectViewNamingTest(DemoModeTestCase):
     """#48: the multi-project view was "Mehrprojekt-Ansicht" in the sidebar
     but "Mehrprojekt-Dashboard"/"Beispiel-Dashboard" elsewhere — three words
     for one destination (dashboard?mode=multi). Unified on
-    "Mehrprojekt-Dashboard" everywhere a visitor can reach it from."""
+    "Mehrprojekt-Dashboard" everywhere a visitor can reach it from.
 
-    def test_sidebar_link_says_mehrprojekt_dashboard(self):
+    The sidebar dropped out of that set once #183 gave it two
+    .sidebar-title groups: there the heading names the data and the entry
+    names the view, so the compound would state the heading's half twice.
+    Everywhere without a heading to lean on still carries it."""
+
+    def test_the_sidebar_never_says_mehrprojekt_ansicht(self):
+        # The word #48 removed is still gone. What the sidebar says instead
+        # is SidebarModeGroupingTest's subject, since it is only readable
+        # per group.
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "Mehrprojekt-Dashboard")
         self.assertNotContains(response, "Mehrprojekt-Ansicht")
 
     def test_landing_page_links_say_mehrprojekt_dashboard(self):

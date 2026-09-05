@@ -31,12 +31,12 @@ has_session_plan = plan_exists and not force_multi
 viewing_demo_data = settings.DEMO_MODE and not has_session_plan
 ```
 
-| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` | Sidebar top group |
+| # | Session plan | URL | `plan_exists` | `has_session_plan` | `force_multi` | `viewing_demo_data` | Demo group's overview entry |
 |---|---|---|---|---|---|---|---|
-| 1 | no | `/dashboard/` | False | False | False | True | "Beispieldaten" |
-| 2 | no | `/dashboard/?mode=multi` | False | False | True | True | "Beispieldaten" |
-| 3 | yes | `/dashboard/` | True | True | False | False | "Dein Projekt" |
-| 4 | yes | `/dashboard/?mode=multi` | True | False | True | True | "Beispieldaten" |
+| 1 | no | `/dashboard/` | False | False | False | True | toggle, on screen |
+| 2 | no | `/dashboard/?mode=multi` | False | False | True | True | toggle, on screen |
+| 3 | yes | `/dashboard/` | True | True | False | False | link, jumps here |
+| 4 | yes | `/dashboard/?mode=multi` | True | False | True | True | toggle, on screen |
 
 `has_session_plan` answers "is the visitor's own plan on screen right now?" — it drives the
 time-lapse bar and suppresses the project name on Kanban cards, since there is only one
@@ -50,13 +50,33 @@ states share the same `dashboard.html` template; only the sidebar and the banner
 data, and the one link that actually jumps to the other state sat undistinguished among links
 that stay in the current one (state 3 mixed "Mehrprojekt-Dashboard" in among the visitor's own
 plan actions; state 4 did the same in reverse). The sidebar now opens with a
-`.sidebar-title` header naming whose data is currently on screen ("Dein Projekt" /
-"Beispieldaten"), directly above "Dashboard"/"Heute". Any link that jumps to the *other*
-state gets its own second `.sidebar-title` group below, so switching context is never mixed
-in among actions that stay put. Link text itself is unchanged from before except the one
-place it was project-local rather than reused elsewhere ("Mein Plan" → "Zu deinem Plan");
-"Mehrprojekt-Dashboard" keeps its established wording, shared with the landing page and
-`/mein-plan/`'s CTA (#48). This lives in `{% block sidebar_content %}`, which is not
+`.sidebar-title` header per group — "Dein Projekt" and "Demo-Projekte" — both always
+present, whichever data is on screen. Any link that jumps to the *other* state sits in the
+group it belongs to, so switching context is never mixed in among actions that stay put.
+
+**One view, one name.** Both groups list the same two entries, "Dashboard" and "Heute" —
+because that is what they are: one view each, over a different set of projects. The
+headings carry the difference, so no entry has to. The demo overview used to read
+"Mehrprojekt-Dashboard" where it is the jump-in link and "Dashboard" where it is the fast
+toggle for the view already on screen, so the same view changed its name as a visitor
+moved between the two states.
+
+`SidebarModeGroupingTest` asserts the states together rather than one per test: each
+already had a test of its own, and the wording drifted apart anyway, because nothing
+compared them. Those assertions read one group at a time (`_sidebar_group`) — a bare
+substring check cannot tell the groups apart now that both say "Dashboard", which is the
+point of the grouping.
+
+The heading is "Demo-Projekte" rather than "Demo" for the same reason: it names what the
+group holds, not the mode it belongs to.
+
+"Mehrprojekt-Dashboard" is unchanged where there is no heading to lean on — the landing
+page and `/mein-plan/`'s CTA, whose link text has to name the view and the data at once.
+That is #48's wording, settled before this partial had groups.
+
+**Still inconsistent, deliberately deferred:** the icon. The entry carries a dot where it
+is the toggle and `⊞` where it is the jump-in link. Same defect as the wording, left for a
+separate pass. This lives in `{% block sidebar_content %}`, which is not
 duplicated between `view-overview` and `view-today` — so unlike the banners below, it needed
 no separate fix to show up in both.
 
@@ -248,8 +268,10 @@ Manual click-through, fresh session:
    sidebar, "+ Projekt selbst planen" present.
 2. `/dashboard/` bare → identical content and sidebar to step 1.
 3. Plan via the planner → redirect to `/dashboard/` → state 3: time-lapse bar, no banner,
-   sidebar shows "⊞ Mehrprojekt-Ansicht" and "☰ Plan als Liste".
-4. "⊞ Mehrprojekt-Ansicht" → state 4: banner and "← Mein Plan" and still "☰ Plan als Liste".
+   sidebar shows "Demo-Projekte → Dashboard" and "☰ Plan als Liste".
+4. That "Dashboard" → state 4: banner, and the entry still reads "Dashboard" under the
+   same heading — that is the check, since it is the fast toggle here rather than a link —
+   plus "☰ Plan als Liste".
 5. "☰ Plan als Liste" → `/mein-plan/` → "Mehrprojekt-Dashboard ansehen →" now actually reaches
    `?mode=multi`.
 6. `/planner/?type=konzert` → rules link → "← Planer" returns to `/planner/?type=konzert`, not
