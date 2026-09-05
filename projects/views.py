@@ -735,6 +735,25 @@ def dashboard(request):
         cached = cache.get(CACHE_KEY)
         if cached:
             projects, summary_data = cached
+            if summary_data is None:
+                # #199: CACHE_KEY holds (projects, summary_data) as one
+                # tuple, so "invalidate only the summary" means writing
+                # (patched_projects, None) after a reschedule. A hit in that
+                # shape means "the projects are good, regenerate the
+                # summary" — without this branch the card would read "KI
+                # nicht verfügbar" until the TTL ran out. Smaller than
+                # splitting the summary into its own key, and it matches the
+                # cost #199 already accepts: the Notion read goes, the
+                # Claude call stays.
+                try:
+                    summary_data = generate_weekly_summary(projects, today)
+                except AIUnavailableError:
+                    # Left unwritten, so the next request retries Claude —
+                    # same reasoning as the fetch path below.
+                    summary_data = None
+                else:
+                    cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
+                    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
         else:
             try:
                 projects, summary_data = _fetch_fresh_data(today)
@@ -1119,11 +1138,22 @@ def reschedule_task_view(request, task_id):
             update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
-        # Busted right away, before the counter call: the date change is
+        # Applied right away, before the counter call: the date change is
         # already confirmed in Notion at this point, so a failure below must
         # not leave the cache serving the pre-move date (_bust_dashboard_cache
         # promises this for "every confirmed Notion write").
-        _bust_dashboard_cache()
+        #
+        # #199: the projects survive the move — re-sorted and re-annotated —
+        # and only the summary is dropped, because a new date renumbers the
+        # task_refs it holds (_number_projects_and_tasks, ai.py). The Notion
+        # read goes, the Claude call stays.
+        today = timezone.localdate()
+
+        def move(task):
+            task["due"] = parsed_date
+
+        if _patch_cached_tasks(task_id, move, today, drop_summary=True) is None:
+            _bust_dashboard_cache()
         try:
             # #171 accepted gap: if this second call fails, the date has
             # already moved but the counter hasn't — reported as the same
@@ -1131,6 +1161,16 @@ def reschedule_task_view(request, task_id):
             postpone_count = increment_postpone_count(task_id)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+
+        # A second, smaller patch rather than an optimistic +1 above: the
+        # counter is only known once Notion has confirmed it, and a cache
+        # claiming a move Notion never counted would be the mirror image of
+        # the staleness this is meant to remove.
+        def count(task):
+            task["postpone_count"] = postpone_count
+
+        if _patch_cached_tasks(task_id, count, today) is None:
+            _bust_dashboard_cache()
     # The stage the row belongs in after the move, so the client can
     # reclassify the date label and its dot instead of leaving both wearing
     # the pre-move signal until the next page load. A demo visitor's time

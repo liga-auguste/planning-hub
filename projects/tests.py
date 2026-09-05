@@ -10366,3 +10366,159 @@ class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
             )
         ]
         self.assertNotIn(".length", toggle_block)
+
+
+@override_settings(DEMO_MODE=False)
+class RescheduleKeepsTheCachedProjectsTest(TestCase):
+    """#199, second half. A new date moves the task in the chronological
+    order, which renumbers the summary's task_refs (_number_projects_and_tasks,
+    ai.py) — that cannot survive. The projects can: re-sort, re-annotate,
+    write back. So the Notion read goes and only the Claude call stays."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_date(self, task_id, new_date, count=1):
+        with (
+            patch("projects.views.update_task_date"),
+            patch("projects.views.increment_postpone_count", return_value=count),
+        ):
+            return self.client.post(
+                reverse("reschedule_task", args=[task_id]),
+                data=json.dumps({"date": new_date.isoformat()}),
+                content_type="application/json",
+            )
+
+    def test_the_projects_survive_with_the_new_date(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today + timedelta(days=1))])
+        self.post_date("task-1", today + timedelta(days=10))
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        self.assertEqual(
+            _cached_task_by_id(CACHE_KEY, "task-1")["due"], today + timedelta(days=10)
+        )
+
+    def test_the_cached_tasks_are_re_sorted(self):
+        # The order is what the summary's task_refs are numbered against and
+        # what every task list renders in — a moved task that keeps its old
+        # position is a list that is no longer chronological.
+        today = date.today()
+        _warm_dashboard_cache(
+            [
+                _cached_task("first", today + timedelta(days=1)),
+                _cached_task("second", today + timedelta(days=5)),
+            ]
+        )
+        self.post_date("first", today + timedelta(days=10))
+        self.assertEqual(
+            [t["id"] for t in cache.get(CACHE_KEY)[0][0]["tasks"]], ["second", "first"]
+        )
+
+    def test_the_derived_fields_are_re_derived(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today - timedelta(days=1))])
+        self.assertEqual(_cached_task_by_id(CACHE_KEY, "task-1")["urgency"], "overdue")
+        self.post_date("task-1", today + timedelta(days=90))
+        task = _cached_task_by_id(CACHE_KEY, "task-1")
+        self.assertEqual(task["urgency"], "ok")
+        self.assertEqual(task["kanban_column"], "open")
+
+    def test_only_the_summary_is_dropped(self):
+        today = date.today()
+        _warm_dashboard_cache(
+            [_cached_task("task-1", today + timedelta(days=1))], summary="<p>alt</p>"
+        )
+        self.post_date("task-1", today + timedelta(days=10))
+        projects, summary_data = cache.get(CACHE_KEY)
+        self.assertTrue(projects)
+        self.assertIsNone(summary_data)
+
+    def test_the_stale_copy_is_patched_too(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today + timedelta(days=1))])
+        self.post_date("task-1", today + timedelta(days=10))
+        self.assertEqual(
+            _cached_task_by_id(STALE_CACHE_KEY, "task-1")["due"],
+            today + timedelta(days=10),
+        )
+        self.assertIsNone(cache.get(STALE_CACHE_KEY)[1])
+
+    def test_the_new_postpone_count_reaches_the_cache(self):
+        # Written after the counter call confirms it, never optimistically:
+        # a failure there returns a 502 and must not leave the cache
+        # claiming a move Notion never counted.
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today + timedelta(days=1))])
+        self.post_date("task-1", today + timedelta(days=10), count=3)
+        self.assertEqual(_cached_task_by_id(CACHE_KEY, "task-1")["postpone_count"], 3)
+
+    def test_a_failed_counter_call_leaves_the_confirmed_date_in_place(self):
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today + timedelta(days=1))])
+        with (
+            patch("projects.views.update_task_date"),
+            patch(
+                "projects.views.increment_postpone_count",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+        ):
+            response = self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data=json.dumps({"date": (today + timedelta(days=10)).isoformat()}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            _cached_task_by_id(CACHE_KEY, "task-1")["due"], today + timedelta(days=10)
+        )
+        self.assertEqual(_cached_task_by_id(CACHE_KEY, "task-1")["postpone_count"], 0)
+
+    def test_a_task_in_no_cached_list_falls_back_to_a_full_bust(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        self.post_date("task-99", date.today() + timedelta(days=10))
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardRegeneratesADroppedSummaryTest(TestCase):
+    """CACHE_KEY holds (projects, summary_data) as one tuple, so
+    "invalidate only the summary" means writing (patched_projects, None). A
+    hit in that shape now means "projects are good, regenerate the summary"
+    — otherwise the card would read "KI nicht verfügbar" until the TTL ran
+    out, which is not what a reschedule should cost."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_a_hit_without_a_summary_regenerates_it_and_writes_it_back(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())], summary=None)
+        with (
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ) as generate,
+            patch("projects.views.get_upcoming_projects") as fetch,
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        generate.assert_called_once()
+        # The point of the whole exercise: no Notion round trip.
+        fetch.assert_not_called()
+        self.assertEqual(cache.get(CACHE_KEY)[1], _summary_data())
+        self.assertEqual(cache.get(STALE_CACHE_KEY)[1], _summary_data())
+
+    def test_an_unavailable_claude_leaves_the_entry_summaryless_for_a_retry(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())], summary=None)
+        with (
+            patch(
+                "projects.views.generate_weekly_summary",
+                side_effect=AIUnavailableError("boom"),
+            ),
+            patch("projects.views.get_upcoming_projects"),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Die KI-Wochenübersicht ist gerade nicht")
+        self.assertIsNone(cache.get(CACHE_KEY)[1])
