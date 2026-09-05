@@ -9272,6 +9272,20 @@ class DateFormatModuleTest(SimpleTestCase):
         self.assertEqual(format_date(None), "")
         self.assertEqual(format_date(None, role="short"), "")
 
+    def test_an_unknown_role_is_an_error_not_a_fallback(self):
+        # Falling back to "long" would render the wrong format silently,
+        # and #192 is about changing the role set — the point where a
+        # typo stops being theoretical.
+        with self.assertRaises(ValueError) as caught:
+            format_date(date(2026, 6, 15), role="shrot")
+        self.assertIn("shrot", str(caught.exception))
+
+    def test_an_unknown_role_raises_even_without_a_date(self):
+        # Checked before the date, so a typo cannot hide behind whichever
+        # rows happen to be undated.
+        with self.assertRaises(ValueError):
+            format_date(None, role="shrot")
+
     def test_week_range_collapses_a_shared_month(self):
         self.assertEqual(
             format_week_range(date(2026, 3, 2), date(2026, 3, 8)), "2.–8. März"
@@ -9310,6 +9324,14 @@ class PlanDateFilterTest(SimpleTestCase):
         self.assertEqual(
             self.render('{% load planner_tags %}{{ v|plan_date:"long" }}', None), ""
         )
+
+    def test_a_misspelled_role_fails_the_render(self):
+        # Django does not swallow a filter's ValueError, so the typo
+        # surfaces as a failure instead of a wrong date on the page.
+        with self.assertRaises(ValueError):
+            self.render(
+                '{% load planner_tags %}{{ v|plan_date:"shrot" }}', date(2026, 6, 15)
+            )
 
 
 @override_settings(DEMO_MODE=False)

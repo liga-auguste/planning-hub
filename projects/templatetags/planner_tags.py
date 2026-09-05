@@ -14,5 +14,7 @@ register = template.Library()
 @register.filter
 def plan_date(d, role="long"):
     """A date in the project's German display format, resolved at render
-    time. See date_format.format_date for what the roles produce."""
+    time. See date_format.format_date for what the roles produce — a role
+    that module does not know raises, so a typo here is a loud failure
+    rather than a quietly wrong format."""
     return format_date(d, role)

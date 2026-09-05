@@ -46,6 +46,15 @@ MONTHS_SHORT = {
 WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 
+# One entry per surface. A dict rather than an if/elif chain so an
+# unrecognised role is a missing key — see format_date on why that has to
+# be an error rather than a fallback.
+_ROLE_FORMATTERS = {
+    "long": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_DE[d.month]}",
+    "short": lambda d: f"{d.day:02d}.{d.month:02d}.",
+}
+
+
 def format_date(d, role="long"):
     """A display date in the format the given role calls for.
 
@@ -53,13 +62,27 @@ def format_date(d, role="long"):
     a task row wants the weekday ("Mo, 15. Juni"), a calendar card has room
     for the numeric form only ("03.03."). Callers name the surface, not the
     format, so #192 can change what a role produces in one place.
+
+    An unknown role raises rather than falling back to "long": callers pass
+    the role as a bare string, including from templates, so a typo has no
+    other way of announcing itself — it would just render the wrong format
+    and no test could catch it. #192 adds and changes roles, which is
+    exactly when a silent fallback would start costing something.
+
+    The role is checked before the date, so an undated row fails the same
+    way a dated one does. Otherwise a typo would surface only once some
+    task happened to carry a due date.
     """
+    try:
+        formatter = _ROLE_FORMATTERS[role]
+    except KeyError:
+        raise ValueError(
+            f"unknown date role {role!r} — expected one of "
+            f"{', '.join(sorted(_ROLE_FORMATTERS))}"
+        ) from None
     if not d:
         return ""
-    if role == "short":
-        return f"{d.day:02d}.{d.month:02d}."
-    weekday = WEEKDAYS_SHORT[d.weekday()]
-    return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
+    return formatter(d)
 
 
 def format_week_range(monday, sunday):
