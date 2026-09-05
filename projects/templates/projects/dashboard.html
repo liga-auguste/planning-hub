@@ -1,4 +1,5 @@
 {% extends 'projects/base_dashboard.html' %}
+{% load planner_tags %}
 
 {% block title %}Planning Hub{% endblock %}
 
@@ -313,7 +314,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -328,7 +329,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -337,7 +338,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -352,7 +353,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due_display }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -450,7 +451,7 @@
                       data-raw-date="{{ task.due|date:'Y-m-d' }}"
                       title="Datum ändern"
                       {% endif %}>
-                    {{ task.due_display }}
+                    {{ task.due|plan_date:"long" }}
                 </span>
                 {% if task.postpone_count and task.postpone_count >= 2 %}
                 <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>

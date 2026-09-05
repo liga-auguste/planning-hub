@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
+from django.template import Context, Template
 from django.test import (
     Client,
     RequestFactory,
@@ -42,6 +43,7 @@ from .ai import (
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .date_format import format_date, format_week_range
 from .dates import is_same_iso_week, iso_week_bounds
 from .models import DemoEvent, PlannerRule, RulesSeeded, WeekCloseout
 from .notion import (
@@ -67,11 +69,11 @@ from .views import (
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
     SUMMARY_KEY,
+    UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
     _bucket_by_day,
     _build_week_view,
     _count_done_in_range,
-    _format_date,
     _parse_week_param,
     _strip_trailing_date,
 )
@@ -3453,7 +3455,7 @@ class MyPlanEventDateDisplayTest(DemoModeTestCase):
     def test_my_plan_still_renders_the_formatted_event_date(self):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, _format_date(date.today() + timedelta(days=30)))
+        self.assertContains(response, format_date(date.today() + timedelta(days=30)))
 
 
 class MidnightBoundaryUsesLocalDateTest(DemoModeTestCase):
@@ -4349,9 +4351,12 @@ class AnnotateTasksTest(SimpleTestCase):
         project = self.annotate({"due": None})
         self.assertEqual(project["urgency"], "ok")
 
-    def test_due_display_is_formatted_german(self):
+    def test_no_formatted_date_is_written_onto_the_task(self):
+        # #189: the formatted string used to be set here, which put it in
+        # the dashboard cache and froze the format for up to CACHE_TTL.
+        # Templates format task.due themselves now.
         task = self.annotate({"due": date(2026, 6, 15)})["tasks"][0]
-        self.assertEqual(task["due_display"], "Mo, 15. Juni")
+        self.assertNotIn("due_display", task)
 
     def test_done_count_and_total_count_for_a_mixed_set(self):
         project = self.annotate(
@@ -4741,14 +4746,14 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         self.given_active_simulation()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "Simulierter Zeitpunkt")
-        self.assertNotContains(response, _format_date(date.today()))
+        self.assertNotContains(response, format_date(date.today()))
 
     def test_the_header_date_is_back_without_a_simulation(self):
         # "Zurück zu heute" clears demo_sim_date, so the no-sim render is
         # exactly the state that button restores.
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, _format_date(date.today()))
+        self.assertContains(response, format_date(date.today()))
         self.assertNotContains(response, "Simulierter Zeitpunkt")
 
     def _view_today_html(self, response):
@@ -7063,7 +7068,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
             {
                 "ok": True,
                 "postpone_count": 4,
-                "due_display": _format_date(date(2026, 9, 5)),
+                "due_display": format_date(date(2026, 9, 5)),
             },
         )
         mock_increment.assert_called_once_with("task-1")
@@ -7663,7 +7668,7 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.stored_dates(), [self.NEW_DATE])
         reloaded = self.client.get(reverse("my_plan"))
-        self.assertContains(reloaded, _format_date(date.fromisoformat(self.NEW_DATE)))
+        self.assertContains(reloaded, format_date(date.fromisoformat(self.NEW_DATE)))
 
     def test_an_invalid_date_is_rejected(self):
         plan = self.given_session_plan()
@@ -7761,7 +7766,7 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
             {
                 "ok": True,
                 "postpone_count": 1,
-                "due_display": _format_date(date.fromisoformat(new_date)),
+                "due_display": format_date(date.fromisoformat(new_date)),
             },
         )
         self.assertEqual(
@@ -7909,6 +7914,16 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         # "Diese Woche" +2 days is due 2026-06-17, +7 = 2026-06-24, a Wednesday.
         self.assertContains(response, "→ Mi, 24. Juni")
         self.assertNotContains(response, "→ nächste Woche")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_triage_row_shows_the_tasks_own_due_date(self, mock_localdate):
+        # #189: this date used to be a string the view precomputed; the
+        # template formats task.due itself now, and nothing else in the
+        # suite pins what the triage row renders.
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, format_date(CLOSEOUT_TODAY + timedelta(days=2)))
 
     @patch("django.utils.timezone.localdate")
     def test_already_closed_and_nothing_open_hides_the_button(self, mock_localdate):
@@ -9236,3 +9251,150 @@ class HealthCheckTest(TestCase):
         ):
             response = self.client.get(reverse("health"))
         self.assertEqual(response.status_code, 503)
+
+
+class DateFormatModuleTest(SimpleTestCase):
+    """#189: display formatting lives in its own module so both the views
+    and the template filter can reach it. The tables and the "long" output
+    are unchanged from views._format_date — this pins that, so the move
+    stays behaviour-neutral."""
+
+    def test_long_role_matches_the_previous_format(self):
+        self.assertEqual(format_date(date(2026, 6, 15), role="long"), "Mo, 15. Juni")
+
+    def test_long_is_the_default_role(self):
+        self.assertEqual(format_date(date(2026, 6, 15)), "Mo, 15. Juni")
+
+    def test_short_role_is_the_numeric_calendar_form(self):
+        self.assertEqual(format_date(date(2026, 3, 3), role="short"), "03.03.")
+
+    def test_none_is_empty_in_every_role(self):
+        self.assertEqual(format_date(None), "")
+        self.assertEqual(format_date(None, role="short"), "")
+
+    def test_an_unknown_role_is_an_error_not_a_fallback(self):
+        # Falling back to "long" would render the wrong format silently,
+        # and #192 is about changing the role set — the point where a
+        # typo stops being theoretical.
+        with self.assertRaises(ValueError) as caught:
+            format_date(date(2026, 6, 15), role="shrot")
+        self.assertIn("shrot", str(caught.exception))
+
+    def test_an_unknown_role_raises_even_without_a_date(self):
+        # Checked before the date, so a typo cannot hide behind whichever
+        # rows happen to be undated.
+        with self.assertRaises(ValueError):
+            format_date(None, role="shrot")
+
+    def test_week_range_collapses_a_shared_month(self):
+        self.assertEqual(
+            format_week_range(date(2026, 3, 2), date(2026, 3, 8)), "2.–8. März"
+        )
+
+    def test_week_range_spells_both_months_when_they_differ(self):
+        self.assertEqual(
+            format_week_range(date(2026, 3, 30), date(2026, 4, 5)),
+            "30. Mär – 5. April",
+        )
+
+
+class PlanDateFilterTest(SimpleTestCase):
+    """#189: the filter is what lets templates format at render time, so a
+    date the dashboard cached before a format change still renders in the
+    new format."""
+
+    def render(self, template, value):
+        return Template(template).render(Context({"v": value}))
+
+    def test_renders_the_long_form_by_default(self):
+        self.assertEqual(
+            self.render("{% load planner_tags %}{{ v|plan_date }}", date(2026, 6, 15)),
+            "Mo, 15. Juni",
+        )
+
+    def test_role_argument_selects_the_short_form(self):
+        self.assertEqual(
+            self.render(
+                '{% load planner_tags %}{{ v|plan_date:"short" }}', date(2026, 3, 3)
+            ),
+            "03.03.",
+        )
+
+    def test_a_missing_date_renders_as_nothing(self):
+        self.assertEqual(
+            self.render('{% load planner_tags %}{{ v|plan_date:"long" }}', None), ""
+        )
+
+    def test_a_misspelled_role_fails_the_render(self):
+        # Django does not swallow a filter's ValueError, so the typo
+        # surfaces as a failure instead of a wrong date on the page.
+        with self.assertRaises(ValueError):
+            self.render(
+                '{% load planner_tags %}{{ v|plan_date:"shrot" }}', date(2026, 6, 15)
+            )
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
+    """#189: the whole point of the move. Both cached payloads are task
+    dicts, CACHE_KEY for 8 hours and STALE_CACHE_KEY forever — a formatted
+    date in there means a format change does not reach the screen until the
+    entry expires, and the stale copy never does."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_neither_cached_payload_carries_a_formatted_date(self):
+        unassigned = [
+            {
+                "id": "task-2",
+                "name": "Noten bestellen",
+                "due": date.today() + timedelta(days=4),
+                "done": False,
+                "kontext": [],
+            }
+        ]
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=unassigned),
+            # cache.set only runs when the summary came back, so a real
+            # dict here is what makes the assertions below reachable.
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+
+        cached_projects, _ = cache.get(CACHE_KEY)
+        cached_tasks = [t for p in cached_projects for t in p["tasks"]]
+        self.assertTrue(cached_tasks)
+        for task in cached_tasks:
+            self.assertNotIn("due_display", task)
+
+        cached_unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+        self.assertTrue(cached_unassigned)
+        for task in cached_unassigned:
+            self.assertNotIn("due_display", task)
+
+    def test_the_date_still_reaches_the_page(self):
+        # The counterpart to the assertions above: dropping the key must
+        # not mean dropping the date.
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, format_date(date.today() + timedelta(days=3)))
