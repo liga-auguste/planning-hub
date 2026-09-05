@@ -65,6 +65,7 @@ from .planner_views import _get_history, _parse_event_date
 from .rules import DEMO_RULES_KEY, INITIAL_RULES, add_rule, get_active_rule_texts
 from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
+    _URGENCY_RANK,
     CACHE_KEY,
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
@@ -1859,6 +1860,7 @@ class DesignTokenTest(DemoModeTestCase):
         "--color-bg-primary",
         "--color-accent",
         "--color-overdue",
+        "--color-today",
     )
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
@@ -1878,12 +1880,12 @@ class DesignTokenTest(DemoModeTestCase):
             self.assertNotContains(response, literal)
 
 
-class OverdueOnlySignalColorTest(DemoModeTestCase):
-    """#173: red for overdue is the only urgency signal color left — every
-    other open stage renders the neutral gray the ok dots already use. The
-    classification (overdue/today/urgent/ok/undated) stays untouched in data
-    and markup; only the color mapping collapsed. The warm-stage tokens
-    retire fully; #170 keeps the tooling for reintroducing one later."""
+class MinimalTrafficLightColorTest(DemoModeTestCase):
+    """#211: exactly three signal colors — red for overdue, amber for due
+    today, green for done — and every other open stage keeps the neutral
+    gray #173 collapsed it into. This is the additive reintroduction #173
+    reserved: `urgent` stays gray, so only two warm tones exist and the
+    narrow-band competition that sank #170 cannot come back."""
 
     # The badge adopts the app's existing neutral-chip pattern
     # (.task-kontext): red stays the only alarm color.
@@ -1913,23 +1915,25 @@ class OverdueOnlySignalColorTest(DemoModeTestCase):
             },
         )
 
-    def test_the_warm_stage_tokens_are_fully_retired(self):
-        # Bare substring on purpose: it also catches the -tint variants and
-        # any comment still leaning on the retired names.
+    def test_the_urgent_stage_token_stays_retired(self):
+        # Bare substring on purpose: it also catches the -tint variant and
+        # any comment still leaning on the retired name.
         css = self.base_css()
         self.assertNotIn("--color-urgent", css)
-        self.assertNotIn("--color-today", css)
+        self.assertIn("--color-today", css)
 
     def test_the_surviving_status_tokens_stay_declared_in_both_themes(self):
         css = self.base_css()
         self.assertEqual(css.count("--color-overdue:"), 2)
         self.assertEqual(css.count("--color-overdue-tint:"), 2)
+        self.assertEqual(css.count("--color-today:"), 2)
         self.assertEqual(css.count("--color-done:"), 2)
 
-    def test_no_rendered_page_serves_the_retired_tokens(self):
-        # The collapse's own drift guard. Safe against false positives: the
-        # kanban count selectors and the reschedule JS strip class names,
-        # not token names, so this sweep only bites color rules.
+    def test_no_rendered_page_serves_the_retired_token(self):
+        # The collapse's own drift guard, narrowed to the one stage that
+        # stays retired. Safe against false positives: the kanban count
+        # selectors and the reschedule JS strip class names, not token
+        # names, so this sweep only bites color rules.
         self.given_session_plan()
         pages = {
             "index": self.client.get(reverse("index")),
@@ -1940,13 +1944,107 @@ class OverdueOnlySignalColorTest(DemoModeTestCase):
         for name, response in pages.items():
             with self.subTest(page=name):
                 self.assertNotContains(response, "--color-urgent")
-                self.assertNotContains(response, "--color-today")
 
     def test_the_date_uncertain_badge_wears_the_neutral_chip(self):
         self.given_session_plan()
         for url in ("dashboard", "my_plan"):
             with self.subTest(url=url):
                 self.assertContains(self.client.get(reverse(url)), self.NEUTRAL_BADGE)
+
+
+def _wcag_contrast(hex_a, hex_b):
+    """WCAG 2.1 contrast ratio between two sRGB hex colors.
+
+    Twelve lines rather than a dependency: the suite needs exactly this one
+    formula, and #211's acceptance criterion ("every signal color reaches at
+    least 3:1 against its own surface") is only checkable if it is computed
+    rather than asserted in a commit message.
+    """
+
+    def relative_luminance(value):
+        value = value.lstrip("#")
+        if len(value) == 3:  # --color-bg-primary is declared as #fff
+            value = "".join(digit * 2 for digit in value)
+        channels = []
+        for start in (0, 2, 4):
+            channel = int(value[start : start + 2], 16) / 255
+            channels.append(
+                channel / 12.92
+                if channel <= 0.03928
+                else ((channel + 0.055) / 1.055) ** 2.4
+            )
+        red, green, blue = channels
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+    lighter, darker = sorted(
+        (relative_luminance(hex_a), relative_luminance(hex_b)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+class SignalColorContrastTest(SimpleTestCase):
+    """#211: the traffic light is only worth reintroducing if every signal
+    is actually visible. WCAG 2.1 puts the floor for non-text UI at 3:1, and
+    a 7px dot sits on two different surfaces — the card (--color-bg-primary)
+    on my_plan and the landing mockup, the page itself
+    (--color-bg-secondary) on the dashboard, whose .main declares no
+    background of its own. Both surfaces have to clear the floor, which is
+    why the light values run ~4% darker than the ones the issue computed
+    against the card alone."""
+
+    FLOOR = 3.0
+    SIGNALS = {
+        "--color-overdue": ("#ef4444", "#f87171"),
+        "--color-today": ("#b88402", "#f4b00c"),
+        "--color-done": ("#46a015", "#7fd85d"),
+        "--color-text-quaternary": ("#86848d", "#83868d"),
+    }
+    SURFACES = {
+        "light": {"--color-bg-primary": "#fff", "--color-bg-secondary": "#f9f8f9"},
+        "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-secondary": "#1e1e1e"},
+    }
+
+    def base_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+
+    def declared_value(self, css, token, theme):
+        """The value a token resolves to in one theme.
+
+        Light is declared in the first block and dark in the second, so the
+        two declarations of a token appear in that order — the same ordering
+        the sibling count assertions already rely on.
+        """
+        values = re.findall(rf"{token}:\s*(#[0-9a-fA-F]{{3,6}});", css)
+        self.assertEqual(len(values), 2, f"{token} is not declared exactly twice")
+        return values[0 if theme == "light" else 1]
+
+    def test_the_signal_colors_carry_the_computed_values(self):
+        css = self.base_css()
+        for token, (light, dark) in self.SIGNALS.items():
+            for theme, expected in (("light", light), ("dark", dark)):
+                with self.subTest(token=token, theme=theme):
+                    self.assertEqual(
+                        self.declared_value(css, token, theme).lower(), expected
+                    )
+
+    def test_every_signal_clears_the_non_text_floor_on_both_surfaces(self):
+        css = self.base_css()
+        for token in self.SIGNALS:
+            for theme, surfaces in self.SURFACES.items():
+                signal = self.declared_value(css, token, theme)
+                for surface, background in surfaces.items():
+                    with self.subTest(token=token, theme=theme, surface=surface):
+                        self.assertGreaterEqual(
+                            _wcag_contrast(signal, background), self.FLOOR
+                        )
+
+    def test_the_helper_agrees_with_the_known_extremes(self):
+        # Guards the helper itself: without this, a broken formula would
+        # make the assertions above pass silently.
+        self.assertAlmostEqual(_wcag_contrast("#000", "#fff"), 21.0, places=2)
+        self.assertAlmostEqual(_wcag_contrast("#fff", "#fff"), 1.0, places=2)
 
 
 class PostponeBadgeRenderingTest(DemoModeTestCase):
@@ -4781,13 +4879,15 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         self.assertNotIn("Simulierter Zeitpunkt", self._view_today_html(response))
 
 
-class OverdueDotColorTest(DemoModeTestCase):
-    """Descendant of the #161 drift guard, same purpose after #173: if the
-    palettes split across surfaces again, the suite should say. Every
-    surface serves the one red overdue dot rule, and none reintroduces a
-    warm dot rule for the collapsed stages."""
+class SignalDotColorTest(DemoModeTestCase):
+    """Descendant of the #161 drift guard, same purpose after #211: if the
+    palettes split across surfaces again, the suite should say. It now
+    covers all three signal dots — overdue red, today amber, done green —
+    and still forbids a dot rule for the retired urgent stage."""
 
-    RULE = ".dot.overdue { background: var(--color-overdue); }"
+    OVERDUE_RULE = ".dot.overdue { background: var(--color-overdue); }"
+    TODAY_RULE = ".dot.today { background: var(--color-today); }"
+    DONE_RULE = ".dot.done { background: var(--color-done); }"
 
     def pages(self):
         self.given_session_plan()
@@ -4800,13 +4900,49 @@ class OverdueDotColorTest(DemoModeTestCase):
     def test_every_surface_serves_the_red_overdue_dot(self):
         for name, response in self.pages().items():
             with self.subTest(page=name):
-                self.assertContains(response, self.RULE)
+                self.assertContains(response, self.OVERDUE_RULE)
 
-    def test_no_surface_serves_a_warm_dot_rule(self):
+    def test_every_surface_serves_the_amber_today_dot(self):
+        for name, response in self.pages().items():
+            with self.subTest(page=name):
+                self.assertContains(response, self.TODAY_RULE)
+
+    def test_the_done_dot_carries_the_completion_green(self):
+        # Not on index: the landing mockup renders no done rows, so it
+        # serves no done rule to drift.
+        pages = self.pages()
+        for name in ("dashboard", "my_plan"):
+            with self.subTest(page=name):
+                self.assertContains(pages[name], self.DONE_RULE)
+
+    def test_the_done_rule_stays_after_the_today_rule(self):
+        # applyDone() toggles the done class on without stripping the
+        # urgency class, so a task due today becomes class="dot today done".
+        # Equal specificity means source order decides: if .dot.today ever
+        # drifted below .dot.done, checking off a today task would leave the
+        # dot amber. The templates say this in a comment; this pins it.
+        pages = self.pages()
+        for name in ("dashboard", "my_plan"):
+            with self.subTest(page=name):
+                html = pages[name].content.decode()
+                self.assertLess(html.index(self.TODAY_RULE), html.index(self.DONE_RULE))
+
+    def test_no_surface_serves_an_urgent_dot_rule(self):
         for name, response in self.pages().items():
             with self.subTest(page=name):
                 self.assertNotContains(response, ".dot.urgent { background")
-                self.assertNotContains(response, ".dot.today { background")
+
+    def test_every_surface_serves_the_amber_today_date_label(self):
+        pages = self.pages()
+        self.assertContains(
+            pages["dashboard"],
+            ".task-due.today { color: var(--color-today); font-weight: 500; }",
+        )
+        for name in ("my_plan", "index"):
+            with self.subTest(page=name):
+                self.assertContains(
+                    pages[name], ".task-date.today { color: var(--color-today); }"
+                )
 
 
 class TaskSortOrderInViewsTest(DemoModeTestCase):
@@ -4922,10 +5058,13 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
     def test_reschedule_js_clears_the_today_class_too(self):
         # Rescheduling a due-today task away must not leave the amber
-        # styling behind until the next reload.
+        # styling behind until the next reload. The literal class list grew
+        # a name once the dot started moving with the label — see
+        # RescheduleReclassifiesTheWholeRowTest for the full contract.
         self.given_mixed_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
+        self.assertContains(response, "el.classList.remove(...URGENCY_CLASSES);")
+        self.assertContains(response, "reclassify(dueSpan, data.urgency);")
 
     def test_reschedule_js_displays_the_servers_formatted_date(self):
         # #176: the raw ISO date (newDate/input.value) must never land in the
@@ -7098,6 +7237,12 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
     """#171: reschedule_task_view increments the postpone counter after a
     successful date update and reports the new value."""
 
+    # Relative rather than fixed: the answer now carries the stage the new
+    # date implies, and a hard-coded date would slide from "ok" through
+    # "urgent" into "overdue" as the real clock passed it. Two months out is
+    # never in this ISO week.
+    NEW_DATE = date.today() + timedelta(days=60)
+
     def test_increments_and_returns_the_new_count(self):
         with (
             patch("projects.views.update_task_date"),
@@ -7107,7 +7252,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
         ):
             response = self.client.post(
                 reverse("reschedule_task", args=["task-1"]),
-                data='{"date": "2026-09-05"}',
+                data=f'{{"date": "{self.NEW_DATE.isoformat()}"}}',
                 content_type="application/json",
             )
         self.assertEqual(
@@ -7115,7 +7260,8 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
             {
                 "ok": True,
                 "postpone_count": 4,
-                "due_display": format_date(date(2026, 9, 5)),
+                "due_display": format_date(self.NEW_DATE),
+                "urgency": "ok",
             },
         )
         mock_increment.assert_called_once_with("task-1")
@@ -7792,6 +7938,98 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
+class RescheduleAnswersTheNewStageTest(DemoModeTestCase):
+    """A task row wears its urgency class twice — on the dot and on the date
+    label — and reschedule() only ever cleared the label's, so moving a task
+    due today left an amber "act today" dot beside a neutral date until the
+    next page load. The view now answers with the stage the new date implies,
+    computed by the same _classify_due_urgency the dashboard renders with
+    rather than by a second copy of the rule living in JS."""
+
+    # A fixed Monday, so that "urgent" (same ISO week, later than today) is
+    # constructible at all — on a real Sunday no such date exists. Time
+    # travel is a demo-session feature, which makes it the natural way to pin
+    # the arithmetic without freezing the clock.
+    MONDAY = "2026-09-07"
+
+    def given_simulated_today(self, day):
+        session = self.client.session
+        session["demo_sim_date"] = day
+        session.save()
+
+    def moved_to(self, new_date):
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=f'{{"date": "{new_date}"}}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["urgency"]
+
+    def test_every_stage_is_measured_against_the_simulated_today(self):
+        self.given_session_plan()
+        self.given_simulated_today(self.MONDAY)
+        for new_date, stage in (
+            ("2026-09-06", "overdue"),  # the Sunday before, last ISO week
+            (self.MONDAY, "today"),
+            ("2026-09-09", "urgent"),  # Wednesday, still this ISO week
+            ("2026-09-14", "ok"),  # the Monday after, a week out
+        ):
+            with self.subTest(date=new_date):
+                self.assertEqual(self.moved_to(new_date), stage)
+
+    def test_without_time_travel_the_real_today_decides(self):
+        self.given_session_plan()
+        self.assertEqual(self.moved_to(date.today().isoformat()), "today")
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self.assertEqual(self.moved_to(yesterday), "overdue")
+
+
+class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
+    """The client half of the same fix: both halves of the row move together,
+    and the class list the client clears stays in step with the stages the
+    server can actually answer with."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_client_clears_every_stage_the_server_can_answer_with(self):
+        # `done` is deliberately absent: it is the toggle's own class, and
+        # reclassifying a checked-off task must not strip its green.
+        declared = re.search(
+            r"const URGENCY_CLASSES = \[(.*?)\];", self.dashboard_html()
+        )
+        self.assertIsNotNone(declared)
+        self.assertEqual(
+            set(re.findall(r"'([a-z]+)'", declared.group(1))),
+            set(_URGENCY_RANK) - {"done"},
+        )
+
+    def test_both_the_label_and_the_dot_are_reclassified(self):
+        html = self.dashboard_html()
+        self.assertIn("reclassify(dueSpan, data.urgency);", html)
+        self.assertIn("if (dot) reclassify(dot, data.urgency);", html)
+
+    def test_the_row_is_handed_in_rather_than_walked_up_to(self):
+        # The picker does span.replaceWith(input) while it is open, so the
+        # span has no parent for the duration of the request and closest()
+        # called on it inside reschedule() would find nothing — the dot would
+        # silently keep its pre-move stage. Both call sites therefore read
+        # the row while the span is still attached and pass it in.
+        html = self.dashboard_html()
+        self.assertIn(
+            "async function reschedule(taskId, newDate, dueSpan, row) {", html
+        )
+        self.assertIn("const row = span.closest('.task-row');", html)
+        self.assertIn(
+            "await reschedule(span.dataset.taskId, input.value, span, row);", html
+        )
+        self.assertIn(
+            "await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));", html
+        )
+
+
 class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
     """#171: awareness, not punishment — the counter increments on every
     reschedule, the badge's >=2 threshold is a display concern (see
@@ -7814,6 +8052,7 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
                 "ok": True,
                 "postpone_count": 1,
                 "due_display": format_date(date.fromisoformat(new_date)),
+                "urgency": "ok",
             },
         )
         self.assertEqual(

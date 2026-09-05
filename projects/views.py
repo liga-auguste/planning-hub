@@ -114,6 +114,33 @@ _URGENCY_RANK = {
 }
 
 
+def _classify_due_urgency(due, today):
+    """The stage a due date alone puts a task in, completion aside.
+
+    Split out of _annotate_tasks so reschedule_task_view can answer with the
+    stage the moved task now belongs in instead of leaving the client to
+    re-derive a rule that is calendar-week based (#169) and, in a demo
+    session, measured against the simulated date rather than the real today.
+    Completion stays the caller's business: the dot carries `done` as its own
+    class, and the .dot.done rule wins over the urgency one by source order.
+    """
+    if not due:
+        # An open task without a date is its own state (#160) — no deadline
+        # pressure, so it never lifts the project urgency.
+        return "undated"
+    if due < today:
+        return "overdue"
+    if due == today:
+        return "today"
+    if is_same_iso_week(due, today):
+        # #169: calendar-week based, not a rolling 7-day window — a task due
+        # next week is not urgent today. Closing the week (see closeout.py) is
+        # what arms next week's signal, and it does that for free just by the
+        # calendar rolling over.
+        return "urgent"
+    return "ok"
+
+
 def _annotate_tasks(projects, today):
     for project in projects:
         # Chronological order for every task-list view, dateless tasks last
@@ -127,22 +154,8 @@ def _annotate_tasks(projects, today):
         for task in project["tasks"]:
             if task["done"]:
                 task["urgency"] = "done"
-            elif not task["due"]:
-                # An open task without a date is its own state (#160) — no
-                # deadline pressure, so it never lifts the project urgency.
-                task["urgency"] = "undated"
-            elif task["due"] < today:
-                task["urgency"] = "overdue"
-            elif task["due"] == today:
-                task["urgency"] = "today"
-            elif is_same_iso_week(task["due"], today):
-                # #169: calendar-week based, not a rolling 7-day window — a
-                # task due next week is not urgent today. Closing the week
-                # (see closeout.py) is what arms next week's signal, and it
-                # does that for free just by the calendar rolling over.
-                task["urgency"] = "urgent"
             else:
-                task["urgency"] = "ok"
+                task["urgency"] = _classify_due_urgency(task["due"], today)
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
             if task["done"]:
@@ -874,8 +887,24 @@ def reschedule_task_view(request, task_id):
             postpone_count = increment_postpone_count(task_id)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+    # The stage the row belongs in after the move, so the client can
+    # reclassify the date label and its dot instead of leaving both wearing
+    # the pre-move signal until the next page load. A demo visitor's time
+    # travel has to count here the way it does on the dashboard, or a plan
+    # viewed at a simulated moment would come back classified against the
+    # real today. Completion is left out on purpose: the dot's `done` class
+    # is the toggle's business and outranks the urgency rule anyway.
+    effective_today = timezone.localdate()
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+        effective_today = sim_date or effective_today
     return JsonResponse(
-        {"ok": True, "postpone_count": postpone_count, "due_display": due_display}
+        {
+            "ok": True,
+            "postpone_count": postpone_count,
+            "due_display": due_display,
+            "urgency": _classify_due_urgency(parsed_date, effective_today),
+        }
     )
 
 

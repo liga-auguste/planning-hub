@@ -11,7 +11,8 @@
            adds the done class — the later rule has to win on a checked-off
            task. */
         .dot.overdue { background: var(--color-overdue); }
-        .dot.done { background: var(--color-border-secondary); }
+        .dot.today { background: var(--color-today); }
+        .dot.done { background: var(--color-done); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
         /* All six levels: the summary is markdown.markdown() output, so the
@@ -61,6 +62,7 @@
            data-task-id is wired up for rescheduling (#10 §5). */
         .task-due[data-task-id] { cursor: pointer; }
         .task-due[data-task-id]:hover { text-decoration: underline; }
+        .task-due.today { color: var(--color-today); font-weight: 500; }
         .task-due.overdue { color: var(--color-overdue); font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
@@ -713,7 +715,18 @@ if (TIMELAPSE_MOMENTS.length > 0) {
     setTimeout(preloadAll, 800);
 }
 
-async function reschedule(taskId, newDate, dueSpan) {
+// Every stage _annotate_tasks (views.py) can put on a task, minus `done`,
+// which the toggle owns. The server answers a reschedule with the new one
+// rather than the client re-deriving it: the rule is calendar-week based
+// (#169) and, in a demo session, measured against the simulated date.
+const URGENCY_CLASSES = ['overdue', 'today', 'urgent', 'ok', 'undated'];
+
+function reclassify(el, urgency) {
+    el.classList.remove(...URGENCY_CLASSES);
+    if (urgency) el.classList.add(urgency);
+}
+
+async function reschedule(taskId, newDate, dueSpan, row) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
@@ -736,14 +749,32 @@ async function reschedule(taskId, newDate, dueSpan) {
     const data = await response.json();
     dueSpan.dataset.rawDate = newDate;
     dueSpan.textContent = data.due_display;
-    const todayBtn = dueSpan.closest('.task-right')?.querySelector('.today-btn');
-    if (todayBtn) todayBtn.remove();
-    dueSpan.classList.remove('overdue', 'urgent', 'today');
+    reclassify(dueSpan, data.urgency);
+    // The row is handed in rather than walked up to from dueSpan: the date
+    // picker swaps the span out of the DOM while it is open, so closest()
+    // called on it here finds nothing at all.
+    if (row) {
+        // The dot wears the same stage as the label and is the louder half
+        // of the pair, so leaving it behind turned the row against itself —
+        // a neutral date beside an amber "act today" dot.
+        const dot = row.querySelector('.dot');
+        if (dot) reclassify(dot, data.urgency);
+        // The "→ heute" shortcut belongs to overdue rows only, so it goes
+        // when the move lifts the row out of overdue — and stays when the
+        // new date is still in the past. A row moved *into* overdue does not
+        // grow one back: that needs markup and a listener, not a class, so
+        // it waits for the next reload the way the Kanban counts and the
+        // sidebar ring do.
+        const todayBtn = row.querySelector('.today-btn');
+        if (todayBtn && data.urgency !== 'overdue') todayBtn.remove();
+    }
     return true;
 }
 
 document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
     span.addEventListener('click', () => {
+        // Read before the swap below detaches the span from its row.
+        const row = span.closest('.task-row');
         const input = document.createElement('input');
         input.type = 'date';
         input.value = span.dataset.rawDate;
@@ -755,7 +786,7 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
             // reschedule() itself sets span.textContent from the server's
             // due_display on success and leaves it untouched on failure, so
             // there is nothing left to do here but swap the elements back.
-            await reschedule(span.dataset.taskId, input.value, span);
+            await reschedule(span.dataset.taskId, input.value, span, row);
             input.replaceWith(span);
         });
         input.addEventListener('blur', () => input.replaceWith(span));
@@ -771,7 +802,7 @@ document.querySelectorAll('.today-btn').forEach(btn => {
         // task's list section, day-column, week bar and sidebar ring all
         // need reclassifying against the new date — reload rather than
         // patch each by hand.
-        const ok = await reschedule(taskId, TODAY, dueSpan);
+        const ok = await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));
         if (ok) window.location.reload();
     });
 });
