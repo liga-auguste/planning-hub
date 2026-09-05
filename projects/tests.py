@@ -9904,3 +9904,144 @@ class DashboardCacheVersionTest(SimpleTestCase):
         self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v9")
         self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v4")
         self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v4")
+
+
+def _cached_task(task_id, due, done=False, completed_date=None):
+    """A task dict in the shape notion.py hands back and the cache stores."""
+    return {
+        "id": task_id,
+        "name": f"Aufgabe {task_id}",
+        "due": due,
+        "done": done,
+        "kontext": [],
+        "postpone_count": 0,
+        "completed_date": completed_date,
+    }
+
+
+def _warm_dashboard_cache(tasks, unassigned=(), summary="<p>alt</p>", today=None):
+    """Fills all four dashboard cache keys the way a successful dashboard()
+    read leaves them. Every Django cache backend serializes on set and get,
+    so the four entries are independent object graphs — which is exactly why
+    a patch has to reach each of them."""
+    today = today or date.today()
+    project = _fake_upcoming_project()
+    project["tasks"] = [dict(t) for t in tasks]
+    projects = _annotate_tasks([project], today)
+    unassigned_tasks = _annotate_tasks(
+        [{"id": "_unassigned", "tasks": [dict(t) for t in unassigned]}], today
+    )[0]["tasks"]
+    cache.set(CACHE_KEY, (projects, summary), 60)
+    cache.set(STALE_CACHE_KEY, (projects, summary), None)
+    cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, 60)
+    cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
+
+
+def _cached_task_by_id(cache_key, task_id):
+    entry = cache.get(cache_key)
+    if entry is None:
+        return None
+    tasks = (
+        [t for p in entry[0] for t in p["tasks"]]
+        if isinstance(entry, tuple)
+        else list(entry)
+    )
+    return next((t for t in tasks if t["id"] == task_id), None)
+
+
+@override_settings(DEMO_MODE=False)
+class ToggleKeepsTheDashboardCacheWarmTest(TestCase):
+    """#199: a toggle used to throw the whole dashboard cache away, so the
+    next read paid a full Notion round trip plus a Claude call. The task
+    order deliberately excludes `done` from its sort key (_annotate_tasks),
+    so a toggle moves nothing — positions stay valid, the summary's
+    task_refs stay valid, and setting the two fields in the cached dicts and
+    re-running the cheap derivations is enough."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_toggle(self, task_id, done=True):
+        with patch("projects.views.toggle_task"):
+            return self.client.post(
+                reverse("toggle_task", args=[task_id]),
+                data=json.dumps({"done": done}),
+                content_type="application/json",
+            )
+
+    def test_the_cache_is_patched_not_deleted(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        self.post_toggle("task-1")
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+        task = _cached_task_by_id(CACHE_KEY, "task-1")
+        self.assertTrue(task["done"])
+        self.assertEqual(task["completed_date"], date.today())
+
+    def test_the_stale_copy_is_patched_too(self):
+        # It never expires, so leaving it behind would let the Notion-down
+        # fallback serve a state predating a confirmed write — the one thing
+        # _bust_dashboard_cache's docstring promises against.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        self.post_toggle("task-1")
+        self.assertTrue(_cached_task_by_id(STALE_CACHE_KEY, "task-1")["done"])
+
+    def test_a_task_without_a_project_is_patched_in_its_own_key_pair(self):
+        _warm_dashboard_cache(
+            [_cached_task("task-1", date.today())],
+            unassigned=[_cached_task("loose-1", date.today())],
+        )
+        self.post_toggle("loose-1")
+        self.assertTrue(_cached_task_by_id(UNASSIGNED_CACHE_KEY, "loose-1")["done"])
+        self.assertTrue(
+            _cached_task_by_id(STALE_UNASSIGNED_CACHE_KEY, "loose-1")["done"]
+        )
+
+    def test_the_derived_fields_are_recomputed_not_only_the_raw_ones(self):
+        # A patch that writes `done` and stops leaves the dot, the board and
+        # the sidebar ring rendering the pre-toggle state on the next load.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        self.post_toggle("task-1")
+        task = _cached_task_by_id(CACHE_KEY, "task-1")
+        self.assertEqual(task["urgency"], "done")
+        self.assertEqual(task["kanban_column"], "done")
+        project = cache.get(CACHE_KEY)[0][0]
+        self.assertEqual(project["done_count"], 1)
+        self.assertEqual(project["urgency"], "ok")
+        self.assertEqual(project["ring_dashoffset"], "0.00")
+
+    def test_the_summary_survives(self):
+        # The whole point: the toggle moves no task, so every task_ref the
+        # cached summary holds still points where it did.
+        _warm_dashboard_cache(
+            [_cached_task("task-1", date.today())], summary="<p>alt</p>"
+        )
+        self.post_toggle("task-1")
+        self.assertEqual(cache.get(CACHE_KEY)[1], "<p>alt</p>")
+
+    def test_a_task_in_no_cached_list_falls_back_to_a_full_bust(self):
+        # The cached lists are then not the state Notion now holds, and
+        # serving them would be a lie. The fallback is the normal path.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        self.post_toggle("task-99")
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+        self.assertIsNone(cache.get(UNASSIGNED_CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_UNASSIGNED_CACHE_KEY))
+
+    def test_a_cold_cache_stays_cold(self):
+        response = self.post_toggle("task-1")
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(cache.get(CACHE_KEY))
+
+    def test_a_notion_failure_patches_nothing(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        with patch(
+            "projects.views.toggle_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.client.post(
+                reverse("toggle_task", args=["task-1"]),
+                data='{"done": true}',
+                content_type="application/json",
+            )
+        self.assertFalse(_cached_task_by_id(CACHE_KEY, "task-1")["done"])

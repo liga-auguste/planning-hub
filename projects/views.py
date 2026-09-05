@@ -87,6 +87,96 @@ def _bust_dashboard_cache():
     cache.delete(STALE_UNASSIGNED_CACHE_KEY)
 
 
+def _find_task(projects, unassigned_tasks, task_id):
+    """Returns (task, project) — the one place that knows a task can live in
+    either of the dashboard's two independently cached lists. `project` is
+    None for a task with no project of its own ("Ohne Projekt", #53)."""
+    for project in projects:
+        for task in project["tasks"]:
+            if task["id"] == task_id:
+                return task, project
+    for task in unassigned_tasks:
+        if task["id"] == task_id:
+            return task, None
+    return None, None
+
+
+def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
+    """Applies `mutate(task)` to every cached copy of one task and re-runs
+    the cheap derivations on top of it, instead of throwing the whole cache
+    away after a confirmed Notion write (#199).
+
+    Returns (projects, unassigned_tasks) — the patched data the caller then
+    derives its answer from — or None when the write cannot be reflected
+    safely, in which case the caller busts the cache as before. That
+    fallback is the normal path, not an edge case: a cold cache, a half-cold
+    one, or a task no cached list carries all take it.
+
+    `drop_summary` is for the writes that renumber the summary's task_refs
+    (a reschedule moves the task in the chronological order, #140); a toggle
+    moves nothing, so its summary survives untouched.
+    """
+    primary = cache.get(CACHE_KEY)
+    unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+    if primary is None or unassigned is None:
+        # Half a picture is no picture: every figure the dashboard renders
+        # is counted across both lists.
+        return None
+    projects, summary_data = primary
+    task, _ = _find_task(projects, unassigned, task_id)
+    if task is None:
+        return None
+    mutate(task)
+    # Both lists are re-annotated regardless of which one held the task:
+    # _annotate_tasks is a pure re-derivation over data already in memory,
+    # and paying it twice is cheaper than tracking where the task lived.
+    projects = _annotate_tasks(projects, today)
+    unassigned = _annotate_tasks([{"id": "_unassigned", "tasks": unassigned}], today)[
+        0
+    ]["tasks"]
+    cache.set(CACHE_KEY, (projects, None if drop_summary else summary_data), CACHE_TTL)
+    cache.set(UNASSIGNED_CACHE_KEY, unassigned, UNASSIGNED_CACHE_TTL)
+    _patch_stale_copies(task_id, mutate, today, drop_summary)
+    return projects, unassigned
+
+
+def _patch_stale_copies(task_id, mutate, today, drop_summary):
+    """The never-expiring last-known-good entries, patched in lockstep.
+
+    Each cache.get hands back its own deserialized object graph, so the
+    write has to be applied to these separately. They can be older than the
+    live pair (which expires and gets refilled while these do not), so a
+    snapshot predating the task itself cannot be corrected — it is dropped
+    rather than left to serve a state older than a confirmed write.
+    """
+    stale = cache.get(STALE_CACHE_KEY)
+    stale_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
+    task, _ = _find_task(stale[0] if stale else [], stale_unassigned or [], task_id)
+    if task is None:
+        cache.delete(STALE_CACHE_KEY)
+        cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+        return
+    mutate(task)
+    if stale is not None:
+        stale_projects, stale_summary = stale
+        cache.set(
+            STALE_CACHE_KEY,
+            (
+                _annotate_tasks(stale_projects, today),
+                None if drop_summary else stale_summary,
+            ),
+            None,
+        )
+    if stale_unassigned is not None:
+        cache.set(
+            STALE_UNASSIGNED_CACHE_KEY,
+            _annotate_tasks([{"id": "_unassigned", "tasks": stale_unassigned}], today)[
+                0
+            ]["tasks"],
+            None,
+        )
+
+
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
 SUMMARY_KEY = "demo_plan_summary_v6"
@@ -841,14 +931,24 @@ def toggle_task_view(request, task_id):
         task["completed_date"] = effective_today.isoformat() if done else None
         request.session["demo_plan"] = plan
     else:
-        completed_date = timezone.localdate().isoformat() if done else None
+        today = timezone.localdate()
+        completed_date = today if done else None
         try:
-            toggle_task(task_id, done, completed_date)
+            toggle_task(task_id, done, completed_date.isoformat() if done else None)
         except NotionUnavailableError:
             # A non-200 so the caller knows not to apply its optimistic
             # update — see the dashboard.html JS changes in the same commit.
             return JsonResponse({"error": "notion unavailable"}, status=502)
-        _bust_dashboard_cache()
+
+        # #199: the toggle moves no task (see _annotate_tasks' sort key), so
+        # the cached lists can carry the write instead of being thrown away
+        # and re-read from Notion at a Claude call's expense.
+        def mark(task):
+            task["done"] = done
+            task["completed_date"] = completed_date
+
+        if _patch_cached_tasks(task_id, mark, today) is None:
+            _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 
