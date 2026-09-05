@@ -13,7 +13,26 @@
     --color-accent-hover: #8989f0;
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
-    --color-done: #22c55e;
+    /* #211: the warm stage #173 reserved, reintroduced for `today` alone.
+       The hue was picked by sweeping the full circle in 8° steps and taking
+       the tone whose smallest ΔE2000 distance to the four colors already in
+       play is largest — 80° wins at ΔE 35.3 to the overdue red, 32.5 to the
+       done green, 31.8 to the neutral gray and 61.0 to the accent. #170
+       failed because three warm tones competed in a narrow band, amber
+       sitting ~ΔE 8 from the urgent orange; here red stays at hue 25° and
+       nothing lives between the two, which is why the urgent stage keeps
+       its neutral gray rather than coming back alongside this one — its
+       own token is retired for good, and the sweep in
+       MinimalTrafficLightColorTest is what keeps it out. Both light values
+       run ~4% darker than the issue computed, because the dashboard's .main
+       declares no background of its own and the dots there sit on
+       --color-bg-secondary rather than on a card. */
+    --color-today: #b88402;
+    /* Warmed toward yellow at unchanged lightness and chroma, so the change
+       is warmth and nothing else — and darkened, which was needed for the
+       dot regardless: the old #22c55e only reached 2.28:1 on white, under
+       the 3:1 floor for non-text UI. */
+    --color-done: #46a015;
     --color-overdue-tint: #fef2f2;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
@@ -32,12 +51,12 @@
     --color-notice-bg: #282a30;
     --color-notice-text: #e4e2e4;
 }
-/* #12: the dark values are Linear's own palette; the two status colors —
-   overdue red and done green — are the app's own addition (Linear has
-   none), lighter than their light-mode values since #ef4444 reads too
-   low-contrast on #08090a. #173 collapsed the warm urgency stages into
-   the neutral grays, so red is the only urgency signal left; #170 keeps
-   the ΔE tooling and sign-off workflow for reintroducing a warm stage.
+/* #12: the dark values are Linear's own palette; the three signal colors —
+   overdue red, today amber and done green — are the app's own addition
+   (Linear has none), lighter than their light-mode values since #ef4444
+   reads too low-contrast on #08090a. #173 collapsed the warm urgency
+   stages into the neutral grays; #211 reintroduced exactly one of them,
+   leaving `urgent` and `ok` neutral so only two warm tones ever compete.
    --color-overdue-tint likewise has no Linear equivalent (the app's own
    badge/notice background, #11's addition) — a dark, desaturated version
    of the status hue rather than a light tint, since a light tint would
@@ -73,7 +92,10 @@
     --color-accent-hover: #828fff;
     --color-accent-tint: #18182f;
     --color-overdue: #f87171;
-    --color-done: #4ade80;
+    --color-today: #f4b00c;
+    /* Warmed like its light counterpart, but deliberately holding the ~8:1
+       contrast level #4ade80 already had — nothing needed fixing here. */
+    --color-done: #7fd85d;
     --color-overdue-tint: #2d1517;
     --shadow-low: 0px 2px 4px #0000001a;
     --shadow-medium: 0px 4px 24px #0003;

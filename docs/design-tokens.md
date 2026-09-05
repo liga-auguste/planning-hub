@@ -34,7 +34,8 @@ for its dark theme.
     --color-accent-hover: #8989f0;
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
-    --color-done: #22c55e;
+    --color-today: #b88402;
+    --color-done: #46a015;
     --color-overdue-tint: #fef2f2;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
@@ -47,7 +48,7 @@ for its dark theme.
 | `--color-border-primary/secondary` | Hairline borders and dividers |
 | `--color-text-primary` → `--color-text-quaternary` | Text and icon color, strongest to most muted |
 | `--color-accent*` | Interactive/focus accent (links, hover borders) |
-| `--color-overdue` / `--color-done` | The only two status colors since #173: overdue red is the sole urgency signal, done green is a completion signal. Every other open urgency stage (due today, urgent, on track, undated) keeps its classification in data and markup but renders the neutral text/border grays. History: #160 gave due-today its own amber, #170 moved urgent to mustard after a ΔE2000 hue-distance analysis; #173 retired both warm stages because the warm-tone balancing act cost more than it bought. The ΔE tooling and sign-off-page workflow from #170 stay reusable for reintroducing a warm "soon" stage — a purely additive token-plus-override change on top of unchanged markup |
+| `--color-overdue` / `--color-today` / `--color-done` | The three signal colors since #211: overdue red, due-today amber, done green. `urgent` (due later in the same calendar week), `ok` and `undated` keep their classification in data and markup but render the neutral `--color-text-quaternary` — that restraint is the point, not an omission. Amber reaches the dot and the date label (`.task-due.today`, `.task-date.today`); the Kanban card accent and the sidebar progress rings stay out. Values are computed, not picked by eye: the amber hue came from a full hue-circle sweep in 8° steps, taking the tone whose *smallest* ΔE2000 distance to the colors already in play is largest (winner at 80° — ΔE 35.3 to overdue red, 32.5 to done green, 31.8 to the neutral gray, 61.0 to the accent). Green was only rotated toward yellow at unchanged lightness and chroma, then darkened. Every signal clears WCAG's 3:1 floor for non-text UI against *both* dot surfaces in both themes — the card (`--color-bg-primary`) on Mein Plan and the landing mockup, and the page itself (`--color-bg-secondary`) on the dashboard, whose `.main` declares no background of its own. `SignalColorContrastTest` computes that rather than trusting it. History: #160 gave due-today its own amber, #170 moved urgent to mustard after a ΔE analysis; #173 retired both warm stages because balancing three warm tones in a narrow band (amber sat ~ΔE 8 from the urgent orange) cost more than it bought, and explicitly reserved a later warm stage as additive; #211 took exactly one of them back, which works because only two warm tones now exist and nothing lives between hue 25° and 80° |
 | `--color-overdue-tint` | Light background for the stale-data and error notices |
 | `--shadow-low` / `--shadow-medium` | The two elevation levels — hover/active shadows, plus `--shadow-medium` for the sidebar's static elevation as a floating tile (#96) |
 
