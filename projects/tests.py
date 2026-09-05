@@ -10270,3 +10270,99 @@ class ToggleFiguresFromTheSessionPlanTest(DemoModeTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 404)
+
+
+class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
+    """The client half of #210. Each surface is asserted on its own: the
+    failure mode here was additive — every surface was correct on load and
+    nobody carried the toggle path forward — so a single "the handler exists"
+    assertion is exactly the check that would have passed all along."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_figures_are_written_by_one_named_function(self):
+        html = self.dashboard_html()
+        self.assertIn("function applyToggleFigures(taskId, data) {", html)
+        self.assertIn("applyToggleFigures(taskId, data)", html)
+
+    def test_the_week_bar_and_its_label_are_written(self):
+        html = self.dashboard_html()
+        self.assertIn("fill.style.width = data.week.pct + '%';", html)
+        self.assertIn(
+            "label.textContent = data.week.total ? "
+            "`${data.week.done} / ${data.week.total} erledigt` : '';",
+            html,
+        )
+
+    def test_the_day_column_counters_are_written(self):
+        html = self.dashboard_html()
+        self.assertIn(
+            'document.querySelector(`.day-column-body[data-date="${iso}"]`)', html
+        )
+        self.assertIn("badge.textContent = `${counts.done}/${counts.total}`;", html)
+
+    def test_a_day_that_empties_loses_its_badge(self):
+        # The template renders the badge only when total_count is truthy, so
+        # leaving a "0/0" behind would be a shape the server never renders.
+        self.assertIn(
+            "if (!counts.total) { if (badge) badge.remove(); return; }",
+            self.dashboard_html(),
+        )
+
+    def test_the_kanban_counts_are_written(self):
+        self.assertIn(
+            "document.getElementById('count-' + column)", self.dashboard_html()
+        )
+
+    def test_the_card_moves_to_the_column_the_server_named(self):
+        html = self.dashboard_html()
+        self.assertIn(
+            "document.querySelector('.kanban-col.col-' + data.kanban_column)", html
+        )
+        self.assertIn("column.appendChild(card);", html)
+        self.assertIn("reclassify(card, data.urgency);", html)
+        self.assertIn("card.classList.toggle('done', data.urgency === 'done');", html)
+
+    def test_the_sidebar_ring_is_written(self):
+        html = self.dashboard_html()
+        self.assertIn(
+            "ring.setAttribute('stroke-dashoffset', data.project.ring_dashoffset);",
+            html,
+        )
+        self.assertIn("reclassify(ring, data.project.urgency);", html)
+
+    def test_the_ring_is_addressable_by_project_id(self):
+        # id="nav-…" only exists on the dashboard's own branch of the
+        # sidebar partial, so it is no reliable anchor for this.
+        html = self.dashboard_html()
+        self.assertIn('data-project-id="session-plan"', html)
+        partial = (
+            settings.BASE_DIR / "projects/templates/projects/_sidebar_project_list.html"
+        ).read_text()
+        self.assertEqual(partial.count('data-project-id="{{ project.id }}"'), 2)
+
+    def test_a_response_without_figures_reloads(self):
+        self.assertIn(
+            "if (!applyToggleFigures(taskId, data)) window.location.reload();",
+            self.dashboard_html(),
+        )
+
+    def test_the_client_tells_the_server_which_week_it_is_showing(self):
+        # ?week= navigates the day columns to any week and the server cannot
+        # guess which one is on screen.
+        html = self.dashboard_html()
+        self.assertIn("document.querySelector('.day-column-body[data-date]')", html)
+        self.assertIn("week_start: weekStart", html)
+
+    def test_no_count_is_derived_in_javascript(self):
+        # The whole point of the server answering with figures. A length
+        # count over rendered cards is week-blind and completion-date-blind.
+        html = self.dashboard_html()
+        toggle_block = html[
+            html.index("function applyToggleFigures") : html.index(
+                "function flashActionFailed"
+            )
+        ]
+        self.assertNotIn(".length", toggle_block)

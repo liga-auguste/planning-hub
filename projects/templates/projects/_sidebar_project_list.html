@@ -15,9 +15,14 @@ dashboard.html's extra_js block).
 <div style="font-size: 11px; color: var(--color-text-quaternary); padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: 0.06em;">{{ group.month }}</div>
 {% for project in group.projects %}
 {% if not active_nav %}
-    <a class="sidebar-item" id="nav-{{ project.id }}" onclick="showProject('{{ project.id }}')">
+    <a class="sidebar-item" id="nav-{{ project.id }}" data-project-id="{{ project.id }}" onclick="showProject('{{ project.id }}')">
 {% else %}
-    <a class="sidebar-item" href="{% url 'dashboard' %}?project={{ project.id }}" style="color: var(--color-text-tertiary);">
+    {% comment %}
+    data-project-id on both branches, not id="nav-…": that id only exists on
+    the dashboard's own branch, so it is no reliable anchor for the toggle's
+    ring update (#210).
+    {% endcomment %}
+    <a class="sidebar-item" href="{% url 'dashboard' %}?project={{ project.id }}" data-project-id="{{ project.id }}" style="color: var(--color-text-tertiary);">
 {% endif %}
         <span class="sidebar-icon">
             <svg class="progress-ring" width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">

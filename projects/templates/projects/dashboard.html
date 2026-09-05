@@ -544,12 +544,17 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+        const firstColumn = document.querySelector('.day-column-body[data-date]');
+        const weekStart = firstColumn ? firstColumn.dataset.date : null;
         let response;
         try {
             response = await fetch(`/task/${taskId}/toggle/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-                body: JSON.stringify({done})
+                // ?week= navigates the day columns to any week, and the
+                // server cannot guess which one is on screen — the first
+                // column's date is that week's Monday.
+                body: JSON.stringify({done, week_start: weekStart})
             });
         } catch {
             // A rejected fetch (offline, server unreachable) never reaches
@@ -563,7 +568,9 @@ document.querySelectorAll('.toggle-form').forEach(form => {
             flashActionFailed(form.querySelector('button'));
             return;
         }
+        const data = await response.json();
         applyTaskDone(taskId, done);
+        if (!applyToggleFigures(taskId, data)) window.location.reload();
     });
 });
 
@@ -586,6 +593,80 @@ function applyTaskDone(taskId, done) {
         // card at full strength with a struck-through label inside it.
         if (card.classList.contains('day-task-card')) card.classList.toggle('done', done);
     });
+}
+
+// #210: every number on this page is derived server-side
+// (_derive_dashboard_figures, views.py) and the client only writes what it
+// was handed. Counting the rendered cards instead would be a second
+// implementation of a rule that is calendar-week based and admits a task by
+// its completion date as well as its due date — a task cleared today can
+// raise this week's total without any card moving.
+//
+// The rule this whole issue comes down to: a surface that shows task state
+// gets updated on toggle, or it does not render task state.
+//
+// Two gaps here are deliberate, not oversights:
+//
+//   - The Heute lists (Überfällig / Heute fällig / Diese Woche) keep a
+//     checked-off row in place, struck through, until the next load. Their
+//     membership is urgency-based and a done task belongs to no bucket, so
+//     a strict render would make the row vanish under the cursor — worse
+//     than a row that waits.
+//   - The day-column counters count what their column shows, tasks due on
+//     that day (#182's rule for the week bar, applied here). A task cleared
+//     today but due elsewhere moves its own due day's counter, not today's.
+function applyToggleFigures(taskId, data) {
+    // No figures: the server had no warm cache to derive them from, so the
+    // page is out of date in ways only a render can fix.
+    if (!data.week) return false;
+
+    const fill = document.getElementById('progress-fill');
+    if (fill) fill.style.width = data.week.pct + '%';
+    const label = document.getElementById('progress-label');
+    // The template renders the label only for a week that holds anything at
+    // all, so an emptied week empties it here rather than showing "0 / 0".
+    if (label) label.textContent = data.week.total ? `${data.week.done} / ${data.week.total} erledigt` : '';
+
+    Object.entries(data.days).forEach(([iso, counts]) => {
+        const body = document.querySelector(`.day-column-body[data-date="${iso}"]`);
+        const header = body && body.parentElement.querySelector('.day-column-header');
+        if (!header) return;
+        let badge = header.querySelector('.day-column-count');
+        if (!counts.total) { if (badge) badge.remove(); return; }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'day-column-count';
+            header.appendChild(badge);
+        }
+        badge.textContent = `${counts.done}/${counts.total}`;
+    });
+
+    Object.entries(data.kanban).forEach(([column, count]) => {
+        const badge = document.getElementById('count-' + column);
+        if (badge) badge.textContent = count;
+    });
+
+    // The one place structure enters this file. The target column arrives
+    // as a string from the server and the template renders from the same
+    // field (task.kanban_column), so the urgency -> column mapping exists
+    // exactly once — in views.py.
+    const card = document.querySelector(`.kanban-card[data-task-id="${taskId}"]`);
+    const column = document.querySelector('.kanban-col.col-' + data.kanban_column);
+    if (card && column) {
+        column.appendChild(card);
+        reclassify(card, data.urgency);
+        // `done` is deliberately not in URGENCY_CLASSES, so reclassify()
+        // never clears it — unchecking a task has to do that here.
+        card.classList.toggle('done', data.urgency === 'done');
+    }
+
+    if (data.project) {
+        document.querySelectorAll(`[data-project-id="${data.project.id}"] .progress-ring-fill`).forEach(ring => {
+            ring.setAttribute('stroke-dashoffset', data.project.ring_dashoffset);
+            reclassify(ring, data.project.urgency);
+        });
+    }
+    return true;
 }
 
 function flashActionFailed(el) {
