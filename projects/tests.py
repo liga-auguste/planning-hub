@@ -10522,3 +10522,65 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Die KI-Wochenübersicht ist gerade nicht")
         self.assertIsNone(cache.get(CACHE_KEY)[1])
+
+
+class RescheduleResortsTheRowTest(DemoModeTestCase):
+    """#194, client half: the server sorts every task list chronologically
+    (#140), so a moved row that keeps its old position leaves the client's
+    copy disagreeing with what a render would produce."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def reschedule_block(self, html):
+        return html[
+            html.index("async function reschedule(") : html.index(
+                "document.querySelectorAll('.task-due[data-task-id]')"
+            )
+        ]
+
+    def test_a_sort_function_exists_and_reads_the_raw_date(self):
+        html = self.dashboard_html()
+        self.assertIn("function sortRows(row, movedDate) {", html)
+        self.assertIn("el.querySelector('.task-due')?.dataset.rawDate", html)
+
+    def test_it_runs_after_a_successful_reschedule(self):
+        self.assertIn("sortRows(row, newDate);", self.dashboard_html())
+
+    def test_undated_rows_sort_last(self):
+        self.assertIn("if (!da) return da === db ? 0 : 1;", self.dashboard_html())
+
+    def test_a_stage_change_reloads_instead_of_re_sorting(self):
+        html = self.dashboard_html()
+        self.assertIn("if (stageBefore && stageBefore !== data.urgency) {", html)
+        self.assertIn("window.location.reload();", self.reschedule_block(html))
+
+    def test_the_stage_is_read_before_the_row_is_reclassified(self):
+        # reclassify() overwrites the very class this compares against.
+        html = self.reschedule_block(self.dashboard_html())
+        self.assertLess(
+            html.index("const stageBefore ="),
+            html.index("reclassify(dot, data.urgency)"),
+        )
+
+    def test_the_moved_rows_own_date_is_passed_in_not_read_back(self):
+        # The date picker holds the span out of the DOM while the request
+        # runs, so reading the new date off it would find nothing and sort
+        # the moved row last.
+        self.assertIn(
+            "const dateOf = el => el === row ? (movedDate || '') :",
+            self.dashboard_html(),
+        )
+
+    def test_the_reload_rule_is_written_down_in_the_source(self):
+        html = self.dashboard_html()
+        self.assertIn("Same stage → re-sort in place. Stage changed → reload.", html)
+
+    def test_no_date_arithmetic_is_reimplemented_here(self):
+        # The stage comes from the server (#169: calendar-week based, and in
+        # a demo session measured against the simulated date). Anything
+        # parsing dates in this block would be a second implementation of it.
+        block = self.reschedule_block(self.dashboard_html())
+        self.assertNotIn("new Date(", block)
+        self.assertNotIn("getDay(", block)
