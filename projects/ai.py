@@ -445,6 +445,10 @@ def resolve_weekly_summary(
                     "name": task["name"],
                     "done": task["done"],
                     "urgency": task.get("urgency", "ok"),
+                    # #190: the raw date, not a formatted string — both
+                    # summary templates run it through plan_date, so they
+                    # share one format with the task rows (#189).
+                    "due": task.get("due"),
                 }
                 for ref in (refs if isinstance(refs, list) else [])
                 if (task := _resolve_ref(ref, numbered_tasks)) is not None

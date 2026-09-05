@@ -5413,6 +5413,53 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         [block2] = sections[1]["blocks"]
         self.assertEqual([t["id"] for t in block2["tasks"]], ["t-plakate", "t-technik"])
 
+    def test_the_projection_carries_the_tasks_due_date(self):
+        # #190: the summary listed a name and a status dot but no date,
+        # which is exactly the moment a date is worth most — a task the
+        # summary calls urgent says nothing about when it is actually due.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertEqual(task["due"], date(2026, 9, 2))
+
+    def test_the_projection_carries_the_raw_date_not_a_formatted_one(self):
+        # #189: a formatted string here would reintroduce the same mistake
+        # on a second projection — the templates format at render time.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertNotIn("due_display", task)
+
+    def test_a_task_without_a_date_projects_none_rather_than_dropping_out(self):
+        # An undated task still belongs in the summary; only its date is
+        # missing, and the template hides the empty span for that case.
+        projects = _summary_projects()
+        projects[0]["tasks"][0]["due"] = None
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            },
+            projects=projects,
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertEqual(task["id"], "t-programm")
+        self.assertIsNone(task["due"])
+
     def test_an_invalid_task_ref_is_dropped_and_the_rest_survive(self):
         sections = self.resolve(
             {
@@ -9398,3 +9445,81 @@ class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, format_date(date.today() + timedelta(days=3)))
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardSummaryShowsTaskDatesTest(TestCase):
+    """#190: the projection is only half the fix — the KI-Wochenübersicht
+    writes out its own task list, so the date has to be rendered there too.
+    A page-wide assertContains would pass on the task rows further down,
+    hence the slice."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _ai_card_html(self, response):
+        content = response.content.decode()
+        start = content.index('<div class="ai-card">')
+        end = content.index('<div class="overview-progress"', start)
+        return content[start:end]
+
+    def _render(self, task_refs=(1,)):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={
+                    "jetzt_faellig": [
+                        {
+                            "project_ref": 1,
+                            "assessment": "Programm ist der Engpass",
+                            "task_refs": list(task_refs),
+                        }
+                    ],
+                    "naechste_woche": [],
+                },
+            ),
+        ):
+            return self.client.get(reverse("dashboard"))
+
+    def test_the_summary_lists_each_tasks_due_date(self):
+        response = self._render()
+        self.assertIn(
+            format_date(date.today() + timedelta(days=3)), self._ai_card_html(response)
+        )
+
+    def test_the_date_carries_the_tasks_urgency_class(self):
+        # Same class the task rows use, so the two surfaces cannot end up
+        # colouring the same date differently.
+        html = self._ai_card_html(self._render())
+        self.assertIn('class="task-due ', html)
+
+
+class MyPlanSummaryShowsTaskDatesTest(DemoModeTestCase):
+    """#190: /mein-plan/ resolves the same projection but renders its own
+    copy of the block list, so it needs the date added separately."""
+
+    def _summary_box_html(self, response):
+        content = response.content.decode()
+        start = content.index('<div class="summary-box">')
+        end = content.index('<div class="task-list">', start)
+        return content[start:end]
+
+    def test_the_summary_lists_each_tasks_due_date(self):
+        self.given_session_plan()
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        response = self.client.get(reverse("my_plan"))
+        self.assertIn(
+            format_date(date.today() + timedelta(days=7)),
+            self._summary_box_html(response),
+        )

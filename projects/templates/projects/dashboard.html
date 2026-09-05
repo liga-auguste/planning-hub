@@ -282,6 +282,7 @@
                                 <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
                             </form>
                             <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                            {% if task.due %}<span class="task-due {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
                         </li>
                         {% endfor %}
                     </ul>
