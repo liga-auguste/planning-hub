@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.db import IntegrityError, transaction
+from django.template import Context, Template
 from django.test import (
     Client,
     RequestFactory,
@@ -9266,4 +9267,32 @@ class DateFormatModuleTest(SimpleTestCase):
         self.assertEqual(
             format_week_range(date(2026, 3, 30), date(2026, 4, 5)),
             "30. Mär – 5. April",
+        )
+
+
+class PlanDateFilterTest(SimpleTestCase):
+    """#189: the filter is what lets templates format at render time, so a
+    date the dashboard cached before a format change still renders in the
+    new format."""
+
+    def render(self, template, value):
+        return Template(template).render(Context({"v": value}))
+
+    def test_renders_the_long_form_by_default(self):
+        self.assertEqual(
+            self.render("{% load planner_tags %}{{ v|plan_date }}", date(2026, 6, 15)),
+            "Mo, 15. Juni",
+        )
+
+    def test_role_argument_selects_the_short_form(self):
+        self.assertEqual(
+            self.render(
+                '{% load planner_tags %}{{ v|plan_date:"short" }}', date(2026, 3, 3)
+            ),
+            "03.03.",
+        )
+
+    def test_a_missing_date_renders_as_nothing(self):
+        self.assertEqual(
+            self.render('{% load planner_tags %}{{ v|plan_date:"long" }}', None), ""
         )
