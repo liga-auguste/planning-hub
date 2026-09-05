@@ -42,6 +42,7 @@ from .ai import (
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .date_format import format_date, format_week_range
 from .dates import is_same_iso_week, iso_week_bounds
 from .models import DemoEvent, PlannerRule, RulesSeeded, WeekCloseout
 from .notion import (
@@ -71,7 +72,6 @@ from .views import (
     _bucket_by_day,
     _build_week_view,
     _count_done_in_range,
-    _format_date,
     _parse_week_param,
     _strip_trailing_date,
 )
@@ -3453,7 +3453,7 @@ class MyPlanEventDateDisplayTest(DemoModeTestCase):
     def test_my_plan_still_renders_the_formatted_event_date(self):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, _format_date(date.today() + timedelta(days=30)))
+        self.assertContains(response, format_date(date.today() + timedelta(days=30)))
 
 
 class MidnightBoundaryUsesLocalDateTest(DemoModeTestCase):
@@ -4741,14 +4741,14 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         self.given_active_simulation()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "Simulierter Zeitpunkt")
-        self.assertNotContains(response, _format_date(date.today()))
+        self.assertNotContains(response, format_date(date.today()))
 
     def test_the_header_date_is_back_without_a_simulation(self):
         # "Zurück zu heute" clears demo_sim_date, so the no-sim render is
         # exactly the state that button restores.
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, _format_date(date.today()))
+        self.assertContains(response, format_date(date.today()))
         self.assertNotContains(response, "Simulierter Zeitpunkt")
 
     def _view_today_html(self, response):
@@ -7063,7 +7063,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
             {
                 "ok": True,
                 "postpone_count": 4,
-                "due_display": _format_date(date(2026, 9, 5)),
+                "due_display": format_date(date(2026, 9, 5)),
             },
         )
         mock_increment.assert_called_once_with("task-1")
@@ -7663,7 +7663,7 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.stored_dates(), [self.NEW_DATE])
         reloaded = self.client.get(reverse("my_plan"))
-        self.assertContains(reloaded, _format_date(date.fromisoformat(self.NEW_DATE)))
+        self.assertContains(reloaded, format_date(date.fromisoformat(self.NEW_DATE)))
 
     def test_an_invalid_date_is_rejected(self):
         plan = self.given_session_plan()
@@ -7761,7 +7761,7 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
             {
                 "ok": True,
                 "postpone_count": 1,
-                "due_display": _format_date(date.fromisoformat(new_date)),
+                "due_display": format_date(date.fromisoformat(new_date)),
             },
         )
         self.assertEqual(
@@ -9236,3 +9236,34 @@ class HealthCheckTest(TestCase):
         ):
             response = self.client.get(reverse("health"))
         self.assertEqual(response.status_code, 503)
+
+
+class DateFormatModuleTest(SimpleTestCase):
+    """#189: display formatting lives in its own module so both the views
+    and the template filter can reach it. The tables and the "long" output
+    are unchanged from views._format_date — this pins that, so the move
+    stays behaviour-neutral."""
+
+    def test_long_role_matches_the_previous_format(self):
+        self.assertEqual(format_date(date(2026, 6, 15), role="long"), "Mo, 15. Juni")
+
+    def test_long_is_the_default_role(self):
+        self.assertEqual(format_date(date(2026, 6, 15)), "Mo, 15. Juni")
+
+    def test_short_role_is_the_numeric_calendar_form(self):
+        self.assertEqual(format_date(date(2026, 3, 3), role="short"), "03.03.")
+
+    def test_none_is_empty_in_every_role(self):
+        self.assertEqual(format_date(None), "")
+        self.assertEqual(format_date(None, role="short"), "")
+
+    def test_week_range_collapses_a_shared_month(self):
+        self.assertEqual(
+            format_week_range(date(2026, 3, 2), date(2026, 3, 8)), "2.–8. März"
+        )
+
+    def test_week_range_spells_both_months_when_they_differ(self):
+        self.assertEqual(
+            format_week_range(date(2026, 3, 30), date(2026, 4, 5)),
+            "30. Mär – 5. April",
+        )

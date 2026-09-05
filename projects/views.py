@@ -19,6 +19,12 @@ from .ai import (
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .date_format import (
+    MONTHS_DE,
+    WEEKDAYS_SHORT,
+    format_date,
+    format_week_range,
+)
 from .dates import is_same_iso_week, iso_week_bounds
 from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
@@ -32,50 +38,6 @@ from .notion import (
 )
 
 logger = logging.getLogger(__name__)
-
-# #14: kept rather than switched to Django's l10n date formatting. Every date
-# display that reads LANGUAGE_CODE-dependent formatting (dashboard, kanban,
-# /mein-plan/, /stats/, planner review, Markdown export) goes through these
-# tables or _format_date(), not Django's |date filter — the one |date use in
-# dashboard.html is a fully numeric, locale-invariant format. Removing these
-# would buy nothing.
-MONTHS_DE = {
-    1: "Januar",
-    2: "Februar",
-    3: "März",
-    4: "April",
-    5: "Mai",
-    6: "Juni",
-    7: "Juli",
-    8: "August",
-    9: "September",
-    10: "Oktober",
-    11: "November",
-    12: "Dezember",
-}
-MONTHS_SHORT = {
-    1: "Jan",
-    2: "Feb",
-    3: "Mär",
-    4: "Apr",
-    5: "Mai",
-    6: "Jun",
-    7: "Jul",
-    8: "Aug",
-    9: "Sep",
-    10: "Okt",
-    11: "Nov",
-    12: "Dez",
-}
-WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-
-
-def _format_date(d):
-    if not d:
-        return ""
-    weekday = WEEKDAYS_SHORT[d.weekday()]
-    return f"{weekday}, {d.day}. {MONTHS_DE[d.month]}"
-
 
 # Both cache keys and SUMMARY_KEY store the summary's raw reference dict
 # (#122), so they carry a version that is bumped on every format change
@@ -174,7 +136,7 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "ok"
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
-            task["due_display"] = _format_date(task["due"])
+            task["due_display"] = format_date(task["due"], role="long")
             if task["done"]:
                 done_count += 1
         project["urgency"] = project_urgency
@@ -301,15 +263,6 @@ def _bucket_by_day(projects, unassigned_tasks, week_start):
     return days
 
 
-def _format_week_range(monday, sunday):
-    if monday.month == sunday.month:
-        return f"{monday.day}.–{sunday.day}. {MONTHS_DE[sunday.month]}"
-    return (
-        f"{monday.day}. {MONTHS_SHORT[monday.month]} – "
-        f"{sunday.day}. {MONTHS_DE[sunday.month]}"
-    )
-
-
 def _fetch_fresh_data(today):
     """Returns (projects, summary_data) — the summary as Claude's raw
     reference dict, resolved against live projects only at render time."""
@@ -386,7 +339,7 @@ def _sidebar_projects(request, today, projects=None):
     projects = _annotate_tasks(projects, today)
     for project in projects:
         project["display_name"] = _strip_trailing_date(project["name"])
-        project["event_date_display"] = _format_date(project["event_date"])
+        project["event_date_display"] = format_date(project["event_date"], role="long")
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
     return month_groups, years
@@ -633,7 +586,7 @@ def dashboard(request):
 
     for project in projects:
         project["display_name"] = _strip_trailing_date(project["name"])
-        project["event_date_display"] = _format_date(project["event_date"])
+        project["event_date_display"] = format_date(project["event_date"], role="long")
 
     week_view = _build_week_view(projects, unassigned_tasks)
 
@@ -727,7 +680,7 @@ def dashboard(request):
             "years": years,
             "summary": summary,
             "today": today,
-            "today_display": _format_date(today),
+            "today_display": format_date(today, role="long"),
             "today_iso": today.isoformat(),
             "has_session_plan": has_session_plan,
             "plan_exists": plan_exists,
@@ -737,7 +690,7 @@ def dashboard(request):
             "timelapse_moments": json.dumps(timelapse_moments),
             "precached_moments": json.dumps(precached_moments),
             "sim_date": sim_date_str,
-            "sim_date_display": _format_date(sim_date) if sim_date else "",
+            "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
             "demo_project_name": demo_project_name,
             "demo_project_date": demo_project_date,
             "demo_project_date_uncertain": demo_project_date_uncertain,
@@ -750,7 +703,7 @@ def dashboard(request):
             "week_total_count": week_total_count,
             "week_progress_pct": week_progress_pct,
             "day_columns": day_columns,
-            "week_range_label": _format_week_range(browsed_monday, browsed_sunday),
+            "week_range_label": format_week_range(browsed_monday, browsed_sunday),
             "is_current_week": is_current_week,
             "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
             "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
@@ -865,7 +818,7 @@ def reschedule_task_view(request, task_id):
         parsed_date = date.fromisoformat(raw_date)
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
-    due_display = _format_date(parsed_date)
+    due_display = format_date(parsed_date, role="long")
 
     if settings.DEMO_MODE:
         # In demo mode only the visitor's own session plan can be written to;
@@ -957,10 +910,12 @@ def close_week_start(request):
         and is_same_iso_week(t["due"], today)
     ]
     for task in open_this_week:
-        task["due_display"] = _format_date(task["due"])
+        task["due_display"] = format_date(task["due"], role="long")
         # The move button's own label — otherwise "→ nächste Woche" doesn't
         # say which date that actually is.
-        task["next_week_display"] = _format_date(task["due"] + timedelta(days=7))
+        task["next_week_display"] = format_date(
+            task["due"] + timedelta(days=7), role="long"
+        )
     iso_year, iso_week, _ = today.isocalendar()
     # If the week is already closed and nothing new is open, confirming
     # again would post an empty task_id list and overwrite the real stats
@@ -982,7 +937,7 @@ def close_week_start(request):
         {
             "tasks": open_this_week,
             "already_closed": already_closed,
-            "today_display": _format_date(today),
+            "today_display": format_date(today, role="long"),
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,
             # #183 follow-up: the sidebar is now shared with dashboard() via
@@ -1142,7 +1097,7 @@ def my_plan(request):
     today = timezone.localdate()
     project = _build_session_project(plan)
     project["display_name"] = _strip_trailing_date(project["name"])
-    project["event_date_display"] = _format_date(project["event_date"])
+    project["event_date_display"] = format_date(project["event_date"], role="long")
     _annotate_tasks([project], today)
 
     # #185: the sidebar's "Projekte" list, same shape dashboard() builds for
@@ -1183,7 +1138,7 @@ def my_plan(request):
             "done_count": done_count,
             "total": total,
             "today": today,
-            "today_display": _format_date(today),
+            "today_display": format_date(today, role="long"),
             "summary": summary,
             "summary_error": summary_error,
             # #183 follow-up: the sidebar is now shared with dashboard() via
@@ -1207,7 +1162,7 @@ def download_plan(request):
 
     today = timezone.localdate()
     event_date = date.fromisoformat(plan["event_date"])
-    event_display = _format_date(event_date)
+    event_display = format_date(event_date, role="long")
 
     lines = [
         # Display-only cleanup (#134) — the export carries its own Zieldatum
@@ -1224,7 +1179,7 @@ def download_plan(request):
     for t in plan["tasks"]:
         checkbox = "[x]" if t["done"] else "[ ]"
         due = date.fromisoformat(t["date"]) if t.get("date") else None
-        due_str = f" — {_format_date(due)}" if due else ""
+        due_str = f" — {format_date(due, role='long')}" if due else ""
         lines.append(f"- {checkbox} {t['name']}{due_str}")
 
     lines += [
