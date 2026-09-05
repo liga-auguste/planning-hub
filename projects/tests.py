@@ -65,6 +65,7 @@ from .planner_views import _get_history, _parse_event_date
 from .rules import DEMO_RULES_KEY, INITIAL_RULES, add_rule, get_active_rule_texts
 from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
+    _URGENCY_RANK,
     CACHE_KEY,
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
@@ -5057,10 +5058,13 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
     def test_reschedule_js_clears_the_today_class_too(self):
         # Rescheduling a due-today task away must not leave the amber
-        # styling behind until the next reload.
+        # styling behind until the next reload. The literal class list grew
+        # a name once the dot started moving with the label — see
+        # RescheduleReclassifiesTheWholeRowTest for the full contract.
         self.given_mixed_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "classList.remove('overdue', 'urgent', 'today')")
+        self.assertContains(response, "el.classList.remove(...URGENCY_CLASSES);")
+        self.assertContains(response, "reclassify(dueSpan, data.urgency);")
 
     def test_reschedule_js_displays_the_servers_formatted_date(self):
         # #176: the raw ISO date (newDate/input.value) must never land in the
@@ -7233,6 +7237,12 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
     """#171: reschedule_task_view increments the postpone counter after a
     successful date update and reports the new value."""
 
+    # Relative rather than fixed: the answer now carries the stage the new
+    # date implies, and a hard-coded date would slide from "ok" through
+    # "urgent" into "overdue" as the real clock passed it. Two months out is
+    # never in this ISO week.
+    NEW_DATE = date.today() + timedelta(days=60)
+
     def test_increments_and_returns_the_new_count(self):
         with (
             patch("projects.views.update_task_date"),
@@ -7242,7 +7252,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
         ):
             response = self.client.post(
                 reverse("reschedule_task", args=["task-1"]),
-                data='{"date": "2026-09-05"}',
+                data=f'{{"date": "{self.NEW_DATE.isoformat()}"}}',
                 content_type="application/json",
             )
         self.assertEqual(
@@ -7250,7 +7260,8 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
             {
                 "ok": True,
                 "postpone_count": 4,
-                "due_display": format_date(date(2026, 9, 5)),
+                "due_display": format_date(self.NEW_DATE),
+                "urgency": "ok",
             },
         )
         mock_increment.assert_called_once_with("task-1")
@@ -7927,6 +7938,98 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
+class RescheduleAnswersTheNewStageTest(DemoModeTestCase):
+    """A task row wears its urgency class twice — on the dot and on the date
+    label — and reschedule() only ever cleared the label's, so moving a task
+    due today left an amber "act today" dot beside a neutral date until the
+    next page load. The view now answers with the stage the new date implies,
+    computed by the same _classify_due_urgency the dashboard renders with
+    rather than by a second copy of the rule living in JS."""
+
+    # A fixed Monday, so that "urgent" (same ISO week, later than today) is
+    # constructible at all — on a real Sunday no such date exists. Time
+    # travel is a demo-session feature, which makes it the natural way to pin
+    # the arithmetic without freezing the clock.
+    MONDAY = "2026-09-07"
+
+    def given_simulated_today(self, day):
+        session = self.client.session
+        session["demo_sim_date"] = day
+        session.save()
+
+    def moved_to(self, new_date):
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=f'{{"date": "{new_date}"}}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["urgency"]
+
+    def test_every_stage_is_measured_against_the_simulated_today(self):
+        self.given_session_plan()
+        self.given_simulated_today(self.MONDAY)
+        for new_date, stage in (
+            ("2026-09-06", "overdue"),  # the Sunday before, last ISO week
+            (self.MONDAY, "today"),
+            ("2026-09-09", "urgent"),  # Wednesday, still this ISO week
+            ("2026-09-14", "ok"),  # the Monday after, a week out
+        ):
+            with self.subTest(date=new_date):
+                self.assertEqual(self.moved_to(new_date), stage)
+
+    def test_without_time_travel_the_real_today_decides(self):
+        self.given_session_plan()
+        self.assertEqual(self.moved_to(date.today().isoformat()), "today")
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self.assertEqual(self.moved_to(yesterday), "overdue")
+
+
+class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
+    """The client half of the same fix: both halves of the row move together,
+    and the class list the client clears stays in step with the stages the
+    server can actually answer with."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_client_clears_every_stage_the_server_can_answer_with(self):
+        # `done` is deliberately absent: it is the toggle's own class, and
+        # reclassifying a checked-off task must not strip its green.
+        declared = re.search(
+            r"const URGENCY_CLASSES = \[(.*?)\];", self.dashboard_html()
+        )
+        self.assertIsNotNone(declared)
+        self.assertEqual(
+            set(re.findall(r"'([a-z]+)'", declared.group(1))),
+            set(_URGENCY_RANK) - {"done"},
+        )
+
+    def test_both_the_label_and_the_dot_are_reclassified(self):
+        html = self.dashboard_html()
+        self.assertIn("reclassify(dueSpan, data.urgency);", html)
+        self.assertIn("if (dot) reclassify(dot, data.urgency);", html)
+
+    def test_the_row_is_handed_in_rather_than_walked_up_to(self):
+        # The picker does span.replaceWith(input) while it is open, so the
+        # span has no parent for the duration of the request and closest()
+        # called on it inside reschedule() would find nothing — the dot would
+        # silently keep its pre-move stage. Both call sites therefore read
+        # the row while the span is still attached and pass it in.
+        html = self.dashboard_html()
+        self.assertIn(
+            "async function reschedule(taskId, newDate, dueSpan, row) {", html
+        )
+        self.assertIn("const row = span.closest('.task-row');", html)
+        self.assertIn(
+            "await reschedule(span.dataset.taskId, input.value, span, row);", html
+        )
+        self.assertIn(
+            "await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));", html
+        )
+
+
 class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
     """#171: awareness, not punishment — the counter increments on every
     reschedule, the badge's >=2 threshold is a display concern (see
@@ -7949,6 +8052,7 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
                 "ok": True,
                 "postpone_count": 1,
                 "due_display": format_date(date.fromisoformat(new_date)),
+                "urgency": "ok",
             },
         )
         self.assertEqual(
