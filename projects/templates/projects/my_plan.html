@@ -52,6 +52,9 @@
        the marker, a second bullet in front of it would double up. */
     .summary-box ul ul { list-style: none; padding-left: 8px; }
     .summary-box .dot { vertical-align: middle; margin-right: 6px; }
+    /* The task list below lays this out with flex gap; inside the summary
+       it is an inline span and needs its own separation from the name. */
+    .summary-box .task-date { margin-left: 8px; }
     .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     .summary-box hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 16px 0; }
@@ -118,6 +121,7 @@ is gone; the sidebar already covers that.
                     <li>
                         <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
                         <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                        {% if task.due %}<span class="task-date {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
                     </li>
                     {% endfor %}
                 </ul>
