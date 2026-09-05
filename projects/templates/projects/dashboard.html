@@ -615,6 +615,11 @@ function applyTaskDone(taskId, done) {
 //   - The day-column counters count what their column shows, tasks due on
 //     that day (#182's rule for the week bar, applied here). A task cleared
 //     today but due elsewhere moves its own due day's counter, not today's.
+//   - A moved Kanban card lands at the end of its new column, not at the
+//     position the server would render it in (month, then project, then due
+//     date). Reproducing that order here would put the board's structure
+//     into JavaScript, which is what the single kanban_column field exists
+//     to avoid. The card sits right on the next load.
 function applyToggleFigures(taskId, data) {
     // No figures: the server had no warm cache to derive them from, so the
     // page is out of date in ways only a render can fix.

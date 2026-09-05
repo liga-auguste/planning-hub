@@ -136,6 +136,10 @@ These are decisions, not omissions.
   lists by `(due, project_name)`; `sortRows()` sorts by date alone, so a row moved onto
   an occupied date lands at the end of that date group instead of in project-name order.
   Correct again on the next load.
+- **A moved Kanban card lands at the end of its new column**, not at the position the
+  server would render it in (month, then project, then due date). Reproducing that order
+  client-side would put the board's structure into JavaScript, which is what shipping the
+  column as a single field exists to avoid. The card sits right on the next load.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 
