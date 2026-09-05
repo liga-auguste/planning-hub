@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from .ai import (
     AIUnavailableError,
+    _number_projects_and_tasks,
     generate_closeout_summary,
     generate_weekly_summary,
     resolve_weekly_summary,
@@ -77,6 +78,23 @@ UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v4"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
 STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v4"
 
+# #216: the moment each live entry falls due, stamped when a fresh Notion
+# read fills it and never touched afterwards. Django's cache API offers no
+# portable "how long has this entry got left", so without a stamp every
+# re-write has to name a timeout — and #199 turned a toggle from a delete
+# into a re-write. Naming CACHE_TTL there would renew the eight hours on
+# every checkbox: check one task off per working day and the dashboard
+# never performs an unforced Notion read again, so anything edited in
+# Notion's own UI (which _count_done_in_range explicitly expects) stays
+# invisible for as long as the patching continues. The TTL is a
+# freshness policy about the *read*, not about the last write.
+#
+# Unversioned: these hold a bare deadline, no task shape, so a pre-deploy
+# entry cannot misrender. They are absent rather than wrong before the
+# first fetch after a deploy, and absent means "cannot patch safely".
+CACHE_DEADLINE_KEY = "dashboard_data_deadline"
+UNASSIGNED_CACHE_DEADLINE_KEY = "dashboard_unassigned_deadline"
+
 
 def _bust_dashboard_cache():
     """Called after every confirmed Notion write, so a completed task or a
@@ -85,6 +103,71 @@ def _bust_dashboard_cache():
     cache.delete(STALE_CACHE_KEY)
     cache.delete(UNASSIGNED_CACHE_KEY)
     cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+    cache.delete(CACHE_DEADLINE_KEY)
+    cache.delete(UNASSIGNED_CACHE_DEADLINE_KEY)
+
+
+def _cache_fresh_read(key, value, deadline_key, ttl):
+    """Stores a fresh Notion read together with the moment it falls due.
+
+    The only place a dashboard entry's life is allowed to start over
+    (#216). Every later re-write of the same data — a patched toggle, a
+    regenerated summary — goes through _remaining_ttl instead, so it can
+    put the entry back without pushing its expiry out."""
+    cache.set(key, value, ttl)
+    cache.set(deadline_key, timezone.now() + timedelta(seconds=ttl), ttl)
+
+
+def _remaining_ttl(deadline_key):
+    """Seconds left before the entry `deadline_key` describes falls due, or
+    None when it cannot be re-written without outliving that moment — no
+    deadline recorded (a first request after a deploy), or one already
+    passed. None is the caller's cue to fall back, never to guess a TTL."""
+    deadline = cache.get(deadline_key)
+    if deadline is None:
+        return None
+    remaining = (deadline - timezone.now()).total_seconds()
+    return remaining if remaining > 0 else None
+
+
+def _summary_ref_order(projects):
+    """The identity sequence a summary's project_ref / task_refs are
+    positions in. Read through _number_projects_and_tasks (ai.py) rather
+    than rebuilt here, so the check cannot drift from the numbering it is
+    checking."""
+    numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
+    return [p["id"] for p in numbered_projects], [t["id"] for t in numbered_tasks]
+
+
+def _attach_regenerated_summary(numbered_against, summary_data):
+    """Writes a freshly generated summary onto the projects the cache holds
+    *now*, never onto the snapshot the generating request opened with
+    (#216).
+
+    generate_weekly_summary takes seconds. Writing back the projects read
+    before it would undo a toggle that patched the cache inside that
+    window — the entry would go on serving a task as open that Notion has
+    as done, which is the one thing _patch_cached_tasks promises against.
+    Only the summary is this request's to contribute.
+
+    The summary is dropped rather than written when the numbering it was
+    built against no longer holds. task_refs are positions in that order,
+    so a reschedule landing during the call would leave them pointing at
+    the wrong tasks — in range, and therefore rendered rather than dropped
+    by resolve_weekly_summary. A toggle moves nothing (`done` is not in
+    _annotate_tasks' sort key), so its patch keeps the order and the
+    summary still fits. A cache busted meanwhile is not resurrected
+    either: writing it back would restore the state the bust discarded."""
+    current = cache.get(CACHE_KEY)
+    if current is None:
+        return
+    projects = current[0]
+    if _summary_ref_order(projects) != _summary_ref_order(numbered_against):
+        return
+    remaining = _remaining_ttl(CACHE_DEADLINE_KEY)
+    if remaining:
+        cache.set(CACHE_KEY, (projects, summary_data), remaining)
+    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
 
 def _find_task(projects, unassigned_tasks, task_id):
@@ -110,7 +193,8 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     derives its answer from — or None when the write cannot be reflected
     safely, in which case the caller busts the cache as before. That
     fallback is the normal path, not an edge case: a cold cache, a half-cold
-    one, or a task no cached list carries all take it.
+    one, a task no cached list carries, or an entry whose deadline has run
+    out from under it all take it.
 
     `drop_summary` is for the writes that renumber the summary's task_refs
     (a reschedule moves the task in the chronological order, #140); a toggle
@@ -121,6 +205,15 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     if primary is None or unassigned is None:
         # Half a picture is no picture: every figure the dashboard renders
         # is counted across both lists.
+        return None
+    # #216: read before the write, and separately per pair — the two are
+    # independent Notion reads and their deadlines drift apart whenever one
+    # of them fails alone. Without both, this write would have to name a
+    # fresh TTL and renew the entry's eight hours; the bust it falls back
+    # to costs one Notion read and keeps the freshness policy intact.
+    primary_ttl = _remaining_ttl(CACHE_DEADLINE_KEY)
+    unassigned_ttl = _remaining_ttl(UNASSIGNED_CACHE_DEADLINE_KEY)
+    if primary_ttl is None or unassigned_ttl is None:
         return None
     projects, summary_data = primary
     task, _ = _find_task(projects, unassigned, task_id)
@@ -134,8 +227,10 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     unassigned = _annotate_tasks([{"id": "_unassigned", "tasks": unassigned}], today)[
         0
     ]["tasks"]
-    cache.set(CACHE_KEY, (projects, None if drop_summary else summary_data), CACHE_TTL)
-    cache.set(UNASSIGNED_CACHE_KEY, unassigned, UNASSIGNED_CACHE_TTL)
+    cache.set(
+        CACHE_KEY, (projects, None if drop_summary else summary_data), primary_ttl
+    )
+    cache.set(UNASSIGNED_CACHE_KEY, unassigned, unassigned_ttl)
     _patch_stale_copies(task_id, mutate, today, drop_summary)
     return projects, unassigned
 
@@ -343,14 +438,33 @@ def _count_done_in_range(tasks, start, end):
     return done, len(relevant)
 
 
+# #216: date.min and date.max are hard walls, and a Monday within seven days
+# of either one cannot be rendered — _bucket_by_day walks a week forward
+# from it and dashboard() reaches a week either side for the navigation
+# links, so `week_start + timedelta(days=6)` raises OverflowError instead.
+# ?week=9999-W52 did that to the whole page; week_start on the toggle did it
+# *after* the Notion write had been confirmed, leaving the client told the
+# write failed. Out-of-range is just one more value these parsers cannot
+# use, handled where they already handle the others.
+_EARLIEST_WEEK_START = date.min + timedelta(days=7)
+_LATEST_WEEK_START = date.max - timedelta(days=7)
+
+
+def _usable_week_start(monday, default_monday):
+    if _EARLIEST_WEEK_START <= monday <= _LATEST_WEEK_START:
+        return monday
+    return default_monday
+
+
 _WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
 
 
 def _parse_week_param(request, default_monday):
     """#180: ?week=2026-W37 navigates the day columns to that week. Anything
-    unparseable — absent, malformed, or a week number ISO doesn't have —
-    falls back to default_monday rather than erroring the whole page over a
-    query param a visitor is free to hand-edit."""
+    unparseable — absent, malformed, a week number ISO doesn't have, or one
+    too close to date.min/date.max to render (#216) — falls back to
+    default_monday rather than erroring the whole page over a query param a
+    visitor is free to hand-edit."""
     raw = request.GET.get("week")
     if not raw:
         return default_monday
@@ -358,9 +472,10 @@ def _parse_week_param(request, default_monday):
     if not match:
         return default_monday
     try:
-        return date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
+        monday = date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
     except ValueError:
         return default_monday
+    return _usable_week_start(monday, default_monday)
 
 
 def _bucket_by_day(projects, unassigned_tasks, week_start):
@@ -752,8 +867,12 @@ def dashboard(request):
                     # same reasoning as the fetch path below.
                     summary_data = None
                 else:
-                    cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
-                    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
+                    # #216: only the summary is new here — these projects
+                    # came out of the cache, not out of Notion — so the
+                    # write-back neither renews the read-freshness window
+                    # nor carries this request's snapshot of the projects
+                    # over whatever landed during the Claude call.
+                    _attach_regenerated_summary(projects, summary_data)
         else:
             try:
                 projects, summary_data = _fetch_fresh_data(today)
@@ -774,7 +893,12 @@ def dashboard(request):
                 # whole TTL and overwrite the stale copy's last good summary.
                 # Leaving the cache empty makes the next request retry Claude.
                 if summary_data is not None:
-                    cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
+                    _cache_fresh_read(
+                        CACHE_KEY,
+                        (projects, summary_data),
+                        CACHE_DEADLINE_KEY,
+                        CACHE_TTL,
+                    )
                     cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
         # #53: an independent read from get_upcoming_projects (own cache
@@ -793,7 +917,12 @@ def dashboard(request):
                 unassigned_tasks = _annotate_tasks(
                     [{"id": "_unassigned", "tasks": fetched_unassigned}], today
                 )[0]["tasks"]
-                cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_TTL)
+                _cache_fresh_read(
+                    UNASSIGNED_CACHE_KEY,
+                    unassigned_tasks,
+                    UNASSIGNED_CACHE_DEADLINE_KEY,
+                    UNASSIGNED_CACHE_TTL,
+                )
                 cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
 
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
@@ -974,16 +1103,19 @@ def preload_timelapse_summary(request):
 def _parse_week_start(data, default_monday):
     """#210: the client posts the Monday of the week its day columns are
     showing — ?week= navigates them to any week and the server cannot guess
-    which one is on screen. Anything unparseable falls back to the current
-    week, the same tolerance _parse_week_param already applies to the query
-    param a visitor is free to hand-edit."""
+    which one is on screen. Anything unparseable, or too close to
+    date.min/date.max to render (#216), falls back to the current week — the
+    same tolerance _parse_week_param applies to the query param a visitor is
+    free to hand-edit, and it matters more here: this runs after the Notion
+    write is confirmed, so a crash would report a write that did happen."""
     raw = data.get("week_start")
     if not isinstance(raw, str):
         return default_monday
     try:
-        return date.fromisoformat(raw)
+        monday = date.fromisoformat(raw)
     except ValueError:
         return default_monday
+    return _usable_week_start(monday, default_monday)
 
 
 def _toggle_answer(

@@ -56,14 +56,72 @@ every cached copy of one task and re-runs `_annotate_tasks` on top of it. Each
 `cache.get` hands back its own deserialized object graph, so all four entries are patched
 separately.
 
-Two rules govern it:
+Three rules govern it:
 
 1. **A patch never serves a state predating a confirmed write.** A stale snapshot that
    does not carry the task at all cannot be corrected, so it is deleted rather than left
    in place.
-2. **The fallback is the normal path, not an edge case.** A cold cache, a half-cold
-   cache, or a task no cached list carries all return `None`, and the caller busts
-   exactly as before.
+2. **A patch never extends the entry's life.** See below.
+3. **The fallback is the normal path, not an edge case.** A cold cache, a half-cold
+   cache, a task no cached list carries, or an entry whose deadline has run out all
+   return `None`, and the caller busts exactly as before.
+
+### A patch puts the entry back, it does not renew it
+
+A delete needs no timeout; a re-write does. Naming `CACHE_TTL` there renewed the eight
+hours on every checkbox — check one task off per working day and the dashboard never
+performs an unforced Notion read again, so anything edited in Notion's own UI stays
+invisible for as long as the patching continues. That is not a small gap: this app is
+not the only writer, which is why `_count_done_in_range` accounts for a task "checked
+off directly in Notion's own UI". `↻ Aktualisieren` deletes `CACHE_KEY` alone, so the
+project-less list would have had no manual escape at all (#216).
+
+The TTL is a freshness policy about the *read*, not about the last write, so a fresh
+Notion read stamps the moment its entry falls due — `CACHE_DEADLINE_KEY` and
+`UNASSIGNED_CACHE_DEADLINE_KEY`, one per pair, because the two are independent reads
+whose deadlines drift apart whenever one of them fails alone. `_cache_fresh_read` is
+the only writer allowed to move a stamp; every later write asks `_remaining_ttl` what
+is left and names that. Django's cache API has no portable "how long has this entry
+got left", which is why the deadline is recorded rather than read back.
+
+`None` from `_remaining_ttl` — no stamp (the first request after this deploy) or one
+already passed — means the entry cannot go back without outliving its read, so the
+caller busts. The stamps are deliberately unversioned: they hold a bare deadline and
+no task shape, so a pre-deploy entry cannot misrender, only be absent, and absent
+already means "cannot patch safely".
+
+Regenerating a dropped summary follows the same rule. Those projects came out of the
+cache, not out of Notion — only the summary is new — so the entry goes back with what
+its deadline has left, and past due it is not written back at all: it is seconds from
+expiring anyway, and the stale copy keeps the summary the Claude call paid for.
+
+### The regenerated summary attaches to the projects, it does not carry its own
+
+`generate_weekly_summary` takes seconds, and that branch used to write back the
+`projects` it had read *before* the call. A toggle confirmed in Notion inside that
+window was discarded by the write-back, and the cache went on serving a task as open
+that Notion had as done — the one thing `_patch_cached_tasks` promises against, and
+for the rest of the entry's life rather than until the next bust (#216).
+
+`_attach_regenerated_summary(numbered_against, summary_data)` re-reads `CACHE_KEY`
+after the call and writes the summary onto whatever the entry holds now. Only the
+summary is the regenerating request's to contribute; the projects belong to whoever
+wrote last. Two cases withhold it entirely:
+
+- **The cache was busted meanwhile.** Writing the entry back would restore exactly
+  the state the bust discarded, so nothing is written and the next load refetches.
+- **The numbering moved.** `task_refs` are positions in the order
+  `_number_projects_and_tasks` (`ai.py`) establishes, so a reschedule landing during
+  the call leaves them pointing at the wrong tasks — *in range*, and therefore
+  rendered rather than dropped by `resolve_weekly_summary`. `_summary_ref_order`
+  reads that order through the same helper rather than rebuilding it, so the check
+  cannot drift from the numbering it checks. A toggle moves nothing, so its patch
+  keeps the order and the summary still fits — which is the whole reason a toggle and
+  a reschedule are treated differently one section down.
+
+The same race exists, unfixed, in the cold-cache branch beside it: `_fetch_fresh_data`
+is equally slow and its projects genuinely are new, so a re-read cannot resolve it —
+that needs a write fence, and it predates this issue.
 
 ### Why a toggle keeps its summary and a reschedule does not
 
@@ -106,6 +164,16 @@ The toggle request carries `week_start`, the Monday of the week the day columns 
 showing. `?week=` navigates them to any week and the server cannot guess which one is on
 screen.
 
+Both that field and `?week=` funnel through `_usable_week_start`, which rejects a
+Monday within seven days of `date.min` / `date.max` (#216). `_bucket_by_day` walks a
+week forward from the Monday it is given and `dashboard()` reaches a week either side
+for the navigation links, so such a Monday raises `OverflowError` instead of rendering.
+It parses, so neither parser's existing "unparseable" guard saw it: `?week=9999-W52`
+took the whole page down, and `week_start` did it *after* the Notion write had been
+confirmed — a 500 the client reads as "it failed" for a write that happened. Out of
+range is one more value these parsers cannot use, handled where they already handle
+the others.
+
 ## When a reload still happens
 
 | Action | Response | Client |
@@ -142,6 +210,12 @@ These are decisions, not omissions.
   column as a single field exists to avoid. The card sits right on the next load.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
+- **A write landing during a cold-cache fetch is still lost.** `_fetch_fresh_data` is as
+  slow as the Claude call above, and the branch that follows it writes the projects it
+  just read from Notion. The re-read that fixes the regeneration branch cannot fix this
+  one — there, only the summary is the request's to contribute, whereas here the projects
+  genuinely are new. It needs a write fence: a counter every confirmed write bumps, which
+  a long read checks before writing back. Predates #216 and is left as it was.
 
 ## Cache versions
 
@@ -153,7 +227,7 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests.py` covers this in six classes:
+`projects/tests.py` covers this in eight classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
@@ -166,3 +240,9 @@ change, and the bump is mandatory rather than cosmetic.
   derived in JavaScript
 - `RescheduleKeepsTheCachedProjectsTest`, `RescheduleResortsTheRowTest` — the reschedule
   half, server and client
+- `PatchingDoesNotRenewTheReadWindowTest` — every assertion on the timeout a write
+  actually named, never on the deadline stamp beside it: a patch leaves that stamp
+  alone either way, so asserting on it would pass with the bug still in place
+- `RegeneratingASummaryDoesNotUndoAConcurrentWriteTest` — the second request runs
+  inside the stubbed Claude call, which is exactly where it would land; a toggle
+  survives, a reschedule takes the summary with it, a bust is not resurrected

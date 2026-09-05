@@ -67,15 +67,20 @@ from .startup import MissingAPIKeyError, require_api_keys
 from .views import (
     _KANBAN_COLUMN,
     _URGENCY_RANK,
+    CACHE_DEADLINE_KEY,
     CACHE_KEY,
+    CACHE_TTL,
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
     STALE_UNASSIGNED_CACHE_KEY,
     SUMMARY_KEY,
+    UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
     _bucket_by_day,
     _build_week_view,
+    _bust_dashboard_cache,
+    _cache_fresh_read,
     _count_done_in_range,
     _derive_dashboard_figures,
     _kanban_column,
@@ -4829,6 +4834,16 @@ class ParseWeekParamTest(SimpleTestCase):
                 result = _parse_week_param(self._request(bad), self.DEFAULT)
                 self.assertEqual(result, self.DEFAULT)
 
+    def test_a_week_against_the_calendars_edge_falls_back_to_default(self):
+        # #216: parseable but unusable — _bucket_by_day walks six days
+        # forward from this Monday and dashboard() reaches a week either
+        # side, so both ends overflow date.min/date.max instead of
+        # rendering. 9999-W52 starts on 9999-12-27, four days from the end.
+        for edge in ["9999-W52", "0001-W01"]:
+            with self.subTest(edge=edge):
+                result = _parse_week_param(self._request(edge), self.DEFAULT)
+                self.assertEqual(result, self.DEFAULT)
+
 
 class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
     """#153: with a simulated moment active the dashboard showed two
@@ -6985,6 +7000,25 @@ class DayColumnsProductionTest(TestCase):
                 reverse("dashboard") + "?view=today&week=not-a-week"
             )
         self.assertEqual(response.status_code, 200)
+
+    def test_a_week_param_against_the_calendars_edge_does_not_500(self):
+        # #216: this one parses, so the malformed-param guard above never
+        # saw it — ?week=9999-52 reached _bucket_by_day and took the whole
+        # page down with an OverflowError.
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            ),
+        ):
+            for edge in ["9999-W52", "0001-W01"]:
+                with self.subTest(edge=edge):
+                    response = self.client.get(
+                        reverse("dashboard") + f"?view=today&week={edge}"
+                    )
+                    self.assertEqual(response.status_code, 200)
 
 
 @override_settings(DEMO_MODE=False)
@@ -9928,7 +9962,11 @@ def _warm_dashboard_cache(tasks, unassigned=(), summary="<p>alt</p>", today=None
     """Fills all four dashboard cache keys the way a successful dashboard()
     read leaves them. Every Django cache backend serializes on set and get,
     so the four entries are independent object graphs — which is exactly why
-    a patch has to reach each of them."""
+    a patch has to reach each of them.
+
+    The two live entries go in through _cache_fresh_read, the same seam
+    dashboard() uses, so they carry the deadline stamp a patch needs (#216)
+    instead of the helper having to remember to add one."""
     today = today or date.today()
     project = _fake_upcoming_project()
     project["tasks"] = [dict(t) for t in tasks]
@@ -9936,9 +9974,11 @@ def _warm_dashboard_cache(tasks, unassigned=(), summary="<p>alt</p>", today=None
     unassigned_tasks = _annotate_tasks(
         [{"id": "_unassigned", "tasks": [dict(t) for t in unassigned]}], today
     )[0]["tasks"]
-    cache.set(CACHE_KEY, (projects, summary), 60)
+    _cache_fresh_read(CACHE_KEY, (projects, summary), CACHE_DEADLINE_KEY, 60)
     cache.set(STALE_CACHE_KEY, (projects, summary), None)
-    cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, 60)
+    _cache_fresh_read(
+        UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_DEADLINE_KEY, 60
+    )
     cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
 
 
@@ -10053,6 +10093,148 @@ class ToggleKeepsTheDashboardCacheWarmTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
+class PatchingDoesNotRenewTheReadWindowTest(TestCase):
+    """#216: #199 turned a write from a cache delete into a cache re-write,
+    and a re-write has to name a timeout. Naming CACHE_TTL renewed the eight
+    hours on every checkbox — check one task off per working day and the
+    dashboard never performs an unforced Notion read again, so a task edited
+    in Notion's own UI (which _count_done_in_range explicitly expects) stays
+    invisible for as long as the patching continues. The TTL is a freshness
+    policy about the *read*: the read stamps a deadline, every later write
+    keeps it, and a write that cannot keep it falls back to the bust.
+
+    Every assertion below is on the timeout a write actually named, not on
+    the deadline stamp beside it — a patch never touches that stamp either
+    way, so asserting on it would pass with the bug still in place.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_toggle(self, task_id="task-1", done=True):
+        with patch("projects.views.toggle_task"):
+            return self.client.post(
+                reverse("toggle_task", args=[task_id]),
+                data=json.dumps({"done": done}),
+                content_type="application/json",
+            )
+
+    def post_reschedule(self, task_id="task-1", days=3):
+        with (
+            patch("projects.views.update_task_date"),
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
+            return self.client.post(
+                reverse("reschedule_task", args=[task_id]),
+                data=json.dumps(
+                    {"date": (date.today() + timedelta(days=days)).isoformat()}
+                ),
+                content_type="application/json",
+            )
+
+    def timeouts_named_by(self, action, *keys):
+        """The timeout every write to `keys` named while `action` ran.
+
+        Django's cache API cannot report how long an entry has left, so
+        watching the writes from inside views is the only way to see the
+        difference between "put back" and "renewed"."""
+        with patch("projects.views.cache", wraps=cache) as views_cache:
+            action()
+        return [
+            call.args[2]
+            for call in views_cache.set.call_args_list
+            if call.args[0] in keys and len(call.args) > 2
+        ]
+
+    # _warm_dashboard_cache seeds the live pair with 60 seconds, so a
+    # timeout above that is the entry outliving the read that filled it.
+    SEEDED_TTL = 60
+
+    def test_a_toggle_puts_the_entry_back_with_the_time_it_had_left(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        timeouts = self.timeouts_named_by(
+            self.post_toggle, CACHE_KEY, UNASSIGNED_CACHE_KEY
+        )
+        # Both live entries, patched as #199 wants — and neither renewed.
+        self.assertEqual(len(timeouts), 2)
+        for timeout in timeouts:
+            self.assertLessEqual(timeout, self.SEEDED_TTL)
+        self.assertTrue(_cached_task_by_id(CACHE_KEY, "task-1")["done"])
+
+    def test_a_reschedule_puts_them_back_with_the_time_they_had_left(self):
+        # Two patches in one request — the confirmed date, then the
+        # confirmed postpone counter — so a renewal here would compound.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        timeouts = self.timeouts_named_by(self.post_reschedule, CACHE_KEY)
+        self.assertEqual(len(timeouts), 2)
+        for timeout in timeouts:
+            self.assertLessEqual(timeout, self.SEEDED_TTL)
+
+    def test_regenerating_a_dropped_summary_does_not_renew_it_either(self):
+        # Those projects came out of the cache, not out of Notion — only the
+        # summary is new, so a Claude call must not restart the window a
+        # Notion read opened.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())], summary=None)
+
+        def load():
+            with (
+                patch(
+                    "projects.views.generate_weekly_summary",
+                    return_value=_summary_data(),
+                ),
+                patch("projects.views.get_upcoming_projects") as fetch,
+            ):
+                self.client.get(reverse("dashboard"))
+            fetch.assert_not_called()
+
+        timeouts = self.timeouts_named_by(load, CACHE_KEY)
+        self.assertEqual(len(timeouts), 1)
+        self.assertLessEqual(timeouts[0], self.SEEDED_TTL)
+        self.assertEqual(cache.get(CACHE_KEY)[1], _summary_data())
+
+    def test_an_elapsed_deadline_busts_instead_of_patching(self):
+        # Past its window the entry may not go back at all: writing it would
+        # extend it. The fallback is the delete #199 replaced, so the next
+        # load pays one Notion read and the freshness policy holds.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        cache.set(CACHE_DEADLINE_KEY, timezone.now() - timedelta(seconds=1), 60)
+        response = self.post_toggle()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(UNASSIGNED_CACHE_KEY))
+        # No figures either, so the client reloads rather than writing
+        # numbers the server had nothing to derive from.
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_an_entry_from_before_the_stamp_existed_is_busted_not_renewed(self):
+        # The first request after this deploy meets entries no read stamped.
+        # An unknown deadline is treated as none, never as a fresh one.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        cache.delete(CACHE_DEADLINE_KEY)
+        cache.delete(UNASSIGNED_CACHE_DEADLINE_KEY)
+        self.post_toggle()
+        self.assertIsNone(cache.get(CACHE_KEY))
+
+    def test_a_fresh_notion_read_is_what_starts_the_window(self):
+        # The one event allowed to move the deadline, because it is the one
+        # the eight hours are actually about.
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        for key in (CACHE_DEADLINE_KEY, UNASSIGNED_CACHE_DEADLINE_KEY):
+            with self.subTest(key=key):
+                self.assertGreater(
+                    cache.get(key), timezone.now() + timedelta(seconds=CACHE_TTL - 60)
+                )
+
+
+@override_settings(DEMO_MODE=False)
 class ToggleAnswersTheRecomputedFiguresTest(TestCase):
     """#210: every count on the dashboard is server-derived, and a toggle
     can change a denominator, not just a numerator — an overdue task from an
@@ -10103,6 +10285,23 @@ class ToggleAnswersTheRecomputedFiguresTest(TestCase):
         _warm_dashboard_cache([_cached_task("task-1", today)])
         data = self.post_toggle("task-1", week_start="übermorgen").json()
         self.assertIn(iso_week_bounds(today)[0].isoformat(), data["days"])
+
+    def test_a_week_start_against_the_calendars_edge_answers_normally(self):
+        # #216: it parses, so the guard above never saw it, and
+        # _bucket_by_day walking six days on from date.max raised
+        # OverflowError — a 500 for a Notion write that had already been
+        # confirmed, which the client reads as 'it failed' and leaves the
+        # checkbox alone. Falls back to the current week like any other
+        # week_start this view cannot use.
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        for edge in (date.max.isoformat(), date.min.isoformat()):
+            with self.subTest(edge=edge):
+                response = self.post_toggle("task-1", week_start=edge)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(
+                    iso_week_bounds(today)[0].isoformat(), response.json()["days"]
+                )
 
     def test_the_kanban_column_counts_come_back(self):
         today = date.today()
@@ -10522,6 +10721,95 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Die KI-Wochenübersicht ist gerade nicht")
         self.assertIsNone(cache.get(CACHE_KEY)[1])
+
+
+@override_settings(DEMO_MODE=False)
+class RegeneratingASummaryDoesNotUndoAConcurrentWriteTest(TestCase):
+    """#216: generate_weekly_summary takes seconds, and the branch above used
+    to write back the projects it had read *before* that call. A write
+    confirmed in Notion inside that window was discarded by the write-back,
+    leaving the cache serving a task as open that Notion has as done — for
+    the rest of the entry's life, which #199 no longer bounds tightly.
+
+    The window is simulated rather than threaded: the second request runs
+    inside the stubbed Claude call, which is exactly where it would land."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def load_dashboard_while(self, concurrent_write):
+        def generate(*args, **kwargs):
+            concurrent_write()
+            return _summary_data()
+
+        with (
+            patch("projects.views.generate_weekly_summary", side_effect=generate),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch("projects.views.get_upcoming_projects") as fetch,
+        ):
+            response = self.client.get(reverse("dashboard"))
+        # Still the point of the branch: no Notion round trip for the projects.
+        fetch.assert_not_called()
+        return response
+
+    def toggle(self, task_id="task-1"):
+        with patch("projects.views.toggle_task"):
+            Client().post(
+                reverse("toggle_task", args=[task_id]),
+                data=json.dumps({"done": True}),
+                content_type="application/json",
+            )
+
+    def reschedule(self, task_id, new_date):
+        with (
+            patch("projects.views.update_task_date"),
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
+            Client().post(
+                reverse("reschedule_task", args=[task_id]),
+                data=json.dumps({"date": new_date.isoformat()}),
+                content_type="application/json",
+            )
+
+    def test_a_toggle_during_the_claude_call_survives_the_write_back(self):
+        _warm_dashboard_cache([_cached_task("task-1", date.today())], summary=None)
+        self.load_dashboard_while(self.toggle)
+        # Both halves land: the confirmed write is still in the cache, and
+        # the summary the call paid for was attached to it rather than to
+        # the snapshot the load opened with.
+        self.assertTrue(_cached_task_by_id(CACHE_KEY, "task-1")["done"])
+        self.assertEqual(cache.get(CACHE_KEY)[1], _summary_data())
+        self.assertTrue(_cached_task_by_id(STALE_CACHE_KEY, "task-1")["done"])
+
+    def test_a_reschedule_during_the_call_drops_the_summary_it_renumbered(self):
+        # task_refs are positions in the chronological order and a new date
+        # moves the task, so attaching this summary would point them at the
+        # wrong tasks — in range, and therefore rendered rather than dropped
+        # by resolve_weekly_summary. Dropping it costs one more Claude call
+        # on the next load; keeping it renders the wrong checkbox.
+        today = date.today()
+        _warm_dashboard_cache(
+            [
+                _cached_task("task-1", today),
+                _cached_task("task-2", today + timedelta(days=2)),
+            ],
+            summary=None,
+        )
+        self.load_dashboard_while(
+            lambda: self.reschedule("task-1", today + timedelta(days=5))
+        )
+        projects, summary = cache.get(CACHE_KEY)
+        self.assertEqual([t["id"] for t in projects[0]["tasks"]], ["task-2", "task-1"])
+        self.assertIsNone(summary)
+
+    def test_a_bust_during_the_call_is_not_undone(self):
+        # Writing the entry back would restore exactly the state the bust
+        # discarded — a resurrection, not a cache fill.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())], summary=None)
+        self.load_dashboard_while(_bust_dashboard_cache)
+        self.assertIsNone(cache.get(CACHE_KEY))
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
 
 
 class RescheduleResortsTheRowTest(DemoModeTestCase):
