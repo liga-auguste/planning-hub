@@ -1,4 +1,5 @@
 {% extends 'projects/base_dashboard.html' %}
+{% load planner_tags %}
 
 {% block title %}Woche abschließen – Planning Hub{% endblock %}
 
@@ -55,7 +56,7 @@ app. See docs/wochenabschluss.md.
             {% for task in tasks %}
             <div class="triage-row" id="triage-row-{{ task.id }}" data-raw-date="{{ task.due|date:'Y-m-d' }}">
                 <input type="hidden" name="task_id" value="{{ task.id }}">
-                <span class="triage-task-name">{{ task.name }}<span class="triage-task-due">{{ task.due_display }}</span></span>
+                <span class="triage-task-name">{{ task.name }}<span class="triage-task-due">{{ task.due|plan_date:"long" }}</span></span>
                 <button type="button" class="move-btn" data-task-id="{{ task.id }}">→ {{ task.next_week_display }}</button>
             </div>
             {% endfor %}

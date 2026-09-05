@@ -1,4 +1,5 @@
 {% extends 'projects/base_dashboard.html' %}
+{% load planner_tags %}
 
 {% block title %}{{ project.display_name }} – Planning Hub{% endblock %}
 
@@ -142,8 +143,8 @@ is gone; the sidebar already covers that.
                 title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}">
             </button>
             <span class="task-name">{{ task.name }}</span>
-            {% if task.due_display %}
-            <span class="task-date {{ task.urgency }}">{{ task.due_display }}</span>
+            {% if task.due %}
+            <span class="task-date {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>
             {% endif %}
             {% if task.postpone_count and task.postpone_count >= 2 %}
             <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>

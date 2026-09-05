@@ -4350,9 +4350,12 @@ class AnnotateTasksTest(SimpleTestCase):
         project = self.annotate({"due": None})
         self.assertEqual(project["urgency"], "ok")
 
-    def test_due_display_is_formatted_german(self):
+    def test_no_formatted_date_is_written_onto_the_task(self):
+        # #189: the formatted string used to be set here, which put it in
+        # the dashboard cache and froze the format for up to CACHE_TTL.
+        # Templates format task.due themselves now.
         task = self.annotate({"due": date(2026, 6, 15)})["tasks"][0]
-        self.assertEqual(task["due_display"], "Mo, 15. Juni")
+        self.assertNotIn("due_display", task)
 
     def test_done_count_and_total_count_for_a_mixed_set(self):
         project = self.annotate(
@@ -7910,6 +7913,16 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         # "Diese Woche" +2 days is due 2026-06-17, +7 = 2026-06-24, a Wednesday.
         self.assertContains(response, "→ Mi, 24. Juni")
         self.assertNotContains(response, "→ nächste Woche")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_triage_row_shows_the_tasks_own_due_date(self, mock_localdate):
+        # #189: this date used to be a string the view precomputed; the
+        # template formats task.due itself now, and nothing else in the
+        # suite pins what the triage row renders.
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, format_date(CLOSEOUT_TODAY + timedelta(days=2)))
 
     @patch("django.utils.timezone.localdate")
     def test_already_closed_and_nothing_open_hides_the_button(self, mock_localdate):

@@ -136,7 +136,6 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "ok"
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
-            task["due_display"] = format_date(task["due"], role="long")
             if task["done"]:
                 done_count += 1
         project["urgency"] = project_urgency
@@ -910,7 +909,6 @@ def close_week_start(request):
         and is_same_iso_week(t["due"], today)
     ]
     for task in open_this_week:
-        task["due_display"] = format_date(task["due"], role="long")
         # The move button's own label — otherwise "→ nächste Woche" doesn't
         # say which date that actually is.
         task["next_week_display"] = format_date(
@@ -928,8 +926,8 @@ def close_week_start(request):
     # move in this very flow busts that cache (_bust_dashboard_cache), so
     # cold is the normal state here. Sharing the dicts is safe:
     # _annotate_tasks only adds `urgency` (which the triage template doesn't
-    # render) and rewrites `due_display` to the same value, and it sorts
-    # project["tasks"], not the separate open_this_week list built above.
+    # render), and it sorts project["tasks"], not the separate open_this_week
+    # list built above.
     month_groups, years = _sidebar_projects(request, today, projects=projects)
     return render(
         request,
