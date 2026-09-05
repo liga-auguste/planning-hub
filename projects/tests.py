@@ -69,6 +69,7 @@ from .views import (
     DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
     SUMMARY_KEY,
+    UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
     _bucket_by_day,
     _build_week_view,
@@ -9309,3 +9310,69 @@ class PlanDateFilterTest(SimpleTestCase):
         self.assertEqual(
             self.render('{% load planner_tags %}{{ v|plan_date:"long" }}', None), ""
         )
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
+    """#189: the whole point of the move. Both cached payloads are task
+    dicts, CACHE_KEY for 8 hours and STALE_CACHE_KEY forever — a formatted
+    date in there means a format change does not reach the screen until the
+    entry expires, and the stale copy never does."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_neither_cached_payload_carries_a_formatted_date(self):
+        unassigned = [
+            {
+                "id": "task-2",
+                "name": "Noten bestellen",
+                "due": date.today() + timedelta(days=4),
+                "done": False,
+                "kontext": [],
+            }
+        ]
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=unassigned),
+            # cache.set only runs when the summary came back, so a real
+            # dict here is what makes the assertions below reachable.
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+
+        cached_projects, _ = cache.get(CACHE_KEY)
+        cached_tasks = [t for p in cached_projects for t in p["tasks"]]
+        self.assertTrue(cached_tasks)
+        for task in cached_tasks:
+            self.assertNotIn("due_display", task)
+
+        cached_unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+        self.assertTrue(cached_unassigned)
+        for task in cached_unassigned:
+            self.assertNotIn("due_display", task)
+
+    def test_the_date_still_reaches_the_page(self):
+        # The counterpart to the assertions above: dropping the key must
+        # not mean dropping the date.
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary",
+                return_value=_summary_data(),
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, format_date(date.today() + timedelta(days=3)))
