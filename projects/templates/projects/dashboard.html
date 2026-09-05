@@ -140,13 +140,30 @@
         .timelapse-spinner { display: none; width: 9px; height: 9px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-text-quaternary); border-radius: 50%; animation: spin 0.7s linear infinite; }
         .timelapse-bar.loading .timelapse-spinner { display: block; }
         .timelapse-moments { display: flex; gap: 8px; flex-wrap: wrap; }
-        .moment-btn { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
+        /* flex-basis auto rather than 0: the moment labels come back from
+           Claude and differ in length, so a card sized to its own content and
+           then grown by an equal share of the leftover fits the longest label
+           outright instead of truncating it to the width of the shortest.
+           It also makes flex-wrap above fire at all — with basis 0 and
+           min-width 0 the buttons shrank instead of wrapping, leaving ~65px
+           each at phone width (#53's primary form factor). min-width: 0 and
+           the ellipsis below stay as the backstop for a row that still
+           cannot fit. The trade is deliberate: on a wide row the cards are
+           content-proportional rather than equal-width, so a card with a long
+           label is visibly wider than one with a short label — including
+           .moment-btn-today, which is now the narrowest card in the row. */
+        .moment-btn { flex: 1 1 auto; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
         .moment-btn:hover { border-color: var(--color-text-primary); box-shadow: var(--shadow-low); }
         .moment-btn.active { border-color: var(--color-solid-bg); background: var(--color-solid-bg); color: var(--color-solid-text); }
         .moment-btn.active .moment-date { color: var(--color-text-quaternary); }
-        .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; }
-        .moment-date { font-size: 11px; color: var(--color-text-quaternary); margin-top: 2px; white-space: nowrap; }
-        .moment-btn-today { flex: 1; background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
+        /* nowrap without a clip let a long label paint straight over the next
+           card — the moment labels come back from Claude and are not length-
+           bounded, and the active card is drawn later, so it swallowed the
+           overflow. Same recipe as .day-task-name above. The preloaded dot sits
+           at right: 6px, outside the 14px padding, so it needs no room here. */
+        .moment-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .moment-date { font-size: 11px; color: var(--color-text-quaternary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .moment-btn-today { flex: 1 1 auto; background: none; border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; font-size: 12px; color: var(--color-text-quaternary); }
         .moment-btn-today:hover { border-color: var(--color-text-quaternary); color: var(--color-text-primary); }
         .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
         .moment-preloaded::after { content: ''; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--color-done); position: absolute; top: 6px; right: 6px; }
@@ -219,6 +236,12 @@
                day roughly a screen-width wide, rather than a tab/paginator
                component that would need its own JS state. */
             .day-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78vw; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+            /* At this width the moments wrap to two per row, and a label that
+               does not fit one is better read over two lines than cut off —
+               the label is the whole point of the moment. Flex stretches a
+               row's cards to the tallest, so the row stays even. The date is
+               short and stays on one line. */
+            .moment-title { white-space: normal; }
             .day-column { scroll-snap-align: start; }
         }
 {% endblock %}

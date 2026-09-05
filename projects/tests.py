@@ -7562,9 +7562,37 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         self.assertContains(response, "const promise = withSessionLock(async () => {")
 
     def test_moment_tiles_stretch_to_fill_the_row(self):
+        # grow: 1 is what this asserts — the row fills, no trailing gap. The
+        # basis moved from 0 to auto so a tile is at least as wide as its own
+        # label: the labels come back from Claude and differ in length, and
+        # an equal-width row sized every one of them to the shortest.
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".moment-btn { flex: 1;")
-        self.assertContains(response, ".moment-btn-today { flex: 1;")
+        self.assertContains(response, ".moment-btn { flex: 1 1 auto;")
+        self.assertContains(response, ".moment-btn-today { flex: 1 1 auto;")
+
+    def test_a_long_moment_label_is_clipped_rather_than_painted_over_its_neighbour(
+        self,
+    ):
+        """The label is nowrap and not length-bounded — Claude writes it. With
+        no clip it ran straight out of its tile, and the active tile, drawn
+        later, swallowed the overflow: the text read as cut off by accident
+        rather than by design. Same recipe as .day-task-name."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".moment-title { font-size: 12px; font-weight: 600; "
+            "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+        )
+
+    def test_a_moment_label_wraps_rather_than_truncates_at_phone_width(self):
+        """Two tiles per row leave too little for an ellipsis to say
+        anything, and the label is the whole point of the moment — so below
+        the breakpoint it wraps instead. Asserted inside the media block, not
+        just anywhere in the sheet: as a desktop rule it would undo the
+        single-line tile the row's even height depends on."""
+        response = self.client.get(reverse("dashboard"))
+        _, mobile = response.content.decode().split("@media (max-width: 768px) {", 1)
+        self.assertIn(".moment-title { white-space: normal; }", mobile)
 
     def test_reload_fades_out_before_reloading(self):
         """A cross-document view transition would be the native fix, but
