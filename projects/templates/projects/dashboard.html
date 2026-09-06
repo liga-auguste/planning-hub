@@ -310,14 +310,14 @@
 
         <div class="kanban">
             <div class="kanban-col col-open">
-                <div class="kanban-col-header">Offen <span class="kanban-col-count" id="count-open">0</span></div>
+                <div class="kanban-col-header">Offen <span class="kanban-col-count" id="count-open">{{ kanban_counts.open }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'ok' or task.urgency == 'undated' %}
-                <div class="kanban-card {{ task.urgency }}">
+                {% if task.kanban_column == 'open' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -325,23 +325,14 @@
             </div>
 
             <div class="kanban-col col-urgent">
-                <div class="kanban-col-header">Dringend <span class="kanban-col-count" id="count-urgent">0</span></div>
+                <div class="kanban-col-header">Dringend <span class="kanban-col-count" id="count-urgent">{{ kanban_counts.urgent }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'overdue' %}
-                <div class="kanban-card overdue">
+                {% if task.kanban_column == 'urgent' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
-                    </div>
-                </div>
-                {% endif %}
-                {% if task.urgency == 'urgent' or task.urgency == 'today' %}
-                <div class="kanban-card {{ task.urgency }}">
-                    <div class="kanban-card-name">{{ task.name }}</div>
-                    <div class="kanban-card-meta">
-                        {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -349,14 +340,14 @@
             </div>
 
             <div class="kanban-col col-done">
-                <div class="kanban-col-header">Erledigt <span class="kanban-col-count" id="count-done">0</span></div>
+                <div class="kanban-col-header">Erledigt <span class="kanban-col-count" id="count-done">{{ kanban_counts.done }}</span></div>
                 {% for group in month_groups %}{% for project in group.projects %}{% for task in project.tasks %}
-                {% if task.urgency == 'done' %}
-                <div class="kanban-card done">
+                {% if task.kanban_column == 'done' %}
+                <div class="kanban-card {{ task.urgency }}" data-task-id="{{ task.id }}">
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -558,7 +549,7 @@ document.querySelectorAll('.toggle-form').forEach(form => {
             response = await fetch(`/task/${taskId}/toggle/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-                body: JSON.stringify({done})
+                body: JSON.stringify({done, week_start: browsedWeekStart()})
             });
         } catch {
             // A rejected fetch (offline, server unreachable) never reaches
@@ -572,16 +563,158 @@ document.querySelectorAll('.toggle-form').forEach(form => {
             flashActionFailed(form.querySelector('button'));
             return;
         }
-        // The same task renders in more than one place (task list + AI
-        // summary card, #122) — update every copy, not just the clicked one.
-        document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
-            f.dataset.done = done ? 'true' : 'false';
-            f.querySelector('button').classList.toggle('done', done);
-            const nameSpan = f.closest('.task-row, li')?.querySelector('.task-name');
-            if (nameSpan) nameSpan.classList.toggle('done', done);
-        });
+        const data = await response.json();
+        applyTaskDone(taskId, done);
+        if (!applyToggleFigures(taskId, data)) window.location.reload();
     });
 });
+
+// The same task renders in more than one place — update every copy, not
+// just the clicked one. #122 wrote this for the two shapes that existed
+// then (the task row and the AI summary's list item); the day-column card
+// arrived later with a matching toggle-form, so its dot flipped while its
+// strike-through and its dimming never did. One function, one selector
+// list, so the next shape is added here rather than forgotten.
+function applyTaskDone(taskId, done) {
+    document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
+        f.dataset.done = done ? 'true' : 'false';
+        f.querySelector('button').classList.toggle('done', done);
+        const card = f.closest('.task-row, li, .day-task-card');
+        if (!card) return;
+        const nameSpan = card.querySelector('.task-name, .day-task-name');
+        if (nameSpan) nameSpan.classList.toggle('done', done);
+        // .day-task-card.done dims the whole card (opacity: 0.55), so that
+        // class belongs on the card itself — the name span alone leaves a
+        // card at full strength with a struck-through label inside it.
+        if (card.classList.contains('day-task-card')) card.classList.toggle('done', done);
+    });
+}
+
+// ?week= navigates the day columns to any week, and the server cannot guess
+// which one is on screen — the first column's date is that week's Monday.
+// Both writes send it: they answer with counts scoped to that week.
+function browsedWeekStart() {
+    const firstColumn = document.querySelector('.day-column-body[data-date]');
+    return firstColumn ? firstColumn.dataset.date : null;
+}
+
+// #210: every number on this page is derived server-side
+// (_derive_dashboard_figures, views.py) and the client only writes what it
+// was handed. Counting the rendered cards instead would be a second
+// implementation of a rule that is calendar-week based and admits a task by
+// its completion date as well as its due date — a task cleared today can
+// raise this week's total without any card moving.
+//
+// The rule this whole issue comes down to: a surface that shows task state
+// gets updated on write, or it does not render task state.
+//
+// Two gaps here are deliberate, not oversights:
+//
+//   - The Heute lists (Überfällig / Heute fällig / Diese Woche) keep a
+//     checked-off row in place, struck through, until the next load. Their
+//     membership is urgency-based and a done task belongs to no bucket, so
+//     a strict render would make the row vanish under the cursor — worse
+//     than a row that waits.
+//   - The day-column counters count what their column shows, tasks due on
+//     that day (#182's rule for the week bar, applied here). A task cleared
+//     today but due elsewhere moves its own due day's counter, not today's.
+//
+// Shared by both writes, because they change the same counters: a toggle
+// moves a task between stages, a reschedule moves it between days, and the
+// week bar, the day counters, the board's badges and the sidebar ring all
+// answer to both.
+function applyFigures(data) {
+    // No figures: the server had no warm cache to derive them from, so the
+    // page is out of date in ways only a render can fix.
+    if (!data.week) return false;
+
+    const fill = document.getElementById('progress-fill');
+    if (fill) fill.style.width = data.week.pct + '%';
+    const label = document.getElementById('progress-label');
+    // The template renders the label only for a week that holds anything at
+    // all, so an emptied week empties it here rather than showing "0 / 0".
+    if (label) label.textContent = data.week.total ? `${data.week.done} / ${data.week.total} erledigt` : '';
+
+    Object.entries(data.days).forEach(([iso, counts]) => {
+        const body = document.querySelector(`.day-column-body[data-date="${iso}"]`);
+        const header = body && body.parentElement.querySelector('.day-column-header');
+        if (!header) return;
+        let badge = header.querySelector('.day-column-count');
+        if (!counts.total) { if (badge) badge.remove(); return; }
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'day-column-count';
+            header.appendChild(badge);
+        }
+        badge.textContent = `${counts.done}/${counts.total}`;
+    });
+
+    Object.entries(data.kanban).forEach(([column, count]) => {
+        const badge = document.getElementById('count-' + column);
+        if (badge) badge.textContent = count;
+    });
+
+    if (data.project) {
+        document.querySelectorAll(`[data-project-id="${data.project.id}"] .progress-ring-fill`).forEach(ring => {
+            ring.setAttribute('stroke-dashoffset', data.project.ring_dashoffset);
+            reclassify(ring, data.project.urgency);
+        });
+    }
+    return true;
+}
+
+// A moved Kanban card lands at the end of its new column, not at the
+// position the server would render it in (month, then project, then due
+// date). Reproducing that order here would put the board's structure into
+// JavaScript, which is what the single kanban_column field exists to avoid.
+// The card sits right on the next load.
+function applyToggleFigures(taskId, data) {
+    if (!applyFigures(data)) return false;
+    // The one place structure enters this file. The target column arrives
+    // as a string from the server and the template renders from the same
+    // field (task.kanban_column), so the urgency -> column mapping exists
+    // exactly once — in views.py.
+    const card = document.querySelector(`.kanban-card[data-task-id="${taskId}"]`);
+    const column = document.querySelector('.kanban-col.col-' + data.kanban_column);
+    if (card && column) {
+        column.appendChild(card);
+        reclassify(card, data.urgency);
+        // `done` is deliberately not in URGENCY_CLASSES, so reclassify()
+        // never clears it — unchecking a task has to do that here.
+        card.classList.toggle('done', data.urgency === 'done');
+    }
+    return true;
+}
+
+// #216: the day columns bucket by date, so a reschedule changes them even
+// when it leaves the stage alone — a Wednesday task moved to Thursday used
+// to keep its card under Wednesday while the row above it read Thursday,
+// with both counters stale. The counts come from the server like every
+// other number; only the two cards that render the date have to move.
+//
+// A card that would have to be *created* is a render's job, not this
+// function's: a task moved into the week the columns are showing from
+// outside it has no card here to move, so false is returned and the caller
+// reloads. Moving it out is the easy direction — the card goes.
+function applyRescheduleFigures(taskId, newDate, data) {
+    const dayCard = document.querySelector(`.day-task-card[data-task-id="${taskId}"]`);
+    const targetColumn = document.querySelector(`.day-column-body[data-date="${newDate}"]`);
+    if (!dayCard && targetColumn) return false;
+    if (!applyFigures(data)) return false;
+    // Same end-of-column placement as the Kanban card above, for the same
+    // reason: the server sorts a day's cards by project name.
+    if (dayCard && targetColumn) targetColumn.appendChild(dayCard);
+    else if (dayCard) dayCard.remove();
+    // The Kanban card spells the date out. Its column follows the stage,
+    // which this path has already established is unchanged, so only the
+    // label moves. Two things beside it wait for the next load: the postpone
+    // badge, the same gap the row's own badge has had since #171, and the
+    // day card's hover title, whose "d.m." would need a second date format
+    // in the answer for a tooltip that repeats the column it sits in.
+    const due = document.querySelector(`.kanban-card[data-task-id="${taskId}"] .kanban-card-due`);
+    if (due) due.textContent = data.due_display;
+    return true;
+}
 
 function flashActionFailed(el) {
     el.classList.add('action-failed');
@@ -601,18 +734,6 @@ function formatMomentDate(isoStr) {
 }
 
 const CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
-
-(function() {
-    // #19: the progress-fill/-label above are server-rendered (week_done_count /
-    // week_total_count, context) — this only still fills the per-column kanban
-    // badges, which count everything on the board, not just this week.
-    const open   = document.querySelectorAll('.kanban-card.ok, .kanban-card.undated').length;
-    const urgent = document.querySelectorAll('.kanban-card.urgent, .kanban-card.overdue, .kanban-card.today').length;
-    const done   = document.querySelectorAll('.kanban-card.done').length;
-    document.getElementById('count-open')   && (document.getElementById('count-open').textContent   = open);
-    document.getElementById('count-urgent') && (document.getElementById('count-urgent').textContent = urgent);
-    document.getElementById('count-done')   && (document.getElementById('count-done').textContent   = done);
-})();
 
 const preloaded = new Set(PRECACHED_MOMENTS);
 const preloadPromises = new Map();
@@ -726,6 +847,55 @@ function reclassify(el, urgency) {
     if (urgency) el.classList.add(urgency);
 }
 
+// #194: the server sorts every task list chronologically (#140), so a
+// moved row that keeps its old position leaves the page disagreeing with
+// what a render would produce.
+//
+// **Same stage → re-sort in place. Stage changed → reload.**
+// The stage is what decides which *list* a task belongs to: the Heute lists
+// (Überfällig / Heute fällig / Diese Woche) and the Kanban column. When it
+// changes, the task has to change list, not position within one — and that
+// is worth a server render rather than rebuilding it by hand.
+// For the three callers this follows from the move, not from the control:
+// the date picker reloads only on a stage change; "→ heute" only renders on
+// overdue rows, so it always changes stage and always reloads; the
+// day-column drag changes column by definition and always reloads.
+//
+// What the stage does *not* decide is the day columns, which bucket by date
+// — see applyRescheduleFigures(), which carries the same-stage move there
+// and reloads when the move would need a card that does not exist yet.
+//
+// Deliberately not handled: the same-date tiebreak. The server sorts the
+// Heute lists by (due, project_name) (_build_week_view, views.py); this
+// sorts by date alone, so a row moved onto an occupied date lands at the end
+// of that date group instead of in project-name order. Correct again on the
+// next load.
+function sortRows(row, movedDate) {
+    // One list is a contiguous run of .task-row siblings — in #view-today
+    // they sit between the section headings, in a .project-section they are
+    // the whole body. Collecting just the run the moved row belongs to keeps
+    // a re-sort from pulling a row across a heading.
+    const group = [row];
+    for (let el = row.previousElementSibling; el && el.classList.contains('task-row'); el = el.previousElementSibling) group.unshift(el);
+    for (let el = row.nextElementSibling; el && el.classList.contains('task-row'); el = el.nextElementSibling) group.push(el);
+    const anchor = group[group.length - 1].nextSibling;
+    const parent = row.parentNode;
+    // The date picker holds the moved row's span out of the DOM while the
+    // request runs, so its new date is passed in rather than read back off an
+    // element that is not there.
+    const dateOf = el => el === row ? (movedDate || '') : (el.querySelector('.task-due')?.dataset.rawDate || '');
+    // ISO date strings ("YYYY-MM-DD") sort correctly as plain strings, so no
+    // Date parsing is needed. Undated rows sort last. Array.prototype.sort
+    // has been stable since ES2019, so same-day rows keep their order.
+    group.sort((a, b) => {
+        const da = dateOf(a), db = dateOf(b);
+        if (!da) return da === db ? 0 : 1;
+        if (!db) return -1;
+        return da < db ? -1 : da > db ? 1 : 0;
+    });
+    group.forEach(el => parent.insertBefore(el, anchor));
+}
+
 async function reschedule(taskId, newDate, dueSpan, row) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
@@ -733,7 +903,7 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         response = await fetch(`/task/${taskId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({date: newDate})
+            body: JSON.stringify({date: newDate, week_start: browsedWeekStart()})
         });
     } catch {
         // A rejected fetch (offline, server unreachable) would otherwise
@@ -758,6 +928,11 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         // of the pair, so leaving it behind turned the row against itself —
         // a neutral date beside an amber "act today" dot.
         const dot = row.querySelector('.dot');
+        // Read before reclassify() overwrites the very class it compares
+        // against. A checked-off row carries no stage class at all (its
+        // urgency is `done`), so it never reloads — it belongs to no bucket
+        // a move could take it out of.
+        const stageBefore = dot ? URGENCY_CLASSES.find(c => dot.classList.contains(c)) : null;
         if (dot) reclassify(dot, data.urgency);
         // The "→ heute" shortcut belongs to overdue rows only, so it goes
         // when the move lifts the row out of overdue — and stays when the
@@ -767,6 +942,13 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         // sidebar ring do.
         const todayBtn = row.querySelector('.today-btn');
         if (todayBtn && data.urgency !== 'overdue') todayBtn.remove();
+        if (stageBefore && stageBefore !== data.urgency) {
+            window.location.reload();
+        } else if (applyRescheduleFigures(taskId, newDate, data)) {
+            sortRows(row, newDate);
+        } else {
+            window.location.reload();
+        }
     }
     return true;
 }
@@ -798,12 +980,10 @@ document.querySelectorAll('.today-btn').forEach(btn => {
         e.stopPropagation();
         const taskId = btn.dataset.taskId;
         const dueSpan = btn.closest('.task-right').querySelector('.task-due');
-        // Same reasoning as the day-columns drag handler below: the moved
-        // task's list section, day-column, week bar and sidebar ring all
-        // need reclassifying against the new date — reload rather than
-        // patch each by hand.
-        const ok = await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));
-        if (ok) window.location.reload();
+        // No reload of its own: this button only renders on overdue rows, so
+        // the move always changes stage and reschedule() reloads for it —
+        // see the rule above sortRows().
+        await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));
     });
 });
 </script>

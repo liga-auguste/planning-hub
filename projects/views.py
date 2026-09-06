@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from .ai import (
     AIUnavailableError,
+    _number_projects_and_tasks,
     generate_closeout_summary,
     generate_weekly_summary,
     resolve_weekly_summary,
@@ -48,20 +49,22 @@ logger = logging.getLogger(__name__)
 # and task dicts carry a new postpone_count; #19: v7 — task dicts carry a
 # new completed_date, and a pre-deploy entry would undercount "done this
 # week" until it expires; #189: v8 — task dicts no longer carry
-# due_display, see below) — otherwise a pre-deploy entry in the old shape
-# would crash or misrender under the new resolver.
+# due_display, see below; #210: v9 — task dicts carry a new kanban_column,
+# and a pre-deploy entry would render an empty Kanban board) — otherwise a
+# pre-deploy entry in the old shape would crash or misrender under the new
+# resolver.
 #
 # #189 is the one bump that is not correctness-critical: a pre-deploy entry
 # still renders right, because the leftover due_display is simply no longer
 # read. It is bumped anyway so that STALE_CACHE_KEY, which never expires,
 # cannot keep serving a shape no code writes any more — and because a
 # formatted date living in this cache was the bug in the first place.
-CACHE_KEY = "dashboard_data_v8"
+CACHE_KEY = "dashboard_data_v9"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v8"
+STALE_CACHE_KEY = "dashboard_data_stale_v9"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -70,9 +73,27 @@ STALE_CACHE_KEY = "dashboard_data_stale_v8"
 # #19: v2 — task dicts carry the same new completed_date field.
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v3"
+# #210: v4 — and they gained kanban_column, bumped in the same lockstep.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v4"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v3"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v4"
+
+# #216: the moment each live entry falls due, stamped when a fresh Notion
+# read fills it and never touched afterwards. Django's cache API offers no
+# portable "how long has this entry got left", so without a stamp every
+# re-write has to name a timeout — and #199 turned a toggle from a delete
+# into a re-write. Naming CACHE_TTL there would renew the eight hours on
+# every checkbox: check one task off per working day and the dashboard
+# never performs an unforced Notion read again, so anything edited in
+# Notion's own UI (which _count_done_in_range explicitly expects) stays
+# invisible for as long as the patching continues. The TTL is a
+# freshness policy about the *read*, not about the last write.
+#
+# Unversioned: these hold a bare deadline, no task shape, so a pre-deploy
+# entry cannot misrender. They are absent rather than wrong before the
+# first fetch after a deploy, and absent means "cannot patch safely".
+CACHE_DEADLINE_KEY = "dashboard_data_deadline"
+UNASSIGNED_CACHE_DEADLINE_KEY = "dashboard_unassigned_deadline"
 
 
 def _bust_dashboard_cache():
@@ -82,6 +103,198 @@ def _bust_dashboard_cache():
     cache.delete(STALE_CACHE_KEY)
     cache.delete(UNASSIGNED_CACHE_KEY)
     cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+    cache.delete(CACHE_DEADLINE_KEY)
+    cache.delete(UNASSIGNED_CACHE_DEADLINE_KEY)
+
+
+def _cache_fresh_read(key, value, deadline_key, ttl):
+    """Stores a fresh Notion read together with the moment it falls due.
+
+    The only place a dashboard entry's life is allowed to start over
+    (#216). Every later re-write of the same data — a patched toggle, a
+    regenerated summary — goes through _remaining_ttl instead, so it can
+    put the entry back without pushing its expiry out."""
+    cache.set(key, value, ttl)
+    cache.set(deadline_key, timezone.now() + timedelta(seconds=ttl), ttl)
+
+
+def _remaining_ttl(deadline_key):
+    """Seconds left before the entry `deadline_key` describes falls due, or
+    None when it cannot be re-written without outliving that moment — no
+    deadline recorded (a first request after a deploy), or one already
+    passed. None is the caller's cue to fall back, never to guess a TTL."""
+    deadline = cache.get(deadline_key)
+    if deadline is None:
+        return None
+    remaining = (deadline - timezone.now()).total_seconds()
+    return remaining if remaining > 0 else None
+
+
+def _summary_ref_order(projects):
+    """The identity sequence a summary's project_ref / task_refs are
+    positions in. Read through _number_projects_and_tasks (ai.py) rather
+    than rebuilt here, so the check cannot drift from the numbering it is
+    checking."""
+    numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
+    return [p["id"] for p in numbered_projects], [t["id"] for t in numbered_tasks]
+
+
+def _attach_regenerated_summary(numbered_against, summary_data):
+    """Writes a freshly generated summary onto the projects the cache holds
+    *now*, never onto the snapshot the generating request opened with
+    (#216).
+
+    generate_weekly_summary takes seconds. Writing back the projects read
+    before it would undo a toggle that patched the cache inside that
+    window — the entry would go on serving a task as open that Notion has
+    as done, which is the one thing _patch_cached_tasks promises against.
+    Only the summary is this request's to contribute.
+
+    The summary is dropped rather than written when the numbering it was
+    built against no longer holds. task_refs are positions in that order,
+    so a reschedule landing during the call would leave them pointing at
+    the wrong tasks — in range, and therefore rendered rather than dropped
+    by resolve_weekly_summary. A toggle moves nothing (`done` is not in
+    _annotate_tasks' sort key), so its patch keeps the order and the
+    summary still fits. A cache busted meanwhile is not resurrected
+    either: writing it back would restore the state the bust discarded."""
+    current = cache.get(CACHE_KEY)
+    if current is None:
+        return
+    projects = current[0]
+    if _summary_ref_order(projects) != _summary_ref_order(numbered_against):
+        return
+    remaining = _remaining_ttl(CACHE_DEADLINE_KEY)
+    if remaining:
+        cache.set(CACHE_KEY, (projects, summary_data), remaining)
+    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
+
+
+def _find_task(projects, unassigned_tasks, task_id):
+    """Returns (task, project) — the one place that knows a task can live in
+    either of the dashboard's two independently cached lists. `project` is
+    None for a task with no project of its own ("Ohne Projekt", #53)."""
+    for project in projects:
+        for task in project["tasks"]:
+            if task["id"] == task_id:
+                return task, project
+    for task in unassigned_tasks:
+        if task["id"] == task_id:
+            return task, None
+    return None, None
+
+
+def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
+    """Applies `mutate(task)` to every cached copy of one task and re-runs
+    the cheap derivations on top of it, instead of throwing the whole cache
+    away after a confirmed Notion write (#199).
+
+    Returns (projects, unassigned_tasks) — the patched data the caller then
+    derives its answer from — or None when the write cannot be reflected
+    safely, in which case the caller busts the cache as before. That
+    fallback is the normal path, not an edge case: a cold cache, a half-cold
+    one, a task no cached list carries, or an entry whose deadline has run
+    out from under it all take it.
+
+    `drop_summary` is for the writes that renumber the summary's task_refs
+    (a reschedule moves the task in the chronological order, #140); a toggle
+    moves nothing, so its summary survives untouched.
+    """
+    primary = cache.get(CACHE_KEY)
+    unassigned = cache.get(UNASSIGNED_CACHE_KEY)
+    if primary is None or unassigned is None:
+        # Half a picture is no picture: every figure the dashboard renders
+        # is counted across both lists.
+        return None
+    # #216: read before the write, and separately per pair — the two are
+    # independent Notion reads and their deadlines drift apart whenever one
+    # of them fails alone. Without both, this write would have to name a
+    # fresh TTL and renew the entry's eight hours; the bust it falls back
+    # to costs one Notion read and keeps the freshness policy intact.
+    primary_ttl = _remaining_ttl(CACHE_DEADLINE_KEY)
+    unassigned_ttl = _remaining_ttl(UNASSIGNED_CACHE_DEADLINE_KEY)
+    if primary_ttl is None or unassigned_ttl is None:
+        return None
+    projects, summary_data = primary
+    task, project = _find_task(projects, unassigned, task_id)
+    if task is None:
+        return None
+    mutate(task)
+    # Both lists are re-annotated regardless of which one held the task:
+    # _annotate_tasks is a pure re-derivation over data already in memory,
+    # and paying it twice is cheaper than tracking where the task lived.
+    projects = _annotate_tasks(projects, today)
+    unassigned = _annotate_tasks([{"id": "_unassigned", "tasks": unassigned}], today)[
+        0
+    ]["tasks"]
+    cache.set(
+        CACHE_KEY, (projects, None if drop_summary else summary_data), primary_ttl
+    )
+    cache.set(UNASSIGNED_CACHE_KEY, unassigned, unassigned_ttl)
+    # `project is None` for a task that was found means it came out of the
+    # project-less list — which is the half of the stale pair the write
+    # concerns, see _patch_stale_copies.
+    _patch_stale_copies(
+        task_id, mutate, today, drop_summary, in_project=project is not None
+    )
+    return projects, unassigned
+
+
+def _patch_stale_copies(task_id, mutate, today, drop_summary, in_project):
+    """The never-expiring last-known-good entry for the list this write
+    concerns, patched in step with the live one.
+
+    Each cache.get hands back its own deserialized object graph, so the
+    write has to be applied to this one separately. It can be older than the
+    live pair (which expires and gets refilled while it does not), so a
+    snapshot predating the task itself cannot be corrected — it is dropped
+    rather than left to serve a state older than a confirmed write.
+
+    Only the entry that would carry this task is looked at, hence
+    `in_project`. A project task is never in STALE_UNASSIGNED_CACHE_KEY and
+    a project-less one is never in STALE_CACHE_KEY, so a miss in one says
+    nothing about the other — and the two exist without each other often
+    enough for that to matter: dashboard() writes STALE_CACHE_KEY only when
+    the summary is not None, so a single Claude outage leaves the
+    project-less copy alone in the cache. Judging them together dropped a
+    last-known-good copy this write had never touched, in both directions
+    (the costlier one being a project-less toggle discarding the projects
+    *and* the summary the last Claude call paid for).
+    """
+    if in_project:
+        stale = cache.get(STALE_CACHE_KEY)
+        task, _ = _find_task(stale[0] if stale else [], [], task_id)
+        if task is None:
+            cache.delete(STALE_CACHE_KEY)
+            return
+        mutate(task)
+        stale_projects, stale_summary = stale
+        cache.set(
+            STALE_CACHE_KEY,
+            (
+                _annotate_tasks(stale_projects, today),
+                None if drop_summary else stale_summary,
+            ),
+            None,
+        )
+        return
+
+    stale_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
+    task, _ = _find_task([], stale_unassigned or [], task_id)
+    if task is None:
+        cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+        return
+    mutate(task)
+    # drop_summary is not read here: the summary numbers project tasks only
+    # (_number_projects_and_tasks, ai.py), so moving a project-less task
+    # renumbers nothing and the copy's own summary stays valid.
+    cache.set(
+        STALE_UNASSIGNED_CACHE_KEY,
+        _annotate_tasks([{"id": "_unassigned", "tasks": stale_unassigned}], today)[0][
+            "tasks"
+        ],
+        None,
+    )
 
 
 # Session key prefix for demo summaries; planner_create clears every version
@@ -112,6 +325,26 @@ _URGENCY_RANK = {
     "done": 0,
     "undated": 0,
 }
+
+
+# The Kanban board's three columns, keyed by the stage _annotate_tasks
+# already assigned. The board used to spell this out three times in the
+# template as `{% if task.urgency == ... %}`; a toggle that moves a card
+# needs the same rule client-side, and a fourth copy of it in JavaScript is
+# exactly the drift #210 is about. So the mapping lives here once, ships as
+# a field on every task, and the template renders from that field.
+_KANBAN_COLUMN = {
+    "overdue": "urgent",
+    "today": "urgent",
+    "urgent": "urgent",
+    "ok": "open",
+    "undated": "open",
+    "done": "done",
+}
+
+
+def _kanban_column(urgency):
+    return _KANBAN_COLUMN[urgency]
 
 
 def _classify_due_urgency(due, today):
@@ -156,6 +389,7 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "done"
             else:
                 task["urgency"] = _classify_due_urgency(task["due"], today)
+            task["kanban_column"] = _kanban_column(task["urgency"])
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
             if task["done"]:
@@ -229,14 +463,33 @@ def _count_done_in_range(tasks, start, end):
     return done, len(relevant)
 
 
+# #216: date.min and date.max are hard walls, and a Monday within seven days
+# of either one cannot be rendered — _bucket_by_day walks a week forward
+# from it and dashboard() reaches a week either side for the navigation
+# links, so `week_start + timedelta(days=6)` raises OverflowError instead.
+# ?week=9999-W52 did that to the whole page; week_start on the toggle did it
+# *after* the Notion write had been confirmed, leaving the client told the
+# write failed. Out-of-range is just one more value these parsers cannot
+# use, handled where they already handle the others.
+_EARLIEST_WEEK_START = date.min + timedelta(days=7)
+_LATEST_WEEK_START = date.max - timedelta(days=7)
+
+
+def _usable_week_start(monday, default_monday):
+    if _EARLIEST_WEEK_START <= monday <= _LATEST_WEEK_START:
+        return monday
+    return default_monday
+
+
 _WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
 
 
 def _parse_week_param(request, default_monday):
     """#180: ?week=2026-W37 navigates the day columns to that week. Anything
-    unparseable — absent, malformed, or a week number ISO doesn't have —
-    falls back to default_monday rather than erroring the whole page over a
-    query param a visitor is free to hand-edit."""
+    unparseable — absent, malformed, a week number ISO doesn't have, or one
+    too close to date.min/date.max to render (#216) — falls back to
+    default_monday rather than erroring the whole page over a query param a
+    visitor is free to hand-edit."""
     raw = request.GET.get("week")
     if not raw:
         return default_monday
@@ -244,9 +497,10 @@ def _parse_week_param(request, default_monday):
     if not match:
         return default_monday
     try:
-        return date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
+        monday = date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1)
     except ValueError:
         return default_monday
+    return _usable_week_start(monday, default_monday)
 
 
 def _bucket_by_day(projects, unassigned_tasks, week_start):
@@ -282,6 +536,66 @@ def _bucket_by_day(projects, unassigned_tasks, week_start):
             }
         )
     return days
+
+
+def _derive_dashboard_figures(
+    projects, unassigned_tasks, effective_today, browsed_monday, whole_plan=False
+):
+    """Every count a surface on the dashboard renders task state from. One
+    place, called by dashboard() on load and by toggle_task_view after a
+    write — a second implementation of these rules is what #210 was.
+
+    They cannot be recomputed in the browser: membership is subtler than
+    counting the cards on screen. `_count_done_in_range` admits a task whose
+    due date falls in the range *or* that was completed in it, so checking a
+    task off can raise the denominator — an overdue task from an earlier
+    week, cleared today, joins this week's total without any card moving.
+    #194 states the same rule for urgency, and for the same reason.
+
+    `whole_plan` is #183's exception: in a demo session the bar counts the
+    plan's overall completion rather than the current week, because a
+    week-scoped count barely moved between Zeitreise moments.
+    """
+    week_start, week_end = iso_week_bounds(effective_today)
+    # #182: deliberately excludes unassigned_tasks, unlike the day columns
+    # below. The Kanban board beneath this bar renders strictly from
+    # project["tasks"] and can never show a project-less task, so counting
+    # one here made the bar and the board disagree on the same number.
+    all_tasks = [t for project in projects for t in project["tasks"]]
+    if whole_plan:
+        week_done = sum(1 for t in all_tasks if t["done"])
+        week_total = len(all_tasks)
+    else:
+        week_done, week_total = _count_done_in_range(all_tasks, week_start, week_end)
+
+    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
+
+    kanban = dict.fromkeys(set(_KANBAN_COLUMN.values()), 0)
+    for task in all_tasks:
+        kanban[task["kanban_column"]] += 1
+
+    return {
+        "week": {
+            "done": week_done,
+            "total": week_total,
+            "pct": round(week_done / week_total * 100) if week_total else 0,
+        },
+        "days": {
+            day["date_iso"]: {"done": day["done_count"], "total": day["total_count"]}
+            for day in day_columns
+        },
+        "kanban": kanban,
+        "projects": {
+            project["id"]: {
+                "urgency": project["urgency"],
+                "ring_dashoffset": project["ring_dashoffset"],
+            }
+            for project in projects
+        },
+        # The rendered shape day_columns needs, kept next to the counts it
+        # was derived from so the load path takes no second walk over it.
+        "day_columns": day_columns,
+    }
 
 
 def _fetch_fresh_data(today):
@@ -561,6 +875,29 @@ def dashboard(request):
         cached = cache.get(CACHE_KEY)
         if cached:
             projects, summary_data = cached
+            if summary_data is None:
+                # #199: CACHE_KEY holds (projects, summary_data) as one
+                # tuple, so "invalidate only the summary" means writing
+                # (patched_projects, None) after a reschedule. A hit in that
+                # shape means "the projects are good, regenerate the
+                # summary" — without this branch the card would read "KI
+                # nicht verfügbar" until the TTL ran out. Smaller than
+                # splitting the summary into its own key, and it matches the
+                # cost #199 already accepts: the Notion read goes, the
+                # Claude call stays.
+                try:
+                    summary_data = generate_weekly_summary(projects, today)
+                except AIUnavailableError:
+                    # Left unwritten, so the next request retries Claude —
+                    # same reasoning as the fetch path below.
+                    summary_data = None
+                else:
+                    # #216: only the summary is new here — these projects
+                    # came out of the cache, not out of Notion — so the
+                    # write-back neither renews the read-freshness window
+                    # nor carries this request's snapshot of the projects
+                    # over whatever landed during the Claude call.
+                    _attach_regenerated_summary(projects, summary_data)
         else:
             try:
                 projects, summary_data = _fetch_fresh_data(today)
@@ -581,7 +918,12 @@ def dashboard(request):
                 # whole TTL and overwrite the stale copy's last good summary.
                 # Leaving the cache empty makes the next request retry Claude.
                 if summary_data is not None:
-                    cache.set(CACHE_KEY, (projects, summary_data), CACHE_TTL)
+                    _cache_fresh_read(
+                        CACHE_KEY,
+                        (projects, summary_data),
+                        CACHE_DEADLINE_KEY,
+                        CACHE_TTL,
+                    )
                     cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
 
         # #53: an independent read from get_upcoming_projects (own cache
@@ -600,7 +942,12 @@ def dashboard(request):
                 unassigned_tasks = _annotate_tasks(
                     [{"id": "_unassigned", "tasks": fetched_unassigned}], today
                 )[0]["tasks"]
-                cache.set(UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_TTL)
+                _cache_fresh_read(
+                    UNASSIGNED_CACHE_KEY,
+                    unassigned_tasks,
+                    UNASSIGNED_CACHE_DEADLINE_KEY,
+                    UNASSIGNED_CACHE_TTL,
+                )
                 cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
 
     viewing_demo_data = settings.DEMO_MODE and not has_session_plan
@@ -611,42 +958,30 @@ def dashboard(request):
 
     week_view = _build_week_view(projects, unassigned_tasks)
 
-    # #19: the week progress bar — counted against the calendar week
-    # containing effective_today (not `today`, so demo time-travel moves the
-    # bar along with everything else).
-    #
-    # #182: deliberately excludes unassigned_tasks, unlike week_view above.
-    # The Kanban board beneath this bar renders strictly from
-    # project["tasks"] and can never show a project-less task, so counting
-    # one here made the bar and the board disagree on the same number.
-    week_start, week_end = iso_week_bounds(effective_today)
-    all_tasks = [t for project in projects for t in project["tasks"]]
-    if has_session_plan:
-        # #183 follow-up: a week-scoped count barely moved between Zeitreise
-        # moments, often showing 0/0 several moments in a row — the story
-        # the bar should tell here is the plan's overall completion, which
-        # does visibly progress: a moment marks every task due on/before it
-        # "done" (see the deepcopy mutation above), so the whole-plan count
-        # fills up moment to moment the way the week-scoped one didn't.
-        week_done_count = sum(1 for t in all_tasks if t["done"])
-        week_total_count = len(all_tasks)
-    else:
-        week_done_count, week_total_count = _count_done_in_range(
-            all_tasks, week_start, week_end
-        )
-    week_progress_pct = (
-        round(week_done_count / week_total_count * 100) if week_total_count else 0
-    )
-
     # #180: the day-column breakdown can browse any week, independent of
-    # effective_today — week_start above stays the *current* week for the
-    # progress bar even while these columns show a different one.
+    # effective_today — the progress bar stays on the *current* week even
+    # while these columns show a different one.
+    week_start = iso_week_bounds(effective_today)[0]
     browsed_monday = _parse_week_param(request, week_start)
     browsed_sunday = browsed_monday + timedelta(days=6)
     prev_monday = browsed_monday - timedelta(days=7)
     next_monday = browsed_monday + timedelta(days=7)
     is_current_week = browsed_monday == week_start
-    day_columns = _bucket_by_day(projects, unassigned_tasks, browsed_monday)
+
+    # #210: every count on the page comes from here, and so does the
+    # toggle's answer — one implementation, so the load path and the write
+    # path cannot show different numbers for the same board.
+    figures = _derive_dashboard_figures(
+        projects,
+        unassigned_tasks,
+        effective_today,
+        browsed_monday,
+        whole_plan=has_session_plan,
+    )
+    week_done_count = figures["week"]["done"]
+    week_total_count = figures["week"]["total"]
+    week_progress_pct = figures["week"]["pct"]
+    day_columns = figures["day_columns"]
 
     month_groups = _group_by_month(projects)
     years = sorted({g["year"] for g in month_groups if g["year"]})
@@ -723,6 +1058,7 @@ def dashboard(request):
             "week_done_count": week_done_count,
             "week_total_count": week_total_count,
             "week_progress_pct": week_progress_pct,
+            "kanban_counts": figures["kanban"],
             "day_columns": day_columns,
             "week_range_label": format_week_range(browsed_monday, browsed_sunday),
             "is_current_week": is_current_week,
@@ -789,6 +1125,72 @@ def preload_timelapse_summary(request):
     return JsonResponse({"ok": True})
 
 
+def _parse_week_start(data, default_monday):
+    """#210: the client posts the Monday of the week its day columns are
+    showing — ?week= navigates them to any week and the server cannot guess
+    which one is on screen. Anything unparseable, or too close to
+    date.min/date.max to render (#216), falls back to the current week — the
+    same tolerance _parse_week_param applies to the query param a visitor is
+    free to hand-edit, and it matters more here: this runs after the Notion
+    write is confirmed, so a crash would report a write that did happen."""
+    raw = data.get("week_start")
+    if not isinstance(raw, str):
+        return default_monday
+    try:
+        monday = date.fromisoformat(raw)
+    except ValueError:
+        return default_monday
+    return _usable_week_start(monday, default_monday)
+
+
+def _surface_figures(
+    projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+):
+    """Returns (task, figures) — every number a surface on the page renders
+    task state from, plus the ring of the project the write landed in.
+    (None, {}) means there was nothing to derive from, and the client then
+    reloads rather than being handed numbers the server had to guess at.
+
+    Shared by both writes: a toggle and a reschedule change the same
+    counters, and #210's whole point is that there is one implementation of
+    them."""
+    task, project = _find_task(projects, unassigned_tasks, task_id)
+    if task is None:
+        return None, {}
+    for cached_project in projects:
+        # _bucket_by_day tags every task with its project's display name;
+        # the cache holds the raw Notion name, so this is set here the way
+        # dashboard() sets it before its own call.
+        cached_project["display_name"] = _strip_trailing_date(cached_project["name"])
+    figures = _derive_dashboard_figures(
+        projects, unassigned_tasks, effective_today, browsed_monday, whole_plan
+    )
+    answer = {
+        "week": figures["week"],
+        "days": figures["days"],
+        "kanban": figures["kanban"],
+    }
+    if project is not None:
+        answer["project"] = {"id": project["id"], **figures["projects"][project["id"]]}
+    return task, answer
+
+
+def _toggle_answer(
+    projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+):
+    """The figures a toggle changes, next to the stage the task now carries."""
+    task, figures = _surface_figures(
+        projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+    )
+    if task is None:
+        return {}
+    return {
+        "urgency": task["urgency"],
+        "kanban_column": task["kanban_column"],
+        **figures,
+    }
+
+
 def toggle_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
@@ -816,16 +1218,53 @@ def toggle_task_view(request, task_id):
         # #19: mirrors toggle_task's own Done/Erledigt am pairing in Notion.
         task["completed_date"] = effective_today.isoformat() if done else None
         request.session["demo_plan"] = plan
+        # Time travel counts here the way it does on the dashboard: the same
+        # deepcopy mutation, so the figures match what a reload would render.
+        project = copy.deepcopy(_build_session_project(plan))
+        if sim_date:
+            for plan_task in project["tasks"]:
+                if plan_task.get("due") and plan_task["due"] <= sim_date:
+                    plan_task["done"] = True
+        projects = _annotate_tasks([project], effective_today)
+        figures = _toggle_answer(
+            projects,
+            [],
+            task_id,
+            effective_today,
+            _parse_week_start(data, iso_week_bounds(effective_today)[0]),
+            # #183: a demo session's bar counts the whole plan, not the week.
+            whole_plan=True,
+        )
     else:
-        completed_date = timezone.localdate().isoformat() if done else None
+        today = timezone.localdate()
+        completed_date = today if done else None
         try:
-            toggle_task(task_id, done, completed_date)
+            toggle_task(task_id, done, completed_date.isoformat() if done else None)
         except NotionUnavailableError:
             # A non-200 so the caller knows not to apply its optimistic
             # update — see the dashboard.html JS changes in the same commit.
             return JsonResponse({"error": "notion unavailable"}, status=502)
-        _bust_dashboard_cache()
-    return JsonResponse({"ok": True})
+
+        # #199: the toggle moves no task (see _annotate_tasks' sort key), so
+        # the cached lists can carry the write instead of being thrown away
+        # and re-read from Notion at a Claude call's expense.
+        def mark(task):
+            task["done"] = done
+            task["completed_date"] = completed_date
+
+        patched = _patch_cached_tasks(task_id, mark, today)
+        if patched is None:
+            _bust_dashboard_cache()
+            figures = {}
+        else:
+            figures = _toggle_answer(
+                *patched,
+                task_id,
+                today,
+                _parse_week_start(data, iso_week_bounds(today)[0]),
+                whole_plan=False,
+            )
+    return JsonResponse({"ok": True, **figures})
 
 
 def reschedule_task_view(request, task_id):
@@ -840,6 +1279,16 @@ def reschedule_task_view(request, task_id):
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
     due_display = format_date(parsed_date, role="long")
+
+    # Read before the branches: both of them derive the figures below
+    # against it. A demo visitor's time travel has to count here the way it
+    # does on the dashboard, or a plan viewed at a simulated moment would
+    # come back classified against the real today.
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+    effective_today = sim_date or timezone.localdate()
+    browsed_monday = _parse_week_start(data, iso_week_bounds(effective_today)[0])
 
     if settings.DEMO_MODE:
         # In demo mode only the visitor's own session plan can be written to;
@@ -870,16 +1319,50 @@ def reschedule_task_view(request, task_id):
             if key.startswith("demo_plan_summary"):
                 del request.session[key]
         postpone_count = task["postpone_count"]
+        # The same deepcopy mutation toggle_task_view applies, so the figures
+        # match what a reload of the dashboard would render.
+        project = copy.deepcopy(_build_session_project(plan))
+        if sim_date:
+            for plan_task in project["tasks"]:
+                if plan_task.get("due") and plan_task["due"] <= sim_date:
+                    plan_task["done"] = True
+        _, figures = _surface_figures(
+            _annotate_tasks([project], effective_today),
+            [],
+            task_id,
+            effective_today,
+            browsed_monday,
+            # #183: a demo session's bar counts the whole plan, not the week.
+            whole_plan=True,
+        )
     else:
         try:
             update_task_date(task_id, raw_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
-        # Busted right away, before the counter call: the date change is
+        # Applied right away, before the counter call: the date change is
         # already confirmed in Notion at this point, so a failure below must
         # not leave the cache serving the pre-move date (_bust_dashboard_cache
         # promises this for "every confirmed Notion write").
-        _bust_dashboard_cache()
+        #
+        # #199: the projects survive the move — re-sorted and re-annotated —
+        # and only the summary is dropped, because a new date renumbers the
+        # task_refs it holds (_number_projects_and_tasks, ai.py). The Notion
+        # read goes, the Claude call stays.
+        #
+        # effective_today rather than a second timezone.localdate() call:
+        # this branch only runs outside DEMO_MODE, where the two are the same
+        # day, and one value keeps the figures below from being derived
+        # against a different date than the urgency answered with.
+
+        def move(task):
+            task["due"] = parsed_date
+
+        if (
+            _patch_cached_tasks(task_id, move, effective_today, drop_summary=True)
+            is None
+        ):
+            _bust_dashboard_cache()
         try:
             # #171 accepted gap: if this second call fails, the date has
             # already moved but the counter hasn't — reported as the same
@@ -887,23 +1370,38 @@ def reschedule_task_view(request, task_id):
             postpone_count = increment_postpone_count(task_id)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
+
+        # A second, smaller patch rather than an optimistic +1 above: the
+        # counter is only known once Notion has confirmed it, and a cache
+        # claiming a move Notion never counted would be the mirror image of
+        # the staleness this is meant to remove.
+        def count(task):
+            task["postpone_count"] = postpone_count
+
+        patched = _patch_cached_tasks(task_id, count, effective_today)
+        if patched is None:
+            _bust_dashboard_cache()
+            figures = {}
+        else:
+            # #216: the day columns bucket by date, so every reschedule
+            # changes them — a move within one stage kept the row and the
+            # columns disagreeing, because only a stage change reloaded.
+            # Same figures as the toggle, from the same helper.
+            _, figures = _surface_figures(
+                *patched, task_id, effective_today, browsed_monday, whole_plan=False
+            )
     # The stage the row belongs in after the move, so the client can
     # reclassify the date label and its dot instead of leaving both wearing
-    # the pre-move signal until the next page load. A demo visitor's time
-    # travel has to count here the way it does on the dashboard, or a plan
-    # viewed at a simulated moment would come back classified against the
-    # real today. Completion is left out on purpose: the dot's `done` class
-    # is the toggle's business and outranks the urgency rule anyway.
-    effective_today = timezone.localdate()
-    if settings.DEMO_MODE:
-        sim_date, _ = _get_sim_date(request)
-        effective_today = sim_date or effective_today
+    # the pre-move signal until the next page load. Completion is left out on
+    # purpose: the dot's `done` class is the toggle's business and outranks
+    # the urgency rule anyway.
     return JsonResponse(
         {
             "ok": True,
             "postpone_count": postpone_count,
             "due_display": due_display,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
+            **figures,
         }
     )
 
