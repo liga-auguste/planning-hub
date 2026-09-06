@@ -11166,6 +11166,38 @@ class DotenvCredentialRuleTest(TestCase):
         apply_credentials(environ, {"ANTHROPIC_API_KEY": None})
         self.assertEqual(environ["ANTHROPIC_API_KEY"], "sk-ant-good")
 
+    def test_dot_env_is_kept_out_of_the_docker_image(self):
+        # The single line that makes this rule harmless in the containers.
+        # manage.py runs there three times (entrypoint.sh: migrate,
+        # seed_rules, collectstatic), so the rule executes — it is a no-op
+        # only because there is no .env inside the image to read. Loosen
+        # .dockerignore and a developer's key would outrank the deployment's
+        # own env_file, silently.
+        ignored = (settings.BASE_DIR / ".dockerignore").read_text().split()
+        self.assertIn(".env", ignored)
+
+    def test_no_host_path_is_mounted_into_the_app_directory(self):
+        # The other half: .dockerignore keeps .env out of the *image*, and a
+        # bind mount could still put it into the running container. Named
+        # volumes under /app are fine (static_files, demo_db) — a host path
+        # is not, because the project directory is where .env lives. The
+        # nginx service's ./nginx.conf mounts land outside /app entirely.
+        for name in ("docker-compose.yml", "docker-compose.demo.yml"):
+            compose = (settings.BASE_DIR / name).read_text()
+            for line in compose.splitlines():
+                entry = line.strip()
+                if not entry.startswith("- ") or ":" not in entry:
+                    continue
+                source, target = entry[2:].split(":")[:2]
+                is_host_path = source.startswith((".", "/", "~", "$"))
+                reaches_app = target == "/app" or target.startswith("/app/")
+                self.assertFalse(
+                    is_host_path and reaches_app,
+                    f"{name} mounts the host path {source} at {target}; that "
+                    f"would carry .env into the container and let it outrank "
+                    f"the deployment's own env_file",
+                )
+
     def test_manage_py_applies_the_rule_after_load_dotenv(self):
         # Order matters: load_dotenv() first fills the gaps, then this
         # overrides the credentials. Reversed, load_dotenv would be a no-op
