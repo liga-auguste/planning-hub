@@ -4,19 +4,19 @@
 import os
 import sys
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-# override=True, because load_dotenv's default is the opposite of what a
-# project-local .env is for: it leaves an already-exported variable alone, so
-# a stale ANTHROPIC_API_KEY sitting in the login session (launchctl setenv,
-# an old export) silently shadows the working key in .env and every Claude
-# call comes back 401 with nothing to point at. The file next to the code is
-# the local authority; the environment is not.
+from planning_hub.env import apply_credentials
+
+# See planning_hub/env.py: .env fills in what the environment is missing, and
+# its credentials additionally beat what is already there. Switches like
+# DEMO_MODE stay overridable per invocation.
 #
 # No effect on either deployment: .dockerignore keeps .env out of the image,
 # so there is no file to read there — compose supplies the variables through
 # env_file/environment, and gunicorn serves wsgi.py, which never calls this.
-load_dotenv(override=True)
+load_dotenv()
+apply_credentials(os.environ, dotenv_values())
 
 
 def main():
