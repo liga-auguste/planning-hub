@@ -30,6 +30,8 @@ from django.urls import reverse
 from django.utils import timezone
 from notion_client.errors import HTTPResponseError, RequestTimeoutError
 
+from planning_hub.env import apply_credentials
+
 from .ai import (
     AIUnavailableError,
     _number_projects_and_tasks,
@@ -11115,3 +11117,93 @@ class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):
         html = self.dashboard_html()
         self.assertEqual(html.count("function applyFigures(data) {"), 1)
         self.assertIn("if (!applyFigures(data)) return false;", html)
+
+
+class DotenvCredentialRuleTest(TestCase):
+    """#220: `.env`'s credentials beat the ambient environment, its switches
+    do not. A blanket override fixes the shadowed API key and silently takes
+    away `DEMO_MODE=false manage.py test`, the local production test leg."""
+
+    def test_a_credential_in_dotenv_beats_the_environment(self):
+        # The bug this exists for: a stale key in the login session shadowed
+        # the working one and every Claude call came back 401.
+        environ = {"ANTHROPIC_API_KEY": "sk-ant-stale"}
+        apply_credentials(environ, {"ANTHROPIC_API_KEY": "sk-ant-good"})
+        self.assertEqual(environ["ANTHROPIC_API_KEY"], "sk-ant-good")
+
+    def test_every_credential_is_covered_not_just_the_one_that_broke(self):
+        environ = {"NOTION_API_KEY": "ntn_stale"}
+        apply_credentials(environ, {"NOTION_API_KEY": "ntn_good"})
+        self.assertEqual(environ["NOTION_API_KEY"], "ntn_good")
+
+    def test_a_switch_from_the_environment_survives(self):
+        # `DEMO_MODE=false manage.py test` selects the PostgreSQL leg. Losing
+        # it would be silent: both legs pass, so the run still looks right.
+        environ = {"DEMO_MODE": "false"}
+        apply_credentials(environ, {"DEMO_MODE": "TRUE"})
+        self.assertEqual(environ["DEMO_MODE"], "false")
+
+    def test_a_secret_that_is_not_an_api_key_is_left_alone(self):
+        # SECRET_KEY and DB_PASSWORD are per-deployment configuration, not
+        # ambient pollution — CI sets SECRET_KEY for exactly one run.
+        environ = {"SECRET_KEY": "ci-test-key", "DB_PASSWORD": "postgres"}
+        apply_credentials(
+            environ, {"SECRET_KEY": "local-key", "DB_PASSWORD": "local-pw"}
+        )
+        self.assertEqual(environ["SECRET_KEY"], "ci-test-key")
+        self.assertEqual(environ["DB_PASSWORD"], "postgres")
+
+    def test_a_credential_missing_from_the_environment_is_still_filled_in(self):
+        environ = {}
+        apply_credentials(environ, {"ANTHROPIC_API_KEY": "sk-ant-good"})
+        self.assertEqual(environ["ANTHROPIC_API_KEY"], "sk-ant-good")
+
+    def test_an_empty_value_in_dotenv_does_not_blank_a_working_key(self):
+        # python-dotenv yields "" for a bare `ANTHROPIC_API_KEY=` line, and
+        # None for a key with no `=` at all.
+        environ = {"ANTHROPIC_API_KEY": "sk-ant-good"}
+        apply_credentials(environ, {"ANTHROPIC_API_KEY": ""})
+        apply_credentials(environ, {"ANTHROPIC_API_KEY": None})
+        self.assertEqual(environ["ANTHROPIC_API_KEY"], "sk-ant-good")
+
+    def test_dot_env_is_kept_out_of_the_docker_image(self):
+        # The single line that makes this rule harmless in the containers.
+        # manage.py runs there three times (entrypoint.sh: migrate,
+        # seed_rules, collectstatic), so the rule executes — it is a no-op
+        # only because there is no .env inside the image to read. Loosen
+        # .dockerignore and a developer's key would outrank the deployment's
+        # own env_file, silently.
+        ignored = (settings.BASE_DIR / ".dockerignore").read_text().split()
+        self.assertIn(".env", ignored)
+
+    def test_no_host_path_is_mounted_into_the_app_directory(self):
+        # The other half: .dockerignore keeps .env out of the *image*, and a
+        # bind mount could still put it into the running container. Named
+        # volumes under /app are fine (static_files, demo_db) — a host path
+        # is not, because the project directory is where .env lives. The
+        # nginx service's ./nginx.conf mounts land outside /app entirely.
+        for name in ("docker-compose.yml", "docker-compose.demo.yml"):
+            compose = (settings.BASE_DIR / name).read_text()
+            for line in compose.splitlines():
+                entry = line.strip()
+                if not entry.startswith("- ") or ":" not in entry:
+                    continue
+                source, target = entry[2:].split(":")[:2]
+                is_host_path = source.startswith((".", "/", "~", "$"))
+                reaches_app = target == "/app" or target.startswith("/app/")
+                self.assertFalse(
+                    is_host_path and reaches_app,
+                    f"{name} mounts the host path {source} at {target}; that "
+                    f"would carry .env into the container and let it outrank "
+                    f"the deployment's own env_file",
+                )
+
+    def test_manage_py_applies_the_rule_after_load_dotenv(self):
+        # Order matters: load_dotenv() first fills the gaps, then this
+        # overrides the credentials. Reversed, load_dotenv would be a no-op
+        # over the values just written and the stale key would stand.
+        source = (settings.BASE_DIR / "manage.py").read_text()
+        self.assertLess(
+            source.index("load_dotenv()"),
+            source.index("apply_credentials(os.environ, dotenv_values())"),
+        )

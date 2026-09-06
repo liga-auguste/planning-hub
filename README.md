@@ -171,6 +171,13 @@ A missing `ANTHROPIC_API_KEY` (or `NOTION_API_KEY` outside `DEMO_MODE`) fails
 immediately with a clear message when the server starts, not on the first
 request.
 
+`manage.py` reads this file before Django starts, and the two sources settle a
+disagreement by kind (`planning_hub/env.py`): a **credential** in `.env` beats
+one already exported in the shell, because a stale key there is invisible —
+it shadows the working one and every Claude call comes back 401 with nothing
+to point at. A **switch** does not, so `DEMO_MODE=false python manage.py test`
+still selects the PostgreSQL leg even though this file says `true`.
+
 Run:
 
 ```bash
