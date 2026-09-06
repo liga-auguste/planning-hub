@@ -60,7 +60,11 @@ Three rules govern it:
 
 1. **A patch never serves a state predating a confirmed write.** A stale snapshot that
    does not carry the task at all cannot be corrected, so it is deleted rather than left
-   in place.
+   in place — but only the snapshot that *would* carry it. A project task is never in
+   `STALE_UNASSIGNED_CACHE_KEY` and a project-less one is never in `STALE_CACHE_KEY`, so
+   a miss in one says nothing about the other, and the two exist without each other often
+   enough for that to matter: `dashboard()` writes `STALE_CACHE_KEY` only when the summary
+   is not `None`, so one Claude outage leaves the project-less copy alone in the cache.
 2. **A patch never extends the entry's life.** See below.
 3. **The fallback is the normal path, not an edge case.** A cold cache, a half-cold
    cache, a task no cached list carries, or an entry whose deadline has run out all

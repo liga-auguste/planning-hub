@@ -10042,6 +10042,43 @@ class ToggleKeepsTheDashboardCacheWarmTest(TestCase):
             _cached_task_by_id(STALE_UNASSIGNED_CACHE_KEY, "loose-1")["done"]
         )
 
+    def test_a_project_task_leaves_the_project_less_stale_copy_alone(self):
+        # The two stale entries are written independently — dashboard() only
+        # writes STALE_CACHE_KEY when the summary is not None — so one
+        # routinely exists without the other. A project task is never in the
+        # project-less copy, so failing to find it there says nothing about
+        # that copy and must not cost it (#216).
+        _warm_dashboard_cache(
+            [_cached_task("task-1", date.today())],
+            unassigned=[_cached_task("loose-1", date.today())],
+        )
+        cache.delete(STALE_CACHE_KEY)
+        self.post_toggle("task-1")
+        self.assertIsNotNone(cache.get(STALE_UNASSIGNED_CACHE_KEY))
+
+    def test_a_project_less_task_leaves_the_projects_stale_copy_alone(self):
+        # The costlier direction of the same mistake: this copy carries the
+        # projects and the summary the last Claude call paid for.
+        _warm_dashboard_cache(
+            [_cached_task("task-1", date.today())],
+            unassigned=[_cached_task("loose-1", date.today())],
+            summary="<p>alt</p>",
+        )
+        cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+        self.post_toggle("loose-1")
+        self.assertEqual(cache.get(STALE_CACHE_KEY)[1], "<p>alt</p>")
+
+    def test_a_stale_copy_predating_the_task_is_still_dropped(self):
+        # The rule the split above must not weaken: a snapshot that cannot
+        # carry the write cannot be corrected, so it goes rather than serve a
+        # state older than a confirmed write.
+        _warm_dashboard_cache([_cached_task("task-1", date.today())])
+        stale_projects, stale_summary = cache.get(STALE_CACHE_KEY)
+        stale_projects[0]["tasks"] = []
+        cache.set(STALE_CACHE_KEY, (stale_projects, stale_summary), None)
+        self.post_toggle("task-1")
+        self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
     def test_the_derived_fields_are_recomputed_not_only_the_raw_ones(self):
         # A patch that writes `done` and stops leaves the dot, the board and
         # the sidebar ring rendering the pre-toggle state on the next load.

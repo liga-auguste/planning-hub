@@ -216,7 +216,7 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     if primary_ttl is None or unassigned_ttl is None:
         return None
     projects, summary_data = primary
-    task, _ = _find_task(projects, unassigned, task_id)
+    task, project = _find_task(projects, unassigned, task_id)
     if task is None:
         return None
     mutate(task)
@@ -231,28 +231,43 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
         CACHE_KEY, (projects, None if drop_summary else summary_data), primary_ttl
     )
     cache.set(UNASSIGNED_CACHE_KEY, unassigned, unassigned_ttl)
-    _patch_stale_copies(task_id, mutate, today, drop_summary)
+    # `project is None` for a task that was found means it came out of the
+    # project-less list — which is the half of the stale pair the write
+    # concerns, see _patch_stale_copies.
+    _patch_stale_copies(
+        task_id, mutate, today, drop_summary, in_project=project is not None
+    )
     return projects, unassigned
 
 
-def _patch_stale_copies(task_id, mutate, today, drop_summary):
-    """The never-expiring last-known-good entries, patched in lockstep.
+def _patch_stale_copies(task_id, mutate, today, drop_summary, in_project):
+    """The never-expiring last-known-good entry for the list this write
+    concerns, patched in step with the live one.
 
     Each cache.get hands back its own deserialized object graph, so the
-    write has to be applied to these separately. They can be older than the
-    live pair (which expires and gets refilled while these do not), so a
+    write has to be applied to this one separately. It can be older than the
+    live pair (which expires and gets refilled while it does not), so a
     snapshot predating the task itself cannot be corrected — it is dropped
     rather than left to serve a state older than a confirmed write.
+
+    Only the entry that would carry this task is looked at, hence
+    `in_project`. A project task is never in STALE_UNASSIGNED_CACHE_KEY and
+    a project-less one is never in STALE_CACHE_KEY, so a miss in one says
+    nothing about the other — and the two exist without each other often
+    enough for that to matter: dashboard() writes STALE_CACHE_KEY only when
+    the summary is not None, so a single Claude outage leaves the
+    project-less copy alone in the cache. Judging them together dropped a
+    last-known-good copy this write had never touched, in both directions
+    (the costlier one being a project-less toggle discarding the projects
+    *and* the summary the last Claude call paid for).
     """
-    stale = cache.get(STALE_CACHE_KEY)
-    stale_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
-    task, _ = _find_task(stale[0] if stale else [], stale_unassigned or [], task_id)
-    if task is None:
-        cache.delete(STALE_CACHE_KEY)
-        cache.delete(STALE_UNASSIGNED_CACHE_KEY)
-        return
-    mutate(task)
-    if stale is not None:
+    if in_project:
+        stale = cache.get(STALE_CACHE_KEY)
+        task, _ = _find_task(stale[0] if stale else [], [], task_id)
+        if task is None:
+            cache.delete(STALE_CACHE_KEY)
+            return
+        mutate(task)
         stale_projects, stale_summary = stale
         cache.set(
             STALE_CACHE_KEY,
@@ -262,14 +277,24 @@ def _patch_stale_copies(task_id, mutate, today, drop_summary):
             ),
             None,
         )
-    if stale_unassigned is not None:
-        cache.set(
-            STALE_UNASSIGNED_CACHE_KEY,
-            _annotate_tasks([{"id": "_unassigned", "tasks": stale_unassigned}], today)[
-                0
-            ]["tasks"],
-            None,
-        )
+        return
+
+    stale_unassigned = cache.get(STALE_UNASSIGNED_CACHE_KEY)
+    task, _ = _find_task([], stale_unassigned or [], task_id)
+    if task is None:
+        cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+        return
+    mutate(task)
+    # drop_summary is not read here: the summary numbers project tasks only
+    # (_number_projects_and_tasks, ai.py), so moving a project-less task
+    # renumbers nothing and the copy's own summary stays valid.
+    cache.set(
+        STALE_UNASSIGNED_CACHE_KEY,
+        _annotate_tasks([{"id": "_unassigned", "tasks": stale_unassigned}], today)[0][
+            "tasks"
+        ],
+        None,
+    )
 
 
 # Session key prefix for demo summaries; planner_create clears every version
