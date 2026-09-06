@@ -17,7 +17,8 @@ Deploy the demo or production stack and verify it came up.
 
 - Stack: `$ARGUMENTS` (`demo` or `production`)
 - Host details: `.claude/skills/deploy/hosts.md` (gitignored — real SSH
-  targets, paths, URLs). If it doesn't exist yet, create it first:
+  targets, paths, URLs, and anything else that is true of one machine
+  rather than of this project). If it doesn't exist yet, create it first:
   `cp .claude/skills/deploy/hosts.example.md .claude/skills/deploy/hosts.md`
   and fill in the placeholders.
 
@@ -32,9 +33,10 @@ safe default.
 
 ### 2. Preconditions
 
-Read the target stack's entry in `hosts.md` for its SSH target, path, and
-URL. Required `.env` keys on the host, already documented in the README's
-"Docker (demo)" / "Docker (production)" sections:
+Read the target stack's entry in `hosts.md` for its SSH target, path, URL,
+compose file, and its optional `Shell` (step 3). Required `.env` keys on the
+host, already documented in the README's "Docker (demo)" / "Docker
+(production)" sections:
 
 - **demo**: `DEMO_MODE=true`, `ALLOWED_HOSTS`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 - **production**: `DEMO_MODE=false`, `SECRET_KEY`, `ANTHROPIC_API_KEY`, `NOTION_API_KEY`, `DB_PASSWORD`, `DB_HOST`
@@ -57,6 +59,24 @@ ssh <host> 'cd <path> && git pull && docker compose -f <compose-file> up --build
 
 `<compose-file>` is `docker-compose.demo.yml` for demo, `docker-compose.yml`
 for production (see `hosts.md`).
+
+**If the stack's `hosts.md` entry names a `Shell`, the docker half runs
+through it**, as two commands rather than one:
+
+```bash
+ssh <host> 'cd <path> && git pull'
+ssh <host> '<shell> "cd <path> && docker compose -f <compose-file> up --build -d"'
+```
+
+`docker` is not always on the PATH of a *non-interactive* SSH session — a
+host whose PATH entry comes from the user's login profile (a common Docker
+Desktop setup) will not have it. The failure is worse than it looks: the
+pull in the combined command has already landed when `docker compose`
+reports `command not found`, so the checkout sits ahead of the running
+containers and the deploy looks done from the outside. Splitting the two
+keeps that from being silent.
+
+Leave the wrapper off for any stack whose `hosts.md` entry has no `Shell`.
 
 ### 4. Stack-specific gotchas
 
@@ -98,4 +118,14 @@ separately).
 ```bash
 ssh <host> 'cd <path> && git log --oneline -5'   # find the last-known-good commit
 ssh <host> 'cd <path> && git checkout <commit> && docker compose -f <compose-file> up --build -d'
+```
+
+On a stack with a `Shell`, split the second line the way step 3 does. A
+rollback is the worst moment for a checkout that lands while the rebuild
+does not: the host would sit on the older commit with the containers still
+running the build you are rolling back.
+
+```bash
+ssh <host> 'cd <path> && git checkout <commit>'
+ssh <host> '<shell> "cd <path> && docker compose -f <compose-file> up --build -d"'
 ```

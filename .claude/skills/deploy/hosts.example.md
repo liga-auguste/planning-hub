@@ -22,3 +22,10 @@ Then fill in the placeholders below with the real values.
 - Path: `path/to/planning-hub`
 - URL: `http://production-host` (VPN-only)
 - Compose file: `docker-compose.yml`
+- Shell: *(optional, and available for either stack — it is written here
+  because it is the likelier one)* a wrapper the docker command runs through
+  on this host, e.g. `zsh -lc`. Needed only when `docker` is missing from the
+  PATH of a non-interactive SSH session — check with
+  `ssh user@production-host 'which docker'` against
+  `ssh user@production-host 'zsh -lc "which docker"'`. Omit the line
+  entirely when the plain call finds it.
