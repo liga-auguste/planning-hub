@@ -238,6 +238,13 @@ These are decisions, not omissions.
   label — all move.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
+- **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a
+  read-modify-write over a cache shared across processes, with no fence: A reads, B reads,
+  A writes, B writes, and B's entry no longer carries A's task as done. Notion still has
+  both, but the cache serves the older state until its deadline runs out. The delete this
+  replaced was idempotent and self-correcting under the same interleaving, so this window
+  is new. It wants the same write fence as the gap below, and production is one person
+  behind a VPN — recorded rather than fenced.
 - **A write landing during a cold-cache fetch is still lost.** `_fetch_fresh_data` is as
   slow as the Claude call above, and the branch that follows it writes the projects it
   just read from Notion. The re-read that fixes the regeneration branch cannot fix this
