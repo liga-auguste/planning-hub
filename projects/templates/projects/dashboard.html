@@ -317,7 +317,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -332,7 +332,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -347,7 +347,7 @@
                     <div class="kanban-card-name">{{ task.name }}</div>
                     <div class="kanban-card-meta">
                         {% if not has_session_plan %}<span>{{ project.display_name }}</span>{% endif %}
-                        <span>{{ task.due|plan_date:"long" }}{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
+                        <span><span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>{% if task.postpone_count and task.postpone_count >= 2 %} <span class="badge-neutral postpone-badge" title="{{ task.postpone_count }}× verschoben">{{ task.postpone_count }}×</span>{% endif %}</span>
                     </div>
                 </div>
                 {% endif %}
@@ -544,17 +544,12 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
-        const firstColumn = document.querySelector('.day-column-body[data-date]');
-        const weekStart = firstColumn ? firstColumn.dataset.date : null;
         let response;
         try {
             response = await fetch(`/task/${taskId}/toggle/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-                // ?week= navigates the day columns to any week, and the
-                // server cannot guess which one is on screen — the first
-                // column's date is that week's Monday.
-                body: JSON.stringify({done, week_start: weekStart})
+                body: JSON.stringify({done, week_start: browsedWeekStart()})
             });
         } catch {
             // A rejected fetch (offline, server unreachable) never reaches
@@ -595,6 +590,14 @@ function applyTaskDone(taskId, done) {
     });
 }
 
+// ?week= navigates the day columns to any week, and the server cannot guess
+// which one is on screen — the first column's date is that week's Monday.
+// Both writes send it: they answer with counts scoped to that week.
+function browsedWeekStart() {
+    const firstColumn = document.querySelector('.day-column-body[data-date]');
+    return firstColumn ? firstColumn.dataset.date : null;
+}
+
 // #210: every number on this page is derived server-side
 // (_derive_dashboard_figures, views.py) and the client only writes what it
 // was handed. Counting the rendered cards instead would be a second
@@ -603,7 +606,7 @@ function applyTaskDone(taskId, done) {
 // raise this week's total without any card moving.
 //
 // The rule this whole issue comes down to: a surface that shows task state
-// gets updated on toggle, or it does not render task state.
+// gets updated on write, or it does not render task state.
 //
 // Two gaps here are deliberate, not oversights:
 //
@@ -615,12 +618,12 @@ function applyTaskDone(taskId, done) {
 //   - The day-column counters count what their column shows, tasks due on
 //     that day (#182's rule for the week bar, applied here). A task cleared
 //     today but due elsewhere moves its own due day's counter, not today's.
-//   - A moved Kanban card lands at the end of its new column, not at the
-//     position the server would render it in (month, then project, then due
-//     date). Reproducing that order here would put the board's structure
-//     into JavaScript, which is what the single kanban_column field exists
-//     to avoid. The card sits right on the next load.
-function applyToggleFigures(taskId, data) {
+//
+// Shared by both writes, because they change the same counters: a toggle
+// moves a task between stages, a reschedule moves it between days, and the
+// week bar, the day counters, the board's badges and the sidebar ring all
+// answer to both.
+function applyFigures(data) {
     // No figures: the server had no warm cache to derive them from, so the
     // page is out of date in ways only a render can fix.
     if (!data.week) return false;
@@ -651,6 +654,22 @@ function applyToggleFigures(taskId, data) {
         if (badge) badge.textContent = count;
     });
 
+    if (data.project) {
+        document.querySelectorAll(`[data-project-id="${data.project.id}"] .progress-ring-fill`).forEach(ring => {
+            ring.setAttribute('stroke-dashoffset', data.project.ring_dashoffset);
+            reclassify(ring, data.project.urgency);
+        });
+    }
+    return true;
+}
+
+// A moved Kanban card lands at the end of its new column, not at the
+// position the server would render it in (month, then project, then due
+// date). Reproducing that order here would put the board's structure into
+// JavaScript, which is what the single kanban_column field exists to avoid.
+// The card sits right on the next load.
+function applyToggleFigures(taskId, data) {
+    if (!applyFigures(data)) return false;
     // The one place structure enters this file. The target column arrives
     // as a string from the server and the template renders from the same
     // field (task.kanban_column), so the urgency -> column mapping exists
@@ -664,13 +683,36 @@ function applyToggleFigures(taskId, data) {
         // never clears it — unchecking a task has to do that here.
         card.classList.toggle('done', data.urgency === 'done');
     }
+    return true;
+}
 
-    if (data.project) {
-        document.querySelectorAll(`[data-project-id="${data.project.id}"] .progress-ring-fill`).forEach(ring => {
-            ring.setAttribute('stroke-dashoffset', data.project.ring_dashoffset);
-            reclassify(ring, data.project.urgency);
-        });
-    }
+// #216: the day columns bucket by date, so a reschedule changes them even
+// when it leaves the stage alone — a Wednesday task moved to Thursday used
+// to keep its card under Wednesday while the row above it read Thursday,
+// with both counters stale. The counts come from the server like every
+// other number; only the two cards that render the date have to move.
+//
+// A card that would have to be *created* is a render's job, not this
+// function's: a task moved into the week the columns are showing from
+// outside it has no card here to move, so false is returned and the caller
+// reloads. Moving it out is the easy direction — the card goes.
+function applyRescheduleFigures(taskId, newDate, data) {
+    const dayCard = document.querySelector(`.day-task-card[data-task-id="${taskId}"]`);
+    const targetColumn = document.querySelector(`.day-column-body[data-date="${newDate}"]`);
+    if (!dayCard && targetColumn) return false;
+    if (!applyFigures(data)) return false;
+    // Same end-of-column placement as the Kanban card above, for the same
+    // reason: the server sorts a day's cards by project name.
+    if (dayCard && targetColumn) targetColumn.appendChild(dayCard);
+    else if (dayCard) dayCard.remove();
+    // The Kanban card spells the date out. Its column follows the stage,
+    // which this path has already established is unchanged, so only the
+    // label moves. Two things beside it wait for the next load: the postpone
+    // badge, the same gap the row's own badge has had since #171, and the
+    // day card's hover title, whose "d.m." would need a second date format
+    // in the answer for a tooltip that repeats the column it sits in.
+    const due = document.querySelector(`.kanban-card[data-task-id="${taskId}"] .kanban-card-due`);
+    if (due) due.textContent = data.due_display;
     return true;
 }
 
@@ -810,15 +852,18 @@ function reclassify(el, urgency) {
 // what a render would produce.
 //
 // **Same stage → re-sort in place. Stage changed → reload.**
-// The stage is what decides bucket membership: the Heute lists (Überfällig /
-// Heute fällig / Diese Woche), the day columns, the week bar, the Kanban
-// column and the sidebar ring. When it changes, the task has to change list,
-// not position within one — and that is worth a server render rather than
-// rebuilding it by hand.
+// The stage is what decides which *list* a task belongs to: the Heute lists
+// (Überfällig / Heute fällig / Diese Woche) and the Kanban column. When it
+// changes, the task has to change list, not position within one — and that
+// is worth a server render rather than rebuilding it by hand.
 // For the three callers this follows from the move, not from the control:
 // the date picker reloads only on a stage change; "→ heute" only renders on
 // overdue rows, so it always changes stage and always reloads; the
 // day-column drag changes column by definition and always reloads.
+//
+// What the stage does *not* decide is the day columns, which bucket by date
+// — see applyRescheduleFigures(), which carries the same-stage move there
+// and reloads when the move would need a card that does not exist yet.
 //
 // Deliberately not handled: the same-date tiebreak. The server sorts the
 // Heute lists by (due, project_name) (_build_week_view, views.py); this
@@ -858,7 +903,7 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         response = await fetch(`/task/${taskId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({date: newDate})
+            body: JSON.stringify({date: newDate, week_start: browsedWeekStart()})
         });
     } catch {
         // A rejected fetch (offline, server unreachable) would otherwise
@@ -899,8 +944,10 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         if (todayBtn && data.urgency !== 'overdue') todayBtn.remove();
         if (stageBefore && stageBefore !== data.urgency) {
             window.location.reload();
-        } else {
+        } else if (applyRescheduleFigures(taskId, newDate, data)) {
             sortRows(row, newDate);
+        } else {
+            window.location.reload();
         }
     }
     return true;

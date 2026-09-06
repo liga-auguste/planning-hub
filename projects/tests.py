@@ -8088,8 +8088,12 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         self.given_session_plan()
         new_date = (date.today() + timedelta(days=14)).isoformat()
         response = self.post_date("demo-session-0", new_date)
+        # The figures beside these are #216's business, asserted in
+        # RescheduleAnswersTheRecomputedFiguresTest — this test is about the
+        # counter, so it reads only the fields it is here for.
+        answer = response.json()
         self.assertEqual(
-            response.json(),
+            {k: answer[k] for k in ("ok", "postpone_count", "due_display", "urgency")},
             {
                 "ok": True,
                 "postpone_count": 1,
@@ -10590,7 +10594,9 @@ class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
         # guess which one is on screen.
         html = self.dashboard_html()
         self.assertIn("document.querySelector('.day-column-body[data-date]')", html)
-        self.assertIn("week_start: weekStart", html)
+        # One helper, sent by both writes — the reschedule answer is scoped
+        # to the same week (#216).
+        self.assertEqual(html.count("week_start: browsedWeekStart()"), 2)
 
     def test_no_count_is_derived_in_javascript(self):
         # The whole point of the server answering with figures. A length
@@ -10715,6 +10721,130 @@ class RescheduleKeepsTheCachedProjectsTest(TestCase):
         self.post_date("task-99", date.today() + timedelta(days=10))
         self.assertIsNone(cache.get(CACHE_KEY))
         self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+
+@override_settings(DEMO_MODE=False)
+class RescheduleAnswersTheRecomputedFiguresTest(TestCase):
+    """#216: the day columns bucket by date, so every reschedule changes
+    them — including one that leaves the stage alone, which is the only path
+    that does not reload. The answer carries the same figures a toggle's
+    does, from the same helper, so the two writes cannot disagree."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_date(self, task_id, new_date, week_start=None, count=1):
+        body = {"date": new_date.isoformat()}
+        if week_start is not None:
+            body["week_start"] = week_start.isoformat()
+        with (
+            patch("projects.views.update_task_date"),
+            patch("projects.views.increment_postpone_count", return_value=count),
+        ):
+            return self.client.post(
+                reverse("reschedule_task", args=[task_id]),
+                data=json.dumps(body),
+                content_type="application/json",
+            )
+
+    def test_the_day_counters_follow_the_move(self):
+        # The move a stage change never catches: within one week, so the row
+        # keeps its stage while the card belongs under a different day.
+        monday = iso_week_bounds(date.today())[0]
+        _warm_dashboard_cache([_cached_task("task-1", monday + timedelta(days=1))])
+        data = self.post_date(
+            "task-1", monday + timedelta(days=3), week_start=monday
+        ).json()
+        self.assertEqual(
+            data["days"][(monday + timedelta(days=1)).isoformat()],
+            {"done": 0, "total": 0},
+        )
+        self.assertEqual(
+            data["days"][(monday + timedelta(days=3)).isoformat()],
+            {"done": 0, "total": 1},
+        )
+
+    def test_the_week_bar_and_the_board_counts_come_back_too(self):
+        monday = iso_week_bounds(date.today())[0]
+        _warm_dashboard_cache([_cached_task("task-1", monday + timedelta(days=1))])
+        data = self.post_date("task-1", monday + timedelta(days=2)).json()
+        self.assertEqual(data["week"], {"done": 0, "total": 1, "pct": 0})
+        self.assertEqual(sum(data["kanban"].values()), 1)
+        self.assertEqual(data["project"]["id"], "p1")
+
+    def test_a_move_out_of_the_current_week_empties_the_bar(self):
+        # The denominator, not the numerator: nothing was completed, the
+        # task simply left the range the bar counts.
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        data = self.post_date("task-1", today + timedelta(days=90)).json()
+        self.assertEqual(data["week"], {"done": 0, "total": 0, "pct": 0})
+
+    def test_the_browsed_week_is_the_one_the_client_is_showing(self):
+        today = date.today()
+        next_monday = iso_week_bounds(today)[0] + timedelta(days=7)
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        data = self.post_date("task-1", next_monday, week_start=next_monday).json()
+        self.assertEqual(data["days"][next_monday.isoformat()], {"done": 0, "total": 1})
+
+    def test_a_cold_cache_answers_without_figures(self):
+        # Same contract as the toggle: no figures means the server had
+        # nothing to derive from, and the client reloads.
+        data = self.post_date("task-1", date.today() + timedelta(days=1)).json()
+        self.assertEqual(data["ok"], True)
+        self.assertNotIn("week", data)
+        self.assertNotIn("days", data)
+
+    def test_the_load_path_and_the_write_path_call_the_same_helper(self):
+        # Two implementations of these counts is what #210 was.
+        today = date.today()
+        _warm_dashboard_cache([_cached_task("task-1", today)])
+        with patch(
+            "projects.views._derive_dashboard_figures",
+            side_effect=_derive_dashboard_figures,
+        ) as derive:
+            self.post_date("task-1", today + timedelta(days=1))
+        derive.assert_called_once()
+
+
+class RescheduleFiguresFromTheSessionPlanTest(DemoModeTestCase):
+    """The demo half of the same answer — a visitor's own plan renders the
+    same day columns and the same bar."""
+
+    def test_the_figures_come_back_for_a_session_plan_too(self):
+        monday = iso_week_bounds(date.today())[0]
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Nah",
+                    "date": (monday + timedelta(days=1)).isoformat(),
+                    "done": False,
+                }
+            ]
+        )
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps(
+                {
+                    "date": (monday + timedelta(days=3)).isoformat(),
+                    "week_start": monday.isoformat(),
+                }
+            ),
+            content_type="application/json",
+        )
+        data = response.json()
+        self.assertEqual(
+            data["days"][(monday + timedelta(days=1)).isoformat()],
+            {"done": 0, "total": 0},
+        )
+        self.assertEqual(
+            data["days"][(monday + timedelta(days=3)).isoformat()],
+            {"done": 0, "total": 1},
+        )
+        # #183: a demo session's bar counts the whole plan, not the week.
+        self.assertEqual(data["week"], {"done": 0, "total": 1, "pct": 0})
 
 
 @override_settings(DEMO_MODE=False)
@@ -10909,3 +11039,79 @@ class RescheduleResortsTheRowTest(DemoModeTestCase):
         block = self.reschedule_block(self.dashboard_html())
         self.assertNotIn("new Date(", block)
         self.assertNotIn("getDay(", block)
+
+
+class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):
+    """#216: a day column's membership is its date, so every reschedule
+    changes it — including the same-stage move, the only path that does not
+    reload. The row read Thursday while its card stayed under Wednesday and
+    both counters kept their old numbers."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def figures_block(self, html):
+        return html[
+            html.index("function applyRescheduleFigures") : html.index(
+                "function flashActionFailed"
+            )
+        ]
+
+    def test_the_same_stage_path_applies_the_figures(self):
+        self.assertIn(
+            "} else if (applyRescheduleFigures(taskId, newDate, data)) {",
+            self.dashboard_html(),
+        )
+
+    def test_the_card_moves_into_the_column_of_its_new_date(self):
+        block = self.figures_block(self.dashboard_html())
+        self.assertIn(
+            'document.querySelector(`.day-column-body[data-date="${newDate}"]`)',
+            block,
+        )
+        self.assertIn(
+            "if (dayCard && targetColumn) targetColumn.appendChild(dayCard);", block
+        )
+
+    def test_a_move_out_of_the_browsed_week_removes_the_card(self):
+        self.assertIn(
+            "else if (dayCard) dayCard.remove();",
+            self.figures_block(self.dashboard_html()),
+        )
+
+    def test_a_card_that_would_have_to_be_created_reloads_instead(self):
+        # Markup belongs in the template. A task moved into the week the
+        # columns show has no card here to move, so the server renders it.
+        block = self.figures_block(self.dashboard_html())
+        self.assertIn("if (!dayCard && targetColumn) return false;", block)
+        self.assertIn("window.location.reload();", self.dashboard_html())
+
+    def test_the_kanban_cards_date_label_is_rewritten(self):
+        # The board spells the date out, unlike the day card, whose column
+        # *is* its date.
+        block = self.figures_block(self.dashboard_html())
+        self.assertIn("if (due) due.textContent = data.due_display;", block)
+
+    def test_every_board_column_renders_a_hook_for_that_label(self):
+        # Without its own element the badge beside it would be wiped along
+        # with the date. Asserted against the template, not one render: all
+        # three columns spell the date out, and only one of them holds the
+        # moved card.
+        template = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertEqual(template.count('<span class="kanban-card-due">'), 3)
+        self.assertIn('<span class="kanban-card-due">', self.dashboard_html())
+
+    def test_no_count_is_derived_in_this_block_either(self):
+        block = self.figures_block(self.dashboard_html())
+        self.assertNotIn(".length", block)
+        self.assertNotIn("new Date(", block)
+
+    def test_both_writes_share_one_figure_writer(self):
+        # A second copy of "write the numbers you were handed" is the drift
+        # #210 exists to prevent.
+        html = self.dashboard_html()
+        self.assertEqual(html.count("function applyFigures(data) {"), 1)
+        self.assertIn("if (!applyFigures(data)) return false;", html)

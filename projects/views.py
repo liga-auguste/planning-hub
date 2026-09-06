@@ -1143,15 +1143,20 @@ def _parse_week_start(data, default_monday):
     return _usable_week_start(monday, default_monday)
 
 
-def _toggle_answer(
+def _surface_figures(
     projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
 ):
-    """The figures a toggle changes, next to the stage the task now carries.
-    An empty dict means there was nothing to derive from — the client then
-    reloads rather than being handed numbers the server had to guess at."""
+    """Returns (task, figures) — every number a surface on the page renders
+    task state from, plus the ring of the project the write landed in.
+    (None, {}) means there was nothing to derive from, and the client then
+    reloads rather than being handed numbers the server had to guess at.
+
+    Shared by both writes: a toggle and a reschedule change the same
+    counters, and #210's whole point is that there is one implementation of
+    them."""
     task, project = _find_task(projects, unassigned_tasks, task_id)
     if task is None:
-        return {}
+        return None, {}
     for cached_project in projects:
         # _bucket_by_day tags every task with its project's display name;
         # the cache holds the raw Notion name, so this is set here the way
@@ -1161,15 +1166,29 @@ def _toggle_answer(
         projects, unassigned_tasks, effective_today, browsed_monday, whole_plan
     )
     answer = {
-        "urgency": task["urgency"],
-        "kanban_column": task["kanban_column"],
         "week": figures["week"],
         "days": figures["days"],
         "kanban": figures["kanban"],
     }
     if project is not None:
         answer["project"] = {"id": project["id"], **figures["projects"][project["id"]]}
-    return answer
+    return task, answer
+
+
+def _toggle_answer(
+    projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+):
+    """The figures a toggle changes, next to the stage the task now carries."""
+    task, figures = _surface_figures(
+        projects, unassigned_tasks, task_id, effective_today, browsed_monday, whole_plan
+    )
+    if task is None:
+        return {}
+    return {
+        "urgency": task["urgency"],
+        "kanban_column": task["kanban_column"],
+        **figures,
+    }
 
 
 def toggle_task_view(request, task_id):
@@ -1261,6 +1280,16 @@ def reschedule_task_view(request, task_id):
         return JsonResponse({"error": "invalid date"}, status=400)
     due_display = format_date(parsed_date, role="long")
 
+    # Read before the branches: both of them derive the figures below
+    # against it. A demo visitor's time travel has to count here the way it
+    # does on the dashboard, or a plan viewed at a simulated moment would
+    # come back classified against the real today.
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+    effective_today = sim_date or timezone.localdate()
+    browsed_monday = _parse_week_start(data, iso_week_bounds(effective_today)[0])
+
     if settings.DEMO_MODE:
         # In demo mode only the visitor's own session plan can be written to;
         # the example projects come from get_demo_projects() and are in no
@@ -1290,6 +1319,22 @@ def reschedule_task_view(request, task_id):
             if key.startswith("demo_plan_summary"):
                 del request.session[key]
         postpone_count = task["postpone_count"]
+        # The same deepcopy mutation toggle_task_view applies, so the figures
+        # match what a reload of the dashboard would render.
+        project = copy.deepcopy(_build_session_project(plan))
+        if sim_date:
+            for plan_task in project["tasks"]:
+                if plan_task.get("due") and plan_task["due"] <= sim_date:
+                    plan_task["done"] = True
+        _, figures = _surface_figures(
+            _annotate_tasks([project], effective_today),
+            [],
+            task_id,
+            effective_today,
+            browsed_monday,
+            # #183: a demo session's bar counts the whole plan, not the week.
+            whole_plan=True,
+        )
     else:
         try:
             update_task_date(task_id, raw_date)
@@ -1304,12 +1349,19 @@ def reschedule_task_view(request, task_id):
         # and only the summary is dropped, because a new date renumbers the
         # task_refs it holds (_number_projects_and_tasks, ai.py). The Notion
         # read goes, the Claude call stays.
-        today = timezone.localdate()
+        #
+        # effective_today rather than a second timezone.localdate() call:
+        # this branch only runs outside DEMO_MODE, where the two are the same
+        # day, and one value keeps the figures below from being derived
+        # against a different date than the urgency answered with.
 
         def move(task):
             task["due"] = parsed_date
 
-        if _patch_cached_tasks(task_id, move, today, drop_summary=True) is None:
+        if (
+            _patch_cached_tasks(task_id, move, effective_today, drop_summary=True)
+            is None
+        ):
             _bust_dashboard_cache()
         try:
             # #171 accepted gap: if this second call fails, the date has
@@ -1326,25 +1378,30 @@ def reschedule_task_view(request, task_id):
         def count(task):
             task["postpone_count"] = postpone_count
 
-        if _patch_cached_tasks(task_id, count, today) is None:
+        patched = _patch_cached_tasks(task_id, count, effective_today)
+        if patched is None:
             _bust_dashboard_cache()
+            figures = {}
+        else:
+            # #216: the day columns bucket by date, so every reschedule
+            # changes them — a move within one stage kept the row and the
+            # columns disagreeing, because only a stage change reloaded.
+            # Same figures as the toggle, from the same helper.
+            _, figures = _surface_figures(
+                *patched, task_id, effective_today, browsed_monday, whole_plan=False
+            )
     # The stage the row belongs in after the move, so the client can
     # reclassify the date label and its dot instead of leaving both wearing
-    # the pre-move signal until the next page load. A demo visitor's time
-    # travel has to count here the way it does on the dashboard, or a plan
-    # viewed at a simulated moment would come back classified against the
-    # real today. Completion is left out on purpose: the dot's `done` class
-    # is the toggle's business and outranks the urgency rule anyway.
-    effective_today = timezone.localdate()
-    if settings.DEMO_MODE:
-        sim_date, _ = _get_sim_date(request)
-        effective_today = sim_date or effective_today
+    # the pre-move signal until the next page load. Completion is left out on
+    # purpose: the dot's `done` class is the toggle's business and outranks
+    # the urgency rule anyway.
     return JsonResponse(
         {
             "ok": True,
             "postpone_count": postpone_count,
             "due_display": due_display,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
+            **figures,
         }
     )
 

@@ -144,8 +144,10 @@ this already accepts: the Notion read goes, the Claude call stays.
 ## Where each surface gets its number
 
 `_derive_dashboard_figures(projects, unassigned_tasks, effective_today, browsed_monday,
-whole_plan=False)` is the single source. `dashboard()` renders from it; `toggle_task_view`
-answers with it.
+whole_plan=False)` is the single source. `dashboard()` renders from it; both writes answer
+with it through `_surface_figures`, which adds the ring of the project the write landed
+in. On the client the counts are written by one `applyFigures()`; each write then moves
+only the cards its own kind of move displaces.
 
 | Surface | Field | Membership rule |
 |---|---|---|
@@ -164,7 +166,7 @@ that was completed in it. Checking a task off can therefore raise the **denomina
 an overdue task from an earlier week, cleared today, joins this week's total without a
 single card moving on screen.
 
-The toggle request carries `week_start`, the Monday of the week the day columns are
+Both write requests carry `week_start`, the Monday of the week the day columns are
 showing. `?week=` navigates them to any week and the server cannot guess which one is on
 screen.
 
@@ -185,14 +187,24 @@ the others.
 | Toggle, warm cache | figures | writes them |
 | Toggle, cold cache | bare `{"ok": true}` | reloads |
 | Toggle fails in Notion | 502 | leaves the checkbox alone, flashes the button |
-| Reschedule, same stage | `urgency`, `due_display`, `postpone_count` | reclassifies and re-sorts in place |
+| Reschedule, same stage | `urgency`, `due_display`, `postpone_count` + figures | writes them, moves the day card, re-sorts in place |
 | Reschedule, stage changed | same | reloads |
+| Reschedule into the browsed week from outside it | same | reloads — the day card does not exist yet |
+| Reschedule, cold cache | no figures | reloads |
 | Reschedule from the day-column drag | same | reloads — the column change is definitional |
 | Reschedule fails in Notion | 502 | undoes the drag / restores the date |
 
-The stage is what decides bucket membership: the Heute lists, the day columns, the week
-bar, the Kanban column and the sidebar ring. When it changes, the task has to change
-*list*, not position within one — worth a server render rather than rebuilding by hand.
+The stage is what decides which *list* a task belongs to: the Heute lists and the Kanban
+column. When it changes, the task has to change list, not position within one — worth a
+server render rather than rebuilding by hand.
+
+The day columns are the exception, and they were the gap: their membership is the *date*,
+so every reschedule changes them, stage or no stage. A Wednesday task moved to Thursday
+kept its card under Wednesday while the row above it read Thursday, with both counters
+stale — the same page disagreeing with itself that #210 is about, on the one path that
+does not reload. The counts now come from `_surface_figures` like every other number, and
+only the two cards that render the date move by hand: the day card, whose column *is* its
+date, and the Kanban card, which spells the date out.
 
 ## Deliberate gaps
 
@@ -211,7 +223,19 @@ These are decisions, not omissions.
 - **A moved Kanban card lands at the end of its new column**, not at the position the
   server would render it in (month, then project, then due date). Reproducing that order
   client-side would put the board's structure into JavaScript, which is what shipping the
-  column as a single field exists to avoid. The card sits right on the next load.
+  column as a single field exists to avoid. The card sits right on the next load. A day
+  card moved between columns lands the same way, for the same reason — the server sorts a
+  day's cards by project name.
+- **The postpone badge waits for the next load.** A reschedule rewrites the date beside
+  it but not the badge, on the row and on the Kanban card alike: the badge only renders
+  from the second move on, so making it appear means creating markup and the threshold
+  rule that decides it. The row has had this gap since #171; the board now matches it
+  rather than growing a second answer.
+- **The day card's hover title keeps its old date.** `_day_task_card.html` puts
+  `project · d.m.` in a `title`, and that short form is not in the answer. Adding it would
+  mean a second date format in the API for a tooltip that repeats the column the card
+  already sits in. The visible surfaces — the column itself, the row's label, the board's
+  label — all move.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **A write landing during a cold-cache fetch is still lost.** `_fetch_fresh_data` is as
@@ -231,7 +255,7 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests.py` covers this in eight classes:
+`projects/tests.py` covers this in eleven classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
@@ -244,6 +268,9 @@ change, and the bump is mandatory rather than cosmetic.
   derived in JavaScript
 - `RescheduleKeepsTheCachedProjectsTest`, `RescheduleResortsTheRowTest` — the reschedule
   half, server and client
+- `RescheduleAnswersTheRecomputedFiguresTest`, `RescheduleFiguresFromTheSessionPlanTest`,
+  `RescheduleUpdatesTheDayColumnsTest` — the day columns following a same-stage move, in
+  production and in a demo session, and the client writing what it was handed
 - `PatchingDoesNotRenewTheReadWindowTest` — every assertion on the timeout a write
   actually named, never on the deadline stamp beside it: a patch leaves that stamp
   alone either way, so asserting on it would pass with the bug still in place
