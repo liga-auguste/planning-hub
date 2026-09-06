@@ -120,4 +120,12 @@ ssh <host> 'cd <path> && git log --oneline -5'   # find the last-known-good comm
 ssh <host> 'cd <path> && git checkout <commit> && docker compose -f <compose-file> up --build -d'
 ```
 
-The second line needs the stack's `Shell` wrapper, same as step 3.
+On a stack with a `Shell`, split the second line the way step 3 does. A
+rollback is the worst moment for a checkout that lands while the rebuild
+does not: the host would sit on the older commit with the containers still
+running the build you are rolling back.
+
+```bash
+ssh <host> 'cd <path> && git checkout <commit>'
+ssh <host> '<shell> "cd <path> && docker compose -f <compose-file> up --build -d"'
+```
