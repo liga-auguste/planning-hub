@@ -71,9 +71,9 @@ needs, and the one that is easiest to lose halfway through a pair of
 deploys.
 
 Read the target stack's entry in `hosts.md` for its SSH target, path, URL,
-compose file, and its optional `Shell` (step 3). Required `.env` keys on the
-host, already documented in the README's "Docker (demo)" / "Docker
-(production)" sections:
+compose file, branch, and its optional `Shell` (step 3). Required `.env`
+keys on the host, already documented in the README's "Docker (demo)" /
+"Docker (production)" sections:
 
 - **demo**: `DEMO_MODE=true`, `ALLOWED_HOSTS`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 - **production**: `DEMO_MODE=false`, `SECRET_KEY`, `ANTHROPIC_API_KEY`, `NOTION_API_KEY`, `DB_PASSWORD`, `DB_HOST`
@@ -94,8 +94,9 @@ ssh <host> 'cd <path> && git status'
   over it either: `git pull` refuses on a detached HEAD and exits
   non-zero, which short-circuits the `&&` in step 3 and skips the rebuild
   entirely, leaving the host on the rollback commit while the run reads as
-  if it did something. Put the host back with `git checkout main` once you
-  know why the rollback was still there.
+  if it did something. Put the host back on the branch its `hosts.md`
+  entry names — `git checkout <branch>` — once you know why the rollback
+  was still there.
 
 ### 3. Deploy
 
@@ -187,4 +188,5 @@ A rollback leaves the host on a detached HEAD, and it stays there until
 someone puts it back. That is deliberate — the next deploy refuses to pull
 rather than quietly rolling forward over an unexplained rollback (step 2)
 — but it does mean the stack is outside the normal deploy path until you
-run `git checkout main` on it on purpose.
+run `git checkout <branch>` on it on purpose, with `<branch>` from its
+`hosts.md` entry.
