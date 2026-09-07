@@ -35,6 +35,7 @@ from ..models import WeekCloseout
 from ..notion import NotionUnavailableError
 from .base import (
     CLOSEOUT_TODAY,
+    AiStubMixin,
     DemoModeTestCase,
     _anthropic_timeout_error,
     _closeout_tasks,
@@ -495,7 +496,7 @@ class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class CloseWeekConfirmProductionTest(TestCase):
+class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
     def _task(self, task_id, name, due, done=False, created_time=None):
         return {
             "id": task_id,
@@ -774,7 +775,29 @@ class CloseWeekConfirmProductionTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class CloseWeekWeekScopedCountTest(TestCase):
+class ProductionAiStubTest(AiStubMixin, TestCase):
+    """Guards the guard on the production side, the way AiStubTest does for
+    demo mode: proves the stub is in this class's request path.
+
+    Without it, a close-out test that forgets to patch the summary reaches
+    the real Claude API, and a machine with a key in .env never notices —
+    only CI, which has none, fails. That is exactly how it happened (#215).
+    """
+
+    @patch("django.utils.timezone.localdate")
+    def test_confirming_does_not_call_the_real_api(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.views.get_tasks_completed_in_range", return_value=[]),
+            patch("projects.views.get_tasks_created_in_range", return_value=[]),
+        ):
+            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.ai_mocks["projects.views.generate_closeout_summary"].assert_called()
+
+
+@override_settings(DEMO_MODE=False)
+class CloseWeekWeekScopedCountTest(AiStubMixin, TestCase):
     """#215: the regression test that was missing.
 
     Both original confirm tests hand-built a task_id list containing an
