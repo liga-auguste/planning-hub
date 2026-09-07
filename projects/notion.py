@@ -123,8 +123,12 @@ def _tasks_by_project(client, project_ids: list) -> dict:
     collapses into a single (paged) read.
 
     The `or` array's maximum length is not documented, only the 500KB
-    payload ceiling. What keeps it permanently small is HISTORY_PROJECT_LIMIT
-    (#225) on the larger of the two callers.
+    payload ceiling. The two callers are bounded differently:
+    get_historical_projects caps itself at HISTORY_PROJECT_LIMIT (#225), but
+    get_upcoming_projects has no bound — it filters on status alone, with no
+    date floor, so it matches every project nobody ever closed and this
+    array grows with that backlog. Small today; if it stops being small, a
+    date floor on that read is the bound, not anything here.
 
     Returns {project_id: [task, ...]}, with an entry for every id passed in.
     """
@@ -191,9 +195,11 @@ def _query_all_pages(client, **query) -> list:
 
     Notion returns at most 100 rows per call, and signals the cut with
     has_more — a first-page-only read is a silent undercount, the class of
-    bug #215 exists to remove. Every read in this module goes through here
-    (#196, #225) except get_historical_projects, which is bounded on
-    purpose; its reason lives at HISTORY_PROJECT_LIMIT.
+    bug #215 exists to remove. Every read in this module that can outgrow
+    one page goes through here (#196, #225). Two cannot and do not:
+    get_historical_projects is bounded on purpose, its reason at
+    HISTORY_PROJECT_LIMIT, and find_project matches one exact name and date
+    and returns results[0], so a second page holds nothing it would use.
 
     has_more with no next_cursor would be Notion breaking its own contract,
     and the loop cannot honour it: without a cursor the next request is

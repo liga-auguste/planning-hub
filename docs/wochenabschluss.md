@@ -94,9 +94,10 @@ around this by counting `done` instead — an option a week-scoped count does no
 **Pagination:** the two week reads page through every result (`_query_all_pages`). Notion
 returns at most 100 rows per query, and the busiest creation week in the live Tasks
 database holds 157 — a first-page cut here would be the same silent undercount #215
-removed. Since #196 every read in `notion.py` pages, except the planner's project history:
-that one is capped on purpose at `HISTORY_PROJECT_LIMIT`, because everything it returns
-goes whole into the prompt.
+removed. Since #196 every read in `notion.py` that can outgrow one page pages. Two cannot:
+the planner's project history is capped on purpose at `HISTORY_PROJECT_LIMIT`, because
+everything it returns goes whole into the prompt, and `find_project` looks up one exact
+name and date and takes the first result.
 
 **Demo mode follows the timelapse** (`_closeout_dates`): with a simulated date set, that
 date is "today" for the triage list, the counts and the review's KW, so the close-out does
