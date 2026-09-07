@@ -657,6 +657,39 @@ class SortableScriptInclusionProductionTest(TestCase):
         self.assertContains(response, "Sortable.min.js")
 
 
+class DayColumnIsADropTargetInFullTest(DemoModeTestCase):
+    """#180's drop target is .day-column-body, and SortableJS accepts a drop
+    only inside that element's own box — not inside the panel a visitor sees.
+
+    The grid stretches every .day-column to the height of the fullest one,
+    while the body was sized by its cards alone. A day holding few tasks, or
+    none, therefore rendered a tall panel whose bottom was dead: measured
+    against production data, a 567 px column offered 32 px of drop zone and
+    503 px of panel that swallowed the drop. Dragging a card onto today, or
+    onto an empty day, looked like it should work and did nothing.
+
+    Making the column a flex column and letting the body take the free space
+    keeps the two rectangles the same, so every pixel of a panel is a target.
+    """
+
+    def styles(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_column_lays_its_children_out_in_a_column(self):
+        self.assertIn(
+            ".day-column { background: var(--color-bg-secondary); "
+            "border-radius: 8px; padding: 8px; min-height: 72px; "
+            "display: flex; flex-direction: column; }",
+            self.styles(),
+        )
+
+    def test_the_drop_target_takes_the_free_space(self):
+        # min-height stays: it is what an empty column in a row of empty
+        # columns falls back to, where there is no free space to take.
+        self.assertIn(".day-column-body { min-height: 32px; flex: 1; }", self.styles())
+
+
 class StatusBannersSharedAcrossViewsTest(DemoModeTestCase):
     """#183 Tier 2: view-overview and view-today render in the same
     response (JS just toggles which is visible) — the demo-banner and
