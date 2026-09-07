@@ -555,6 +555,21 @@ class QueryAllPagesTest(SimpleTestCase):
             client.databases.query.call_args_list[1].kwargs["start_cursor"], "cursor-1"
         )
 
+    def test_has_more_without_a_cursor_stops_instead_of_looping(self):
+        """Notion breaking its own contract. Paging on would repeat the
+        cursor-less first request forever, inside a web request — the
+        side_effect list is what turns that into a failure instead of a
+        hang."""
+        client = Mock()
+        client.databases.query.side_effect = [
+            _query_response([{"id": "a"}], has_more=True, next_cursor=None)
+        ] * 3
+        with self.assertLogs("projects.notion", level="WARNING") as cm:
+            results = _query_all_pages(client, database_id=TASKS_DB)
+        self.assertEqual(results, [{"id": "a"}])
+        self.assertEqual(client.databases.query.call_count, 1)
+        self.assertIn("has_more without a next_cursor", cm.output[0])
+
     def test_the_query_is_repeated_unchanged_on_every_page(self):
         client = Mock()
         client.databases.query.side_effect = [

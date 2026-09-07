@@ -194,6 +194,12 @@ def _query_all_pages(client, **query) -> list:
     bug #215 exists to remove. Every read in this module goes through here
     (#196, #225) except get_historical_projects, which is bounded on
     purpose; its reason lives at HISTORY_PROJECT_LIMIT.
+
+    has_more with no next_cursor would be Notion breaking its own contract,
+    and the loop cannot honour it: without a cursor the next request is
+    byte-for-byte the first one, so paging on repeats that first page
+    forever inside a web request. It stops and logs instead — an undercount
+    is recoverable, a hung dashboard request is not.
     """
     results = []
     cursor = None
@@ -202,9 +208,15 @@ def _query_all_pages(client, **query) -> list:
             **query, **({"start_cursor": cursor} if cursor else {})
         )
         results.extend(page["results"])
-        if not page["has_more"]:
+        cursor = page["next_cursor"] if page["has_more"] else None
+        if not cursor:
+            if page["has_more"]:
+                logger.warning(
+                    "Notion reported has_more without a next_cursor; "
+                    "stopping after %d rows.",
+                    len(results),
+                )
             return results
-        cursor = page["next_cursor"]
 
 
 def get_tasks_completed_in_range(start: date, end: date) -> list:
