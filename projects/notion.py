@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 PROJECTS_DB = "87ad1e35b3344ed49c1ba977664bb087"
 TASKS_DB = "f22abd16a92d48598c04be76f35c6b1d"
 
+# #225: how many closed projects get_historical_projects reads. A cap rather
+# than pagination, because everything this read returns goes whole into every
+# planner prompt (_format_history, planner.py:11) — the bound is a
+# prompt-size decision, not a display one. 40 covers roughly two years at
+# ~50 closed projects a year, so every season and every recurring event
+# appears at least twice as a calibration reference.
+HISTORY_PROJECT_LIMIT = 40
+
 
 class NotionUnavailableError(Exception):
     """Raised when Notion can't be reached or returns an error. notion-client
@@ -42,7 +50,9 @@ def _client():
 
 def get_upcoming_projects(today: date) -> list:
     with translate_notion_errors():
-        response = _client().databases.query(
+        client = _client()
+        pages = _query_all_pages(
+            client,
             database_id=PROJECTS_DB,
             filter={
                 "and": [
@@ -58,9 +68,10 @@ def get_upcoming_projects(today: date) -> list:
             },
             sorts=[{"property": "Termin", "direction": "ascending"}],
         )
+        tasks_by_project = _tasks_by_project(client, [page["id"] for page in pages])
 
         projects = []
-        for page in response["results"]:
+        for page in pages:
             props = page["properties"]
             status_prop = props.get("Status/Aufgaben", {}).get("status")
             project = {
@@ -73,7 +84,7 @@ def get_upcoming_projects(today: date) -> list:
                 "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
                 "status": status_prop["name"] if status_prop else None,
                 "status_color": status_prop["color"] if status_prop else "gray",
-                "tasks": _get_tasks(page["id"]),
+                "tasks": tasks_by_project[page["id"]],
             }
             projects.append(project)
 
@@ -81,14 +92,83 @@ def get_upcoming_projects(today: date) -> list:
 
 
 def _get_tasks(project_page_id: str) -> list:
-    response = _client().databases.query(
+    """One project's tasks.
+
+    #196 replaced the read paths' per-project fan-out with
+    _tasks_by_project, but this single-project read stays: create_tasks
+    needs it for its idempotency check, where there is exactly one project
+    and the answer is needed before any write. It pages, or that check
+    silently stops working for a project past 100 tasks.
+    """
+    return [
+        _parse_task_page(page)
+        for page in _query_all_pages(
+            _client(),
+            database_id=TASKS_DB,
+            filter={
+                "property": "Related to Projekte",
+                "relation": {"contains": project_page_id},
+            },
+        )
+    ]
+
+
+def _tasks_by_project(client, project_ids: list) -> dict:
+    """Every listed project's tasks, in one query instead of one per project.
+
+    #196: the read paths used to call _get_tasks per project, so a cold
+    planner start cost ~100 sequential requests. Notion's filter reference
+    permits a compound filter nested two levels deep, and a flat `or` over
+    concrete relation.contains conditions is one level — the whole fan-out
+    collapses into a single (paged) read.
+
+    The `or` array's maximum length is not documented, only the 500KB
+    payload ceiling. The two callers are bounded differently:
+    get_historical_projects caps itself at HISTORY_PROJECT_LIMIT (#225), but
+    get_upcoming_projects has no bound — it filters on status alone, with no
+    date floor, so it matches every project nobody ever closed and this
+    array grows with that backlog. Small today; if it stops being small, a
+    date floor on that read is the bound, not anything here.
+
+    Returns {project_id: [task, ...]}, with an entry for every id passed in.
+    """
+    if not project_ids:
+        # An empty `or` array is a Notion error — and there is nothing to
+        # ask about anyway.
+        return {}
+
+    pages = _query_all_pages(
+        client,
         database_id=TASKS_DB,
         filter={
-            "property": "Related to Projekte",
-            "relation": {"contains": project_page_id},
+            "or": [
+                {
+                    "property": "Related to Projekte",
+                    "relation": {"contains": project_id},
+                }
+                for project_id in project_ids
+            ]
         },
     )
-    return [_parse_task_page(page) for page in response["results"]]
+
+    by_project = {project_id: [] for project_id in project_ids}
+    # Notion returns page ids both with and without hyphens depending on
+    # context, so the grouping compares one normalised form.
+    by_normalised_id = {_normalise_id(pid): pid for pid in project_ids}
+    for page in pages:
+        task = _parse_task_page(page)
+        relation = page["properties"].get("Related to Projekte", {}).get("relation", [])
+        for related in relation:
+            project_id = by_normalised_id.get(_normalise_id(related["id"]))
+            # A task can relate to several projects and appears under each;
+            # a relation to a project outside this call is simply not ours.
+            if project_id is not None:
+                by_project[project_id].append(task)
+    return by_project
+
+
+def _normalise_id(page_id: str) -> str:
+    return page_id.replace("-", "").lower()
 
 
 def get_unassigned_tasks(today: date) -> list:
@@ -99,26 +179,33 @@ def get_unassigned_tasks(today: date) -> list:
     get_upcoming_projects/get_historical_projects rather than nested inside
     one of their translate_notion_errors() blocks."""
     with translate_notion_errors():
-        response = _client().databases.query(
+        pages = _query_all_pages(
+            _client(),
             database_id=TASKS_DB,
             filter={
                 "property": "Related to Projekte",
                 "relation": {"is_empty": True},
             },
         )
-        return [_parse_task_page(page) for page in response["results"]]
+        return [_parse_task_page(page) for page in pages]
 
 
 def _query_all_pages(client, **query) -> list:
     """Every row of a databases.query, not just the first page.
 
-    Notion returns at most 100 rows per call. Only the week-scoped close-out
-    reads below use this: their range can legitimately hold more than 100
-    rows — the busiest creation week in the live Tasks database holds 157 —
-    and a silent first-page cut is the same class of undercount #215 exists
-    to remove. The reads above stay single-page on purpose: each is bounded
-    by one project's task list or by the project-less bucket, and widening
-    them is a separate question.
+    Notion returns at most 100 rows per call, and signals the cut with
+    has_more — a first-page-only read is a silent undercount, the class of
+    bug #215 exists to remove. Every read in this module that can outgrow
+    one page goes through here (#196, #225). Two cannot and do not:
+    get_historical_projects is bounded on purpose, its reason at
+    HISTORY_PROJECT_LIMIT, and find_project matches one exact name and date
+    and returns results[0], so a second page holds nothing it would use.
+
+    has_more with no next_cursor would be Notion breaking its own contract,
+    and the loop cannot honour it: without a cursor the next request is
+    byte-for-byte the first one, so paging on repeats that first page
+    forever inside a web request. It stops and logs instead — an undercount
+    is recoverable, a hung dashboard request is not.
     """
     results = []
     cursor = None
@@ -127,9 +214,15 @@ def _query_all_pages(client, **query) -> list:
             **query, **({"start_cursor": cursor} if cursor else {})
         )
         results.extend(page["results"])
-        if not page["has_more"]:
+        cursor = page["next_cursor"] if page["has_more"] else None
+        if not cursor:
+            if page["has_more"]:
+                logger.warning(
+                    "Notion reported has_more without a next_cursor; "
+                    "stopping after %d rows.",
+                    len(results),
+                )
             return results
-        cursor = page["next_cursor"]
 
 
 def get_tasks_completed_in_range(start: date, end: date) -> list:
@@ -285,31 +378,47 @@ def _date_from_iso_datetime(value: str | None) -> date | None:
 
 
 def get_historical_projects() -> list:
+    """The HISTORY_PROJECT_LIMIT most recent closed projects, newest first.
+
+    Capped rather than paginated, and the reason lives at the constant: this
+    is prompt input, not a listing. The Marktzeit exclusion is part of the
+    Notion filter rather than a Python skip, or the cap would mean "40 minus
+    however many Marktzeit rows happen to fall inside it".
+    """
     with translate_notion_errors():
-        response = _client().databases.query(
+        client = _client()
+        response = client.databases.query(
             database_id=PROJECTS_DB,
             filter={
-                "property": "Status/Aufgaben",
-                "status": {"equals": "abgeschlossen"},
+                "and": [
+                    {
+                        "property": "Status/Aufgaben",
+                        "status": {"equals": "abgeschlossen"},
+                    },
+                    {
+                        "property": "Name der Veranstaltung",
+                        "title": {"does_not_contain": "Marktzeit"},
+                    },
+                ]
             },
             sorts=[{"property": "Termin", "direction": "descending"}],
+            page_size=HISTORY_PROJECT_LIMIT,
         )
+        pages = response["results"]
+        tasks_by_project = _tasks_by_project(client, [page["id"] for page in pages])
 
         projects = []
-        for page in response["results"]:
+        for page in pages:
             props = page["properties"]
-            name = _text(props["Name der Veranstaltung"]["title"])
-            if "Marktzeit" in name:
-                continue
             projects.append(
                 {
-                    "name": name,
+                    "name": _text(props["Name der Veranstaltung"]["title"]),
                     "event_date": _date(props["Termin"]),
                     "event_date_uncertain": props.get("Termin unsicher", {}).get(
                         "checkbox", False
                     ),
                     "performers": _text(props["Musiker / Mitwirkende"]["rich_text"]),
-                    "tasks": _get_tasks(page["id"]),
+                    "tasks": tasks_by_project[page["id"]],
                 }
             )
 
