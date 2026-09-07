@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 PROJECTS_DB = "87ad1e35b3344ed49c1ba977664bb087"
 TASKS_DB = "f22abd16a92d48598c04be76f35c6b1d"
 
+# #225: how many closed projects get_historical_projects reads. A cap rather
+# than pagination, because everything this read returns goes whole into every
+# planner prompt (_format_history, planner.py:11) — the bound is a
+# prompt-size decision, not a display one. 40 covers roughly two years at
+# ~50 closed projects a year, so every season and every recurring event
+# appears at least twice as a calibration reference.
+HISTORY_PROJECT_LIMIT = 40
+
 
 class NotionUnavailableError(Exception):
     """Raised when Notion can't be reached or returns an error. notion-client
@@ -285,25 +293,38 @@ def _date_from_iso_datetime(value: str | None) -> date | None:
 
 
 def get_historical_projects() -> list:
+    """The HISTORY_PROJECT_LIMIT most recent closed projects, newest first.
+
+    Capped rather than paginated, and the reason lives at the constant: this
+    is prompt input, not a listing. The Marktzeit exclusion is part of the
+    Notion filter rather than a Python skip, or the cap would mean "40 minus
+    however many Marktzeit rows happen to fall inside it".
+    """
     with translate_notion_errors():
         response = _client().databases.query(
             database_id=PROJECTS_DB,
             filter={
-                "property": "Status/Aufgaben",
-                "status": {"equals": "abgeschlossen"},
+                "and": [
+                    {
+                        "property": "Status/Aufgaben",
+                        "status": {"equals": "abgeschlossen"},
+                    },
+                    {
+                        "property": "Name der Veranstaltung",
+                        "title": {"does_not_contain": "Marktzeit"},
+                    },
+                ]
             },
             sorts=[{"property": "Termin", "direction": "descending"}],
+            page_size=HISTORY_PROJECT_LIMIT,
         )
 
         projects = []
         for page in response["results"]:
             props = page["properties"]
-            name = _text(props["Name der Veranstaltung"]["title"])
-            if "Marktzeit" in name:
-                continue
             projects.append(
                 {
-                    "name": name,
+                    "name": _text(props["Name der Veranstaltung"]["title"]),
                     "event_date": _date(props["Termin"]),
                     "event_date_uncertain": props.get("Termin unsicher", {}).get(
                         "checkbox", False

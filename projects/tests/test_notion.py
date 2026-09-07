@@ -12,6 +12,8 @@ from notion_client.errors import (
 )
 
 from ..notion import (
+    HISTORY_PROJECT_LIMIT,
+    PROJECTS_DB,
     TASKS_DB,
     NotionUnavailableError,
     _get_tasks,
@@ -415,3 +417,94 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
             )
         created = instance.pages.create.call_args.kwargs["properties"]
         self.assertEqual(created["Kontext"], {"multi_select": [{"name": "Büro"}]})
+
+
+def _fake_project_page(page_id, name, iso_date):
+    # Shaped the way get_historical_projects/get_upcoming_projects parse a
+    # Notion project page.
+    return {
+        "id": page_id,
+        "properties": {
+            "Name der Veranstaltung": {"title": [{"plain_text": name}]},
+            "Termin": {"date": {"start": iso_date}},
+            "Musiker / Mitwirkende": {"rich_text": []},
+            "Status/Aufgaben": {"status": {"name": "geplant", "color": "blue"}},
+        },
+    }
+
+
+class HistoricalProjectsCapTest(SimpleTestCase):
+    """#225: get_historical_projects is the one read that loses rows today —
+    102 matching projects, 100 returned. It gets a deliberate cap rather than
+    pagination, because everything it returns goes whole into every planner
+    prompt."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _project_queries(self, query_mock):
+        return [
+            call
+            for call in query_mock.call_args_list
+            if call.kwargs.get("database_id") == PROJECTS_DB
+        ]
+
+    def test_asks_notion_for_exactly_the_capped_number(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.return_value = {"results": []}
+            get_historical_projects()
+        self.assertEqual(
+            self._project_queries(query)[0].kwargs["page_size"],
+            HISTORY_PROJECT_LIMIT,
+        )
+
+    def test_the_marktzeit_exclusion_is_part_of_the_notion_filter(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.return_value = {"results": []}
+            get_historical_projects()
+        conditions = self._project_queries(query)[0].kwargs["filter"]["and"]
+        self.assertIn(
+            {
+                "property": "Name der Veranstaltung",
+                "title": {"does_not_contain": "Marktzeit"},
+            },
+            conditions,
+        )
+        self.assertIn(
+            {"property": "Status/Aufgaben", "status": {"equals": "abgeschlossen"}},
+            conditions,
+        )
+
+    def test_a_marktzeit_project_notion_still_returns_is_kept(self):
+        """The Python `continue` is gone: filtering twice would make the cap
+        mean "40 minus however many Marktzeit rows fall inside it"."""
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                {"results": [_fake_project_page("p1", "Marktzeit Mai", "2026-05-01")]},
+                {"results": []},
+            ]
+            projects = get_historical_projects()
+        self.assertEqual([p["name"] for p in projects], ["Marktzeit Mai"])
+
+    def test_does_not_page_past_the_cap(self):
+        """has_more is expected here — the bound is a decision, not a
+        leftover first page."""
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                {
+                    "results": [
+                        _fake_project_page("p1", "Sommerkonzert", "2026-05-01")
+                    ],
+                    "has_more": True,
+                    "next_cursor": "cursor-1",
+                },
+                {"results": []},
+            ]
+            get_historical_projects()
+        self.assertEqual(len(self._project_queries(query)), 1)
