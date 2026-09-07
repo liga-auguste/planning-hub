@@ -262,7 +262,7 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests.py` covers this in eleven classes:
+`projects/tests/test_dashboard_writes.py` covers this in eleven classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along

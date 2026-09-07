@@ -59,7 +59,7 @@ consolidates all of that without any visual change.
 
 ## TDD: Tests first
 
-All tests go in `projects/tests.py`. Four classes:
+All tests go in the `projects/tests/` package (see [test-suite-layout.md](test-suite-layout.md)) — one module, `projects/tests.py`, at the time of this document. Four classes:
 
 ### `PublicPageSmokeTests`
 - `@override_settings(DEMO_MODE=True)` at class level

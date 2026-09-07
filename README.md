@@ -108,7 +108,12 @@ Every change runs on its own branch and lands through a pull request; nothing go
 
 - **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
 - **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
-- **The test suite** is where the delegation is actually checked: 10,586 lines of tests against 4,485 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship.
+- **The test suite** is where the delegation is actually checked: 11,686 lines of tests against 4,740 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship. The tests live in a package split by subject ([`docs/test-suite-layout.md`](docs/test-suite-layout.md)); both numbers come from one command, so they stop drifting:
+  ```bash
+  wc -l projects/tests/*.py | tail -1   # tests
+  find projects planning_hub -name '*.py' \
+    -not -path '*/migrations/*' -not -path 'projects/tests/*' | xargs wc -l | tail -1
+  ```
 
 A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/planning-hub/issues/116) → [`docs/planner-step-navigation.md`](docs/planner-step-navigation.md) → [PR #123](https://github.com/liga-auguste/planning-hub/pull/123).
 
@@ -289,7 +294,22 @@ projects/
   planner_views.py   # 4-step planner flow
   models.py          # PlannerRule, DemoEvent
   startup.py         # Fail-fast API-key checks at server start
-  tests.py           # Test suite, fully offline (Claude stubbed)
+  tests/             # Test suite, fully offline (Claude stubbed), split by subject:
+    base.py            #   shared fixtures — imported, never collected
+    test_config.py     #   deployment, settings, error pages, health check
+    test_design.py     #   visual language: tokens, palette, dark theme, layout
+    test_sidebar.py    #   nav, project list, progress rings, viewport behaviour
+    test_planner.py    #   the four-step planner flow and the calls behind it
+    test_dashboard.py  #   the dashboard read path
+    test_dashboard_writes.py  # toggle and reschedule: persist, answer, cache
+    test_week_view.py  #   Heute / Diese Woche, day columns, week helpers
+    test_timelapse.py  #   Zeitreise: moments, simulated date, preloader
+    test_my_plan.py    #   /mein-plan/
+    test_summary.py    #   the AI weekly summary, end to end
+    test_closeout.py   #   Wochenabschluss
+    test_notion.py     #   notion.py against a mocked API
+    test_rules.py      #   planning rules, both backends, seeding, migrations
+    test_naming.py     #   display names and date formatting
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 15 templates, all JS inline
@@ -300,6 +320,7 @@ docs/
   demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
   planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
   production-readiness.md       # Favicon, social tags, error pages, robots.txt, health check
+  test-suite-layout.md          # Which subject lives in which test module, and why
   screenshots/                  # README images
 ```
 

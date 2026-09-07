@@ -48,7 +48,15 @@ jobs:
           python-version: "3.12"   # matches the Dockerfile
           cache: "pip"
       - run: pip install -r requirements.txt
-      - run: python manage.py test projects --noinput
+      # The count is checked, not just the exit code (#201): the tests live in
+      # a package now, and a package that stops being discovered — a missing
+      # __init__.py, a rename that shadows it — reports "Ran 0 tests ... OK"
+      # and passes. `tee` keeps the output in the log while the grep reads it.
+      - run: |
+          set -o pipefail   # without it the pipeline reports tee's status and a failing run passes
+          python manage.py test projects --noinput 2>&1 | tee test-output.txt
+          grep -qE '^Ran [1-9][0-9]* tests' test-output.txt \
+            || { echo '::error::the run collected no tests'; exit 1; }
         env:
           DEMO_MODE: ${{ matrix.demo_mode }}   # "true" selects the SQLite branch, see settings.py:80
           # Ignored on the SQLite leg. DB_NAME, DB_HOST and DB_PORT already

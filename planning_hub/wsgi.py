@@ -16,7 +16,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "planning_hub.settings")
 application = get_wsgi_application()
 
 # Only settings.DEMO_MODE is readable this early, hence the import here rather
-# than at module level. See RequiredApiKeysTest in projects/tests.py for why
+# than at module level. See RequiredApiKeysTest in projects/tests/test_config.py for why
 # this lives in wsgi.py instead of Django's system check framework.
 from projects.startup import require_api_keys
 
