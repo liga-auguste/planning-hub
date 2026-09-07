@@ -31,6 +31,8 @@ from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
+    get_tasks_completed_in_range,
+    get_tasks_created_in_range,
     get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
@@ -1406,6 +1408,51 @@ def reschedule_task_view(request, task_id):
     )
 
 
+def _closeout_dates(request):
+    """(today, sim_date) for the close-out flow (#215).
+
+    In demo mode "today" follows the timelapse when a simulated date is set:
+    dashboard() already renders the week around it, so a close-out pinned to
+    the real calendar day would triage, count and headline a different week
+    than the one the visitor is looking at. Production has no simulated date
+    and always gets the real one.
+    """
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+    return sim_date or timezone.localdate(), sim_date
+
+
+CLOSEOUT_FAILED_KEY = "closeout_read_failed"
+
+
+def _demo_completed_in_range(tasks, start, end, sim_date):
+    """#215: the demo's own answer to "what was completed this week".
+
+    A task toggled by hand carries `completed_date`, written by
+    toggle_task_view exactly the way toggle_task writes "Erledigt am" in
+    production. The timelapse completes tasks a second way — dashboard()
+    marks everything due on or before the simulated date as done — and it
+    does that on a deepcopy that is never written back, so those tasks carry
+    no completion date at all. The due date is what made them done, so it is
+    the date that places them in a week; without this branch a time-travelled
+    demo would report the same 0 this issue exists to remove.
+    """
+    count = 0
+    for task in tasks:
+        completed = task.get("completed_date")
+        if (
+            completed is None
+            and sim_date
+            and task.get("due")
+            and task["due"] <= sim_date
+        ):
+            completed = task["due"]
+        if completed and start <= completed <= end:
+            count += 1
+    return count
+
+
 def _current_projects_for_closeout(request, today):
     """This session's or production's projects for the close-out flow
     (#169) — read fresh, not from the dashboard cache: a stale week's data
@@ -1425,7 +1472,7 @@ def _current_projects_for_closeout(request, today):
 
 
 def close_week_start(request):
-    today = timezone.localdate()
+    today, _ = _closeout_dates(request)
     try:
         projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
@@ -1451,10 +1498,12 @@ def close_week_start(request):
             task["due"] + timedelta(days=7), role="long"
         )
     iso_year, iso_week, _ = today.isocalendar()
-    # If the week is already closed and nothing new is open, confirming
-    # again would post an empty task_id list and overwrite the real stats
-    # with zeros — the template hides the button for exactly this case and
-    # points to the existing review instead.
+    # #215: this no longer gates the submit button, it only changes what the
+    # page says and offers. Re-closing a week is the supported way to bring
+    # a review up to date — both week-scoped counts are read from the week
+    # itself and simply recompute — so the template labels the button
+    # "Rückblick aktualisieren" and adds a link to the existing review
+    # instead of taking the button away.
     already_closed = is_week_closed(request, iso_year, iso_week)
     # #185 follow-up: the projects fetched above, not a second read — on a
     # cold cache this view used to pair its own uncached triage fetch with
@@ -1465,12 +1514,18 @@ def close_week_start(request):
     # render), and it sorts project["tasks"], not the separate open_this_week
     # list built above.
     month_groups, years = _sidebar_projects(request, today, projects=projects)
+    # #215: a close-out that died on a Notion read bounced back here without
+    # a word, so the button looked like it had done nothing. Popped rather
+    # than read, so the notice appears once and a later reload of a page
+    # whose data is fine again does not keep warning about it.
+    read_failed = request.session.pop(CLOSEOUT_FAILED_KEY, False)
     return render(
         request,
         "projects/close_week_start.html",
         {
             "tasks": open_this_week,
             "already_closed": already_closed,
+            "read_failed": read_failed,
             "today_display": format_date(today, role="long"),
             # A weekend-specific empty state reads oddly on a Tuesday.
             "is_weekend": today.weekday() >= 5,
@@ -1490,46 +1545,83 @@ def close_week_start(request):
     )
 
 
+def _closeout_read_failed(request):
+    """#215: back to the triage page, but saying why.
+
+    Persisting a close-out whose numbers came from a failed read would store
+    a zeroed week as if it were the answer — the very thing this issue
+    removed — so nothing is saved and the visitor is told to try again. The
+    flag rides the session because this is a redirect (POST/redirect/GET, so
+    a reload cannot re-submit the form) and template context does not
+    survive one.
+    """
+    request.session[CLOSEOUT_FAILED_KEY] = True
+    return redirect("close_week_start")
+
+
 def close_week_confirm(request):
+    """#215: the two tiles count the ISO week the page is headlined with.
+    Only the reschedule number is scoped to this one interaction, and it is
+    rendered as a sentence rather than a tile so the row measures one thing.
+    """
     if request.method != "POST":
         return redirect("close_week_start")
-    today = timezone.localdate()
+    today, sim_date = _closeout_dates(request)
     iso_year, iso_week, _ = today.isocalendar()
+    week_start, week_end = iso_week_bounds(today)
     task_ids = request.POST.getlist("task_id")
 
     try:
         projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
-        return redirect("close_week_start")
+        return _closeout_read_failed(request)
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
 
+    # The posted ids have one job left: the triage list is the only surface
+    # that moves a task on to next week, so it is the only thing that can
+    # say how many this close-out moved. What it actually measures is
+    # "changed since the list was loaded" — a move made meanwhile by any
+    # other reschedule path lands here too. Session-scoped by nature:
+    # "Verschoben" carries no timestamp in Notion (#171), so "moved this
+    # week" is not derivable from the schema at all.
     live_by_id = {t["id"]: t for t in tasks}
-    completed_count = 0
     rescheduled_count = 0
     for task_id in task_ids:
         task = live_by_id.get(task_id)
         if task is None:
             continue
-        if task["done"]:
-            completed_count += 1
-        elif task["due"] is None or not is_same_iso_week(task["due"], today):
-            # Moved since the triage list was loaded — by the "→ nächste
-            # Woche" action here or by any other reschedule path meanwhile.
+        if not task["done"] and (
+            task["due"] is None or not is_same_iso_week(task["due"], today)
+        ):
             rescheduled_count += 1
 
-    # Production only (#169): a freshly generated demo plan has no
-    # meaningful "added this week" — the whole plan is created in one shot.
-    added_count = (
-        sum(
-            1
-            for t in tasks
-            if t.get("created_time") and is_same_iso_week(t["created_time"], today)
+    if settings.DEMO_MODE:
+        completed_count = _demo_completed_in_range(
+            tasks, week_start, week_end, sim_date
         )
-        if not settings.DEMO_MODE
-        else 0
-    )
+        # A demo plan is created in one shot, so "added this week" has no
+        # meaning here (#169). None rather than 0: the prompt then leaves the
+        # line out instead of narrating a zero, and week_review.html leaves
+        # the tile out instead of showing a number that can never move —
+        # which is the very shape of defect this issue is about.
+        added_count = None
+    else:
+        try:
+            # Both counts come from their own TASKS_DB reads, not from the
+            # posted ids and not from get_upcoming_projects: see the
+            # docstrings for the two project filters and the #53 bucket they
+            # would otherwise miss. `done` is required alongside the date so
+            # "Erledigt" means the checkbox, not a stray hand-set date.
+            completed_count = sum(
+                1
+                for t in get_tasks_completed_in_range(week_start, week_end)
+                if t["done"]
+            )
+            added_count = len(get_tasks_created_in_range(week_start, week_end))
+        except NotionUnavailableError:
+            return _closeout_read_failed(request)
 
     stats_dict = {
         "completed_count": completed_count,
@@ -1551,7 +1643,9 @@ def week_review(request):
     closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
-    today = timezone.localdate()
+    # Same date as close_week_start/close_week_confirm (#215), so the sidebar
+    # does not jump back to the real week between two pages of one flow.
+    today, _ = _closeout_dates(request)
     month_groups, years = _sidebar_projects(request, today)
     return render(
         request,

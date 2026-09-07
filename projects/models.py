@@ -40,6 +40,12 @@ class WeekCloseout(models.Model):
 
     iso_year = models.PositiveIntegerField()
     iso_week = models.PositiveSmallIntegerField()
+    # #215: completed_count and added_count are scoped to the ISO week this
+    # row names. rescheduled_count is not, and cannot be — Notion's
+    # "Verschoben" is a bare counter with no timestamp (#171), so "moved
+    # this week" is not derivable. It counts what the one close-out
+    # interaction moved, which is why the review page renders it as a
+    # sentence instead of a third tile next to two week-scoped ones.
     completed_count = models.PositiveIntegerField(default=0)
     rescheduled_count = models.PositiveIntegerField(default=0)
     added_count = models.PositiveIntegerField(default=0)

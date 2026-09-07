@@ -14,7 +14,8 @@
     .triage-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-border-primary); }
     .triage-row:last-child { border-bottom: none; }
     /* The row stays in the form after a move — close_week_confirm diffs the
-       original id list against live state server-side, this is display only. */
+       posted id list against live state to count what this close-out moved
+       (#215: the only thing that list still feeds), this is display only. */
     .triage-row.moved { opacity: 0.55; }
     .triage-task-name { font-size: 14px; }
     .triage-task-due { font-size: 12px; color: var(--color-text-quaternary); margin-left: 12px; }
@@ -22,8 +23,16 @@
     .move-btn { font-size: 12px; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
     .move-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
     .empty-state { color: var(--color-text-quaternary); font-size: 13px; padding: 24px 0; }
+    /* Same notice the dashboard uses for an unreachable Notion
+       (_status_banners.html), repeated here rather than shared: that
+       partial is bound to the dashboard's own stale/data_unavailable
+       flags, which this page does not have. */
+    .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
     .btn-confirm { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 9px 20px; font-size: 13px; font-weight: 500; cursor: pointer; align-self: flex-start; }
     .btn-confirm:hover { opacity: 0.85; }
+    .closeout-actions { display: flex; align-items: center; gap: 14px; }
+    .btn-secondary { font-size: 13px; color: var(--color-text-tertiary); text-decoration: none; }
+    .btn-secondary:hover { color: var(--color-accent); }
 {% endblock %}
 
 {% comment %}
@@ -43,6 +52,9 @@ app. See docs/wochenabschluss.md.
 {% block content %}
 <div class="page">
     <div class="page-title">Woche abschließen</div>
+    {% if read_failed %}
+    <div class="stale-notice">Der Wochenabschluss konnte nicht gespeichert werden — Notion war gerade nicht erreichbar. Deine Aufgaben sind unverändert, versuch es in Kürze noch einmal.</div>
+    {% endif %}
     {% if already_closed and not tasks %}
     <div class="page-subtitle">{{ today_display }} — bereits abgeschlossen</div>
     {% else %}
@@ -61,23 +73,30 @@ app. See docs/wochenabschluss.md.
             </div>
             {% endfor %}
         </div>
-        <button type="submit" class="btn-confirm">Woche abschließen</button>
         {% elif already_closed %}
         {% comment %}
-        Nothing left to triage and this week's stats already exist —
-        confirming now would post an empty task_id list and overwrite the
-        real completed/rescheduled counts with zeros (#169 review).
+        #215: this branch used to hide the submit button. The reason was that
+        re-confirming posts an empty task_id list and zeroed the counts — but
+        "Erledigt" and "Neu dazugekommen" are read from the week itself now,
+        so a second close-out recomputes them correctly. Hiding the button
+        left the numbers frozen in exactly the case where they go stale
+        fastest: a week finished off after it was closed. Only the reschedule
+        sentence is lost, and it describes the close-out that just ran, so
+        having it disappear when this one moved nothing is honest.
         {% endcomment %}
-        <div class="empty-state">Diese Woche hast du bereits abgeschlossen.</div>
-        <a href="{% url 'week_review' %}" class="btn-confirm" style="text-decoration:none; display:inline-block;">→ Rückblick ansehen</a>
-        {% else %}
-        {% if is_weekend %}
+        <div class="empty-state">Diese Woche hast du schon abgeschlossen. Wenn du seitdem noch etwas erledigt hast, rechnet ein erneuter Abschluss die Zahlen neu.</div>
+        {% elif is_weekend %}
         <div class="empty-state">Genieße dein Wochenende — für diese Woche ist nichts mehr offen.</div>
         {% else %}
         <div class="empty-state">Für diese Woche ist alles erledigt oder verschoben.</div>
         {% endif %}
-        <button type="submit" class="btn-confirm">Woche abschließen</button>
-        {% endif %}
+
+        <div class="closeout-actions">
+            <button type="submit" class="btn-confirm">{% if already_closed and not tasks %}Rückblick aktualisieren{% else %}Woche abschließen{% endif %}</button>
+            {% if already_closed %}
+            <a href="{% url 'week_review' %}" class="btn-secondary">→ Rückblick ansehen</a>
+            {% endif %}
+        </div>
     </form>
 </div>
 {% endblock %}
