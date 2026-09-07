@@ -98,10 +98,15 @@
            (overflow-x below) instead of squeezing every column past the
            point a task name has room to breathe. */
         .day-columns { display: grid; grid-template-columns: repeat(7, minmax(160px, 1fr)); gap: 8px; overflow-x: auto; }
-        .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; }
+        /* Flex column so .day-column-body can take the free space below
+           the cards. The grid stretches every column to the height of the
+           fullest one, and #180 drops onto the body, not onto the panel —
+           without this a quiet day rendered a tall panel whose bottom
+           silently swallowed the drag. */
+        .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; display: flex; flex-direction: column; }
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
-        .day-column-body { min-height: 32px; }
+        .day-column-body { min-height: 32px; flex: 1; }
         .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
            on a ~160px card the shared 8px .dot margin was a third of the
