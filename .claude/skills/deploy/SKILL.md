@@ -1,21 +1,23 @@
 ---
 name: deploy
 description: >-
-  Deploy the demo or production stack after a merge to main. Checks for
+  Deploy the demo and production stacks after a merge to main. Checks for
   local drift, pulls, rebuilds, and verifies the live site responds. Use
-  when deploying, pushing a release live, or updating one of the two
-  running stacks.
-argument-hint: "[demo|production]"
+  when deploying, pushing a release live, or updating one or both of the
+  two running stacks. The maintainer runs this deliberately: with no
+  argument it reaches the production stack, so offer it when a deploy
+  looks due rather than starting one.
+argument-hint: "[d|p|both] — empty deploys both"
 allowed-tools: Bash(ssh *) Bash(git status) Bash(git diff *) Bash(git log *) Bash(git checkout *) Bash(docker compose *) Bash(curl *) Read
 ---
 
 # Deploy — Deploy a Stack
 
-Deploy the demo or production stack and verify it came up.
+Deploy the demo and production stacks and verify they came up.
 
 ## Context
 
-- Stack: `$ARGUMENTS` (`demo` or `production`)
+- Stacks: `$ARGUMENTS` — see step 1. Empty means both.
 - Host details: `.claude/skills/deploy/hosts.md` (gitignored — real SSH
   targets, paths, URLs, and anything else that is true of one machine
   rather than of this project). If it doesn't exist yet, create it first:
@@ -24,32 +26,77 @@ Deploy the demo or production stack and verify it came up.
 
 ## Steps
 
-### 1. Confirm the target stack
+### 1. Resolve the target
 
-If `$ARGUMENTS` doesn't name `demo` or `production`, ask before doing
-anything else. The two stacks run different databases (SQLite vs
-PostgreSQL) on different data (fixture vs real) — guessing wrong is not a
-safe default.
+Deploying both is the common case, so that is what an empty argument
+means:
+
+| Argument | Stacks |
+|---|---|
+| *(empty)*, `b`, `both`, `all` | demo, then production |
+| `d`, `demo` | demo only |
+| `p`, `prod`, `production` | production only |
+
+Anything else is a typo, not a stack — ask rather than guess. The two
+stacks run different databases (SQLite vs PostgreSQL) on different data
+(fixture vs real), so a wrong guess is not a safe default.
+
+**The order is not cosmetic.** Demo goes first because it is the public,
+fixture-backed stack: if the merge doesn't build or the app doesn't come
+up, that is the stack to find it on. Production starts only once demo has
+come through step 5 clean — see step 2 for what to do when it doesn't.
+
+Nothing here deploys your local checkout. Both hosts pull into their own
+clone, so the branch you happen to be on locally makes no difference — to
+deploy something that isn't on `main` yet, this is the wrong tool.
+
+That a host lands on `main` is a fact about that host, not something this
+skill enforces: `git pull` takes whatever branch the host is already on.
+Step 2 checks it, because step 6 can leave a host somewhere else.
 
 ### 2. Preconditions
 
+Run steps 2 to 5 for one stack, then the next. Don't interleave them: a
+half-deployed pair is the state that is hardest to read afterwards.
+
+**On a both-stacks run, production starts only once demo has come through
+steps 2 to 5 cleanly** — not merely once step 5 has answered. Anything
+that stops demo short of that ends the run: a checkout that can't be
+safely pulled over, a `git pull` that refuses, a build that doesn't come
+up. Demo goes first precisely so that a bad merge is caught before
+production gets it, and a bad merge usually fails at step 3, which never
+reaches step 5's check at all. Whatever the stop, report which stack sits
+on which commit before anything else. That is the fact the next decision
+needs, and the one that is easiest to lose halfway through a pair of
+deploys.
+
 Read the target stack's entry in `hosts.md` for its SSH target, path, URL,
-compose file, and its optional `Shell` (step 3). Required `.env` keys on the
-host, already documented in the README's "Docker (demo)" / "Docker
-(production)" sections:
+compose file, branch, and its optional `Shell` (step 3). Required `.env`
+keys on the host, already documented in the README's "Docker (demo)" /
+"Docker (production)" sections:
 
 - **demo**: `DEMO_MODE=true`, `ALLOWED_HOSTS`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 - **production**: `DEMO_MODE=false`, `SECRET_KEY`, `ANTHROPIC_API_KEY`, `NOTION_API_KEY`, `DB_PASSWORD`, `DB_HOST`
 
-Check for local drift on the host before pulling — an uncommitted edit
-there has silently diverged from `main` before (the `.htpasswd` mount,
-#187/#188):
+Check the host's checkout before pulling. Two different things can be
+wrong with it, and one command shows both:
 
 ```bash
 ssh <host> 'cd <path> && git status'
 ```
 
-Resolve or stash anything found; do not pull over it.
+- **Uncommitted edits.** One has silently diverged from `main` before (the
+  `.htpasswd` mount, #187/#188). Resolve or stash anything found; do not
+  pull over it.
+- **`HEAD detached at <commit>` on the first line.** A step 6 rollback that
+  was never undone. This is the half that is easy to read past, because
+  the rest of the output still says the working tree is clean. Do not pull
+  over it either: `git pull` refuses on a detached HEAD and exits
+  non-zero, which short-circuits the `&&` in step 3 and skips the rebuild
+  entirely, leaving the host on the rollback commit while the run reads as
+  if it did something. Put the host back on the branch its `hosts.md`
+  entry names — `git checkout <branch>` — once you know why the rollback
+  was still there.
 
 ### 3. Deploy
 
@@ -109,7 +156,14 @@ Expect `200` for demo (public). Expect `401` for production (Basic Auth,
 no credentials supplied) — that confirms nginx is serving and auth is
 enforced, not that the app itself is healthy.
 
+An unexpected code is one of step 2's stops. Reached after demo, it means
+production never starts and keeps serving its previous build — which is
+where you want it while a bad build is still unexplained.
+
 ### 6. Rollback
+
+Roll back only the stack that is actually broken — the two are independent
+deploys and a healthy one is not evidence about the other.
 
 The only rollback that exists today: check out the previous commit on the
 host and rebuild. Database backup/restore is out of scope (tracked
@@ -129,3 +183,10 @@ running the build you are rolling back.
 ssh <host> 'cd <path> && git checkout <commit>'
 ssh <host> '<shell> "cd <path> && docker compose -f <compose-file> up --build -d"'
 ```
+
+A rollback leaves the host on a detached HEAD, and it stays there until
+someone puts it back. That is deliberate — the next deploy refuses to pull
+rather than quietly rolling forward over an unexplained rollback (step 2)
+— but it does mean the stack is outside the normal deploy path until you
+run `git checkout <branch>` on it on purpose, with `<branch>` from its
+`hosts.md` entry.
