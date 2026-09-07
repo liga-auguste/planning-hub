@@ -37,6 +37,7 @@ from ..views import (
     _bust_dashboard_cache,
     _cache_fresh_read,
     _derive_dashboard_figures,
+    _remap_summary_refs,
 )
 from .base import (
     DemoModeTestCase,
@@ -468,30 +469,86 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 404)
 
     # --- #140: the task order is chronological, so a new date moves the
-    # task; a cached summary's task_refs would keep pointing at the old
-    # positions. A reschedule therefore sweeps the session summaries the
-    # way planner_create does. ---
+    # task; a cached summary's task_refs are positions in that order. The
+    # session summaries are renumbered to follow the move rather than swept,
+    # because the sweep made the visitor wait out a fresh Claude call for a
+    # summary whose text was still true. ---
 
-    def given_cached_summaries(self):
+    def given_two_task_plan(self):
+        """A plan whose two tasks a move can reorder — the one-task plan
+        given_session_plan builds numbers the same either way."""
+        return self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (date.today() + timedelta(days=7)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Plakate drucken",
+                    "date": (date.today() + timedelta(days=14)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+
+    def given_cached_summaries(self, task_refs=(1,)):
         """A current-version summary, a preloaded sim-date one, and an
-        old-version leftover — the unversioned-prefix sweep clears all three."""
+        old-version leftover. The first two are renumbered; the third was
+        numbered against an order this code no longer produces, so it goes."""
         session = self.client.session
-        session[f"{SUMMARY_KEY}_today"] = {"summary": "alt"}
-        session[f"{SUMMARY_KEY}_2026-09-01"] = {"summary": "alt"}
+        summary = {
+            "jetzt_faellig": [
+                {
+                    "heading": "Jetzt fällig",
+                    "assessment": "Programm zuerst",
+                    "task_refs": list(task_refs),
+                }
+            ],
+            "naechste_woche": [],
+        }
+        session[f"{SUMMARY_KEY}_today"] = summary
+        session[f"{SUMMARY_KEY}_2026-09-01"] = summary
         session["demo_plan_summary_v1_today"] = {"summary": "uralt"}
         session.save()
 
-    def test_a_reschedule_clears_every_cached_summary(self):
-        self.given_session_plan()
+    def stored_task_refs(self, key):
+        return self.client.session[key]["jetzt_faellig"][0]["task_refs"]
+
+    def test_a_reschedule_renumbers_every_current_summary(self):
+        # The first task moves past the second, so what the summary points
+        # at with position 1 is position 2 afterwards.
+        self.given_two_task_plan()
         self.given_cached_summaries()
         response = self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         self.assertEqual(response.status_code, 200)
+        for key in (f"{SUMMARY_KEY}_today", f"{SUMMARY_KEY}_2026-09-01"):
+            with self.subTest(key=key):
+                self.assertEqual(self.stored_task_refs(key), [2])
+
+    def test_a_move_that_reorders_nothing_leaves_the_refs_alone(self):
+        self.given_two_task_plan()
+        self.given_cached_summaries(task_refs=(1, 2))
+        self.post_date(
+            "demo-session-0",
+            f'{{"date": "{(date.today() + timedelta(days=8)).isoformat()}"}}',
+        )
+        self.assertEqual(self.stored_task_refs(f"{SUMMARY_KEY}_today"), [1, 2])
+
+    def test_an_older_format_summary_is_still_dropped(self):
+        # Its refs were numbered against an order this code no longer
+        # produces — the unversioned-prefix sweep planner_create does.
+        self.given_two_task_plan()
+        self.given_cached_summaries()
+        self.post_date("demo-session-0", f'{{"date": "{self.NEW_DATE}"}}')
         # list(...keys()): SessionBase is not a dict and not iterable itself,
         # so SIM118's bare-iteration fix does not apply (cf. planner_views).
         leftovers = [
             k
             for k in list(self.client.session.keys())
-            if k.startswith("demo_plan_summary")
+            if k.startswith("demo_plan_summary") and not k.startswith(SUMMARY_KEY)
         ]
         self.assertEqual(leftovers, [])
 
@@ -783,6 +840,25 @@ def _warm_dashboard_cache(tasks, unassigned=(), summary="<p>alt</p>", today=None
         UNASSIGNED_CACHE_KEY, unassigned_tasks, UNASSIGNED_CACHE_DEADLINE_KEY, 60
     )
     cache.set(STALE_UNASSIGNED_CACHE_KEY, unassigned_tasks, None)
+
+
+def _summary_with_refs(task_refs):
+    """A raw reference dict (#122) whose one block points at task positions
+    — the numbering a reschedule moves."""
+    return {
+        "jetzt_faellig": [
+            {
+                "project_ref": 1,
+                "assessment": "Zusammenfassung läuft",
+                "task_refs": list(task_refs),
+            }
+        ],
+        "naechste_woche": [],
+    }
+
+
+def _cached_task_refs(cache_key):
+    return cache.get(cache_key)[1]["jetzt_faellig"][0]["task_refs"]
 
 
 def _cached_task_by_id(cache_key, task_id):
@@ -1411,10 +1487,12 @@ class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
 
 @override_settings(DEMO_MODE=False)
 class RescheduleKeepsTheCachedProjectsTest(TestCase):
-    """#199, second half. A new date moves the task in the chronological
-    order, which renumbers the summary's task_refs (_number_projects_and_tasks,
-    ai.py) — that cannot survive. The projects can: re-sort, re-annotate,
-    write back. So the Notion read goes and only the Claude call stays."""
+    """#199, second half. The projects survive a new date: re-sort,
+    re-annotate, write back, so the Notion read goes. So does the summary —
+    a new date renumbers the task_refs it holds
+    (_number_projects_and_tasks, ai.py), and the positions are rewritten to
+    follow the move instead of the summary being dropped. Dropping it made
+    every single move pay for a fresh Claude call on the next render."""
 
     def setUp(self):
         cache.clear()
@@ -1465,25 +1543,79 @@ class RescheduleKeepsTheCachedProjectsTest(TestCase):
         self.assertEqual(task["urgency"], "ok")
         self.assertEqual(task["kanban_column"], "open")
 
-    def test_only_the_summary_is_dropped(self):
+    def test_the_summary_survives_the_move(self):
         today = date.today()
         _warm_dashboard_cache(
-            [_cached_task("task-1", today + timedelta(days=1))], summary="<p>alt</p>"
+            [_cached_task("task-1", today + timedelta(days=1))],
+            summary=_summary_data(),
         )
         self.post_date("task-1", today + timedelta(days=10))
         projects, summary_data = cache.get(CACHE_KEY)
         self.assertTrue(projects)
-        self.assertIsNone(summary_data)
+        self.assertEqual(summary_data, _summary_data())
+
+    def test_the_task_refs_follow_the_task_that_moved(self):
+        # "first" moves past "second", so the position that meant "first"
+        # is 2 afterwards — the summary text is unchanged and still points
+        # at the task it was written about.
+        today = date.today()
+        _warm_dashboard_cache(
+            [
+                _cached_task("first", today + timedelta(days=1)),
+                _cached_task("second", today + timedelta(days=5)),
+            ],
+            summary=_summary_with_refs([1]),
+        )
+        self.post_date("first", today + timedelta(days=10))
+        self.assertEqual(_cached_task_refs(CACHE_KEY), [2])
+
+    def test_a_move_that_reorders_nothing_leaves_the_refs_alone(self):
+        today = date.today()
+        _warm_dashboard_cache(
+            [
+                _cached_task("first", today + timedelta(days=1)),
+                _cached_task("second", today + timedelta(days=5)),
+            ],
+            summary=_summary_with_refs([1, 2]),
+        )
+        self.post_date("first", today + timedelta(days=2))
+        self.assertEqual(_cached_task_refs(CACHE_KEY), [1, 2])
+
+    def test_the_next_dashboard_load_makes_no_claude_call(self):
+        # The point of the whole exercise: a move used to leave the cache
+        # without a summary, and the next render blocked on regenerating it.
+        today = date.today()
+        _warm_dashboard_cache(
+            [_cached_task("task-1", today + timedelta(days=1))],
+            summary=_summary_data(),
+        )
+        self.post_date("task-1", today + timedelta(days=10))
+        with (
+            patch("projects.views.generate_weekly_summary") as claude,
+            patch("projects.views.get_upcoming_projects") as fetch,
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertEqual(response.status_code, 200)
+        claude.assert_not_called()
+        fetch.assert_not_called()
 
     def test_the_stale_copy_is_patched_too(self):
         today = date.today()
-        _warm_dashboard_cache([_cached_task("task-1", today + timedelta(days=1))])
-        self.post_date("task-1", today + timedelta(days=10))
+        _warm_dashboard_cache(
+            [
+                _cached_task("first", today + timedelta(days=1)),
+                _cached_task("second", today + timedelta(days=5)),
+            ],
+            summary=_summary_with_refs([1]),
+        )
+        self.post_date("first", today + timedelta(days=10))
         self.assertEqual(
-            _cached_task_by_id(STALE_CACHE_KEY, "task-1")["due"],
+            _cached_task_by_id(STALE_CACHE_KEY, "first")["due"],
             today + timedelta(days=10),
         )
-        self.assertIsNone(cache.get(STALE_CACHE_KEY)[1])
+        # The last-known-good entry is what a Notion outage renders from, so
+        # its summary is renumbered in step rather than dropped.
+        self.assertEqual(_cached_task_refs(STALE_CACHE_KEY), [2])
 
     def test_the_new_postpone_count_reaches_the_cache(self):
         # Written after the counter call confirms it, never optimistically:
@@ -1520,6 +1652,71 @@ class RescheduleKeepsTheCachedProjectsTest(TestCase):
         self.post_date("task-99", date.today() + timedelta(days=10))
         self.assertIsNone(cache.get(CACHE_KEY))
         self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+
+class RemapSummaryRefsTest(TestCase):
+    """_remap_summary_refs on its own: what it does with the raw dict Claude
+    returned, which the cache stores unvalidated (#122). Judging the shape of
+    a ref belongs to resolve_weekly_summary (ai.py) and lives there alone, so
+    anything this cannot translate is passed through for the resolver to
+    drop."""
+
+    BEFORE = ["a", "b", "c"]
+    AFTER = ["c", "a", "b"]
+
+    def remapped(self, refs, before=None, after=None):
+        data = _remap_summary_refs(
+            _summary_with_refs(refs), before or self.BEFORE, after or self.AFTER
+        )
+        return data["jetzt_faellig"][0]["task_refs"]
+
+    def test_a_position_follows_its_task(self):
+        self.assertEqual(self.remapped([1, 2, 3]), [2, 3, 1])
+
+    def test_an_unchanged_order_returns_the_summary_unchanged(self):
+        summary = _summary_with_refs([1, 2])
+        self.assertIs(_remap_summary_refs(summary, self.BEFORE, self.BEFORE), summary)
+
+    def test_a_ref_whose_task_is_gone_is_dropped(self):
+        # Not something a reschedule produces — it moves a task, it does not
+        # remove one — but the resolver drops an unresolvable ref rather than
+        # rendering it, and this agrees with it instead of keeping a position
+        # that now means a different task.
+        self.assertEqual(self.remapped([1, 2], after=["b"]), [1])
+
+    def test_an_out_of_range_ref_is_left_for_the_resolver(self):
+        self.assertEqual(self.remapped([99]), [99])
+
+    def test_a_ref_that_is_not_a_number_is_left_for_the_resolver(self):
+        self.assertEqual(self.remapped(["1"]), ["1"])
+
+    def test_true_is_not_treated_as_position_one(self):
+        # bool is an int subclass; _resolve_ref (ai.py) excludes it for the
+        # same reason.
+        self.assertEqual(self.remapped([True]), [True])
+
+    def test_a_summary_that_is_not_a_dict_is_returned_as_it_is(self):
+        for summary in (None, "<p>alt</p>", []):
+            with self.subTest(summary=summary):
+                self.assertEqual(
+                    _remap_summary_refs(summary, self.BEFORE, self.AFTER), summary
+                )
+
+    def test_a_block_without_task_refs_survives_untouched(self):
+        data = _remap_summary_refs(
+            {"jetzt_faellig": [{"project_ref": 1, "assessment": "ohne refs"}]},
+            self.BEFORE,
+            self.AFTER,
+        )
+        self.assertEqual(
+            data["jetzt_faellig"], [{"project_ref": 1, "assessment": "ohne refs"}]
+        )
+
+    def test_the_project_ref_is_left_alone(self):
+        # Only the tasks are renumbered: _annotate_tasks re-sorts inside each
+        # project and never reorders the project list itself.
+        data = _remap_summary_refs(_summary_with_refs([1]), self.BEFORE, self.AFTER)
+        self.assertEqual(data["jetzt_faellig"][0]["project_ref"], 1)
 
 
 @override_settings(DEMO_MODE=False)

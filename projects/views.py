@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .ai import (
+    SUMMARY_SECTIONS,
     AIUnavailableError,
     _number_projects_and_tasks,
     generate_closeout_summary,
@@ -143,6 +144,57 @@ def _summary_ref_order(projects):
     return [p["id"] for p in numbered_projects], [t["id"] for t in numbered_tasks]
 
 
+def _remap_summary_refs(summary_data, before, after):
+    """Rewrites a summary's task_refs from the numbering `before` into the
+    one in `after`, so a write that re-sorts the tasks keeps its summary
+    instead of dropping it.
+
+    Dropping it was correct but expensive. task_refs are positions in the
+    chronological task order (_number_projects_and_tasks, ai.py) and a new
+    date moves the task, so the stored positions go on resolving — to the
+    wrong tasks. What the summary *says* is still true, though; only the
+    numbers it points with are stale. Translating each one through the task
+    it meant keeps the summary valid, and keeps the next render off the
+    Claude call that regenerating it costs: measured against live data, a
+    dashboard that has to regenerate takes ~8.8 s, one that finds a summary
+    in the cache ~0.2 s. Every reschedule paid that, one after the other.
+
+    Only tasks are renumbered here. Project positions come from the same
+    numbering, but the writes that reach this are task writes:
+    _annotate_tasks re-sorts the tasks inside each project and leaves the
+    project list alone, so project_ref means what it meant before.
+
+    A ref whose task is gone from `after` is dropped, the same answer
+    resolve_weekly_summary gives one it cannot resolve. A ref that is not a
+    position we numbered is passed through untouched — judging the shape of
+    Claude's raw dict is the resolver's job, and it belongs in one place.
+    """
+    if not isinstance(summary_data, dict) or before == after:
+        return summary_data
+    new_position = {task_id: i for i, task_id in enumerate(after, start=1)}
+    moved = {i: new_position.get(task_id) for i, task_id in enumerate(before, start=1)}
+
+    def remapped_ref(ref):
+        # bool is an int subclass and would look like position 1, cf.
+        # _resolve_ref (ai.py). None means "this task is no longer numbered".
+        if isinstance(ref, bool) or not isinstance(ref, int) or ref not in moved:
+            return ref
+        return moved[ref]
+
+    def remapped_block(block):
+        if not isinstance(block, dict) or not isinstance(block.get("task_refs"), list):
+            return block
+        refs = (remapped_ref(ref) for ref in block["task_refs"])
+        return {**block, "task_refs": [ref for ref in refs if ref is not None]}
+
+    remapped = dict(summary_data)
+    for key, _title in SUMMARY_SECTIONS:
+        blocks = summary_data.get(key)
+        if isinstance(blocks, list):
+            remapped[key] = [remapped_block(block) for block in blocks]
+    return remapped
+
+
 def _attach_regenerated_summary(numbered_against, summary_data):
     """Writes a freshly generated summary onto the projects the cache holds
     *now*, never onto the snapshot the generating request opened with
@@ -188,7 +240,7 @@ def _find_task(projects, unassigned_tasks, task_id):
     return None, None
 
 
-def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
+def _patch_cached_tasks(task_id, mutate, today):
     """Applies `mutate(task)` to every cached copy of one task and re-runs
     the cheap derivations on top of it, instead of throwing the whole cache
     away after a confirmed Notion write (#199).
@@ -200,9 +252,11 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     one, a task no cached list carries, or an entry whose deadline has run
     out from under it all take it.
 
-    `drop_summary` is for the writes that renumber the summary's task_refs
-    (a reschedule moves the task in the chronological order, #140); a toggle
-    moves nothing, so its summary survives untouched.
+    The summary survives every write that gets this far. A write that moves
+    the task in the chronological order (a reschedule, #140) renumbers the
+    task_refs it holds, so they are rewritten rather than the summary being
+    dropped — see _remap_summary_refs. A toggle moves nothing, so the same
+    call leaves it untouched.
     """
     primary = cache.get(CACHE_KEY)
     unassigned = cache.get(UNASSIGNED_CACHE_KEY)
@@ -223,6 +277,9 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     task, project = _find_task(projects, unassigned, task_id)
     if task is None:
         return None
+    # Read before the write: the summary's task_refs are positions in this
+    # order, and rewriting them needs both sides of the move.
+    _, numbered_before = _summary_ref_order(projects)
     mutate(task)
     # Both lists are re-annotated regardless of which one held the task:
     # _annotate_tasks is a pure re-derivation over data already in memory,
@@ -231,20 +288,21 @@ def _patch_cached_tasks(task_id, mutate, today, drop_summary=False):
     unassigned = _annotate_tasks([{"id": "_unassigned", "tasks": unassigned}], today)[
         0
     ]["tasks"]
+    _, numbered_after = _summary_ref_order(projects)
     cache.set(
-        CACHE_KEY, (projects, None if drop_summary else summary_data), primary_ttl
+        CACHE_KEY,
+        (projects, _remap_summary_refs(summary_data, numbered_before, numbered_after)),
+        primary_ttl,
     )
     cache.set(UNASSIGNED_CACHE_KEY, unassigned, unassigned_ttl)
     # `project is None` for a task that was found means it came out of the
     # project-less list — which is the half of the stale pair the write
     # concerns, see _patch_stale_copies.
-    _patch_stale_copies(
-        task_id, mutate, today, drop_summary, in_project=project is not None
-    )
+    _patch_stale_copies(task_id, mutate, today, in_project=project is not None)
     return projects, unassigned
 
 
-def _patch_stale_copies(task_id, mutate, today, drop_summary, in_project):
+def _patch_stale_copies(task_id, mutate, today, in_project):
     """The never-expiring last-known-good entry for the list this write
     concerns, patched in step with the live one.
 
@@ -271,13 +329,19 @@ def _patch_stale_copies(task_id, mutate, today, drop_summary, in_project):
         if task is None:
             cache.delete(STALE_CACHE_KEY)
             return
-        mutate(task)
         stale_projects, stale_summary = stale
+        # Its own numbering, read off its own copy: this entry can be older
+        # than the live pair, so the positions its summary holds are not
+        # necessarily the ones the live summary holds.
+        _, numbered_before = _summary_ref_order(stale_projects)
+        mutate(task)
+        stale_projects = _annotate_tasks(stale_projects, today)
+        _, numbered_after = _summary_ref_order(stale_projects)
         cache.set(
             STALE_CACHE_KEY,
             (
-                _annotate_tasks(stale_projects, today),
-                None if drop_summary else stale_summary,
+                stale_projects,
+                _remap_summary_refs(stale_summary, numbered_before, numbered_after),
             ),
             None,
         )
@@ -289,9 +353,9 @@ def _patch_stale_copies(task_id, mutate, today, drop_summary, in_project):
         cache.delete(STALE_UNASSIGNED_CACHE_KEY)
         return
     mutate(task)
-    # drop_summary is not read here: the summary numbers project tasks only
+    # No renumbering here: the summary numbers project tasks only
     # (_number_projects_and_tasks, ai.py), so moving a project-less task
-    # renumbers nothing and the copy's own summary stays valid.
+    # moves no position and the copy's own summary stays valid.
     cache.set(
         STALE_UNASSIGNED_CACHE_KEY,
         _annotate_tasks([{"id": "_unassigned", "tasks": stale_unassigned}], today)[0][
@@ -741,6 +805,20 @@ def _build_session_project(session_plan):
         "status": "in Vorbereitung",
         "status_color": "default",
     }
+
+
+def _session_task_order(session_plan, today):
+    """The numbering a demo session summary's task_refs are positions in.
+
+    Built through the same two steps dashboard() renders from — the project
+    as _build_session_project makes it, sorted by _annotate_tasks — so a
+    session plan is measured against the same order production measures its
+    cached projects against.
+    """
+    _, numbered_tasks = _summary_ref_order(
+        _annotate_tasks([_build_session_project(session_plan)], today)
+    )
+    return numbered_tasks
 
 
 def _get_sim_date(request):
@@ -1308,6 +1386,10 @@ def reschedule_task_view(request, task_id):
         )
         if task is None:
             return JsonResponse({"error": "unknown task"}, status=404)
+        # Read before the move, for the same reason _patch_cached_tasks
+        # reads before its own: the summaries below are numbered against
+        # this order.
+        numbered_before = _session_task_order(plan, effective_today)
         task["date"] = raw_date
         # #171: awareness, not punishment — starts counting from the second
         # move, but the counter itself increments on every reschedule from
@@ -1316,11 +1398,22 @@ def reschedule_task_view(request, task_id):
         task["postpone_count"] = task.get("postpone_count", 0) + 1
         request.session["demo_plan"] = plan
         # The task order is chronological (#140), so a new date moves the
-        # task — cached summaries would keep task_refs numbered against the
-        # old positions and silently re-point (see _annotate_tasks). Same
-        # unversioned-prefix sweep as planner_create (planner_views.py).
+        # task and the cached summaries' task_refs no longer point where
+        # they did (see _annotate_tasks). They are rewritten rather than
+        # swept: a visitor who moves a task would otherwise wait out a
+        # fresh Claude call on the next render, the same cost the
+        # production branch below stopped paying. A leftover from an older
+        # summary format still goes — its refs were numbered against an
+        # order this code no longer produces, so they cannot be rewritten
+        # (the unversioned-prefix sweep planner_create does, kept for
+        # exactly those).
+        numbered_after = _session_task_order(plan, effective_today)
         for key in list(request.session.keys()):
-            if key.startswith("demo_plan_summary"):
+            if key.startswith(SUMMARY_KEY):
+                request.session[key] = _remap_summary_refs(
+                    request.session[key], numbered_before, numbered_after
+                )
+            elif key.startswith("demo_plan_summary"):
                 del request.session[key]
         postpone_count = task["postpone_count"]
         # The same deepcopy mutation toggle_task_view applies, so the figures
@@ -1349,10 +1442,11 @@ def reschedule_task_view(request, task_id):
         # not leave the cache serving the pre-move date (_bust_dashboard_cache
         # promises this for "every confirmed Notion write").
         #
-        # #199: the projects survive the move — re-sorted and re-annotated —
-        # and only the summary is dropped, because a new date renumbers the
-        # task_refs it holds (_number_projects_and_tasks, ai.py). The Notion
-        # read goes, the Claude call stays.
+        # #199: the projects survive the move — re-sorted and re-annotated.
+        # So does the summary: a new date renumbers the task_refs it holds
+        # (_number_projects_and_tasks, ai.py), and those get rewritten
+        # rather than thrown away (_remap_summary_refs). Neither the Notion
+        # read nor the Claude call is paid for again.
         #
         # effective_today rather than a second timezone.localdate() call:
         # this branch only runs outside DEMO_MODE, where the two are the same
@@ -1362,10 +1456,7 @@ def reschedule_task_view(request, task_id):
         def move(task):
             task["due"] = parsed_date
 
-        if (
-            _patch_cached_tasks(task_id, move, effective_today, drop_summary=True)
-            is None
-        ):
+        if _patch_cached_tasks(task_id, move, effective_today) is None:
             _bust_dashboard_cache()
         try:
             # #171 accepted gap: if this second call fails, the date has
