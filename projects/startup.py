@@ -16,7 +16,7 @@ def require_api_keys():
     and never imports notion.py's client.
 
     Called from wsgi.py rather than registered as a Django system check — see
-    RequiredApiKeysTest's docstring in tests.py for why.
+    RequiredApiKeysTest's docstring in tests/test_config.py for why.
     """
     missing = []
     if not os.environ.get("ANTHROPIC_API_KEY"):
