@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import re
+import secrets
 from datetime import date, timedelta
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.core.cache import cache
 from django.db import Error, connection
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from .ai import (
@@ -1423,7 +1425,11 @@ def _closeout_dates(request):
     return sim_date or timezone.localdate(), sim_date
 
 
+# #215: the session half of the failure notice's claim ticket. The other
+# half rides the redirect URL, so the notice reaches the tab that actually
+# failed — see _closeout_read_failed.
 CLOSEOUT_FAILED_KEY = "closeout_read_failed"
+CLOSEOUT_NOTICE_PARAM = "notice"
 
 
 def _demo_completed_in_range(tasks, start, end, sim_date):
@@ -1515,10 +1521,17 @@ def close_week_start(request):
     # list built above.
     month_groups, years = _sidebar_projects(request, today, projects=projects)
     # #215: a close-out that died on a Notion read bounced back here without
-    # a word, so the button looked like it had done nothing. Popped rather
-    # than read, so the notice appears once and a later reload of a page
-    # whose data is fine again does not keep warning about it.
-    read_failed = request.session.pop(CLOSEOUT_FAILED_KEY, False)
+    # a word, so the button looked like it had done nothing. The notice shows
+    # only when the ticket in the URL matches the one in the session, and
+    # clearing it is what consuming the match means:
+    #   - a second tab, which has no ticket in its URL, neither sees the
+    #     notice nor eats it out from under the tab that earned it;
+    #   - reloading the failed tab keeps the ticket in the URL but no longer
+    #     matches, so the page stops warning about a failure that is over.
+    ticket = request.GET.get(CLOSEOUT_NOTICE_PARAM)
+    read_failed = bool(ticket) and request.session.get(CLOSEOUT_FAILED_KEY) == ticket
+    if read_failed:
+        del request.session[CLOSEOUT_FAILED_KEY]
     return render(
         request,
         "projects/close_week_start.html",
@@ -1550,13 +1563,19 @@ def _closeout_read_failed(request):
 
     Persisting a close-out whose numbers came from a failed read would store
     a zeroed week as if it were the answer — the very thing this issue
-    removed — so nothing is saved and the visitor is told to try again. The
-    flag rides the session because this is a redirect (POST/redirect/GET, so
-    a reload cannot re-submit the form) and template context does not
-    survive one.
+    removed — so nothing is saved and the visitor is told to try again.
+
+    This is a redirect (POST/redirect/GET, so a reload cannot re-submit the
+    form) and template context does not survive one, so the notice is carried
+    across as a claim ticket: a random value stored in the session and
+    repeated in the URL. A bare session flag would have been read by whichever
+    request arrived first, which in a second open tab is a notice about a
+    failure that tab never had. Requiring both halves addresses the notice to
+    the one response that follows this redirect.
     """
-    request.session[CLOSEOUT_FAILED_KEY] = True
-    return redirect("close_week_start")
+    ticket = secrets.token_urlsafe(8)
+    request.session[CLOSEOUT_FAILED_KEY] = ticket
+    return redirect(f"{reverse('close_week_start')}?{CLOSEOUT_NOTICE_PARAM}={ticket}")
 
 
 def close_week_confirm(request):

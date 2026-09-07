@@ -628,67 +628,103 @@ class CloseWeekConfirmProductionTest(TestCase):
             response = self.client.post(
                 reverse("close_week_confirm"), data={"task_id": []}
             )
-        self.assertRedirects(
-            response, reverse("close_week_start"), fetch_redirect_response=False
+        self.assertEqual(
+            response["Location"].split("?")[0], reverse("close_week_start")
         )
         self.assertEqual(WeekCloseout.objects.count(), 0)
+
+    def _failing_close_out(self, failing_read="get_tasks_completed_in_range"):
+        """POSTs a close-out whose Notion read dies, and returns the redirect
+        target — ticket and all, which is what a browser would follow."""
+        stubs = {
+            "get_upcoming_projects": patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            "get_tasks_completed_in_range": patch(
+                "projects.views.get_tasks_completed_in_range", return_value=[]
+            ),
+            "get_tasks_created_in_range": patch(
+                "projects.views.get_tasks_created_in_range", return_value=[]
+            ),
+        }
+        stubs[failing_read] = patch(
+            f"projects.views.{failing_read}",
+            side_effect=NotionUnavailableError("boom"),
+        )
+        with (
+            stubs["get_upcoming_projects"],
+            stubs["get_tasks_completed_in_range"],
+            stubs["get_tasks_created_in_range"],
+        ):
+            response = self.client.post(
+                reverse("close_week_confirm"), data={"task_id": []}
+            )
+        return response["Location"]
 
     @patch("django.utils.timezone.localdate")
     def test_a_failed_close_out_says_so_on_the_page_it_lands_on(self, mock_localdate):
         """#215: the redirect used to be wordless — the button looked like it
         had simply done nothing."""
         mock_localdate.return_value = CLOSEOUT_TODAY
-        with (
-            patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
-            ),
-            patch(
-                "projects.views.get_tasks_created_in_range",
-                side_effect=NotionUnavailableError("boom"),
-            ),
-            patch("projects.views.get_tasks_completed_in_range", return_value=[]),
+        landing = self._failing_close_out()
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project([])
         ):
-            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
-            landed = self.client.get(reverse("close_week_start"))
+            landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
 
     @patch("django.utils.timezone.localdate")
     def test_the_failure_notice_is_shown_once_and_then_gone(self, mock_localdate):
-        """Popped, not read: once Notion answers again the page must stop
-        warning about a failure that is over."""
+        """The ticket is consumed on the match, so reloading the failed tab —
+        same URL, same ticket — stops warning about a failure that is over."""
         mock_localdate.return_value = CLOSEOUT_TODAY
-        with (
-            patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
-            ),
-            patch(
-                "projects.views.get_tasks_completed_in_range",
-                side_effect=NotionUnavailableError("boom"),
-            ),
-        ):
-            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        landing = self._failing_close_out()
         with patch(
             "projects.views.get_upcoming_projects", return_value=self._project([])
         ):
-            first = self.client.get(reverse("close_week_start"))
-            second = self.client.get(reverse("close_week_start"))
+            first = self.client.get(landing)
+            second = self.client.get(landing)
         self.assertContains(first, "Notion war gerade nicht erreichbar")
         self.assertNotContains(second, "Notion war gerade nicht erreichbar")
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_second_tab_neither_sees_the_notice_nor_eats_it(self, mock_localdate):
+        """#215: a bare session flag went to whichever request arrived first,
+        which in a second open tab is a notice about a failure that tab never
+        had — and the tab that earned it then got nothing. The ticket has to
+        match, and a request without one must leave it untouched."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        landing = self._failing_close_out()
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project([])
+        ):
+            other_tab = self.client.get(reverse("close_week_start"))
+            failed_tab = self.client.get(landing)
+        self.assertNotContains(other_tab, "Notion war gerade nicht erreichbar")
+        self.assertContains(failed_tab, "Notion war gerade nicht erreichbar")
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_forged_ticket_shows_nothing(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._failing_close_out()
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project([])
+        ):
+            guessed = self.client.get(
+                reverse("close_week_start") + "?notice=nicht-das-ticket"
+            )
+        self.assertNotContains(guessed, "Notion war gerade nicht erreichbar")
 
     @patch("django.utils.timezone.localdate")
     def test_a_failing_project_read_also_says_so(self, mock_localdate):
         """The triage read is the third Notion call in this one POST — all
         three failure paths land on the same spoken notice."""
         mock_localdate.return_value = CLOSEOUT_TODAY
-        with patch(
-            "projects.views.get_upcoming_projects",
-            side_effect=NotionUnavailableError("boom"),
-        ):
-            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        landing = self._failing_close_out(failing_read="get_upcoming_projects")
         with patch(
             "projects.views.get_upcoming_projects", return_value=self._project([])
         ):
-            landed = self.client.get(reverse("close_week_start"))
+            landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
         self.assertEqual(WeekCloseout.objects.count(), 0)
 

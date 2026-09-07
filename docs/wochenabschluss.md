@@ -121,11 +121,17 @@ describes the close-out that just ran, its disappearing when that one moved noth
 correct rather than a loss.
 
 **A failed close-out says so** (#215): all three Notion reads in `close_week_confirm` land
-on `_closeout_read_failed`, which sets a session flag and redirects. `close_week_start`
-pops it and renders the same `.stale-notice` the dashboard uses. Popped rather than read,
-so a reload after Notion recovers stops warning about a failure that is over. Nothing is
-persisted on that path — storing a zeroed week as if it were the answer is the defect this
-issue removed.
+on `_closeout_read_failed`, which redirects to the triage page and renders the same
+`.stale-notice` the dashboard uses for an unreachable Notion. Nothing is persisted on that
+path — storing a zeroed week as if it were the answer is the defect this issue removed.
+
+The notice travels as a **claim ticket**: a random value written to the session *and*
+repeated in the redirect URL (`?notice=…`), shown only when the two match, and cleared by
+the match. A bare session flag would have been read by whichever request arrived first,
+which in a second open tab is a notice about a failure that tab never had — and the tab
+that earned it would then get nothing. Requiring both halves addresses the notice to the
+one response that follows the redirect, and consuming the ticket means a reload of that
+same URL stops warning about a failure that is over. No JavaScript involved.
 
 **Out of scope:** no browsable history of past close-outs — the UI only ever shows the
 *latest* one. The data model already supports adding that later without a shape change.
