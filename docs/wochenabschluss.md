@@ -64,13 +64,44 @@ visitor navigates to.
 for every date change app-wide, which is also why the postpone counter (#171, below)
 covers this flow automatically without either issue needing to know about the other.
 
-**Stats definitions** (`close_week_confirm`): the triage page's task ids travel as hidden
-form fields; confirming diffs that original list against live state.
-- **rescheduled** — of that set, no longer due the same ISO week (or now undated).
-- **completed** — of that set, now done.
-- **added** — tasks whose Notion `created_time` falls in the current week. Production
-  only: a freshly generated demo plan has no meaningful "added this week" (the whole plan
-  is created in one shot).
+**Stats definitions** (`close_week_confirm`). Two of the three numbers measure the ISO
+week the review is headlined with; the third measures the close-out interaction, and is
+rendered as a sentence rather than a tile so the row stops reading as three answers to
+one question (#215).
+
+- **completed** *(week)* — tasks whose Notion `Erledigt am` falls in the week **and**
+  whose `Done` checkbox is ticked, from `get_tasks_completed_in_range`. This is a direct
+  `TASKS_DB` read on purpose: `get_upcoming_projects` filters at the *project* level, so
+  a task finished in a project that was then closed would leave the count, and
+  `_get_tasks` only ever reaches tasks that carry a project relation (#53). Measured
+  against the live database for KW 36/2026: 19 completions, of which the project-keyed
+  path could reach 10.
+- **added** *(week)* — tasks whose `created_time` falls in the week, from
+  `get_tasks_created_in_range`, the same independent read so both numbers describe one
+  population. Production only: a demo plan is created in one shot, so the count is
+  structurally 0 and the tile is left out rather than shown (`week_review.html`).
+- **rescheduled** *(this close-out, not the week)* — of the ids the triage page posted,
+  those no longer due the same ISO week (or now undated) and not done. Notion's
+  `Verschoben` is a bare counter with no timestamp (#171), so "moved this week" is not
+  derivable from the schema at all; this number is the honest, reachable one, and its
+  scope is named in `WeekCloseout`, in the prompt and on the page.
+
+**Known floor, by design:** a task checked off directly in Notion, or before `Erledigt am`
+existed in the schema, has `Done` without a date and cannot be placed in a week. It is
+missing from **completed**. `_count_done_in_range` (the dashboard's progress bar) works
+around this by counting `done` instead — an option a week-scoped count does not have.
+
+**Pagination:** the two week reads page through every result (`_query_all_pages`). Notion
+returns at most 100 rows per query, and the busiest creation week in the live Tasks
+database holds 157 — a first-page cut here would be the same silent undercount #215
+removed. The per-project and project-less reads stay single-page.
+
+**Demo mode follows the timelapse** (`_closeout_dates`): with a simulated date set, that
+date is "today" for the triage list, the counts and the review's KW, so the close-out does
+not talk about a different week than the dashboard is showing. Completions the timelapse
+produced carry no `completed_date` — they are marked done on a deepcopy that is never
+written back — so `_demo_completed_in_range` places them by their due date, which is what
+made them done.
 
 **Persistence** (`projects/closeout.py`): two backends behind one interface, the same
 shape as `rules.py` — production stores a `WeekCloseout` row (unique on
@@ -78,6 +109,29 @@ shape as `rules.py` — production stores a `WeekCloseout` row (unique on
 keeps the visitor's own latest close-out in the session, and only when a session plan
 exists — the generic multi-project demo view has no session identity and stays out of
 scope, same as reschedule itself (#10 §5).
+
+**Re-closing a week is supported, not guarded against** (#215). `close_week_start` used to
+hide the submit button once a week was closed and nothing was left to triage, because
+re-confirming posted an empty `task_id` list and zeroed the counts. Both week-scoped counts
+are read from the week itself now, so a second close-out recomputes them — and the guard
+was freezing the numbers in the one case where they go stale fastest, a week finished off
+after it was closed. The button stays, labelled "Rückblick aktualisieren", next to a link
+to the existing review. Only the reschedule sentence is lost on a re-close, and since it
+describes the close-out that just ran, its disappearing when that one moved nothing is
+correct rather than a loss.
+
+**A failed close-out says so** (#215): all three Notion reads in `close_week_confirm` land
+on `_closeout_read_failed`, which redirects to the triage page and renders the same
+`.stale-notice` the dashboard uses for an unreachable Notion. Nothing is persisted on that
+path — storing a zeroed week as if it were the answer is the defect this issue removed.
+
+The notice travels as a **claim ticket**: a random value written to the session *and*
+repeated in the redirect URL (`?notice=…`), shown only when the two match, and cleared by
+the match. A bare session flag would have been read by whichever request arrived first,
+which in a second open tab is a notice about a failure that tab never had — and the tab
+that earned it would then get nothing. Requiring both halves addresses the notice to the
+one response that follows the redirect, and consuming the ticket means a reload of that
+same URL stops warning about a failure that is over. No JavaScript involved.
 
 **Out of scope:** no browsable history of past close-outs — the UI only ever shows the
 *latest* one. The data model already supports adding that later without a shape change.

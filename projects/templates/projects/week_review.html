@@ -13,6 +13,7 @@
     .review-stat { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 16px; text-align: center; }
     .review-stat-value { font-size: 24px; font-weight: 700; }
     .review-stat-label { font-size: 12px; color: var(--color-text-quaternary); margin-top: 4px; }
+    .review-note { color: var(--color-text-quaternary); font-size: 13px; margin: -16px 0 28px; }
     .review-summary { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 20px 24px; font-size: 14px; line-height: 1.7; margin-bottom: 28px; }
     .review-summary.ai-error { color: var(--color-text-quaternary); font-style: italic; }
     .btn-new { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 9px 18px; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; align-self: flex-start; }
@@ -37,20 +38,32 @@ docs/wochenabschluss.md.
     <div class="page-title">Wochenrückblick</div>
     <div class="page-subtitle">KW {{ closeout.iso_week }}/{{ closeout.iso_year }}</div>
 
+    {% comment %}
+    #215: every tile in this row measures the ISO week in the subtitle above.
+    "Verschoben" used to sit here too and does not measure that — Notion's
+    "Verschoben" property carries no timestamp (#171), so the number can only
+    ever describe the close-out that just ran. It is a sentence below the row
+    now, so three tiles under one heading stop reading as three answers to
+    the same question. "Neu dazugekommen" is production-only: a demo plan is
+    created in one shot, so its count is structurally 0 and the tile would
+    repeat the defect this issue removed.
+    {% endcomment %}
     <div class="review-stats">
         <div class="review-stat">
             <div class="review-stat-value">{{ closeout.completed_count }}</div>
             <div class="review-stat-label">Erledigt</div>
         </div>
-        <div class="review-stat">
-            <div class="review-stat-value">{{ closeout.rescheduled_count }}</div>
-            <div class="review-stat-label">Verschoben</div>
-        </div>
+        {% if not demo_mode %}
         <div class="review-stat">
             <div class="review-stat-value">{{ closeout.added_count }}</div>
             <div class="review-stat-label">Neu dazugekommen</div>
         </div>
+        {% endif %}
     </div>
+
+    {% if closeout.rescheduled_count %}
+    <div class="review-note">Beim Abschließen hast du {{ closeout.rescheduled_count }} Aufgabe{{ closeout.rescheduled_count|pluralize:"n" }} in die nächste Woche verschoben.</div>
+    {% endif %}
 
     {% if closeout.summary_text %}
     <div class="review-summary">{{ closeout.summary_text }}</div>

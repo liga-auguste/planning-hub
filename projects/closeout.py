@@ -31,6 +31,13 @@ def is_week_closed(request, iso_year, iso_week):
 
 
 def save_closeout(request, iso_year, iso_week, stats, summary_text):
+    """`added_count` arrives as None from a demo close-out — the count has no
+    meaning for a plan created in one shot (#215), and None is what makes the
+    prompt and the review page leave it out rather than show a zero. Both
+    backends store a number, so it is flattened here, in one place, rather
+    than at each call site.
+    """
+    stats = {**stats, "added_count": stats["added_count"] or 0}
     if settings.DEMO_MODE:
         request.session[DEMO_CLOSEOUT_KEY] = {
             "iso_year": iso_year,

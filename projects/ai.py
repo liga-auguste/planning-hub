@@ -325,24 +325,39 @@ def build_closeout_prompt(stats: dict, today: date) -> str:
     """#169: the close-out review's summary — appreciative by design, not a
     second status report. Rescheduled tasks are named as decisions, not as
     a shortfall against the week.
+
+    #215: the two week-scoped numbers say so in their own line, and the
+    reschedule line says it describes this close-out rather than the week —
+    Claude echoes the framing it is given, and the previous wording invited
+    it to narrate a session-scoped number as a fact about the week.
+    `added_count` is None for a demo close-out (a plan created in one shot
+    has nothing "new"), and the line is then left out rather than stating a
+    zero the number can never leave.
     """
-    return "\n".join(
-        [
-            f"Heute ist der {today.strftime('%d.%m.%Y')}. Ich schließe die Woche ab.",
-            "",
-            f"Erledigt: {stats['completed_count']} Aufgaben",
-            f"Verschoben in die nächste Woche: {stats['rescheduled_count']} Aufgaben",
-            f"Neu dazugekommen: {stats['added_count']} Aufgaben",
-            "",
-            "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend:",
-            "was erledigt wurde, zählt. Verschobene Aufgaben sind bewusste",
-            "Planungsentscheidungen, keine verpassten Deadlines — benenne sie neutral,",
-            "nicht als Rückstand. Auf Deutsch, Du-Form, 2–3 Sätze.",
-            "",
-            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
-            '{"summary_text": "..."}',
-        ]
-    )
+    lines = [
+        f"Heute ist der {today.strftime('%d.%m.%Y')}. Ich schließe die Woche ab.",
+        "",
+        f"In dieser Woche erledigt: {stats['completed_count']} Aufgaben",
+    ]
+    if stats.get("added_count") is not None:
+        lines.append(
+            f"In dieser Woche neu dazugekommen: {stats['added_count']} Aufgaben"
+        )
+    lines += [
+        (
+            "Gerade beim Abschließen in die nächste Woche verschoben: "
+            f"{stats['rescheduled_count']} Aufgaben"
+        ),
+        "",
+        "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend:",
+        "was erledigt wurde, zählt. Verschobene Aufgaben sind bewusste",
+        "Planungsentscheidungen, keine verpassten Deadlines — benenne sie neutral,",
+        "nicht als Rückstand. Auf Deutsch, Du-Form, 2–3 Sätze.",
+        "",
+        "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+        '{"summary_text": "..."}',
+    ]
+    return "\n".join(lines)
 
 
 def generate_closeout_summary(stats: dict, today: date) -> str:

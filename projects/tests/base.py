@@ -57,9 +57,26 @@ def _summary_data(marker="Zusammenfassung läuft"):
     }
 
 
+class AiStubMixin:
+    """Stubs the Claude API — no test may make a real call. A mixin rather
+    than part of DemoModeTestCase, because production-mode classes need the
+    same guarantee without DEMO_MODE=True: two close-out tests reached the
+    real API by leaving the patch out, which a machine with a key in .env
+    never notices (#215).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.ai_mocks = {}
+        for target, return_value in AI_STUBS.items():
+            patcher = patch(target, return_value=return_value)
+            self.ai_mocks[target] = patcher.start()
+            self.addCleanup(patcher.stop)
+
+
 @override_settings(DEMO_MODE=True)
-class DemoModeTestCase(TestCase):
-    """Stubs the Claude API — no test may make a real call."""
+class DemoModeTestCase(AiStubMixin, TestCase):
+    """The demo-mode half of the same guarantee."""
 
     def setUp(self):
         # The demo caches live in the test database, shared across the whole
@@ -67,11 +84,7 @@ class DemoModeTestCase(TestCase):
         # test skip the Claude call it asserts on — see AiStubTest.
         cache.clear()
         self.addCleanup(cache.clear)
-        self.ai_mocks = {}
-        for target, return_value in AI_STUBS.items():
-            patcher = patch(target, return_value=return_value)
-            self.ai_mocks[target] = patcher.start()
-            self.addCleanup(patcher.stop)
+        super().setUp()
 
     def given_session_plan(self, **overrides):
         """Creates a session plan the way planner_create produces it."""

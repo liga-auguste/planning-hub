@@ -109,6 +109,98 @@ def get_unassigned_tasks(today: date) -> list:
         return [_parse_task_page(page) for page in response["results"]]
 
 
+def _query_all_pages(client, **query) -> list:
+    """Every row of a databases.query, not just the first page.
+
+    Notion returns at most 100 rows per call. Only the week-scoped close-out
+    reads below use this: their range can legitimately hold more than 100
+    rows — the busiest creation week in the live Tasks database holds 157 —
+    and a silent first-page cut is the same class of undercount #215 exists
+    to remove. The reads above stay single-page on purpose: each is bounded
+    by one project's task list or by the project-less bucket, and widening
+    them is a separate question.
+    """
+    results = []
+    cursor = None
+    while True:
+        page = client.databases.query(
+            **query, **({"start_cursor": cursor} if cursor else {})
+        )
+        results.extend(page["results"])
+        if not page["has_more"]:
+            return results
+        cursor = page["next_cursor"]
+
+
+def get_tasks_completed_in_range(start: date, end: date) -> list:
+    """#215: every task whose "Erledigt am" falls in [start, end].
+
+    Read straight from TASKS_DB rather than through get_upcoming_projects,
+    which filters at the *project* level ("Status/Aufgaben" is neither
+    "abgeschlossen" nor "kein Status erforderlich") and only ever reaches
+    tasks that carry a project relation at all (#53). Both filters cost real
+    tasks: measured against the live database for KW 36/2026, 19 tasks were
+    completed and the project-keyed path could reach 10 of them.
+
+    Notion's on_or_after/on_or_before cover the whole day — verified against
+    the live database, where a single-day range returns rows created at
+    11:36 UTC — so both bounds go in as bare dates.
+
+    Known floor, not a bug: a task checked off directly in Notion, or before
+    "Erledigt am" existed in the schema, has "Done" without a date and
+    cannot be placed in any week. It is missing from this read by
+    construction. See the count in views.close_week_confirm.
+    """
+    with translate_notion_errors():
+        pages = _query_all_pages(
+            _client(),
+            database_id=TASKS_DB,
+            filter={
+                "and": [
+                    {
+                        "property": "Erledigt am",
+                        "date": {"on_or_after": start.isoformat()},
+                    },
+                    {
+                        "property": "Erledigt am",
+                        "date": {"on_or_before": end.isoformat()},
+                    },
+                ]
+            },
+        )
+        return [_parse_task_page(page) for page in pages]
+
+
+def get_tasks_created_in_range(start: date, end: date) -> list:
+    """#215: every task created in [start, end].
+
+    The same independent TASKS_DB read as get_tasks_completed_in_range, so
+    the close-out's two counts measure one population instead of two.
+
+    created_time is a timestamp rather than a property, so its filter
+    carries a "timestamp" key and no "property" key. The bounds are whole
+    days here too (same verification as above).
+    """
+    with translate_notion_errors():
+        pages = _query_all_pages(
+            _client(),
+            database_id=TASKS_DB,
+            filter={
+                "and": [
+                    {
+                        "timestamp": "created_time",
+                        "created_time": {"on_or_after": start.isoformat()},
+                    },
+                    {
+                        "timestamp": "created_time",
+                        "created_time": {"on_or_before": end.isoformat()},
+                    },
+                ]
+            },
+        )
+        return [_parse_task_page(page) for page in pages]
+
+
 def _parse_task_page(page: dict) -> dict:
     props = page["properties"]
     return {
