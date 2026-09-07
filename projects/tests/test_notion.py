@@ -2,7 +2,7 @@
 
 import os
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import httpx
 from django.test import SimpleTestCase
@@ -17,6 +17,7 @@ from ..notion import (
     TASKS_DB,
     NotionUnavailableError,
     _get_tasks,
+    _query_all_pages,
     create_project,
     create_tasks,
     find_project,
@@ -109,8 +110,8 @@ class PostponeCountReadFromNotionTest(SimpleTestCase):
 
     def test_reads_the_verschoben_number_property(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {
-                "results": [
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [
                     {
                         "id": "task-1",
                         "created_time": "2026-08-01T10:00:00.000Z",
@@ -123,16 +124,16 @@ class PostponeCountReadFromNotionTest(SimpleTestCase):
                         },
                     }
                 ]
-            }
+            )
             tasks = _get_tasks("project-id")
         self.assertEqual(tasks[0]["postpone_count"], 3)
         self.assertEqual(tasks[0]["created_time"], date(2026, 8, 1))
 
     def test_missing_property_defaults_to_zero(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {
-                "results": [_fake_task_page("Test", "2026-08-20")]
-            }
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [_fake_task_page("Test", "2026-08-20")]
+            )
             tasks = _get_tasks("project-id")
         self.assertEqual(tasks[0]["postpone_count"], 0)
         self.assertIsNone(tasks[0]["created_time"])
@@ -153,15 +154,17 @@ class CompletedDateReadFromNotionTest(SimpleTestCase):
             page = _fake_task_page("Test", "2026-08-20")
             page["properties"]["Erledigt am"] = {"date": {"start": "2026-08-22"}}
             page["properties"]["Done"] = {"checkbox": True}
-            MockClient.return_value.databases.query.return_value = {"results": [page]}
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [page]
+            )
             tasks = _get_tasks("project-id")
         self.assertEqual(tasks[0]["completed_date"], date(2026, 8, 22))
 
     def test_missing_property_is_none(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {
-                "results": [_fake_task_page("Test", "2026-08-20")]
-            }
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [_fake_task_page("Test", "2026-08-20")]
+            )
             tasks = _get_tasks("project-id")
         self.assertIsNone(tasks[0]["completed_date"])
 
@@ -212,7 +215,7 @@ class GetUnassignedTasksTest(SimpleTestCase):
     def test_queries_tasks_db_with_an_is_empty_relation_filter(self):
         with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {"results": []}
+            instance.databases.query.return_value = _query_response([])
             get_unassigned_tasks(date(2026, 8, 31))
         instance.databases.query.assert_called_once_with(
             database_id=TASKS_DB,
@@ -224,9 +227,9 @@ class GetUnassignedTasksTest(SimpleTestCase):
 
     def test_returns_tasks_with_no_project_relation(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {
-                "results": [_fake_task_page("Blumen besorgen", "2026-09-01")]
-            }
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [_fake_task_page("Blumen besorgen", "2026-09-01")]
+            )
             tasks = get_unassigned_tasks(date(2026, 8, 31))
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["name"], "Blumen besorgen")
@@ -307,15 +310,15 @@ class FindProjectTest(SimpleTestCase):
 
     def test_returns_the_id_of_an_exact_match(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {
-                "results": [{"id": "page-1"}]
-            }
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [{"id": "page-1"}]
+            )
             self.assertEqual(find_project("Sommerkonzert", date(2026, 9, 5)), "page-1")
 
     def test_queries_by_exact_name_and_date(self):
         with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
-            query.return_value = {"results": []}
+            query.return_value = _query_response([])
             find_project("Sommerkonzert", date(2026, 9, 5))
         conditions = query.call_args.kwargs["filter"]["and"]
         self.assertIn(
@@ -331,7 +334,7 @@ class FindProjectTest(SimpleTestCase):
 
     def test_returns_none_when_nothing_matches(self):
         with patch("projects.notion.Client") as MockClient:
-            MockClient.return_value.databases.query.return_value = {"results": []}
+            MockClient.return_value.databases.query.return_value = _query_response([])
             self.assertIsNone(find_project("Sommerkonzert", date(2026, 9, 5)))
 
     def test_translates_a_failure(self):
@@ -341,7 +344,17 @@ class FindProjectTest(SimpleTestCase):
                 find_project("Sommerkonzert", date(2026, 9, 5))
 
 
-def _fake_task_page(name, iso_date):
+def _query_response(results, has_more=False, next_cursor=None):
+    """A databases.query response the way Notion actually returns one.
+
+    has_more/next_cursor are always present on a real response, and
+    _query_all_pages indexes has_more directly — a stub should reproduce the
+    format rather than have the code route around its absence.
+    """
+    return {"results": results, "has_more": has_more, "next_cursor": next_cursor}
+
+
+def _fake_task_page(name, iso_date, project_ids=()):
     # Shaped the way _get_tasks parses a Notion task page.
     return {
         "id": "task-1",
@@ -350,6 +363,7 @@ def _fake_task_page(name, iso_date):
             "Wann?": {"date": {"start": iso_date}},
             "Done": {"checkbox": False},
             "Kontext": {"multi_select": []},
+            "Related to Projekte": {"relation": [{"id": pid} for pid in project_ids]},
         },
     }
 
@@ -367,9 +381,9 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
     def test_already_written_tasks_are_skipped(self):
         with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {
-                "results": [_fake_task_page("Programm festlegen", "2026-08-20")]
-            }
+            instance.databases.query.return_value = _query_response(
+                [_fake_task_page("Programm festlegen", "2026-08-20")]
+            )
             create_tasks(
                 "project-id",
                 [
@@ -386,7 +400,7 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
     def test_a_fresh_project_writes_the_whole_list(self):
         with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {"results": []}
+            instance.databases.query.return_value = _query_response([])
             create_tasks(
                 "project-id",
                 [
@@ -399,9 +413,9 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
     def test_same_name_on_a_different_date_is_not_skipped(self):
         with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {
-                "results": [_fake_task_page("Programm festlegen", "2026-08-20")]
-            }
+            instance.databases.query.return_value = _query_response(
+                [_fake_task_page("Programm festlegen", "2026-08-20")]
+            )
             create_tasks(
                 "project-id", [{"name": "Programm festlegen", "date": "2026-08-27"}]
             )
@@ -410,7 +424,7 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
     def test_writes_kontext_as_a_multi_select_property(self):
         with patch("projects.notion.Client") as MockClient:
             instance = MockClient.return_value
-            instance.databases.query.return_value = {"results": []}
+            instance.databases.query.return_value = _query_response([])
             create_tasks(
                 "project-id",
                 [{"name": "GEMA-Meldung", "date": "2026-08-20", "kontext": ["Büro"]}],
@@ -454,7 +468,7 @@ class HistoricalProjectsCapTest(SimpleTestCase):
     def test_asks_notion_for_exactly_the_capped_number(self):
         with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
-            query.return_value = {"results": []}
+            query.return_value = _query_response([])
             get_historical_projects()
         self.assertEqual(
             self._project_queries(query)[0].kwargs["page_size"],
@@ -464,7 +478,7 @@ class HistoricalProjectsCapTest(SimpleTestCase):
     def test_the_marktzeit_exclusion_is_part_of_the_notion_filter(self):
         with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
-            query.return_value = {"results": []}
+            query.return_value = _query_response([])
             get_historical_projects()
         conditions = self._project_queries(query)[0].kwargs["filter"]["and"]
         self.assertIn(
@@ -485,8 +499,10 @@ class HistoricalProjectsCapTest(SimpleTestCase):
         with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
             query.side_effect = [
-                {"results": [_fake_project_page("p1", "Marktzeit Mai", "2026-05-01")]},
-                {"results": []},
+                _query_response(
+                    [_fake_project_page("p1", "Marktzeit Mai", "2026-05-01")]
+                ),
+                _query_response([]),
             ]
             projects = get_historical_projects()
         self.assertEqual([p["name"] for p in projects], ["Marktzeit Mai"])
@@ -497,14 +513,281 @@ class HistoricalProjectsCapTest(SimpleTestCase):
         with patch("projects.notion.Client") as MockClient:
             query = MockClient.return_value.databases.query
             query.side_effect = [
-                {
-                    "results": [
-                        _fake_project_page("p1", "Sommerkonzert", "2026-05-01")
-                    ],
-                    "has_more": True,
-                    "next_cursor": "cursor-1",
-                },
-                {"results": []},
+                _query_response(
+                    [_fake_project_page("p1", "Sommerkonzert", "2026-05-01")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response([]),
             ]
             get_historical_projects()
         self.assertEqual(len(self._project_queries(query)), 1)
+
+
+class QueryAllPagesTest(SimpleTestCase):
+    """#196: _query_all_pages arrived with #215 but was only ever stubbed at
+    view level, so its paging loop had never run in the suite. Three reads
+    route through it now — covering it comes first."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_single_page_is_returned_as_is(self):
+        client = Mock()
+        client.databases.query.return_value = _query_response([{"id": "a"}])
+        self.assertEqual(_query_all_pages(client, database_id=TASKS_DB), [{"id": "a"}])
+        self.assertEqual(client.databases.query.call_count, 1)
+
+    def test_a_second_page_is_fetched_with_the_cursor_and_concatenated(self):
+        client = Mock()
+        client.databases.query.side_effect = [
+            _query_response([{"id": "a"}], has_more=True, next_cursor="cursor-1"),
+            _query_response([{"id": "b"}]),
+        ]
+        results = _query_all_pages(client, database_id=TASKS_DB)
+        self.assertEqual(results, [{"id": "a"}, {"id": "b"}])
+        self.assertNotIn(
+            "start_cursor", client.databases.query.call_args_list[0].kwargs
+        )
+        self.assertEqual(
+            client.databases.query.call_args_list[1].kwargs["start_cursor"], "cursor-1"
+        )
+
+    def test_the_query_is_repeated_unchanged_on_every_page(self):
+        client = Mock()
+        client.databases.query.side_effect = [
+            _query_response([], has_more=True, next_cursor="cursor-1"),
+            _query_response([]),
+        ]
+        _query_all_pages(client, database_id=TASKS_DB, filter={"x": 1})
+        for call in client.databases.query.call_args_list:
+            self.assertEqual(call.kwargs["database_id"], TASKS_DB)
+            self.assertEqual(call.kwargs["filter"], {"x": 1})
+
+
+class TasksInOneQueryTest(SimpleTestCase):
+    """#196: get_upcoming_projects/get_historical_projects used to query
+    TASKS_DB once per project — a cold planner start was ~100 sequential
+    requests. One `or` filter over the concrete project ids replaces the
+    fan-out with a single read."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _task_query(self, query_mock):
+        calls = [
+            call
+            for call in query_mock.call_args_list
+            if call.kwargs.get("database_id") == TASKS_DB
+        ]
+        return calls
+
+    def test_three_projects_cost_two_queries_not_four(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [
+                        _fake_project_page("p1", "Konzert", "2026-09-01"),
+                        _fake_project_page("p2", "Vesper", "2026-09-08"),
+                        _fake_project_page("p3", "Andacht", "2026-09-15"),
+                    ]
+                ),
+                _query_response([]),
+            ]
+            get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual(query.call_count, 2)
+
+    def test_the_task_query_filters_on_every_project_id(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [
+                        _fake_project_page("p1", "Konzert", "2026-09-01"),
+                        _fake_project_page("p2", "Vesper", "2026-09-08"),
+                    ]
+                ),
+                _query_response([]),
+            ]
+            get_upcoming_projects(date(2026, 9, 1))
+        conditions = self._task_query(query)[0].kwargs["filter"]["or"]
+        self.assertEqual(
+            conditions,
+            [
+                {"property": "Related to Projekte", "relation": {"contains": "p1"}},
+                {"property": "Related to Projekte", "relation": {"contains": "p2"}},
+            ],
+        )
+
+    def test_tasks_are_grouped_onto_the_project_they_relate_to(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [
+                        _fake_project_page("p1", "Konzert", "2026-09-01"),
+                        _fake_project_page("p2", "Vesper", "2026-09-08"),
+                    ]
+                ),
+                _query_response(
+                    [
+                        _fake_task_page("Programm", "2026-08-20", ["p1"]),
+                        _fake_task_page("Liedzettel", "2026-08-25", ["p2"]),
+                    ]
+                ),
+            ]
+            projects = get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual([t["name"] for t in projects[0]["tasks"]], ["Programm"])
+        self.assertEqual([t["name"] for t in projects[1]["tasks"]], ["Liedzettel"])
+
+    def test_a_task_related_to_two_projects_appears_under_both(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [
+                        _fake_project_page("p1", "Konzert", "2026-09-01"),
+                        _fake_project_page("p2", "Vesper", "2026-09-08"),
+                    ]
+                ),
+                _query_response(
+                    [_fake_task_page("Noten kopieren", "2026-08-20", ["p1", "p2"])]
+                ),
+            ]
+            projects = get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual([t["name"] for t in projects[0]["tasks"]], ["Noten kopieren"])
+        self.assertEqual([t["name"] for t in projects[1]["tasks"]], ["Noten kopieren"])
+
+    def test_hyphenated_and_bare_relation_ids_match(self):
+        """Notion returns page ids both with and without hyphens depending on
+        context, so the grouping compares one normalised form."""
+        page_id = "1a2b3c4d-0000-4000-8000-000000000001"
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response([_fake_project_page(page_id, "Konzert", "2026-09-01")]),
+                _query_response(
+                    [
+                        _fake_task_page(
+                            "Programm", "2026-08-20", [page_id.replace("-", "")]
+                        )
+                    ]
+                ),
+            ]
+            projects = get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual([t["name"] for t in projects[0]["tasks"]], ["Programm"])
+
+    def test_no_open_projects_means_no_task_query_at_all(self):
+        """An empty `or` array is a Notion error, and there is nothing to
+        ask about anyway."""
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.return_value = _query_response([])
+            self.assertEqual(get_upcoming_projects(date(2026, 9, 1)), [])
+        self.assertEqual(self._task_query(query), [])
+
+    def test_a_multi_page_task_response_is_paged_through(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response([_fake_project_page("p1", "Konzert", "2026-09-01")]),
+                _query_response(
+                    [_fake_task_page("Programm", "2026-08-20", ["p1"])],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response([_fake_task_page("Plakate", "2026-08-27", ["p1"])]),
+            ]
+            projects = get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual(
+            [t["name"] for t in projects[0]["tasks"]], ["Programm", "Plakate"]
+        )
+
+    def test_get_historical_projects_uses_the_same_single_task_query(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [
+                        _fake_project_page("p1", "Konzert 2025", "2025-09-01"),
+                        _fake_project_page("p2", "Vesper 2025", "2025-09-08"),
+                    ]
+                ),
+                _query_response([_fake_task_page("Programm", "2025-08-20", ["p2"])]),
+            ]
+            projects = get_historical_projects()
+        self.assertEqual(query.call_count, 2)
+        self.assertEqual(projects[0]["tasks"], [])
+        self.assertEqual([t["name"] for t in projects[1]["tasks"]], ["Programm"])
+
+
+class ProjectlessAndProjectReadsPaginateTest(SimpleTestCase):
+    """#196/#225: Notion caps a query at 100 rows and signals the cut with
+    has_more. get_unassigned_tasks is the one to watch — it is the #53
+    "Kleinkram" bucket, nothing ever removes rows from it, and at 70 rows it
+    is 70% of the way to tasks silently disappearing from the dashboard."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_get_unassigned_tasks_pages_through_every_result(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [_fake_task_page("Blumen besorgen", "2026-09-01")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response(
+                    [_fake_task_page("Kerzen nachbestellen", "2026-09-02")]
+                ),
+            ]
+            tasks = get_unassigned_tasks(date(2026, 8, 31))
+        self.assertEqual(
+            [t["name"] for t in tasks], ["Blumen besorgen", "Kerzen nachbestellen"]
+        )
+
+    def test_get_upcoming_projects_pages_through_every_project(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.side_effect = [
+                _query_response(
+                    [_fake_project_page("p1", "Konzert", "2026-09-01")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response([_fake_project_page("p2", "Vesper", "2026-09-08")]),
+                _query_response([]),
+            ]
+            projects = get_upcoming_projects(date(2026, 9, 1))
+        self.assertEqual([p["name"] for p in projects], ["Konzert", "Vesper"])
+
+    def test_the_idempotency_read_in_create_tasks_pages_too(self):
+        """create_tasks keeps the single-project read; unpaged, its skip-what-
+        exists check would silently stop working past 100 tasks."""
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.side_effect = [
+                _query_response(
+                    [_fake_task_page("Programm festlegen", "2026-08-20")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response([_fake_task_page("Plakate aushängen", "2026-08-27")]),
+            ]
+            create_tasks(
+                "project-id",
+                [
+                    {"name": "Programm festlegen", "date": "2026-08-20"},
+                    {"name": "Plakate aushängen", "date": "2026-08-27"},
+                ],
+            )
+        self.assertEqual(instance.pages.create.call_count, 0)
