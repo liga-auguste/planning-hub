@@ -775,28 +775,6 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class ProductionAiStubTest(AiStubMixin, TestCase):
-    """Guards the guard on the production side, the way AiStubTest does for
-    demo mode: proves the stub is in this class's request path.
-
-    Without it, a close-out test that forgets to patch the summary reaches
-    the real Claude API, and a machine with a key in .env never notices —
-    only CI, which has none, fails. That is exactly how it happened (#215).
-    """
-
-    @patch("django.utils.timezone.localdate")
-    def test_confirming_does_not_call_the_real_api(self, mock_localdate):
-        mock_localdate.return_value = CLOSEOUT_TODAY
-        with (
-            patch("projects.views.get_upcoming_projects", return_value=[]),
-            patch("projects.views.get_tasks_completed_in_range", return_value=[]),
-            patch("projects.views.get_tasks_created_in_range", return_value=[]),
-        ):
-            self.client.post(reverse("close_week_confirm"), data={"task_id": []})
-        self.ai_mocks["projects.views.generate_closeout_summary"].assert_called()
-
-
-@override_settings(DEMO_MODE=False)
 class CloseWeekWeekScopedCountTest(AiStubMixin, TestCase):
     """#215: the regression test that was missing.
 

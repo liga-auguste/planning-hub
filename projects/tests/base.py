@@ -58,15 +58,11 @@ def _summary_data(marker="Zusammenfassung läuft"):
 
 
 class AiStubMixin:
-    """Stubs the Claude API — no test may make a real call.
-
-    Mixed into a TestCase rather than owned by DemoModeTestCase, because a
-    production-mode class needs the same guarantee without DEMO_MODE=True.
-    Getting it from the class instead of from a patch inside each test is the
-    whole point: two close-out tests once reached the real API because they
-    simply left the patch out (#215), and that is invisible on a machine
-    whose .env carries a key — only CI, which has none, failed. A guarantee
-    every test has to remember is not one.
+    """Stubs the Claude API — no test may make a real call. A mixin rather
+    than part of DemoModeTestCase, because production-mode classes need the
+    same guarantee without DEMO_MODE=True: two close-out tests reached the
+    real API by leaving the patch out, which a machine with a key in .env
+    never notices (#215).
     """
 
     def setUp(self):
