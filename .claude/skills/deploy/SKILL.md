@@ -1,21 +1,21 @@
 ---
 name: deploy
 description: >-
-  Deploy the demo or production stack after a merge to main. Checks for
+  Deploy the demo and production stacks after a merge to main. Checks for
   local drift, pulls, rebuilds, and verifies the live site responds. Use
-  when deploying, pushing a release live, or updating one of the two
-  running stacks.
-argument-hint: "[demo|production]"
+  when deploying, pushing a release live, or updating one or both of the
+  two running stacks. No argument deploys both.
+argument-hint: "[d|p|both] — empty deploys both"
 allowed-tools: Bash(ssh *) Bash(git status) Bash(git diff *) Bash(git log *) Bash(git checkout *) Bash(docker compose *) Bash(curl *) Read
 ---
 
 # Deploy — Deploy a Stack
 
-Deploy the demo or production stack and verify it came up.
+Deploy the demo and production stacks and verify they came up.
 
 ## Context
 
-- Stack: `$ARGUMENTS` (`demo` or `production`)
+- Stacks: `$ARGUMENTS` — see step 1. Empty means both.
 - Host details: `.claude/skills/deploy/hosts.md` (gitignored — real SSH
   targets, paths, URLs, and anything else that is true of one machine
   rather than of this project). If it doesn't exist yet, create it first:
@@ -24,14 +24,35 @@ Deploy the demo or production stack and verify it came up.
 
 ## Steps
 
-### 1. Confirm the target stack
+### 1. Resolve the target
 
-If `$ARGUMENTS` doesn't name `demo` or `production`, ask before doing
-anything else. The two stacks run different databases (SQLite vs
-PostgreSQL) on different data (fixture vs real) — guessing wrong is not a
-safe default.
+Deploying both is the common case, so that is what an empty argument
+means:
+
+| Argument | Stacks |
+|---|---|
+| *(empty)*, `b`, `both`, `all` | demo, then production |
+| `d`, `demo` | demo only |
+| `p`, `prod`, `production` | production only |
+
+Anything else is a typo, not a stack — ask rather than guess. The two
+stacks run different databases (SQLite vs PostgreSQL) on different data
+(fixture vs real), so a wrong guess is not a safe default.
+
+**The order is not cosmetic.** Demo goes first because it is the public,
+fixture-backed stack: if the merge doesn't build or the app doesn't come
+up, that is the stack to find it on. Production starts only once demo's
+step 5 has returned its expected code — see step 5 for what to do when it
+doesn't.
+
+Both stacks pull `origin/main`, whatever branch happens to be checked out
+locally. To deploy something that isn't on `main` yet, this is the wrong
+tool.
 
 ### 2. Preconditions
+
+Run steps 2 to 5 for one stack, then the next. Don't interleave them: a
+half-deployed pair is the state that is hardest to read afterwards.
 
 Read the target stack's entry in `hosts.md` for its SSH target, path, URL,
 compose file, and its optional `Shell` (step 3). Required `.env` keys on the
@@ -109,7 +130,16 @@ Expect `200` for demo (public). Expect `401` for production (Basic Auth,
 no credentials supplied) — that confirms nginx is serving and auth is
 enforced, not that the app itself is healthy.
 
+**On a both-stacks run, an unexpected code here ends the run.** Do not go
+on to production: it keeps serving its previous build, which is where you
+want it while a bad build is still unexplained. Report which stack sits on
+which commit before anything else — that is the fact the next decision
+needs, and it is the one that is easy to lose.
+
 ### 6. Rollback
+
+Roll back only the stack that is actually broken — the two are independent
+deploys and a healthy one is not evidence about the other.
 
 The only rollback that exists today: check out the previous commit on the
 host and rebuild. Database backup/restore is out of scope (tracked
