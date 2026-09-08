@@ -213,6 +213,30 @@ arrives anyway gets the honest miss rather than a silent one.
 Rescheduling stays available: a new date visibly moves the task in or out of the
 forced-done range, so it is not the contradiction the toggle is.
 
+### The page owns its CSRF token
+
+Removing the toggle forms removed something else with them. Every JavaScript write on
+this page reads its token with `document.querySelector('[name=csrfmiddlewaretoken]')` —
+the Zeitreise (`setSimDate`, `preloadOne`), `reschedule()` and the day-column drag. None
+of them belongs to a form, so the token they were finding came from whichever
+`{% csrf_token %}` happened to be rendered nearby: the toggle buttons' own in a demo
+session, `↻ Aktualisieren`'s in production (and that one is inside `{% if not demo_mode %}`).
+
+With the toggle forms gone under a moment, a demo session rendered no token at all.
+`CSRF` fell back to `''`, every Zeitreise POST came back **403** — and `setSimDate`
+reloads without checking the response, so the moment tiles and "Zurück zu heute" looked
+dead rather than broken and the visitor was stuck inside the moment. `reschedule()` and
+the drag handler read `.value` off the same lookup with no `?.`, so they would have
+thrown outright.
+
+`dashboard.html` now renders one `{% csrf_token %}` of its own at the top of the content
+block, before any form. A hidden input outside a form is valid HTML and carries the same
+value, so the lookup the JavaScript already does finds a token that is always there
+instead of one that depends on which forms this particular render contains. The
+assertion is covered both ways — with a moment and without — and it matches on the
+rendered `<input>`, not on the string `csrfmiddlewaretoken`, which every one of those JS
+lines also spells.
+
 ## When a reload still happens
 
 | Action | Response | Client |
@@ -326,5 +350,7 @@ change, and the bump is mandatory rather than cosmetic.
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
 untouched session plan, the dashboard rendering no `toggle-form`, the dot still rendering
-with its urgency, the unchanged behaviour with no moment active, and the reschedule that
-deliberately stays.
+with its urgency, the unchanged behaviour with no moment active, the reschedule that
+deliberately stays, and the page's own CSRF token — present under a moment, and rendered
+ahead of the toggle forms without one, so it cannot go back to being a side effect of
+whichever form happens to render.

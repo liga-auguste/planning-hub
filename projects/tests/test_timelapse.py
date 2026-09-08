@@ -626,6 +626,8 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
     rescheduling to where it persists (#10 §5), applied to visibility.
     """
 
+    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
+
     def given_two_tasks_around_a_moment(self):
         """A moment with one task due before it (forced done) and one after
         it (still open) — so the dot's own state is observable either way."""
@@ -703,6 +705,35 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
         self.assertContains(response, 'class="toggle-form"')
         self.assertEqual(self.post_toggle("demo-session-0", done=True).status_code, 200)
         self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_the_page_carries_a_csrf_token_during_a_moment(self):
+        """The regression this fix's first cut caused: every JavaScript write
+        on this page reads the token with
+        document.querySelector('[name=csrfmiddlewaretoken]'), and in a demo
+        session the only tokens rendered were the toggle forms' own. Removing
+        those left the Zeitreise POSTs with an empty token — 403, while
+        setSimDate reloads regardless, so the tiles and "Zurück zu heute"
+        read as dead and the visitor was stuck inside the moment."""
+        self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'class="toggle-form"')
+        # The rendered input, not the string: every JS line that reads the
+        # token spells "csrfmiddlewaretoken" too, so a bare substring check
+        # passes with no token on the page at all.
+        self.assertContains(response, self.TOKEN_INPUT)
+
+    def test_the_page_token_does_not_depend_on_the_toggle_forms(self):
+        """Asserted with no moment too, so the token cannot quietly go back
+        to being a side effect of whichever form happens to render."""
+        self.given_two_tasks_around_a_moment()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(self.TOKEN_INPUT, html)
+        self.assertLess(
+            html.index(self.TOKEN_INPUT),
+            html.index('class="toggle-form"'),
+            "the page's own token must come first — querySelector takes the "
+            "first match, and it is the one that is always there",
+        )
 
     def test_rescheduling_is_still_offered_during_a_moment(self):
         """Unlike a toggle, a new date takes visible effect — it moves the
