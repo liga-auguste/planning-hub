@@ -1,5 +1,6 @@
 # Development tooling. Deliberately separate from requirements.txt, which the
-# Dockerfile installs — a linter has no business in the production image.
+# Dockerfile installs — neither a linter nor a coverage tool belongs in the
+# production image.
 #
 #   pip install -r requirements-dev.txt
 #   ruff format .         # format in place
@@ -9,3 +10,15 @@
 # so a new ruff release cannot turn an unrelated pull request red. Bumping it is
 # a deliberate commit, not a surprise.
 ruff==0.16.2
+
+# Coverage runs locally only — no CI job consumes a report, so this pin keeps
+# successive measurements comparable rather than keeping a workflow green.
+#
+#   coverage run manage.py test projects --noinput
+#   coverage report --omit='*/tests/*'
+#   coverage html --omit='*/tests/*'   # browsable, writes htmlcov/index.html
+#
+# The '--omit' is not cosmetic: the 5,505 lines of test code execute in full by
+# definition and lift the reported total from 97% to 99%, hiding the number the
+# measurement is actually for. Both artefacts (.coverage, htmlcov/) are ignored.
+coverage==7.16.0
