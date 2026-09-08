@@ -257,6 +257,44 @@ cp .env.example .env  # fill in ANTHROPIC_API_KEY + SECRET_KEY
 docker compose -f docker-compose.demo.yml up --build -d
 ```
 
+**TLS renewal goes through the running nginx, not around it.** The nginx
+container holds ports 80 and 443 continuously, so certbot's `standalone`
+authenticator — which binds those ports itself — cannot renew while the stack
+is up. `nginx-demo.conf` therefore serves `/.well-known/acme-challenge/` from
+`/var/www/certbot`, mounted read-only into the container, and the certificate
+is issued with `--webroot -w /var/www/certbot` so renewals use that path
+instead (#202).
+
+That alone is not enough. nginx reads certificates **at startup** and keeps
+the file it loaded, so after a successful renewal it would go on serving the
+old certificate until something restarted the stack. A deploy hook closes
+that gap:
+
+```sh
+# /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh, chmod +x
+#!/bin/sh
+[ "$RENEWED_LINEAGE" = "/etc/letsencrypt/live/<your domain>" ] || exit 0
+/usr/bin/docker compose -f <path>/docker-compose.demo.yml exec -T nginx nginx -s reload 2>&1
+```
+
+Three details worth keeping. Hooks in `renewal-hooks/deploy/` run for *every*
+renewed lineage, hence the guard. The `2>&1` looks cosmetic and is not:
+`nginx -s reload` writes its success notice to stderr, and certbot reports
+anything on stderr as `Hook 'deploy-hook' ran with error output`, so without
+it every successful renewal reads as a failed hook in the log. It costs
+nothing — certbot judges hooks by exit code, which the redirect does not
+touch. And the hook lives only on the host, the way `.htpasswd` does on the
+production stack: it names an absolute host path, and this project keeps
+those out of the repository (they belong in the gitignored
+`.claude/skills/deploy/hosts.md`).
+
+To change any of this, use `certbot reconfigure --cert-name <name> …` rather
+than editing `/etc/letsencrypt/renewal/*.conf` by hand (which certbot's own
+documentation discourages). It runs a test renewal against the staging server
+and saves the new options only if that passes. Pass `--run-deploy-hooks` as
+well — a dry run skips deploy hooks by default, so without it the test would
+never exercise the hook it is supposed to prove.
+
 ### Docker (production)
 
 ```bash

@@ -127,20 +127,24 @@ Leave the wrapper off for any stack whose `hosts.md` entry has no `Shell`.
 
 ### 4. Stack-specific gotchas
 
-- **demo**: HTTPS certificate renewal is a latent problem, verified on the
-  host on 2026-09-03. The `certbot.timer` systemd unit (twice daily, the
-  distro package default — no crontab entry) runs `certbot renew` with
-  `authenticator = standalone`, which binds ports 80/443 itself while it
-  runs. But `docker-compose.demo.yml` maps those same host ports to the
-  nginx container, and `/etc/letsencrypt/renewal-hooks/{pre,deploy,post}`
-  are all empty — nothing stops the stack first. Every renewal run logged
-  so far has been a no-op ("not yet due"); the cert expires 2026-11-02, so
-  the first real attempt (30 days out, ~2026-10-03) is likely to fail on
-  a port-bind conflict, with the demo running on an expiring cert
-  afterward. Not fixed here — tracked in #202: either switch the
-  authenticator to work through the running container (webroot/nginx
-  plugin) or add a pre/deploy hook that stops/restarts compose around the
-  renewal.
+- **demo**: HTTPS certificate renewal **needs the stack running**, which is
+  the opposite of what it needed before #202. `certbot.timer` (twice daily)
+  renews through `authenticator = webroot`, so the ACME challenge is served
+  by the nginx container out of `/var/www/certbot` — the `location
+  /.well-known/acme-challenge/` block in `nginx-demo.conf`. A deploy hook
+  then reloads nginx, because it reads certificates at startup and would
+  otherwise keep serving the old one after a successful renewal. Both live
+  on the host, not in this repo; the README's "Docker (demo)" section says
+  where and why.
+
+  So: **do not leave the demo stack stopped**. A renewal attempt with nginx
+  down fails the challenge. That is far less likely to bite than the old
+  arrangement (the timer retries twice daily across a 30-day window, and
+  compose restarts the stack unless it was stopped on purpose), but it is
+  the failure mode to remember. To change the certificate setup, use
+  `certbot reconfigure --cert-name <name> …`: it runs a staging test first
+  and persists nothing unless that test passes. Add `--run-deploy-hooks`,
+  or the test silently skips the hook it is meant to prove.
 - **production**: `.htpasswd` must exist on the host before the first
   start, or nginx fails in a way that doesn't say "no such file" — see the
   README's "Docker (production)" section for why and how to create it.
