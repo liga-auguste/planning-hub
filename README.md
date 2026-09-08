@@ -271,8 +271,8 @@ old certificate until something restarted the stack. A deploy hook closes
 that gap:
 
 ```sh
-# /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh, chmod +x
 #!/bin/sh
+# /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh, chmod +x
 [ "$RENEWED_LINEAGE" = "/etc/letsencrypt/live/<your domain>" ] || exit 0
 /usr/bin/docker compose -f <path>/docker-compose.demo.yml exec -T nginx nginx -s reload 2>&1
 ```
@@ -294,6 +294,25 @@ documentation discourages). It runs a test renewal against the staging server
 and saves the new options only if that passes. Pass `--run-deploy-hooks` as
 well — a dry run skips deploy hooks by default, so without it the test would
 never exercise the hook it is supposed to prove.
+
+**The first certificate cannot take this path.** The `listen 443` block names
+`/etc/letsencrypt/live/<your domain>/fullchain.pem`, and nginx refuses to
+start while that file is absent — so on a host that has no certificate yet
+there is no nginx to answer the challenge that would create one. Issue it
+once with the stack down and certbot binding port 80 itself, then hand
+renewal over to webroot:
+
+```sh
+docker compose -f docker-compose.demo.yml down
+certbot certonly --standalone -d <your domain>
+docker compose -f docker-compose.demo.yml up -d
+certbot reconfigure --cert-name <your domain> \
+    --authenticator webroot --webroot-path /var/www/certbot --run-deploy-hooks
+```
+
+Write the deploy hook before that last command, not after — it is what
+`--run-deploy-hooks` is there to exercise. From then on renewal runs against
+the stack rather than around it, and the stack stays up.
 
 ### Docker (production)
 
