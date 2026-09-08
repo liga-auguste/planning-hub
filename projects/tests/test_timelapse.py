@@ -1,5 +1,6 @@
 """Zeitreise: generated moments, the simulated date and the preloader."""
 
+import json
 from datetime import (
     UTC,
     date,
@@ -611,3 +612,108 @@ class TimelapseBarSharedAcrossViewsTest(DemoModeTestCase):
     def test_absent_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'class="timelapse-bar"')
+
+
+class NoToggleDuringAMomentTest(DemoModeTestCase):
+    """#217: dashboard() renders a moment by forcing every task due by
+    sim_date to done on a deep copy — that is what a moment *is*. A toggle
+    therefore persisted into the session and changed nothing the visitor
+    could see: the clicked dot un-struck itself while the Kanban card, the
+    week bar, the day counters and the sidebar ring all still read it as
+    done, and a reload put the strike-through back. A visitor cannot tell
+    "nothing happened" from "it happened and you cannot see it", so the
+    interaction goes while the moment is on — the same rule that keeps
+    rescheduling to where it persists (#10 §5), applied to visibility.
+    """
+
+    def given_two_tasks_around_a_moment(self):
+        """A moment with one task due before it (forced done) and one after
+        it (still open) — so the dot's own state is observable either way."""
+        moment = date.today() + timedelta(days=10)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (moment - timedelta(days=3)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Programmhefte drucken",
+                    "date": (moment + timedelta(days=3)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        self.given_timelapse_moments(moment.isoformat())
+        return moment
+
+    def given_active_moment(self):
+        moment = self.given_two_tasks_around_a_moment()
+        session = self.client.session
+        session["demo_sim_date"] = moment.isoformat()
+        session.save()
+        return moment
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_a_toggle_during_a_moment_is_a_404(self):
+        self.given_active_moment()
+        self.assertEqual(self.post_toggle("demo-session-0", done=True).status_code, 404)
+
+    def test_the_rejected_toggle_writes_nothing_to_the_session_plan(self):
+        self.given_active_moment()
+        self.post_toggle("demo-session-0", done=True)
+        task = self.client.session["demo_plan"]["tasks"][0]
+        self.assertFalse(task["done"])
+        self.assertIsNone(task.get("completed_date"))
+
+    def test_unchecking_a_forced_done_task_is_a_404_too(self):
+        """The task the issue observed: due before the moment, so it renders
+        as done without ever having been written that way."""
+        self.given_active_moment()
+        self.assertEqual(
+            self.post_toggle("demo-session-0", done=False).status_code, 404
+        )
+
+    def test_the_dashboard_offers_no_toggle_during_a_moment(self):
+        self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, 'class="toggle-form"')
+
+    def test_the_dot_still_renders_with_its_urgency(self):
+        """Only the affordance goes. The status indicator is what the whole
+        moment exists to show, so it stays — as a span, which .dot styles
+        identically (only button.dot carries cursor, border and :hover)."""
+        self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, '<span class="dot done')
+        self.assertContains(response, '<span class="dot ok')
+
+    def test_the_toggle_is_back_without_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'class="toggle-form"')
+        self.assertEqual(self.post_toggle("demo-session-0", done=True).status_code, 200)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_rescheduling_is_still_offered_during_a_moment(self):
+        """Unlike a toggle, a new date takes visible effect — it moves the
+        task out of the forced-done range or leaves it outside. Only the
+        toggle contradicts itself, so only the toggle goes."""
+        self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'title="Datum ändern"')
+        moved = self.client.post(
+            reverse("reschedule_task", args=["demo-session-1"]),
+            data=json.dumps({"date": (date.today() + timedelta(days=40)).isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(moved.status_code, 200)

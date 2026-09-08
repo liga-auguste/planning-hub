@@ -42,6 +42,10 @@
            real project links — single-project headings carry none (#122). */
         .ai-card ul > li > strong.ai-project-link::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
         .ai-card .toggle-form { display: inline; margin-right: 2px; }
+        /* #217: during a moment the dot renders as a bare span with no
+           form around it, so the form's own 2px has to live on the dot
+           itself (8px from .dot) to keep the gap identical. */
+        .ai-card span.dot { margin-right: 10px; }
         .ai-card ul ul li .dot { vertical-align: middle; }
         .ai-error { color: var(--color-text-quaternary); font-style: italic; }
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
@@ -307,10 +311,7 @@
                     <ul>
                         {% for task in block.tasks %}
                         <li>
-                            <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
-                                {% csrf_token %}
-                                <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
-                            </form>
+                            {% include "projects/_task_dot.html" %}
                             <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
                             {% if task.due %}<span class="task-due {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
                         </li>
@@ -454,10 +455,7 @@
         {% for task in project.tasks %}
         <div class="task-row">
             <div class="task-left">
-                <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
-                    {% csrf_token %}
-                    <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
-                </form>
+                {% include "projects/_task_dot.html" %}
                 <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
                 {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
             </div>

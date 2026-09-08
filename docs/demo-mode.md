@@ -210,6 +210,23 @@ in a table — so `cache.get()` already returns an object graph no other request
 `dashboard()` has always relied on that (it writes `display_name` onto its own cached projects),
 so a copy here would have paid for the same guarantee twice.
 
+### A moment is a view, not a work surface
+
+With a moment active `dashboard()` marks every task due on or before it done on a deep
+copy, so the page is a picture of the plan at that date. Checking a task off there wrote
+into `demo_plan` correctly and changed nothing visible: the render overrode it again on
+the spot, so the clicked dot un-struck itself while the Kanban card, the week bar, the day
+counters and the sidebar ring all still read the task as done — and a reload put the
+strike-through back. A visitor cannot tell "nothing happened" from "it happened and you
+cannot see it" (#217).
+
+So the toggle is not offered while a moment is on. `_task_dot.html` renders the dot as a
+plain `<span>` instead of the `<form>`/`<button>` — the status colour stays, the
+affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
+projects already get. Rescheduling stays: a new date visibly moves the task in or out of
+the forced-done range, so it is not the same contradiction. Full reasoning in
+[`docs/dashboard-write-paths.md`](dashboard-write-paths.md).
+
 ### The Zeitreise stays a dashboard device
 
 The sidebar's progress ring reads `timezone.localdate()` on the three standalone pages, so with a
