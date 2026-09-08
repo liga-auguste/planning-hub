@@ -1,0 +1,67 @@
+name: Demo certificate
+
+# Watches the certificate the public demo actually serves, so that a failed
+# renewal cannot pass unnoticed (#202 fixed the renewal itself; nothing on the
+# host reports it when a renewal fails).
+#
+# Why a GitHub runner and not a scheduled agent elsewhere: a runner reaches the
+# open internet directly. Sandboxes that route through a TLS-terminating proxy
+# read the proxy's certificate instead of ours — always ~30 days from expiry,
+# which is a permanent false all-clear. The issuer assertion below is what makes
+# that failure loud instead of silent, wherever this ends up running.
+on:
+  schedule:
+    # 06:00 UTC daily, all year. A Let's Encrypt certificate lasts 90 days, so a
+    # window pinned to the months around one expiry goes blind the moment that
+    # renewal succeeds and pushes the next expiry outside it. Actions minutes are
+    # free on public repositories, so running year-round costs nothing and covers
+    # every cycle rather than only the first.
+    - cron: "0 6 * * *"
+  workflow_dispatch:   # so the check can be run by hand after touching certbot
+
+jobs:
+  expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HOST: planninghub.ligaauguste.de
+      # Renewal opens 30 days before expiry and certbot retries twice a day. At
+      # 21 days it has had nine days to succeed, and there are still three weeks
+      # left to fix it by hand — early enough to act, late enough not to cry wolf.
+      MIN_DAYS: 21
+    steps:
+      - name: The demo answers at all
+        run: |
+          # Retried, so that one transient timeout or 5xx does not raise an alert
+          # about a certificate that is perfectly fine. curl retries connection
+          # errors and 5xx but still reports the final status, so the comparison
+          # below is unchanged; three failed attempts mean the demo is really down.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+                      --retry 2 --retry-all-errors --retry-delay 5 "https://$HOST/")
+          echo "HTTP $code"
+          [ "$code" = "200" ] || { echo "::error::$HOST answered $code, not 200"; exit 1; }
+
+      - name: The certificate is ours and not about to expire
+        run: |
+          set -o pipefail
+          cert=$(echo | openssl s_client -servername "$HOST" -connect "$HOST:443" 2>/dev/null \
+                 | openssl x509 -noout -enddate -issuer)
+          echo "$cert"
+
+          # Guards against reading someone else's certificate — a TLS-intercepting
+          # proxy in front of this job would otherwise report its own expiry as ours.
+          case "$cert" in
+            *"Let's Encrypt"*) ;;
+            *) echo "::error::Issuer is not Let's Encrypt — this is not our certificate"; exit 1 ;;
+          esac
+
+          end=${cert#*notAfter=}
+          end=${end%%$'\n'*}
+          days=$(( ( $(date -d "$end" +%s) - $(date +%s) ) / 86400 ))
+          echo "Expires $end — $days days left (threshold $MIN_DAYS)"
+
+          if [ "$days" -le "$MIN_DAYS" ]; then
+            echo "::error::Only $days days left. The automatic renewal has not happened."
+            echo "On the host: certbot renew --dry-run --run-deploy-hooks, then /var/log/letsencrypt/letsencrypt.log"
+            exit 1
+          fi
