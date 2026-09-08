@@ -15,10 +15,10 @@ ruff==0.16.2
 # successive measurements comparable rather than keeping a workflow green.
 #
 #   coverage run manage.py test projects --noinput
-#   coverage report --omit='*/tests/*'
-#   coverage html --omit='*/tests/*'   # browsable, writes htmlcov/index.html
+#   coverage report
+#   coverage html   # browsable, writes htmlcov/index.html
 #
-# The '--omit' is not cosmetic: the 5,505 lines of test code execute in full by
-# definition and lift the reported total from 97% to 99%, hiding the number the
-# measurement is actually for. Both artefacts (.coverage, htmlcov/) are ignored.
+# No flags needed: what is measured and what is excluded lives in the
+# [tool.coverage.run] section of pyproject.toml, so a plain report is already
+# the honest number. Both artefacts (.coverage, htmlcov/) are gitignored.
 coverage==7.16.0
