@@ -11,11 +11,12 @@ name: Demo certificate
 # that failure loud instead of silent, wherever this ends up running.
 on:
   schedule:
-    # 06:00 UTC daily, October and November only. The certificate in place runs
-    # to 2026-11-02 and certbot's window opens 30 days before that, so October
-    # is when a failure would first show. Outside those months this repository
-    # has nothing to watch and the job would only burn minutes.
-    - cron: "0 6 * 10,11 *"
+    # 06:00 UTC daily, all year. A Let's Encrypt certificate lasts 90 days, so a
+    # window pinned to the months around one expiry goes blind the moment that
+    # renewal succeeds and pushes the next expiry outside it. Actions minutes are
+    # free on public repositories, so running year-round costs nothing and covers
+    # every cycle rather than only the first.
+    - cron: "0 6 * * *"
   workflow_dispatch:   # so the check can be run by hand after touching certbot
 
 jobs:
@@ -31,7 +32,12 @@ jobs:
     steps:
       - name: The demo answers at all
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "https://$HOST/")
+          # Retried, so that one transient timeout or 5xx does not raise an alert
+          # about a certificate that is perfectly fine. curl retries connection
+          # errors and 5xx but still reports the final status, so the comparison
+          # below is unchanged; three failed attempts mean the demo is really down.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+                      --retry 2 --retry-all-errors --retry-delay 5 "https://$HOST/")
           echo "HTTP $code"
           [ "$code" = "200" ] || { echo "::error::$HOST answered $code, not 200"; exit 1; }
 
