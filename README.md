@@ -1,5 +1,10 @@
 # Planning Hub
 
+[![Test](https://github.com/liga-auguste/planning-hub/actions/workflows/test.yml/badge.svg)](https://github.com/liga-auguste/planning-hub/actions/workflows/test.yml)
+[![Ruff](https://github.com/liga-auguste/planning-hub/actions/workflows/ruff.yml/badge.svg)](https://github.com/liga-auguste/planning-hub/actions/workflows/ruff.yml)
+![Coverage](coverage.svg)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 An AI-powered project planning assistant. Describe an event or project in plain language, get clarifying questions from Claude, review and edit a generated task plan with realistic deadlines — then write it directly to Notion and track everything on a live dashboard with AI-generated weekly summaries.
 
 > **Live demo:** [planninghub.ligaauguste.de](https://planninghub.ligaauguste.de) — no login required
@@ -328,6 +333,6 @@ docs/
 
 ## License
 
-MIT — built by [Liga Auguste](https://ligaauguste.de)
+[MIT](LICENSE) — built by [Liga Auguste](https://ligaauguste.de)
 
 The planner's tile icons are from [Lucide](https://lucide.dev), used under the ISC License, Copyright (c) Lucide Contributors.
