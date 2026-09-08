@@ -1,0 +1,25 @@
+{% comment %}
+The one place that decides whether a task's dot can be clicked.
+
+A Zeitreise moment is a rendering of a date: dashboard() forces every task
+due by sim_date to done on its own deep copy, which is what a moment *is*.
+A toggle under one therefore persisted into the session and still rendered
+the old state — the row un-struck itself while every count around it went
+on reading the task as done, and a reload put the strike-through back. A
+visitor cannot tell "nothing happened" from "it happened and you cannot see
+it", so the button goes while a moment is on (#217). Same rule as offering
+a reschedule only where it persists (#10 §5); here it is the visibility
+that is missing rather than the write.
+
+The dot itself stays: it is the status indicator the moment exists to show.
+Only button.dot carries cursor, border and :hover, so a span renders
+identically and loses exactly the affordance.
+
+Four surfaces render this dot — the AI summary's list item, the project
+section's task row, the Heute lists (_task_row.html) and the day-column
+card (_day_task_card.html) — which is why the condition lives here instead
+of four times over, the same reason applyTaskDone keeps one selector list.
+{% endcomment %}{% if sim_date %}<span class="dot {{ task.urgency }} {% if task.done %}done{% endif %}"></span>{% else %}<form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
+    {% csrf_token %}
+    <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
+</form>{% endif %}

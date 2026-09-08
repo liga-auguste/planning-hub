@@ -1,10 +1,7 @@
 {% load planner_tags %}
 <div class="task-row">
     <div class="task-left">
-        <form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
-            {% csrf_token %}
-            <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
-        </form>
+        {% include "projects/_task_dot.html" %}
         <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
         {% if task.project_name %}
         {% if task.project_id %}

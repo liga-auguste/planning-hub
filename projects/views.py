@@ -1287,7 +1287,16 @@ def toggle_task_view(request, task_id):
         # answering ok for a task that was never saved is worse than an
         # honest miss.
         sim_date, _ = _get_sim_date(request)
-        effective_today = sim_date or timezone.localdate()
+        # #217: a Zeitreise moment is a rendering of a date, not a place to
+        # check things off. dashboard() forces every task due by sim_date to
+        # done, so the write would land in the session and the page would
+        # still render exactly as before — and a visitor cannot tell that
+        # from nothing having happened. The templates offer no button while
+        # a moment is active (_task_dot.html); a POST arriving anyway is the
+        # same honest miss as an unknown task, refused before it writes.
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        today = timezone.localdate()
         plan = request.session.get("demo_plan")
         task = (
             next((t for t in plan["tasks"] if t["id"] == task_id), None)
@@ -1298,22 +1307,19 @@ def toggle_task_view(request, task_id):
             return JsonResponse({"error": "unknown task"}, status=404)
         task["done"] = done
         # #19: mirrors toggle_task's own Done/Erledigt am pairing in Notion.
-        task["completed_date"] = effective_today.isoformat() if done else None
+        task["completed_date"] = today.isoformat() if done else None
         request.session["demo_plan"] = plan
-        # Time travel counts here the way it does on the dashboard: the same
-        # deepcopy mutation, so the figures match what a reload would render.
-        project = copy.deepcopy(_build_session_project(plan))
-        if sim_date:
-            for plan_task in project["tasks"]:
-                if plan_task.get("due") and plan_task["due"] <= sim_date:
-                    plan_task["done"] = True
-        projects = _annotate_tasks([project], effective_today)
+        # _build_session_project builds its task dicts fresh out of the
+        # session, so there is nothing shared to copy before annotating —
+        # the deepcopy this used to make existed only for the forced-done
+        # mutation above, which no longer happens here.
+        projects = _annotate_tasks([_build_session_project(plan)], today)
         figures = _toggle_answer(
             projects,
             [],
             task_id,
-            effective_today,
-            _parse_week_start(data, iso_week_bounds(effective_today)[0]),
+            today,
+            _parse_week_start(data, iso_week_bounds(today)[0]),
             # #183: a demo session's bar counts the whole plan, not the week.
             whole_plan=True,
         )

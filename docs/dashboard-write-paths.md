@@ -1,7 +1,8 @@
 # Dashboard Write Paths
 
 Implements [Issue #210](https://github.com/liga-auguste/planning-hub/issues/210),
-[Issue #199](https://github.com/liga-auguste/planning-hub/issues/199) and the client
+[Issue #199](https://github.com/liga-auguste/planning-hub/issues/199),
+[Issue #217](https://github.com/liga-auguste/planning-hub/issues/217) and the client
 half of [Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
 
 ## Context
@@ -180,6 +181,62 @@ confirmed — a 500 the client reads as "it failed" for a write that happened. O
 range is one more value these parsers cannot use, handled where they already handle
 the others.
 
+## Which writes are offered at all
+
+A write is offered where it takes effect, and refused where it would not — the same rule
+either way, so a click never has to be interpreted.
+
+| Situation | Toggle | Reschedule |
+|---|---|---|
+| Production, a Notion task | yes | yes |
+| A demo session's own plan | yes | yes |
+| A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) |
+| A demo session under a Zeitreise moment | no — read-only, 404 (#217) | yes |
+
+The last row is the one that is not about persistence. `dashboard()` renders a moment by
+forcing every task due by `sim_date` to done on a deep copy — that is what a moment *is*,
+a picture of the plan at that date. A toggle under one wrote into the session correctly
+and every derived number correctly ignored it, because the render overrides it anyway. So
+the write persisted and nothing on screen moved, and a reload put the strike-through back.
+A visitor cannot tell "nothing happened" from "it happened and you cannot see it".
+
+`_task_dot.html` is the single place that decides it: with `sim_date` set the dot renders
+as a `<span>`, without it as the `<form>` and `button` it always was. Four surfaces include
+it — the AI summary's list item, the project section's task row, `_task_row.html`'s Heute
+rows and `_day_task_card.html`'s day card — for the same reason `applyTaskDone` keeps one
+selector list rather than four call sites. Only `button.dot` carries `cursor`, `border` and
+`:hover`, so the span keeps the status colour and loses exactly the affordance;
+`.ai-card span.dot` picks up the 2px the vanished form used to contribute.
+`toggle_task_view` refuses the same case server-side, before it writes, so a POST that
+arrives anyway gets the honest miss rather than a silent one.
+
+Rescheduling stays available: a new date visibly moves the task in or out of the
+forced-done range, so it is not the contradiction the toggle is.
+
+### The page owns its CSRF token
+
+Removing the toggle forms removed something else with them. Every JavaScript write on
+this page reads its token with `document.querySelector('[name=csrfmiddlewaretoken]')` —
+the Zeitreise (`setSimDate`, `preloadOne`), `reschedule()` and the day-column drag. None
+of them belongs to a form, so the token they were finding came from whichever
+`{% csrf_token %}` happened to be rendered nearby: the toggle buttons' own in a demo
+session, `↻ Aktualisieren`'s in production (and that one is inside `{% if not demo_mode %}`).
+
+With the toggle forms gone under a moment, a demo session rendered no token at all.
+`CSRF` fell back to `''`, every Zeitreise POST came back **403** — and `setSimDate`
+reloads without checking the response, so the moment tiles and "Zurück zu heute" looked
+dead rather than broken and the visitor was stuck inside the moment. `reschedule()` and
+the drag handler read `.value` off the same lookup with no `?.`, so they would have
+thrown outright.
+
+`dashboard.html` now renders one `{% csrf_token %}` of its own at the top of the content
+block, before any form. A hidden input outside a form is valid HTML and carries the same
+value, so the lookup the JavaScript already does finds a token that is always there
+instead of one that depends on which forms this particular render contains. The
+assertion is covered both ways — with a moment and without — and it matches on the
+rendered `<input>`, not on the string `csrfmiddlewaretoken`, which every one of those JS
+lines also spells.
+
 ## When a reload still happens
 
 | Action | Response | Client |
@@ -236,6 +293,11 @@ These are decisions, not omissions.
   mean a second date format in the API for a tooltip that repeats the column the card
   already sits in. The visible surfaces — the column itself, the row's label, the board's
   label — all move.
+- **A moment stays read-only rather than explaining itself.** Withholding the button was
+  chosen over keeping it and flashing `action-failed`, or writing a notice: a moment is a
+  view of a past date, and a control that is always going to refuse is worse than no
+  control. `my_plan` is unaffected — it has never read `sim_date` at all, so its own
+  toggle (`toggle_session_task`) is untouched.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a
@@ -284,3 +346,11 @@ change, and the bump is mandatory rather than cosmetic.
 - `RegeneratingASummaryDoesNotUndoAConcurrentWriteTest` — the second request runs
   inside the stubbed Claude call, which is exactly where it would land; a toggle
   survives, a reschedule takes the summary with it, a bust is not resurrected
+
+`projects/tests/test_timelapse.py` carries the moment half in
+`NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
+untouched session plan, the dashboard rendering no `toggle-form`, the dot still rendering
+with its urgency, the unchanged behaviour with no moment active, the reschedule that
+deliberately stays, and the page's own CSRF token — present under a moment, and rendered
+ahead of the toggle forms without one, so it cannot go back to being a side effect of
+whichever form happens to render.
