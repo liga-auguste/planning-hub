@@ -42,8 +42,14 @@
         .ai-card ul > li:first-child { border-top: none; }
         .ai-card ul ul { padding-left: 0; margin: 4px 0 6px; }
         /* border-top: none — nested lis also match .ai-card ul > li above and
-           would inherit its separator line. */
-        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0 2px 16px; border-top: none; }
+           would inherit its separator line.
+           No left indent: every other task dot on the page sits flush, and
+           two columns of dots at two different offsets read as two different
+           kinds of thing. The project heading above each run carries the
+           grouping on its own weight, which is all it ever needed — the
+           indent was doing that job a second time. Same change /mein-plan/'s
+           summary took. */
+        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
         /* Off-format — the prompt asks for `-` bullets — but a numbered list
            still has to land inside the card. Reboot's padding is what held the
            markers, and the #64 reset took it away; padding-left keeps them from

@@ -603,6 +603,14 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         self.assertContains(
             response, ".summary-box ul ul { list-style: none; padding-left: 0; }"
         )
+        # The same rule on the dashboard's own summary, which is the other
+        # place a run of task dots renders.
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".ai-card ul ul li { font-size: 12px; font-weight: 400; "
+            "color: var(--color-text-tertiary); padding: 2px 0; "
+            "border-top: none; }",
+        )
         self.assertContains(
             response,
             ".task-row { display: flex; align-items: center; padding: 11px 0; "
