@@ -348,60 +348,31 @@
                row's cards to the tallest, so the row stays even. The date is
                short and stays on one line. */
             .moment-title { white-space: normal; }
-            /* #238: the row stacks. The dot contributes exactly 15px (7px
-               wide, 8px margin-right), so a name based on the rest of the
-               line fills line one to the pixel and everything after it
-               wraps — project name, date and badges onto a second line
-               indented by that same 15px, level with the name rather than
-               with the dot. .task-due's own 16px would put the date a
-               second indent deep once .task-right starts a line of its own. */
-            /* #238: the fixed ☰ launcher (36px, right: 20px — dashboard.css)
-               covers whatever scrolls under it, and the lists reserved
-               nothing. Same 44px .project-header has held since #95's
-               follow-up, on the rows and the Heute headings rather than on
-               their containers: #view-today already holds elements carrying
-               their own 44px (.ai-card-header, the banners) and a
-               .day-columns grid that bleeds to the viewport edge with a
-               negative margin, so a container inset would double the first
-               and break the second. The headings are in because "Diese
-               Woche" carries the week navigation on its right edge.
-               The cost is real and unavoidable in static CSS: 44px of name
-               width down the whole list for a button that only occupies the
-               top of the viewport. With the name on its own line, that is
-               where it hurts least. */
+            /* The row keeps the shape /mein-plan/ has always had: dot,
+               name, date, actions on one line, at every width. It stacked
+               below the breakpoint for a while, which gave a long name the
+               full width and cost every short one a second line — and the
+               two task lists in the app then read as one component on the
+               desktop and as two on a phone, which is the opposite of what
+               #149 was for.
+               Nothing is needed here to keep the row from colliding: that
+               is .task-name's own flex/min-width/overflow-wrap, which holds
+               at every width. The one thing this width has to settle is
+               which label gives way when the two cannot both fit. It is the
+               project, not the task: the project name repeats all the way
+               down a Heute list and an ellipsis costs nothing there, while
+               the truncated part of a task name is the part that identifies
+               it. flex-shrink: 3 is what makes the project go first rather
+               than the two shrinking in step.
+               The launcher reserve is deliberately absent. A row scrolling
+               under the fixed ☰ is a transient overlap; 44px of gutter down
+               the whole list is a permanent one, and paying the second to
+               avoid the first is the wrong way round. Elements that sit
+               under the button *at rest* — the banners, the project header,
+               the Zeitreise bar, the Heute headings with their week
+               navigation — reserve their space above; a list does not. */
             .today-week-heading { padding-right: 44px; }
-            /* The row stacks: name on the first line, the meta under it.
-               The dot hangs into the row's left padding (7px wide, minus
-               19px, plus the 12px gap = no contribution at all), so a name
-               based on the full width fills line one to the pixel and
-               everything after it wraps. Line two then starts at the
-               content-box edge — 19px past the row's own 16px padding,
-               level with the name rather than with the dot — with no
-               per-element margins to keep in step. */
-            .task-row { padding-left: 35px; }
-            .task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }
-            /* The launcher reserve sits on the name rather than on the row.
-               After the stacking above, the name is the only *content* that
-               reaches the right edge — the date is at the left of its own
-               line, and the only thing beside it is the actions trigger,
-               which is a control the reader steers to rather than something
-               they must be able to read at a glance. Padding rather than a
-               narrower basis: the box still fills line one to the pixel, so
-               the meta still wraps and the trigger still reaches the card's
-               edge, while the text stays clear of the button. On the row it
-               cost 44px of dead gutter down the whole list. */
-            .task-name { flex-basis: 100%; padding-right: 44px; }
-            /* The desktop rule pushes the meta against the right edge, which
-               is where it belongs beside the name. On its own wrapped line
-               an auto margin would do the same to the whole line, leaving it
-               hard right under the launcher reserve instead of under the
-               name it belongs to.
-               Growing into that line instead is what keeps the two ends
-               apart: the date sits at the name's indent, and the actions
-               trigger takes the free space to its right rather than
-               trailing the date in the middle of the row. */
-            .task-right { margin-left: 0; flex: 1 1 auto; }
-            .task-menu { margin-left: auto; }
+            .task-project { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         }
 {% endblock %}
 

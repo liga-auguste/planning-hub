@@ -457,45 +457,32 @@ class TaskActionsMenuKeyboardTest(DemoModeTestCase):
         )
 
 
-class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
-    """#238: .sidebar-toggle-mobile is position: fixed (top: 26px, right:
-    20px — dashboard.css), so whatever scrolls under it is covered. The
-    project header has reserved its 44px since #95's follow-up; the lists
-    below it never did, and on a phone the launcher sat on top of a task
-    row, hiding a date on one and part of a name on another.
+class MobileLauncherClearanceTest(DemoModeTestCase):
+    """.sidebar-toggle-mobile is position: fixed (top: 26px, right: 20px —
+    dashboard.css), so whatever is at the top right is covered.
 
-    The reservation goes on the rows and the Heute headings rather than on
-    their containers: #view-today already holds elements carrying their own
-    44px (.ai-card-header, the banners) and a .day-columns grid that bleeds
-    into the viewport edge with a negative margin, so a container inset
-    would double up on the first and break the second. The headings are in
-    because "Diese Woche" carries the week navigation on its right edge.
+    Where it collides *at rest* — the banners, the project header, the
+    Zeitreise bar, the Heute headings with their week navigation on the
+    right edge — the element reserves the button's 44px. A list does not: a
+    row scrolling under the button is a transient overlap, 44px of gutter
+    down the whole list is a permanent one, and paying the second to avoid
+    the first is the wrong way round. It also stranded the actions trigger
+    short of the card's edge on every row."""
 
-    The cost is stated rather than hidden: 44px of name width down the whole
-    list, for a button occupying only the top ~62px of the viewport. Static
-    CSS cannot do better — the alternative is a launcher that hides on
-    scroll, which is JS with its own state. After the stacking above the
-    name has its own line, which is where that loss hurts least.
-    """
-
-    def test_the_lists_reserve_the_same_44px_the_header_does(self):
-        # On the name and on the Heute headings, not on the row. After the
-        # stacking those are the only *content* reaching the right edge —
-        # the date sits at the left of its own line, and the only thing
-        # beside it is the actions trigger, a control the reader steers to
-        # rather than something they must read at a glance. On the row the
-        # reserve was 44px of dead gutter down the whole list, with the
-        # trigger visibly stranded short of the card's edge.
+    def test_the_at_rest_collisions_reserve_their_space(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".today-week-heading { padding-right: 44px; }")
         self.assertContains(
-            response, ".task-name { flex-basis: 100%; padding-right: 44px; }"
+            response,
+            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header, "
+            ".timelapse-bar { padding-right: 44px; }",
         )
+        self.assertContains(response, ".project-header { padding-right: 44px;")
 
-    def test_the_row_itself_reserves_nothing(self):
-        self.assertNotContains(
+    def test_the_week_heading_reserves_it_for_its_navigation(self):
+        # "Diese Woche" carries ← / → on its right edge, which is content.
+        self.assertContains(
             self.client.get(reverse("dashboard")),
-            ".task-row, .today-week-heading { padding-right: 44px; }",
+            ".today-week-heading { padding-right: 44px; }",
         )
 
     def test_the_zeitreise_tiles_reserve_it_too(self):
@@ -509,14 +496,13 @@ class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
             ".timelapse-bar { padding-right: 44px; }",
         )
 
-    def test_the_header_still_reserves_its_own(self):
-        """Left where it is: the two reservations sit on siblings, so
-        neither doubles the other up."""
+    def test_the_rows_reserve_nothing(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".project-header { padding-right: 44px;")
+        self.assertNotContains(response, ".task-row, .today-week-heading {")
+        self.assertNotContains(response, ".task-name { flex-basis: 100%;")
 
 
-class TaskRowMobileStackingTest(DemoModeTestCase):
+class TaskRowNeverCollidesTest(DemoModeTestCase):
     """#238: the row was a two-part flex container with nothing stopping its
     parts from colliding. `.task-name` carried no flex at all, so it shrank
     to its min-content width — the longest single word — and `.task-left`
@@ -525,18 +511,18 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
     it. Neither box clipped, so the two runs of text simply painted over
     each other.
 
-    The fix is structural rather than a clip: `.task-left` goes, so the row
-    itself is the wrapping container, and the name is the one item that
-    gives way — it grows, it may shrink past its longest word, and it
-    breaks that word rather than overflowing. Nothing is truncated:
-    production task names are long, and an ellipsis would hide the part
-    that identifies the task.
+    The fix is structural rather than a clip, and it holds at every width:
+    `.task-left` goes, so the row itself is the flex container, and the name
+    is the item that gives way — it grows, it may shrink past its longest
+    word, and it breaks that word rather than overflowing. The task name is
+    never truncated: production names are long, and the truncated part is
+    the part that identifies the task.
 
-    Below 768px the row stacks. The name's basis is the full width minus
-    the dot's own 15px (7px wide, 8px margin-right), so line one is exactly
-    full and everything after it wraps to a second line indented to match
-    the name rather than the dot.
-    """
+    The row keeps /mein-plan/'s shape — dot, name, date, actions on one
+    line — at every width. It stacked below the breakpoint for a while,
+    which gave a long name the full width and cost every short one a second
+    line, and made the app's two task lists read as one component on the
+    desktop and as two on a phone."""
 
     def test_the_name_is_the_item_that_gives_way(self):
         response = self.client.get(reverse("dashboard"))
@@ -570,33 +556,29 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
             response, 'style="display:flex;align-items:center;gap:4px;"'
         )
 
-    def test_below_the_breakpoint_the_name_takes_the_whole_first_line(self):
-        # The padding is the launcher reserve, asserted in
-        # MobileLauncherClearsTheTaskListsTest — it insets the text without
-        # narrowing the box, so line one is still filled to the pixel.
+    def test_the_row_keeps_its_one_line_shape_below_the_breakpoint(self):
+        # No basis, no negative margins, no per-element indents: the desktop
+        # rule is the rule, which is what makes this list and /mein-plan/'s
+        # the same component at every width (#149).
         response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".task-name { flex-basis:")
+        self.assertNotContains(response, ".task-row > .toggle-form")
+        self.assertNotContains(response, ".task-right { margin-left: 0;")
+
+    def test_the_project_label_is_the_one_that_truncates(self):
+        """When the two labels cannot both fit, the project gives way: it
+        repeats all the way down a Heute list, while the truncated part of a
+        task name is the part that identifies it. flex-shrink: 3 is what
+        makes it go first rather than the two shrinking in step."""
         self.assertContains(
-            response, ".task-name { flex-basis: 100%; padding-right: 44px; }"
+            self.client.get(reverse("dashboard")),
+            ".task-project { flex-shrink: 3; min-width: 0; overflow: hidden; "
+            "text-overflow: ellipsis; }",
         )
 
-    def test_below_the_breakpoint_the_meta_indents_under_the_name(self):
-        # The dot hangs into the row's left padding — 7px wide, minus 19px,
-        # plus the row's 12px gap contributes nothing at all — so the name
-        # fills line one exactly and line two starts at the content-box
-        # edge, level with the name. No per-element margins to keep in step.
+    def test_the_task_name_is_never_truncated(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".task-row { padding-left: 35px; }")
-        self.assertContains(
-            response,
-            ".task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }",
-        )
-        # The desktop auto margin would push the whole wrapped line right,
-        # away from the name it belongs under. Growing into the line
-        # instead keeps its two ends apart: date at the name's indent,
-        # actions trigger at the row's right edge rather than trailing the
-        # date in the middle of the row.
-        self.assertContains(response, ".task-right { margin-left: 0; flex: 1 1 auto; }")
-        self.assertContains(response, ".task-menu { margin-left: auto; }")
+        self.assertNotContains(response, ".task-name { text-overflow: ellipsis")
 
     def test_both_task_lists_render_from_the_one_partial(self):
         """The project detail used to hold its own copy of the row markup,
