@@ -40,6 +40,7 @@ from .notion import (
     get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
+    rename_task,
     toggle_task,
     update_task_date,
 )
@@ -1371,6 +1372,67 @@ def toggle_task_view(request, task_id):
                 whole_plan=False,
             )
     return JsonResponse({"ok": True, **figures})
+
+
+def _parse_posted_name(request):
+    """Returns (name, error_response). #154/#61's shape: a malformed body is
+    a 400, never a 500, and a name is only a name once it has something in
+    it — an empty rename would leave a row nothing identifies it by."""
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return None, error
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None, JsonResponse({"error": "invalid name"}, status=400)
+    return name.strip(), None
+
+
+def rename_task_view(request, task_id):
+    """#239 stage 2. Shaped like toggle_task_view: POST only, a 400 on a
+    malformed body, a 404 for a task that was never saved rather than a
+    cheerful ok (#61).
+
+    No figures in the answer — a rename changes no count, no stage and no
+    position. It is the one write that moves nothing."""
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    name, error = _parse_posted_name(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        # #217: a Zeitreise moment is a rendering of a date, not a place to
+        # change things. Same refusal as toggle_task_view, and the menu
+        # offers no item while one is active.
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        task["name"] = name
+        request.session["demo_plan"] = plan
+    else:
+        try:
+            rename_task(task_id, name)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+
+        # #199: a rename moves nothing in the chronological order
+        # (_annotate_tasks sorts by due date), so the cached lists carry it
+        # rather than being thrown away and re-read from Notion at a Claude
+        # call's expense. _remap_summary_refs is then a no-op over an
+        # unchanged order, which is exactly what a toggle already relies on.
+        def relabel(task):
+            task["name"] = name
+
+        if _patch_cached_tasks(task_id, relabel, timezone.localdate()) is None:
+            _bust_dashboard_cache()
+    return JsonResponse({"ok": True, "name": name})
 
 
 def reschedule_task_view(request, task_id):

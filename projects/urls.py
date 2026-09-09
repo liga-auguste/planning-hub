@@ -10,6 +10,7 @@ urlpatterns = [
     path("mein-plan/download/", views.download_plan, name="download_plan"),
     path("refresh/", views.refresh, name="refresh"),
     path("task/<str:task_id>/toggle/", views.toggle_task_view, name="toggle_task"),
+    path("task/<str:task_id>/rename/", views.rename_task_view, name="rename_task"),
     path(
         "task/<str:task_id>/reschedule/",
         views.reschedule_task_view,

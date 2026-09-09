@@ -101,6 +101,9 @@
         .task-due.today { color: var(--color-today); font-weight: 500; }
         .task-due.overdue { color: var(--color-overdue); font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
+        /* #239: same swap-in-place shape as the date input above, sized to
+           take the name's place in the row rather than its own width. */
+        .task-name-input { font-size: 13px; flex: 1 1 auto; min-width: 0; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 2px 6px; background: var(--color-bg-primary); color: var(--color-text-primary); }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
         .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
         /* outline, not color: .dot buttons carry no text and fill entirely
@@ -1178,6 +1181,79 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// #239 stage 2: the row's name, edited where it stands — the same
+// swap-the-element-out shape the date has used since #10, rather than a
+// browser prompt() that would sit outside the page's own visual language.
+function startRename(row, taskId) {
+    const nameSpan = row.querySelector('.task-name');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = nameSpan.textContent.trim();
+    input.className = 'task-name-input';
+    nameSpan.replaceWith(input);
+    input.focus();
+    input.select();
+    // The input leaves the DOM exactly once. Enter commits and swaps back,
+    // and the blur that follows must not swap a second time.
+    let settled = false;
+    const restore = () => {
+        if (settled) return;
+        settled = true;
+        input.replaceWith(nameSpan);
+    };
+    input.addEventListener('keydown', async (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            restore();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            const value = input.value.trim();
+            restore();
+            // An empty name, or the one already there, is a cancel — the
+            // server would refuse the first with a 400 anyway (#154).
+            if (!value || value === nameSpan.textContent.trim()) return;
+            await commitRename(taskId, value, nameSpan);
+        }
+    });
+    input.addEventListener('blur', restore);
+}
+
+async function commitRename(taskId, name, nameSpan) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/rename/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({name})
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — same feedback as an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        // Notion disagreed or the request never arrived — the row keeps the
+        // name it had rather than claiming a change that didn't happen.
+        flashActionFailed(nameSpan);
+        return;
+    }
+    const data = await response.json();
+    applyTaskName(taskId, data.name);
+}
+
+// The same task renders in more than one place, so a rename updates every
+// copy — the same rule and the same selector list applyTaskDone follows.
+function applyTaskName(taskId, name) {
+    document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
+        const card = f.closest('.task-row, li, .day-task-card');
+        const nameSpan = card && card.querySelector('.task-name, .day-task-name');
+        if (nameSpan) nameSpan.textContent = name;
+    });
+    const boardName = document.querySelector(`.kanban-card[data-task-id="${taskId}"] .kanban-card-name`);
+    if (boardName) boardName.textContent = name;
+}
+
 document.querySelectorAll('.task-menu-item').forEach(item => {
     item.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -1185,9 +1261,15 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         const action = item.dataset.action;
         // Closed before the action runs: "Datum ändern" hands focus to the
         // date input it opens, and the menu must not take it straight back.
-        closeTaskMenu({focusTrigger: action !== 'reschedule'});
+        // "Datum ändern" and "Umbenennen" both hand focus to the input
+        // they open in the row, and the menu must not take it straight back.
+        closeTaskMenu({focusTrigger: !['reschedule', 'rename'].includes(action)});
         if (action === 'project') {
             showProject(item.dataset.projectId);
+            return;
+        }
+        if (action === 'rename') {
+            startRename(row, item.dataset.taskId);
             return;
         }
         if (action === 'toggle') {

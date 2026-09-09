@@ -1,5 +1,5 @@
-"""The dashboard write paths: toggle and reschedule, what they persist,
-what they answer and what they leave in the cache."""
+"""The dashboard write paths: toggle, reschedule and rename, what they
+persist, what they answer and what they leave in the cache."""
 
 import json
 import re
@@ -276,11 +276,13 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All three handlers — the toggle listener, reschedule(), and #180's
-        # day-column drag handler — carry the widened guard; their error
-        # paths (flash / return false / revert the drag) stay.
-        self.assertContains(response, self.GUARD, count=3)
+        # All four handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler and #239's rename — carry the widened
+        # guard; their error paths (flash / return false / revert the drag)
+        # stay.
+        self.assertContains(response, self.GUARD, count=4)
         self.assertContains(response, "flashActionFailed(dueSpan);")
+        self.assertContains(response, "flashActionFailed(nameSpan);")
 
 
 class ToggleTaskDemoModeTest(DemoModeTestCase):
@@ -759,9 +761,17 @@ class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
     def test_the_project_item_opens_the_project_view(self):
         self.assertIn("showProject(item.dataset.projectId);", self.dashboard_html())
 
-    def test_no_new_endpoint_is_referenced(self):
+    def test_stage_one_added_no_endpoint_of_its_own(self):
+        # The four items above all drive controls the row already had.
+        # /rename/ arrived with stage 2 and is asserted there.
+        # The four items all drive controls the row already had —
+        # "Projekt öffnen" renders only where a task carries a project_id,
+        # asserted in TaskActionsMenuMirrorsItsControlsTest. /rename/
+        # arrived with stage 2 and is asserted there.
         html = self.dashboard_html()
-        for path in ("/rename/", "/delete/", "/trash/"):
+        for action in ("toggle", "reschedule", "today"):
+            self.assertIn(f'data-action="{action}"', html)
+        for path in ("/delete/", "/trash/"):
             self.assertNotIn(path, html)
 
     def test_the_date_click_survives_as_a_desktop_shortcut(self):
@@ -824,14 +834,210 @@ class TaskActionsMenuMirrorsItsControlsTest(DemoModeTestCase):
         )
         self.assertEqual(html.count(">→ heute</button>"), 2)
 
-    def test_the_project_item_only_renders_where_a_task_carries_a_project(self):
+    def test_the_project_item_renders_beside_every_project_label(self):
         # Only _build_week_view tags a task with its project (views.py), so
         # the item belongs to the Heute view and to no other list.
+        # Against the clickable label, not every label: a task with no
+        # project of its own is tagged "Ohne Projekt" (#53) and renders a
+        # plain span with nothing to open.
+        html = self.client.get(reverse("dashboard") + "?mode=multi").content.decode()
+        self.assertGreater(html.count('class="task-project ai-project-link"'), 0)
+        self.assertEqual(
+            html.count('data-action="project"'),
+            html.count('class="task-project ai-project-link"'),
+        )
+
+    def test_no_project_item_where_a_task_carries_no_project(self):
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertEqual(
-            html.count('data-action="project"'), html.count('class="task-project')
+        self.assertNotIn('class="task-project', html)
+        self.assertNotIn('data-action="project"', html)
+
+
+class RenameTaskDemoModeTest(DemoModeTestCase):
+    """#239 stage 2 in a demo session: the write lands in
+    session['demo_plan'], the same place the toggle and the reschedule
+    write to."""
+
+    def post_name(self, task_id, name):
+        return self.client.post(
+            reverse("rename_task", args=[task_id]),
+            data=json.dumps({"name": name}),
+            content_type="application/json",
         )
+
+    def test_a_rename_reaches_the_session_plan(self):
+        self.given_session_plan()
+        response = self.post_name("demo-session-0", "Programm endlich festlegen")
+        self.assertEqual(
+            response.json(), {"ok": True, "name": "Programm endlich festlegen"}
+        )
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"],
+            "Programm endlich festlegen",
+        )
+
+    def test_the_new_name_survives_a_reload(self):
+        self.given_session_plan()
+        self.post_name("demo-session-0", "Programm endlich festlegen")
+        self.assertContains(
+            self.client.get(reverse("dashboard")), "Programm endlich festlegen"
+        )
+
+    def test_a_rename_during_a_moment_is_refused(self):
+        # #217: a moment is a rendering of a date, not a place to change
+        # things. Same refusal as the toggle.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        response = self.post_name("demo-session-0", "Anders")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"], "Programm festlegen"
+        )
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_name("demo-1-7", "Anders").status_code, 404)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("rename_task", args=["demo-session-0"]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("rename_task", args=["demo-session-0"]),
+            data="not json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_empty_name_is_a_400(self):
+        # A row with nothing to identify it by is worse than the old name.
+        self.given_session_plan()
+        for value in ("", "   ", None, 42, ["Neu"]):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.post_name("demo-session-0", value).status_code, 400
+                )
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"], "Programm festlegen"
+        )
+
+    def test_the_name_is_stripped(self):
+        self.given_session_plan()
+        self.assertEqual(
+            self.post_name("demo-session-0", "  Neu  ").json()["name"], "Neu"
+        )
+
+
+class RenameHappensInTheRowTest(DemoModeTestCase):
+    """The name is edited where it stands — the same swap-the-element-out
+    shape the date has used since #10, rather than a browser prompt() that
+    would sit outside the page's own visual language."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_menu_offers_the_item(self):
+        self.assertIn('data-action="rename"', self.dashboard_html())
+
+    def test_the_name_span_is_swapped_for_an_input(self):
+        html = self.dashboard_html()
+        self.assertIn("nameSpan.replaceWith(input);", html)
+        self.assertIn("input.className = 'task-name-input';", html)
+
+    def test_enter_commits_and_escape_cancels(self):
+        html = self.dashboard_html()
+        self.assertIn("if (e.key === 'Escape') {", html)
+        self.assertIn("} else if (e.key === 'Enter') {", html)
+
+    def test_the_input_leaves_the_dom_exactly_once(self):
+        # Enter swaps the span back and the blur that follows must not swap
+        # a second time.
+        html = self.dashboard_html()
+        self.assertIn("let settled = false;", html)
+        self.assertIn("if (settled) return;", html)
+
+    def test_the_write_goes_to_the_rename_endpoint(self):
+        self.assertIn("`/task/${taskId}/rename/`", self.dashboard_html())
+
+    def test_every_rendered_copy_of_the_name_is_updated(self):
+        # The same task renders in the task rows, the AI summary, a day card
+        # and on the board — one selector list, the same rule applyTaskDone
+        # follows.
+        html = self.dashboard_html()
+        self.assertIn("function applyTaskName(taskId, name) {", html)
+        self.assertIn("card.querySelector('.task-name, .day-task-name')", html)
+        self.assertIn('.kanban-card[data-task-id="${taskId}"] .kanban-card-name', html)
+
+
+@override_settings(DEMO_MODE=False)
+class RenameTaskProductionTest(TestCase):
+    """The production half: the write goes to Notion, and the cached lists
+    carry it rather than being thrown away (#199) — a rename moves nothing
+    in the chronological order, so it fits _patch_cached_tasks directly."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_name(self, task_id="task-1", name="Neuer Name"):
+        return self.client.post(
+            reverse("rename_task", args=[task_id]),
+            data=json.dumps({"name": name}),
+            content_type="application/json",
+        )
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.rename_task") as mock_rename:
+            response = self.post_name()
+        mock_rename.assert_called_once_with("task-1", "Neuer Name")
+        self.assertEqual(response.json(), {"ok": True, "name": "Neuer Name"})
+
+    def test_a_notion_failure_is_a_502(self):
+        with patch(
+            "projects.views.rename_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_name().status_code, 502)
+
+    def test_a_failing_write_is_not_reported_as_done(self):
+        with patch(
+            "projects.views.rename_task", side_effect=NotionUnavailableError("boom")
+        ):
+            response = self.post_name()
+        self.assertNotIn("ok", response.json())
+
+    def test_the_cached_lists_carry_the_rename(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ) as mock_summary,
+        ):
+            self.client.get(reverse("dashboard"))
+            with patch("projects.views.rename_task"):
+                self.post_name("task-1", "Programm endlich festlegen")
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Programm endlich festlegen")
+        # The point of patching rather than busting: neither the Notion read
+        # nor the Claude call is paid for again.
+        self.assertEqual(mock_summary.call_count, 1)
+
+    def test_a_cold_cache_falls_back_to_a_bust(self):
+        with patch("projects.views.rename_task"):
+            response = self.post_name()
+        self.assertEqual(response.json(), {"ok": True, "name": "Neuer Name"})
+        self.assertIsNone(cache.get(CACHE_KEY))
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):

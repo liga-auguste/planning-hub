@@ -11,9 +11,14 @@ had, so the interaction can be settled without anything going wrong
 server-side:
 
   Erledigt / Offen   the row's own .toggle-form  -> task/<id>/toggle/
+  Umbenennen         inline edit of the name     -> task/<id>/rename/
   Datum ändern       the date span's click       -> task/<id>/reschedule/
   → heute            reschedule() with TODAY     -> task/<id>/reschedule/
   Projekt öffnen     showProject(), Heute only
+
+"Umbenennen" (#239 stage 2) is the one item with an endpoint of its own.
+It carries both conditions, like the writes below it: a Zeitreise moment is
+read-only (#217) and the demo example projects are in no session (#10 §5).
 
 The conditions mirror the controls they drive, so the menu can never offer
 what the row itself does not: no toggle while a Zeitreise moment is active
@@ -28,6 +33,9 @@ project_id — the Heute view.
         <button type="button" role="menuitem" class="task-menu-item" data-action="toggle">{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}</button>
         {% endif %}
         {% if not viewing_demo_data %}
+        {% if not sim_date %}
+        <button type="button" role="menuitem" class="task-menu-item" data-action="rename" data-task-id="{{ task.id }}">Umbenennen</button>
+        {% endif %}
         <button type="button" role="menuitem" class="task-menu-item" data-action="reschedule">Datum ändern</button>
         {% if task.urgency == 'overdue' %}
         <button type="button" role="menuitem" class="task-menu-item" data-action="today" data-task-id="{{ task.id }}">→ heute</button>

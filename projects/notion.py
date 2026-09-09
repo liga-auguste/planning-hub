@@ -342,6 +342,21 @@ def update_task_date(task_id: str, new_date: str) -> None:
         )
 
 
+def rename_task(task_id: str, new_name: str) -> None:
+    """#239: writes the Aufgabe title property _parse_task_page already
+    reads, so the new name is visible on every read path without any of
+    them changing.
+
+    Title only. Wann?, Done and Kontext are other writes' business, and
+    sending them along would overwrite whatever Notion's own UI put there
+    since this page was last read."""
+    with translate_notion_errors():
+        _client().pages.update(
+            page_id=task_id,
+            properties={"Aufgabe": {"title": [{"text": {"content": new_name}}]}},
+        )
+
+
 def increment_postpone_count(task_id: str) -> int:
     """Read-then-write, since Notion has no atomic increment. Deliberately
     not folded into update_task_date (#171): two calls instead of one costs
