@@ -73,10 +73,17 @@
        different offsets as two different kinds of thing. The block heading
        above each run carries the grouping on its own weight. */
     .summary-box ul ul { list-style: none; padding-left: 0; }
-    .summary-box .dot { vertical-align: middle; margin-right: 12px; }
-    /* The task list below lays this out with flex gap; inside the summary
-       it is an inline span and needs its own separation from the name. */
-    .summary-box .task-date { margin-left: 8px; }
+    /* flex, not inline: between the dot and the name sits the template's own
+       newline, which collapses to a space and pushed the summary's names a
+       few pixels further right than the list's below. A flex container drops
+       whitespace-only content, so the gap is exactly the 12px .task-row
+       uses and the two runs line up to the pixel. */
+    .summary-box ul ul li { display: flex; align-items: center; gap: 12px; }
+    .summary-box .dot { flex-shrink: 0; margin-right: 0; }
+    /* The gap on the row above carries the separation now, on both
+       surfaces — this used to add its own 8px because the summary line was
+       inline. */
+    .summary-box .task-date { margin-left: 0; }
     .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     /* The second use of the label, over the full list. It needs a gap above

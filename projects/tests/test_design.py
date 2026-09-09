@@ -587,9 +587,10 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
     def test_the_dot_markers_stay(self):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
+        # A flex item now, so its own margin is gone and the row's gap
+        # carries the separation — see the alignment test below.
         self.assertContains(
-            response,
-            ".summary-box .dot { vertical-align: middle; margin-right: 12px; }",
+            response, ".summary-box .dot { flex-shrink: 0; margin-right: 0; }"
         )
 
     def test_every_task_dot_on_the_page_shares_one_indent(self):
@@ -603,6 +604,15 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         self.assertContains(
             response, ".summary-box ul ul { list-style: none; padding-left: 0; }"
         )
+        # A flex row, so the template's own newline between the dot and the
+        # name — which collapses to a space in an inline line box and put
+        # the summary's names a few pixels right of the list's — is dropped
+        # and the gap is exactly the 12px .task-row uses.
+        self.assertContains(
+            response,
+            ".summary-box ul ul li { display: flex; align-items: center; gap: 12px; }",
+        )
+        self.assertContains(response, ".summary-box .task-date { margin-left: 0; }")
         # The same rule on the dashboard's own summary, which is the other
         # place a run of task dots renders.
         self.assertContains(
