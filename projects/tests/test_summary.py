@@ -11,7 +11,11 @@ from unittest.mock import patch
 import anthropic
 import httpx
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import (
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 from django.urls import reverse
 
 from ..ai import (
@@ -21,6 +25,7 @@ from ..ai import (
     generate_timelapse_moments,
     generate_weekly_summary,
     log_claude_call,
+    resolve_kontext_hint,
     resolve_weekly_summary,
 )
 from ..views import (
@@ -32,6 +37,7 @@ from .base import (
     _anthropic_timeout_error,
     _fake_response,
     _fake_stream,
+    _fake_upcoming_project_with_task,
     _summary_data,
 )
 
@@ -139,6 +145,182 @@ class BuildPromptKontextUebersichtTest(SimpleTestCase):
         prompt = build_prompt([project], date.today())
         self.assertIn("Kontext-Übersicht", prompt)
         self.assertIn("**Büro:** GEMA-Meldung", prompt)
+
+
+class KontextBatchInstructionTest(SimpleTestCase):
+    """#145: kontext exists to batch work *across* projects ("everything I
+    can do at the desk, in one sitting"), and nothing in the app had ever
+    done that. The prompt already carried the data — per-task annotations
+    and the cross-project overview above — but never told Claude to use it.
+
+    Production only: a demo prompt has no kontext at all (#18), so the
+    instruction would ask for something the data can never support."""
+
+    def project(self, **overrides):
+        project = {
+            "name": "Sommerkonzert",
+            "event_date": date.today() + timedelta(days=10),
+            "performers": "",
+            "tasks": [
+                {
+                    "name": "GEMA-Meldung",
+                    "done": False,
+                    "due": None,
+                    "kontext": ["Büro"],
+                }
+            ],
+        }
+        project.update(overrides)
+        return project
+
+    def test_the_production_prompt_asks_for_the_batch_opportunity(self):
+        prompt = build_prompt([self.project()], date.today())
+        self.assertIn("kontext_hinweis", prompt)
+        self.assertIn("VERSCHIEDENEN Projekten", prompt)
+
+    def test_the_instruction_says_to_stay_silent_without_a_cluster(self):
+        prompt = build_prompt([self.project()], date.today())
+        self.assertIn("lass das Feld weg", prompt)
+
+    def test_the_single_project_demo_prompt_carries_no_such_instruction(self):
+        prompt = build_prompt([self.project()], date.today(), single_project_demo=True)
+        self.assertNotIn("kontext_hinweis", prompt)
+
+    def test_no_instruction_where_no_task_carries_a_kontext(self):
+        """The demo's example projects are the case the flag above misses:
+        several projects, so single_project_demo is False, and not one
+        kontext between them (#18). The instruction is a statement *about*
+        the Kontext-Übersicht, so it hangs off the same condition that block
+        does — asking for a batch hint over data the prompt does not carry
+        is an invitation to invent one, on the one deployment that is
+        public.
+        """
+        prompt = build_prompt(
+            [
+                self.project(
+                    tasks=[
+                        {"name": "Plakate", "done": False, "due": None, "kontext": []}
+                    ]
+                )
+            ],
+            date.today(),
+        )
+        self.assertNotIn("Kontext-Übersicht", prompt)
+        self.assertNotIn("kontext_hinweis", prompt)
+
+
+class KontextHintResolutionTest(SimpleTestCase):
+    """The hint is a new optional top-level field rather than a sentence
+    inside an assessment: blocks are per project (project_ref), and a
+    statement about two projects placed in one of them would be attributed
+    to a project it does not belong to."""
+
+    def test_a_present_hint_is_passed_through(self):
+        self.assertEqual(
+            resolve_kontext_hint(
+                {**_summary_data(), "kontext_hinweis": "Ab ins Büro."}
+            ),
+            "Ab ins Büro.",
+        )
+
+    def test_a_missing_hint_is_empty(self):
+        self.assertEqual(resolve_kontext_hint(_summary_data()), "")
+
+    def test_a_non_string_hint_is_empty(self):
+        # Same robustness rule resolve_weekly_summary follows: whatever the
+        # model emitted, the template gets something it can render.
+        for value in (None, 42, ["Büro"], {"text": "Büro"}):
+            self.assertEqual(
+                resolve_kontext_hint({**_summary_data(), "kontext_hinweis": value}), ""
+            )
+
+    def test_a_cached_answer_without_the_field_still_validates(self):
+        # ai.py checks the two section keys only, so a summary written
+        # before this field existed is still a usable summary.
+        with patch("projects.ai.anthropic.Anthropic") as MockClient:
+            MockClient.return_value.messages.stream.return_value = _fake_stream(
+                json.dumps(_summary_data())
+            )
+            data = generate_weekly_summary([], date.today())
+        self.assertEqual(resolve_kontext_hint(data), "")
+
+    def test_an_answer_carrying_the_field_survives_validation(self):
+        with patch("projects.ai.anthropic.Anthropic") as MockClient:
+            MockClient.return_value.messages.stream.return_value = _fake_stream(
+                json.dumps({**_summary_data(), "kontext_hinweis": "Ab ins Büro."})
+            )
+            data = generate_weekly_summary([], date.today())
+        self.assertEqual(resolve_kontext_hint(data), "Ab ins Büro.")
+
+
+@override_settings(DEMO_MODE=False)
+class KontextHintRenderingTest(TestCase):
+    """Where the hint lands: under the week's blocks in the AI card, and
+    nowhere at all when Claude found no cluster."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def dashboard_with(self, summary_data):
+        project = _fake_upcoming_project_with_task()
+        project["tasks"][0]["kontext"] = ["Büro"]
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch("projects.views.generate_weekly_summary", return_value=summary_data),
+        ):
+            return self.client.get(reverse("dashboard"))
+
+    def test_a_hint_renders_under_the_blocks(self):
+        response = self.dashboard_with(
+            {**_summary_data(), "kontext_hinweis": "Wenn du ohnehin im Büro bist."}
+        )
+        self.assertContains(
+            response,
+            '<p class="ai-kontext-hint">Wenn du ohnehin im Büro bist.</p>',
+        )
+
+    def test_a_week_without_a_cluster_renders_nothing(self):
+        response = self.dashboard_with(_summary_data())
+        self.assertNotContains(response, 'ai-kontext-hint">')
+
+
+class KontextHintIsProductionOnlyTest(DemoModeTestCase):
+    """#18's invariant: a demo session never collects, derives, stores or
+    displays kontext. A demo plan is one project anyway, so there is
+    nothing to batch across."""
+
+    HINTED_SUMMARY = {
+        "jetzt_faellig": [],
+        "naechste_woche": [],
+        "kontext_hinweis": "Ab ins Büro.",
+    }
+
+    def test_a_demo_session_plan_renders_no_hint(self):
+        self.given_session_plan()
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].return_value = self.HINTED_SUMMARY
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'ai-kontext-hint">')
+        self.assertNotContains(response, "Ab ins Büro.")
+
+    def test_the_demo_example_projects_render_no_hint_either(self):
+        """The other half of #18's invariant, and the half the first gate
+        missed: it read has_session_plan, which is false here too, so the
+        example projects — the public demo's default view — were the one
+        place a hint could still land. DEMO_MODE is what "production only"
+        means. build_prompt no longer asks for the field over kontext-less
+        data either; this is the render-side half, so that a summary cached
+        before that change cannot surface one.
+        """
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].return_value = self.HINTED_SUMMARY
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'ai-kontext-hint">')
+        self.assertNotContains(response, "Ab ins Büro.")
 
 
 class PromptUndatedAndTodayTest(SimpleTestCase):

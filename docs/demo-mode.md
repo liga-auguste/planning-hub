@@ -54,12 +54,26 @@ plan actions; state 4 did the same in reverse). The sidebar now opens with a
 present, whichever data is on screen. Any link that jumps to the *other* state sits in the
 group it belongs to, so switching context is never mixed in among actions that stay put.
 
-**One view, one name.** Both groups list the same two entries, "Dashboard" and "Heute" —
-because that is what they are: one view each, over a different set of projects. The
-headings carry the difference, so no entry has to. The demo overview used to read
+**One view, one name.** Both groups list "Dashboard" — one view each, over a different set
+of projects. The headings carry the difference, so no entry has to. The demo overview used to read
 "Mehrprojekt-Dashboard" where it is the jump-in link and "Dashboard" where it is the fast
 toggle for the view already on screen, so the same view changed its name as a visitor
 moved between the two states.
+
+**"Heute" is hidden under "Dein Projekt" for now (#240).** In its current shape it is a
+cross-project work surface — overdue, due today, then the week — and "Dein Projekt" is one
+project, so it re-sorted the tasks the dashboard above had just shown under three more
+headings. Hidden rather than reworked in that cut: what the view should say about a single
+project is a design question, and the branch was already carrying two issues.
+
+The entry and the panel move as a pair — `dashboard.html` renders no `#view-today` for a
+session plan and `_sidebar_nav.html` lists no "Heute", because an entry whose toggle has
+nothing to toggle is a dead link that also throws. Bringing the view back for that state
+means flipping both conditions; the JS reads `#view-today` once and asks whether it exists,
+so nothing there has to move. Meanwhile "Plan als Liste", already in the group, is where a
+single plan's tasks are read in full. `TodayViewHiddenForASessionPlanTest`
+(`test_week_view.py`) asserts both states, so that the hold stays a decision on the record
+rather than drifting into a permanent absence nobody chose.
 
 `SidebarModeGroupingTest` asserts the states together rather than one per test: each
 already had a test of its own, and the wording drifted apart anyway, because nothing
@@ -104,11 +118,19 @@ at a simulated date") is one thing; the Zeitreise *bar* (active: buttons to jump
 moments) is another, and had the identical duplication bug — only in `view-overview`, so
 switching to "Heute" lost the ability to change the simulated date at all. Extracted into its
 own `_timelapse_bar.html` partial, included at the top of both views, same as the status
-banners. Since it now renders twice, its container elements lost their page-unique
+banners. Since it rendered twice, its container elements lost their page-unique
 `id="timelapse-bar"`/`id="timelapse-moments"`/`id="btn-today"` (duplicate IDs are invalid HTML,
-and `getElementById` only ever finds the first) — the populating JS now uses
+and `getElementById` only ever finds the first) — the populating JS uses
 `document.querySelectorAll('.timelapse-bar')` and builds the moment buttons into every
-instance found, so both bars stay in sync from the same `TIMELAPSE_MOMENTS`/`SIM_DATE` data.
+instance found, so every bar stays in sync from the same `TIMELAPSE_MOMENTS`/`SIM_DATE` data.
+
+It is at one instance while #240 hides "Heute" for a session plan: the bar needs
+`has_session_plan`, which is exactly the state the view is not rendered in, so the second
+include could not produce anything and reads as dead code. It belongs back beside the view
+whenever the view returns — nothing about #183's reasoning changed. The class-based selector
+stays either way, since it is right at any count, and `TimelapseBarRendersOncePerPageTest`
+pins the current one so a second copy has to mean the panel is back rather than a duplicate
+having crept in.
 
 **One condition instead of six (#183):** every place that used to gate demo-data
 write-protection off an inline `demo_mode and not has_session_plan` (or its negation) —
@@ -123,7 +145,9 @@ to the one project the planner just created, so it structurally never has an una
 show in the Heute view. #183 Tier 3 originally added a one-line note explaining the absence —
 removed again on live feedback: in the demo instance there's only ever the visitor's one new
 project and the example projects, so nothing sets up an expectation of an "Ohne Projekt" bucket
-in the first place. Explaining the absence of something nobody expected wasn't useful.
+in the first place. Explaining the absence of something nobody expected wasn't useful. #240
+hid the whole view for that state, for the same reason one step further out: the bucket was
+not the only part of it shaped around having several projects.
 
 **The overview progress bar tracks the whole plan for a session plan (#183 follow-up):**
 everywhere else it's week-scoped (#182), but for `has_session_plan` a week-scoped count barely
@@ -156,9 +180,10 @@ It doesn't hold once the sidebar is the thing meant to guide a visitor through t
 drops the sidebar entirely defeats that. `my_plan.html`, `close_week_start.html` and
 `week_review.html` all use the normal `sidebar_content`/`content` blocks now, `{% include
 "projects/_sidebar_nav.html" %}`d the same way `dashboard.html` does — see `_sidebar_nav.html`'s
-own comment for how `active_nav` adapts it (Dashboard/Heute become real links instead of the
-client-side toggle, since `view-overview`/`view-today` don't exist on these pages; whichever of
-"Plan als Liste"/"Woche abschließen" matches the current page is marked active).
+own comment for how `active_nav` adapts it (every entry that is a client-side toggle on
+`dashboard.html` becomes a real link, since `view-overview`/`view-today` don't exist on these
+pages; whichever of "Plan als Liste"/"Woche abschließen" matches the current page is marked
+active).
 
 `stats.html` is the one exception, left as a standalone page on purpose: it's a maintainer-only
 usage-stats view linked from nowhere in the UI, so no sidebar click ever leads there — the

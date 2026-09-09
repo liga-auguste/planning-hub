@@ -25,7 +25,9 @@ from ..notion import (
     get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
+    rename_task,
     toggle_task,
+    trash_task,
     update_task_date,
 )
 
@@ -90,6 +92,18 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 create_tasks("project-id", [{"name": "x", "date": "2026-09-05"}])
+
+    def test_trash_task_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                trash_task("task-id")
+
+    def test_rename_task_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                rename_task("task-id", "Neuer Name")
 
     def test_increment_postpone_count_translates_a_failure(self):
         with patch("projects.notion.Client") as MockClient:
@@ -199,6 +213,64 @@ class ToggleTaskWritesCompletedDateTest(SimpleTestCase):
             page_id="task-1",
             properties={"Done": {"checkbox": False}, "Erledigt am": {"date": None}},
         )
+
+
+class RenameTaskTest(SimpleTestCase):
+    """#239 stage 2: the first genuinely new capability. It writes the
+    Aufgabe title property _parse_task_page already reads, so the rename is
+    visible everywhere the task is without any other read path changing."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_writes_the_title_property(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            rename_task("task-1", "GEMA-Meldung einreichen")
+        instance.pages.update.assert_called_once_with(
+            page_id="task-1",
+            properties={
+                "Aufgabe": {"title": [{"text": {"content": "GEMA-Meldung einreichen"}}]}
+            },
+        )
+
+    def test_it_writes_nothing_else(self):
+        # A title-only update: Wann?, Done and Kontext are other writes'
+        # business, and sending them along would overwrite whatever Notion's
+        # own UI put there since the page was last read.
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            rename_task("task-1", "Neuer Name")
+        self.assertEqual(
+            list(instance.pages.update.call_args.kwargs["properties"]), ["Aufgabe"]
+        )
+
+
+class TrashTaskTest(SimpleTestCase):
+    """#239 stage 3. The Notion API cannot permanently delete: the page
+    moves to the trash through the Update page endpoint and stays
+    restorable, which is why the menu says "In den Papierkorb"."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_it_archives_the_page(self):
+        # `archived`, not `in_trash`: the pinned notion-client==2.2.1 sends
+        # Notion-Version: 2022-06-28, where that is the field. A version
+        # bump has to come past the call site, which says so.
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            trash_task("task-1")
+        instance.pages.update.assert_called_once_with(page_id="task-1", archived=True)
+
+    def test_the_pinned_client_still_sends_the_version_that_field_belongs_to(self):
+        from notion_client.client import ClientOptions
+
+        self.assertEqual(ClientOptions.notion_version, "2022-06-28")
 
 
 class GetUnassignedTasksTest(SimpleTestCase):

@@ -1,5 +1,5 @@
-"""The dashboard write paths: toggle and reschedule, what they persist,
-what they answer and what they leave in the cache."""
+"""The dashboard write paths: toggle, reschedule and rename, what they
+persist, what they answer and what they leave in the cache."""
 
 import json
 import re
@@ -207,6 +207,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
                 "ok": True,
                 "postpone_count": 4,
                 "due_display": format_date(self.NEW_DATE),
+                "due_display_row": format_date(self.NEW_DATE, role="row"),
                 "urgency": "ok",
             },
         )
@@ -275,11 +276,13 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All three handlers — the toggle listener, reschedule(), and #180's
-        # day-column drag handler — carry the widened guard; their error
-        # paths (flash / return false / revert the drag) stay.
-        self.assertContains(response, self.GUARD, count=3)
+        # All five handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler and #239's rename and trash — carry the
+        # widened guard; their error paths (flash / return false / revert
+        # the drag) stay.
+        self.assertContains(response, self.GUARD, count=5)
         self.assertContains(response, "flashActionFailed(dueSpan);")
+        self.assertContains(response, "flashActionFailed(nameSpan);")
 
 
 class ToggleTaskDemoModeTest(DemoModeTestCase):
@@ -656,9 +659,12 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         self.assertIn(
             "await reschedule(span.dataset.taskId, input.value, span, row);", html
         )
+        # #239 moved the second call site into the actions menu, which reads
+        # the row off the clicked item rather than off a button in the row.
         self.assertIn(
-            "await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));", html
+            "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);", html
         )
+        self.assertIn("const row = item.closest('.task-row');", html)
 
 
 class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
@@ -682,11 +688,23 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         # counter, so it reads only the fields it is here for.
         answer = response.json()
         self.assertEqual(
-            {k: answer[k] for k in ("ok", "postpone_count", "due_display", "urgency")},
+            {
+                k: answer[k]
+                for k in (
+                    "ok",
+                    "postpone_count",
+                    "due_display",
+                    "due_display_row",
+                    "urgency",
+                )
+            },
             {
                 "ok": True,
                 "postpone_count": 1,
                 "due_display": format_date(date.fromisoformat(new_date)),
+                "due_display_row": format_date(
+                    date.fromisoformat(new_date), role="row"
+                ),
                 "urgency": "ok",
             },
         )
@@ -712,6 +730,523 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         self.assertNotIn("postpone_count", self.client.session["demo_plan"]["tasks"][0])
 
 
+class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
+    """#239 stage 1 adds no endpoint. Each item drives a control the row
+    already had, so there is one implementation of every write and the
+    interaction can be settled without anything changing server-side.
+
+    What that means concretely is asserted here against the rendered JS:
+    the toggle item submits the row's own .toggle-form, "Datum ändern"
+    clicks the date span the mouse would, and "→ heute" calls the same
+    reschedule() the date picker does."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_toggle_item_submits_the_rows_own_form(self):
+        self.assertIn(
+            "row.querySelector('.toggle-form')?.requestSubmit();", self.dashboard_html()
+        )
+
+    def test_the_date_item_clicks_the_date_span(self):
+        self.assertIn("dueSpan.click();", self.dashboard_html())
+
+    def test_the_today_item_calls_reschedule_with_todays_date(self):
+        self.assertIn(
+            "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);",
+            self.dashboard_html(),
+        )
+
+    def test_the_project_item_opens_the_project_view(self):
+        self.assertIn("showProject(item.dataset.projectId);", self.dashboard_html())
+
+    def test_stage_one_added_no_endpoint_of_its_own(self):
+        # The four items above all drive controls the row already had.
+        # /rename/ arrived with stage 2 and is asserted there.
+        # The four items all drive controls the row already had —
+        # "Projekt öffnen" renders only where a task carries a project_id,
+        # asserted in TaskActionsMenuMirrorsItsControlsTest. The two items
+        # with endpoints of their own arrived with stages 2 and 3 and are
+        # asserted there.
+        html = self.dashboard_html()
+        for action in ("toggle", "reschedule", "today"):
+            self.assertIn(f'data-action="{action}"', html)
+        self.assertNotIn("/delete/", html)
+
+    def test_the_date_click_survives_as_a_desktop_shortcut(self):
+        # The one-click reschedule used daily is not lost to the menu.
+        self.assertIn(
+            "document.querySelectorAll('.task-due[data-task-id]')",
+            self.dashboard_html(),
+        )
+
+
+class TaskActionsMenuMirrorsItsControlsTest(DemoModeTestCase):
+    """The menu can never offer what the row itself does not. Each item
+    carries the same condition as the control it drives."""
+
+    def test_no_toggle_item_while_a_zeitreise_moment_is_active(self):
+        # #217: a moment is a rendering of a date, not a place to check
+        # things off — _task_dot.html drops the button for the same reason.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'data-action="toggle"')
+        # The trigger stays: "Projekt öffnen" and the date are unaffected.
+        self.assertContains(response, 'class="task-menu-trigger"')
+
+    def test_the_toggle_item_is_offered_outside_a_moment(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'data-action="toggle"')
+
+    def test_the_today_item_only_renders_on_an_overdue_row(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Längst fällig",
+                    "date": (date.today() - timedelta(days=3)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Noch Zeit",
+                    "date": (date.today() + timedelta(days=20)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        html = self.client.get(reverse("dashboard")).content.decode()
+        # One per rendered overdue row, wherever the row renders. Counted on
+        # the rendered button, not on the bare attribute: the JS below
+        # carries the same selector to remove the item when a move lifts the
+        # row out of overdue.
+        #
+        # The equality is the rule; how many rows carry it is a question for
+        # whichever lists the page happens to render, and #240 changed that
+        # number by hiding the Heute view for a session plan — it will change
+        # again when that view returns. The lower bound is what keeps the
+        # equality from passing at nothing at all.
+        self.assertGreater(html.count(">→ heute</button>"), 0)
+        self.assertEqual(
+            html.count(">→ heute</button>"), html.count('class="dot overdue "')
+        )
+
+    def test_the_project_item_renders_beside_every_project_label(self):
+        # Only _build_week_view tags a task with its project (views.py), so
+        # the item belongs to the Heute view and to no other list.
+        # Against the clickable label, not every label: a task with no
+        # project of its own is tagged "Ohne Projekt" (#53) and renders a
+        # plain span with nothing to open.
+        html = self.client.get(reverse("dashboard") + "?mode=multi").content.decode()
+        self.assertGreater(html.count('class="task-project ai-project-link"'), 0)
+        self.assertEqual(
+            html.count('data-action="project"'),
+            html.count('class="task-project ai-project-link"'),
+        )
+
+    def test_no_project_item_where_a_task_carries_no_project(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('class="task-project', html)
+        self.assertNotIn('data-action="project"', html)
+
+
+class RenameTaskDemoModeTest(DemoModeTestCase):
+    """#239 stage 2 in a demo session: the write lands in
+    session['demo_plan'], the same place the toggle and the reschedule
+    write to."""
+
+    def post_name(self, task_id, name):
+        return self.client.post(
+            reverse("rename_task", args=[task_id]),
+            data=json.dumps({"name": name}),
+            content_type="application/json",
+        )
+
+    def test_a_rename_reaches_the_session_plan(self):
+        self.given_session_plan()
+        response = self.post_name("demo-session-0", "Programm endlich festlegen")
+        self.assertEqual(
+            response.json(), {"ok": True, "name": "Programm endlich festlegen"}
+        )
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"],
+            "Programm endlich festlegen",
+        )
+
+    def test_the_new_name_survives_a_reload(self):
+        self.given_session_plan()
+        self.post_name("demo-session-0", "Programm endlich festlegen")
+        self.assertContains(
+            self.client.get(reverse("dashboard")), "Programm endlich festlegen"
+        )
+
+    def test_a_rename_during_a_moment_is_refused(self):
+        # #217: a moment is a rendering of a date, not a place to change
+        # things. Same refusal as the toggle.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        response = self.post_name("demo-session-0", "Anders")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"], "Programm festlegen"
+        )
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_name("demo-1-7", "Anders").status_code, 404)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("rename_task", args=["demo-session-0"]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("rename_task", args=["demo-session-0"]),
+            data="not json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_an_empty_name_is_a_400(self):
+        # A row with nothing to identify it by is worse than the old name.
+        self.given_session_plan()
+        for value in ("", "   ", None, 42, ["Neu"]):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.post_name("demo-session-0", value).status_code, 400
+                )
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["name"], "Programm festlegen"
+        )
+
+    def test_the_name_is_stripped(self):
+        self.given_session_plan()
+        self.assertEqual(
+            self.post_name("demo-session-0", "  Neu  ").json()["name"], "Neu"
+        )
+
+
+class RenameHappensInTheRowTest(DemoModeTestCase):
+    """The name is edited where it stands — the same swap-the-element-out
+    shape the date has used since #10, rather than a browser prompt() that
+    would sit outside the page's own visual language."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_menu_offers_the_item(self):
+        self.assertIn('data-action="rename"', self.dashboard_html())
+
+    def test_the_name_span_is_swapped_for_an_input(self):
+        html = self.dashboard_html()
+        self.assertIn("nameSpan.replaceWith(input);", html)
+        self.assertIn("input.className = 'task-name-input';", html)
+
+    def test_enter_commits_and_escape_cancels(self):
+        html = self.dashboard_html()
+        self.assertIn("if (e.key === 'Escape') {", html)
+        self.assertIn("} else if (e.key === 'Enter') {", html)
+
+    def test_leaving_the_field_commits_rather_than_discards(self):
+        """The date input this is shaped after commits on `change`, which
+        fires before the blur — so tapping away from a date keeps it. The
+        name discarded instead, silently, and two controls that swap into
+        the same row must not answer the same gesture differently. On a
+        touch screen tapping outside the field is a normal way to finish,
+        and a discard with no feedback is the one outcome the row cannot
+        show. Escape stays the way to cancel: it settles the input, so the
+        blur behind it is a no-op."""
+        html = self.dashboard_html()
+        self.assertIn("input.addEventListener('blur', commit);", html)
+        self.assertNotIn("input.addEventListener('blur', restore);", html)
+
+    def test_the_input_leaves_the_dom_exactly_once(self):
+        # Both Enter and blur go through commit(), so whichever runs second
+        # — including the blur that Enter's own swap fires — finds the input
+        # already settled and neither swaps twice nor posts twice.
+        html = self.dashboard_html()
+        self.assertIn("let settled = false;", html)
+        self.assertIn("if (settled) return;", html)
+
+    def test_the_write_goes_to_the_rename_endpoint(self):
+        self.assertIn("`/task/${taskId}/rename/`", self.dashboard_html())
+
+    def test_every_rendered_copy_of_the_name_is_updated(self):
+        # The same task renders in the task rows, the AI summary, a day card
+        # and on the board — one selector list, the same rule applyTaskDone
+        # follows.
+        html = self.dashboard_html()
+        self.assertIn("function applyTaskName(taskId, name) {", html)
+        self.assertIn("card.querySelector('.task-name, .day-task-name')", html)
+        self.assertIn('.kanban-card[data-task-id="${taskId}"] .kanban-card-name', html)
+
+
+@override_settings(DEMO_MODE=False)
+class RenameTaskProductionTest(TestCase):
+    """The production half: the write goes to Notion, and the cached lists
+    carry it rather than being thrown away (#199) — a rename moves nothing
+    in the chronological order, so it fits _patch_cached_tasks directly."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_name(self, task_id="task-1", name="Neuer Name"):
+        return self.client.post(
+            reverse("rename_task", args=[task_id]),
+            data=json.dumps({"name": name}),
+            content_type="application/json",
+        )
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.rename_task") as mock_rename:
+            response = self.post_name()
+        mock_rename.assert_called_once_with("task-1", "Neuer Name")
+        self.assertEqual(response.json(), {"ok": True, "name": "Neuer Name"})
+
+    def test_a_notion_failure_is_a_502(self):
+        with patch(
+            "projects.views.rename_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_name().status_code, 502)
+
+    def test_a_failing_write_is_not_reported_as_done(self):
+        with patch(
+            "projects.views.rename_task", side_effect=NotionUnavailableError("boom")
+        ):
+            response = self.post_name()
+        self.assertNotIn("ok", response.json())
+
+    def test_the_cached_lists_carry_the_rename(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ) as mock_summary,
+        ):
+            self.client.get(reverse("dashboard"))
+            with patch("projects.views.rename_task"):
+                self.post_name("task-1", "Programm endlich festlegen")
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Programm endlich festlegen")
+        # The point of patching rather than busting: neither the Notion read
+        # nor the Claude call is paid for again.
+        self.assertEqual(mock_summary.call_count, 1)
+
+    def test_a_cold_cache_falls_back_to_a_bust(self):
+        with patch("projects.views.rename_task"):
+            response = self.post_name()
+        self.assertEqual(response.json(), {"ok": True, "name": "Neuer Name"})
+        self.assertIsNone(cache.get(CACHE_KEY))
+
+
+class TrashTaskDemoModeTest(DemoModeTestCase):
+    """#239 stage 3 in a demo session: the task leaves
+    session['demo_plan'], the same place the other writes land."""
+
+    def post_trash(self, task_id):
+        return self.client.post(
+            reverse("trash_task", args=[task_id]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+    def test_the_task_leaves_the_session_plan(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_trash("demo-session-0").json(), {"ok": True})
+        self.assertEqual(self.client.session["demo_plan"]["tasks"], [])
+
+    def test_it_is_gone_from_every_list_on_the_next_render(self):
+        self.given_session_plan()
+        self.post_trash("demo-session-0")
+        self.assertNotContains(
+            self.client.get(reverse("dashboard")), "Programm festlegen"
+        )
+
+    def test_the_cached_summaries_are_swept(self):
+        # Their task_refs were numbered against an order this task was part
+        # of, so they cannot be rewritten — a ref no longer points at the
+        # task it was written for.
+        self.given_session_plan()
+        self.client.get(reverse("dashboard"))
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = _summary_data()
+        session.save()
+        self.post_trash("demo-session-0")
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_a_trash_during_a_moment_is_refused(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertEqual(self.post_trash("demo-session-0").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_trash("demo-1-7").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("trash_task", args=["demo-session-0"]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("trash_task", args=["demo-session-0"]),
+            data="not json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+
+@override_settings(DEMO_MODE=False)
+class TrashTaskProductionTest(TestCase):
+    """The production half. The cache is busted rather than patched —
+    _patch_cached_tasks mutates in place and has no removal path, and a
+    removal shifts every count and every cached task_ref. The cost is one
+    Notion read and one Claude call on the next render, paid for the least
+    frequent write in the app rather than reshaping the path every other
+    write hangs off."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_trash(self, task_id="task-1"):
+        return self.client.post(
+            reverse("trash_task", args=[task_id]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.trash_task") as mock_trash:
+            response = self.post_trash()
+        mock_trash.assert_called_once_with("task-1")
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_a_notion_failure_is_a_502_and_leaves_the_cache_alone(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        with patch(
+            "projects.views.trash_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_trash().status_code, 502)
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+
+    def test_a_confirmed_removal_busts_every_cached_copy(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        with patch("projects.views.trash_task"):
+            self.post_trash()
+        for key in (
+            CACHE_KEY,
+            STALE_CACHE_KEY,
+            UNASSIGNED_CACHE_KEY,
+            STALE_UNASSIGNED_CACHE_KEY,
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(cache.get(key))
+
+    def test_the_task_is_gone_from_the_next_render(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+            with patch("projects.views.trash_task"):
+                self.post_trash()
+            project["tasks"] = []
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Programm festlegen")
+
+
+class TrashHappensBehindASecondClickTest(DemoModeTestCase):
+    """The only action that reads as irreversible, so it asks — a two-step
+    inside the menu rather than a modal, which would sit outside the page's
+    own language and block everything behind it."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_item_says_papierkorb_not_loeschen(self):
+        # The Notion API cannot permanently delete: the page stays
+        # restorable in the trash, and "Löschen" would promise otherwise.
+        html = self.dashboard_html()
+        self.assertIn(">In den Papierkorb</button>", html)
+        self.assertNotIn(">Löschen</button>", html)
+
+    def test_the_first_click_only_arms_it(self):
+        html = self.dashboard_html()
+        self.assertIn(
+            "if (action === 'trash' && !item.classList.contains('armed')) {", html
+        )
+        self.assertIn("item.textContent = TRASH_ARMED_LABEL;", html)
+
+    def test_closing_the_menu_disarms_it(self):
+        # Reopening never starts one click away from a removal.
+        html = self.dashboard_html()
+        self.assertIn(
+            "items.querySelectorAll('.task-menu-item[data-action=\"trash\"]')"
+            ".forEach(disarmTrash);",
+            html,
+        )
+
+    def test_a_confirmed_removal_reloads_the_page(self):
+        # Every count, progress bar and board badge is re-rendered by the
+        # server rather than reconciled by hand (#210) — there is no warm
+        # cache left to derive figures from anyway.
+        html = self.dashboard_html()
+        self.assertIn("`/task/${taskId}/trash/`", html)
+        self.assertIn("window.location.reload();", html)
+
+
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
     """§5 of #10: rescheduling is offered exactly where it persists — via Notion
     in production, via session['demo_plan'] for a demo session plan. The five demo
@@ -727,12 +1262,16 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertNotContains(response, 'title="Datum ändern"')
-        self.assertNotContains(response, 'class="today-btn"')
+        # #239: the menu mirrors the controls it drives, so it cannot offer
+        # a write the row itself does not.
+        self.assertNotContains(response, ">Datum ändern</button>")
+        self.assertNotContains(response, ">→ heute</button>")
 
     def test_not_offered_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'title="Datum ändern"')
-        self.assertNotContains(response, 'class="today-btn"')
+        self.assertNotContains(response, ">Datum ändern</button>")
+        self.assertNotContains(response, ">→ heute</button>")
 
     def test_the_date_itself_still_renders_when_it_is_not_clickable(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
@@ -2035,6 +2574,31 @@ class RescheduleResortsTheRowTest(DemoModeTestCase):
         block = self.reschedule_block(self.dashboard_html())
         self.assertNotIn("new Date(", block)
         self.assertNotIn("getDay(", block)
+
+
+class RescheduleAnswersBothDateFormsTest(DemoModeTestCase):
+    """#238: the row's date was shortened, the Kanban card's was not — and
+    the client writes this one answer into both elements. A single
+    due_display would have put the long month back into every rescheduled
+    row until the next reload."""
+
+    def test_the_answer_carries_the_row_form_beside_the_long_one(self):
+        self.given_session_plan()
+        new_date = date.today() + timedelta(days=14)
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": new_date.isoformat()}),
+            content_type="application/json",
+        )
+        answer = response.json()
+        self.assertEqual(answer["due_display"], format_date(new_date, role="long"))
+        self.assertEqual(answer["due_display_row"], format_date(new_date, role="row"))
+
+    def test_the_row_takes_the_short_form_and_the_board_the_long_one(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.textContent = data.due_display_row;", html)
+        self.assertIn("if (due) due.textContent = data.due_display;", html)
 
 
 class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):

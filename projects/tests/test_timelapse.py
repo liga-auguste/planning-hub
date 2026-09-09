@@ -406,29 +406,22 @@ class TimelapseSingleDateAuthorityTest(DemoModeTestCase):
         self.assertContains(response, format_date(date.today()))
         self.assertNotContains(response, "Simulierter Zeitpunkt")
 
-    def _view_today_html(self, response):
-        """Isolates the "Heute" panel's own markup — the same banner text
-        also lives in view-overview, so a page-wide assertContains would
-        pass even if this panel specifically were missing it."""
-        content = response.content.decode()
-        start = content.index('id="view-today"')
-        end = content.index('class="project-section" id=', start)
-        return content[start:end]
+    def test_a_session_plan_has_only_the_one_today_surface(self):
+        """#53 added a second "today" surface and two assertions here kept
+        its banner in step with the overview's. #240 hid that surface for a
+        session plan while the view is reworked, and the pairing they
+        guarded cannot occur meanwhile — the banner needs a session plan and
+        the panel is not rendered for one.
 
-    def test_the_today_view_carries_the_same_sim_banner(self):
-        # #53 added a second "today" surface after #153 fixed the first one
-        # — without its own banner, switching to "Heute" during a
-        # simulation silently drops back into the two-todays confusion
-        # #153 was meant to have settled for good.
+        Inverted rather than deleted: the two belong back in step the moment
+        the panel returns, and this way that return has to come past a test
+        that says so. #153's own rule keeps a witness either way — one
+        simulated date, named in exactly one place."""
         self.given_session_plan()
         self.given_active_simulation()
         response = self.client.get(reverse("dashboard"))
-        self.assertIn("Simulierter Zeitpunkt", self._view_today_html(response))
-
-    def test_no_sim_banner_in_the_today_view_without_a_simulation(self):
-        self.given_session_plan()
-        response = self.client.get(reverse("dashboard"))
-        self.assertNotIn("Simulierter Zeitpunkt", self._view_today_html(response))
+        self.assertContains(response, "Simulierter Zeitpunkt", count=1)
+        self.assertNotContains(response, 'id="view-today"')
 
 
 class TimelapseBaselineUsesLocalDateTest(SimpleTestCase):
@@ -597,17 +590,26 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         self.assertNotContains(response, '<div class="spinner"></div>')
 
 
-class TimelapseBarSharedAcrossViewsTest(DemoModeTestCase):
-    """Same reasoning as StatusBannersSharedAcrossViewsTest, for the
-    Zeitreise bar: it only ever rendered in view-overview, so switching to
-    "Heute" lost the ability to jump between simulated moments — the visitor
-    had to flip back to "Dashboard" just to change the simulated date."""
+class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
+    """#183 gave the bar to both views: it only rendered in view-overview,
+    so switching to "Heute" lost the ability to jump between simulated
+    moments and the visitor had to flip back just to change the date.
 
-    def test_timelapse_bar_appears_for_both_views(self):
+    #240 leaves it with one view to render in while "Heute" is hidden for a
+    session plan: the bar needs one (_timelapse_bar.html), which is exactly
+    the state the panel is not rendered in, so the second copy could not
+    appear and the include reads as dead code. It goes back beside the view
+    whenever the view does — #183's reasoning is untouched. The count is
+    asserted rather than dropped, so that two copies mean the panel is back
+    rather than a duplicate having crept in; the preloader marks moments
+    across every copy it finds (`querySelectorAll`) precisely because that
+    number is not its business."""
+
+    def test_the_timelapse_bar_renders_once(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, 'class="timelapse-bar"', count=2)
-        self.assertContains(response, 'class="timelapse-moments"', count=2)
+        self.assertContains(response, 'class="timelapse-bar"', count=1)
+        self.assertContains(response, 'class="timelapse-moments"', count=1)
 
     def test_absent_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard"))

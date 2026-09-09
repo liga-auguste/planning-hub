@@ -6,7 +6,13 @@ way back to today is structurally impossible (#50).
 {% if sim_date %}
 <div class="sim-banner">
     <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
-    <button class="sim-banner-reset" onclick="setSimDate(null)">Zurück zu heute</button>
+    {% comment %}
+    "Zurück", not "Zurück zu heute": the banner beside it already names the
+    simulated date, so the short form loses no meaning and buys the row
+    enough width to stay on one line down to a small phone. The title keeps
+    the full wording for a pointer.
+    {% endcomment %}
+    <button class="sim-banner-reset" onclick="setSimDate(null)" title="Zurück zum heutigen Datum">Zurück</button>
 </div>
 {% endif %}
 {% comment %}

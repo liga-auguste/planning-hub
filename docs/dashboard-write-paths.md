@@ -8,7 +8,12 @@ half of [Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
 ## Context
 
 The dashboard renders three views out of one document — the overview, the Heute view and
-the per-project sections — plus a shared sidebar. Each one grew its own surface for task
+the per-project sections — plus a shared sidebar. (Two, for a demo session plan: "Heute"
+spans projects and that state has one, so [#240](https://github.com/liga-auguste/planning-hub/issues/240)
+hides it there for now. Everything below holds either way — the client sync addresses its
+surfaces by selector, so a view that is absent simply matches nothing, and a view that comes
+back needs no change here.) Each one grew
+its own surface for task
 state: the AI summary's checkboxes, the "Diese Woche" progress bar, the Kanban board and
 its column counts, the Heute lists, the day columns and their counters, the sidebar
 progress rings.
@@ -48,11 +53,28 @@ read falls back to.
 | Write | Projects | Summary | Fallback |
 |---|---|---|---|
 | Toggle a task | patched in place | kept | full bust |
+| Rename a task | patched in place | kept | full bust |
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
+| Move a task to the trash | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
-`_patch_cached_tasks(task_id, mutate, today, drop_summary=False)` applies `mutate` to
+A rename ([#239](https://github.com/liga-auguste/planning-hub/issues/239)) sits with the
+toggle: `_annotate_tasks` sorts by due date, so a new name moves nothing and the summary's
+`task_refs` still point where they did.
+
+A removal is the one write with no patch path, and that is a decision rather than an
+omission. `_patch_cached_tasks` mutates in place and has no way to drop a task, and a
+removal shifts every count *and* every cached `task_ref`, since
+`_number_projects_and_tasks` numbers by position. `_remap_summary_refs` exists for exactly
+that and could carry it, but `_patch_cached_tasks` would have to give up its
+`mutate(task)` signature to get there — and that is the one place every other write hangs
+off. A removal is rare; the bust costs one Notion read and, because the summary lives in
+the same entry, one Claude call. The answer therefore carries no figures and the client
+reloads, which is the rule above in its strongest form: nothing on the page is left to
+reconcile by hand.
+
+`_patch_cached_tasks(task_id, mutate, today)` applies `mutate` to
 every cached copy of one task and re-runs `_annotate_tasks` on top of it. Each
 `cache.get` hands back its own deserialized object graph, so all four entries are patched
 separately.

@@ -155,9 +155,9 @@ class KontextBadgeTest(DemoModeTestCase):
     render a .task-kontext badge."""
 
     def assertRendersNoBadge(self, response):
-        # Not a bare "task-kontext" substring check: both templates define
-        # the .task-kontext CSS rule unconditionally in their <style> block,
-        # so only the rendered span markup tells the two cases apart.
+        # #145 took the badge and its CSS rule off both templates, so the
+        # bare class name would do now — the span check stays as it was
+        # written, since it is the rendered markup this is about.
         self.assertNotContains(response, 'class="task-kontext">')
 
     def test_the_multi_view_renders_no_kontext_badge(self):
@@ -174,17 +174,23 @@ class KontextBadgeTest(DemoModeTestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class ProductionKontextBadgeTest(TestCase):
-    """The one path kontext still reaches after #18: real Notion data in
-    production. Pins that it renders as a word — the live [&#x27;Büro&#x27;]
-    bug _build_session_project used to cause elsewhere (#9) — now anchored
-    on the sole surviving path instead of on demo fixtures."""
+class ProductionKontextIsNotRenderedTest(TestCase):
+    """#145: production rows used to carry a kontext chip that repeated all
+    the way down the list (Büro x4, Planung x3) and afforded nothing — it
+    could not be clicked, filtered or grouped by. It was noise between the
+    name and the date, and on a phone it was noise competing for the width
+    the name needs.
+
+    Collection and persistence are untouched: the Notion multi-select and
+    the planner review dropdown still write it, and the summary prompt now
+    reads it (see the batch instruction in ai.py). Kontext is an AI-only
+    signal, not a UI element."""
 
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
 
-    def test_dashboard_renders_kontext_as_a_word(self):
+    def test_a_task_carrying_kontext_renders_no_badge(self):
         project = _fake_upcoming_project_with_task()
         project["tasks"][0]["kontext"] = ["Büro"]
         with (
@@ -195,7 +201,10 @@ class ProductionKontextBadgeTest(TestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, 'class="task-kontext">Büro<')
+        self.assertNotContains(response, "task-kontext")
+        self.assertNotContains(response, "Büro")
+        # The [&#x27;Büro&#x27;] shape (#9) cannot come back either — there
+        # is no longer anywhere for a raw list to be rendered into.
         self.assertNotContains(response, "[&#x27;")
 
 
@@ -207,12 +216,14 @@ class DateUncertainBadgeTest(DemoModeTestCase):
     def test_dashboard_shows_the_badge_for_an_uncertain_date(self):
         self.given_session_plan(event_date_uncertain=True)
         response = self.client.get(reverse("dashboard"))
-        # Renders twice: once in the visible AI-card header next to
-        # demo_project_date (what a visitor actually sees after generating a
-        # plan), once in the .project-section this same project also gets
-        # (hidden by default, revealed by the multi-project/timelapse
-        # toggles) — a single assertContains here previously passed even
-        # when only the hidden copy carried the badge.
+        # Renders twice: in the overview's heading next to demo_project_date
+        # (what a visitor actually sees after generating a plan), and in the
+        # .project-section this same project also gets (hidden by default,
+        # revealed by the multi-project/timelapse toggles) — a single
+        # assertContains here previously passed even when only the hidden
+        # copy carried the badge. It was three until #240 hid the Heute
+        # view for a session plan; that view shares the overview's heading
+        # partial, so the badge is hidden with it and comes back with it.
         self.assertContains(response, 'class="date-uncertain-badge"', count=2)
 
     def test_dashboard_shows_no_badge_for_a_confirmed_date(self):
@@ -376,11 +387,12 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
     def test_reschedule_js_displays_the_servers_formatted_date(self):
         # #176: the raw ISO date (newDate/input.value) must never land in the
-        # UI directly — only the server's human-readable due_display may.
+        # UI directly — only the server's human-readable form may. #238 split
+        # that into two fields, the row's short one and the board's long one.
         self.given_mixed_plan()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "const data = await response.json();")
-        self.assertContains(response, "dueSpan.textContent = data.due_display;")
+        self.assertContains(response, "dueSpan.textContent = data.due_display_row;")
         self.assertNotContains(response, "dueSpan.textContent = newDate;")
         self.assertNotContains(response, "span.textContent = input.value;")
 
@@ -830,10 +842,16 @@ class DashboardCacheVersionTest(SimpleTestCase):
     """#210 adds kanban_column to every cached task dict. The cache stores
     already-annotated projects and does not re-annotate on a hit, so a
     pre-deploy entry would render an empty board — and STALE_CACHE_KEY never
-    expires, so it would serve that shape indefinitely."""
+    expires, so it would serve that shape indefinitely.
+
+    #145 (v10) is the softer kind of bump the note above CACHE_KEY
+    describes: the cached summary_data gained an optional kontext_hinweis,
+    and an older entry renders correctly without it. Bumped so the
+    never-expiring copy cannot hold the new field back indefinitely, and so
+    the first summary after the deploy can carry one."""
 
     def test_both_key_pairs_are_bumped_together(self):
-        self.assertEqual(CACHE_KEY, "dashboard_data_v9")
-        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v9")
-        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v4")
-        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v4")
+        self.assertEqual(CACHE_KEY, "dashboard_data_v10")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v10")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v5")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v5")

@@ -558,6 +558,76 @@ class ParseWeekParamTest(SimpleTestCase):
                 self.assertEqual(result, self.DEFAULT)
 
 
+class TodayViewHiddenForASessionPlanTest(DemoModeTestCase):
+    """#240: "Heute" is hidden for a demo session plan while the view is
+    being worked on. In its current shape it is a cross-project surface —
+    overdue, due today, then the week — and a session plan is one project,
+    so it re-sorted the tasks the dashboard above had just shown under three
+    more headings. The sidebar drops the entry with it (_sidebar_nav.html),
+    since a toggle with nothing to toggle is a dead link that also throws.
+
+    A hold rather than a verdict, and asserted so that it stays one: a view
+    that quietly never comes back is indistinguishable from a view nobody
+    decided about. Both states are pinned here — hidden for a session plan,
+    rendered wherever the projects it spans exist — so returning it is a
+    visible change to this class rather than a silent drift."""
+
+    def test_a_session_plan_gets_no_today_view(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('id="view-today"', html)
+        self.assertIn('id="view-overview"', html)
+
+    def test_the_sidebar_offers_no_entry_for_a_view_that_is_not_there(self):
+        """Or the toggle it calls throws on a missing element, which is a
+        dead link that also breaks the page it is on."""
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('id="nav-today"', html)
+
+    def test_the_demo_example_projects_keep_theirs(self):
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn('id="view-today"', html)
+        self.assertIn('id="nav-today"', html)
+
+    def test_a_kept_today_url_falls_back_instead_of_throwing(self):
+        """A visitor who bookmarked ?view=today before planning, or who
+        follows the demo group's link and then plans. The deep-link sync
+        checks for the panel rather than assuming it, the same answer an
+        unknown ?project= id already gets: render the overview."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard") + "?view=today")
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertNotIn('id="view-today"', html)
+        self.assertIn("params.get('view') === 'today' && todayView", html)
+
+
+@override_settings(DEMO_MODE=False)
+class TodayViewRendersInProductionTest(TestCase):
+    """The other side of TodayViewHiddenForASessionPlanTest: production
+    spans every project at once, which is the whole point of the view."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_production_keeps_the_today_view(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn('id="view-today"', html)
+        self.assertIn('id="nav-today"', html)
+
+
 @override_settings(DEMO_MODE=False)
 class TodayWeekViewProductionTest(TestCase):
     """#53: the Heute/Diese-Woche work surface in production — the

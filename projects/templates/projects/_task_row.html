@@ -1,31 +1,36 @@
 {% load planner_tags %}
+{% comment %}
+The one task row, rendered by the Heute lists and by the project detail
+alike (#238). Flat rather than split into a left and a right half: below
+768px the meta wraps onto its own line under the name, and a nested flex
+child cannot wrap onto its neighbour container's line.
+
+Rescheduling is offered where it persists: to Notion in production, to
+session['demo_plan'] for a demo session plan. The demo example projects
+are in no session, so there the date only renders (#10 §5).
+{% endcomment %}
 <div class="task-row">
-    <div class="task-left">
-        {% include "projects/_task_dot.html" %}
-        <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-        {% if task.project_name %}
-        {% if task.project_id %}
-        <span class="task-project ai-project-link" onclick="showProject('{{ task.project_id }}')">{{ task.project_name }}</span>
-        {% else %}
-        <span class="task-project">{{ task.project_name }}</span>
-        {% endif %}
-        {% endif %}
-        {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
-    </div>
-    <span class="task-right" style="display:flex;align-items:center;gap:4px;">
+    {% include "projects/_task_dot.html" %}
+    <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+    {% if task.project_name %}
+    {% if task.project_id %}
+    <span class="task-project ai-project-link" onclick="showProject('{{ task.project_id }}')">{{ task.project_name }}</span>
+    {% else %}
+    <span class="task-project">{{ task.project_name }}</span>
+    {% endif %}
+    {% endif %}
+    <span class="task-right">
         <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
               {% if not viewing_demo_data %}
               data-task-id="{{ task.id }}"
               data-raw-date="{{ task.due|date:'Y-m-d' }}"
               title="Datum ändern"
               {% endif %}>
-            {{ task.due|plan_date:"long" }}
+            {{ task.due|plan_date:"row" }}
         </span>
         {% if task.postpone_count and task.postpone_count >= 2 %}
         <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
         {% endif %}
-        {% if task.urgency == 'overdue' %}{% if not viewing_demo_data %}
-        <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
-        {% endif %}{% endif %}
+        {% include "projects/_task_actions_menu.html" %}
     </span>
 </div>

@@ -10,13 +10,20 @@
     .page { width: 100%; max-width: 720px; margin: 0 auto; }
     .btn-new { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 7px 16px; font-size: 13px; cursor: pointer; text-decoration: none; }
     .btn-new:hover { opacity: 0.85; }
+    .page-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .btn-download { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; padding: 7px 12px; border: 1px solid var(--color-border-primary); border-radius: 6px; white-space: nowrap; }
     .project-header { margin-bottom: 32px; }
     .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
     .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
     .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-border-primary); border-radius: 4px; overflow: hidden; }
     .progress-bar-fill { height: 100%; background: var(--color-solid-bg); border-radius: 4px; transition: width 0.3s; }
-    .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
-    .task-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
+    /* #96 de-boxed the dashboard's .ai-card and .project-section and left
+       this page out; that exception ends here. A list of tasks is one
+       surface with a hairline between the rows, not a card — the border and
+       its 16px inset cost width and read as a second frame inside a page
+       that already has one. .task-list stays as the grouping element and
+       simply draws nothing. */
+    .task-row { display: flex; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
     .task-row:last-child { border-bottom: none; }
     .task-row.done .task-name { color: var(--color-text-quaternary); text-decoration: line-through; }
     .dot { width: 14px; height: 14px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0; background: var(--color-text-quaternary); transition: background 0.15s; }
@@ -26,15 +33,17 @@
     .dot.today { background: var(--color-today); }
     .dot.done { background: var(--color-done); }
     .dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
-    .task-name { flex: 1; line-height: 1.4; }
-    .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
+    .task-name { font-size: 14px; flex: 1; line-height: 1.4; }
+    .task-date { font-size: 13px; color: var(--color-text-quaternary); white-space: nowrap; }
     .task-date.today { color: var(--color-today); }
     .task-date.overdue { color: var(--color-overdue); }
-    .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
     .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
     /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
     .postpone-badge { margin-left: 6px; }
-    .summary-box { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
+    /* Same de-boxing, and the same shape .ai-card took in #96: the text
+       sits on the page rather than in a card, so it lines up with the
+       heading above it and stops paying 28px of side padding for a frame. */
+    .summary-box { padding: 0; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
     /* All six levels: the summary is markdown.markdown() output, so the
        heading depth is the model's to pick, not ours (#64). */
     .summary-box h1, .summary-box h2, .summary-box h3,
@@ -45,20 +54,42 @@
        base_dashboard zeroes it, so a stray paragraph needs its own spacing. */
     .summary-box p { margin: 0 0 8px; }
     .summary-box strong { font-weight: 600; }
-    /* ol alongside ul for the same reason as the six heading levels: the reset
-       took away Reboot's padding, which is what holds bullets and numbers
-       inside the box, and markdown output picks the list type. */
-    .summary-box ul, .summary-box ol { padding-left: 20px; margin: 8px 0; }
+    /* #149: no markers of its own. The summary's top-level list carries the
+       dot markers that already structure the content (#122), so the browser's
+       default disc rendered a second bullet in front of each — the dashboard's
+       .ai-card ul has set list-style: none since it was written.
+       ol keeps its indent for the same reason as the six heading levels: the
+       reset took away Reboot's padding, which is what holds the numbers
+       inside the box, and markdown output picks the list type. Unlike the
+       bullets, the numbers carry the ordering. */
+    .summary-box ul { list-style: none; padding-left: 0; margin: 8px 0; }
+    .summary-box ol { padding-left: 20px; margin: 8px 0; }
     .summary-box li { margin-bottom: 4px; }
     /* The nested task list carries its own checkboxes (#122) — the dot is
-       the marker, a second bullet in front of it would double up. */
-    .summary-box ul ul { list-style: none; padding-left: 8px; }
-    .summary-box .dot { vertical-align: middle; margin-right: 6px; }
-    /* The task list below lays this out with flex gap; inside the summary
-       it is an inline span and needs its own separation from the name. */
-    .summary-box .task-date { margin-left: 8px; }
+       the marker, a second bullet in front of it would double up.
+       No indent of its own, and the same 12px between dot and name that
+       .task-row's gap gives: the summary and the "Alle Aufgaben" list below
+       it show the same tasks, and the eye reads two columns of dots at two
+       different offsets as two different kinds of thing. The block heading
+       above each run carries the grouping on its own weight. */
+    .summary-box ul ul { list-style: none; padding-left: 0; }
+    /* flex, not inline: between the dot and the name sits the template's own
+       newline, which collapses to a space and pushed the summary's names a
+       few pixels further right than the list's below. A flex container drops
+       whitespace-only content, so the gap is exactly the 12px .task-row
+       uses and the two runs line up to the pixel. */
+    .summary-box ul ul li { display: flex; align-items: center; gap: 12px; }
+    .summary-box .dot { flex-shrink: 0; margin-right: 0; }
+    /* The gap on the row above carries the separation now, on both
+       surfaces — this used to add its own 8px because the summary line was
+       inline. */
+    .summary-box .task-date { margin-left: 0; }
     .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
+    /* The second use of the label, over the full list. It needs a gap above
+       it that the first one does not: the summary ends in a task row, and
+       without the space the two runs of tasks read as one. */
+    .list-label { margin-top: 36px; }
     .summary-box hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 16px 0; }
     .summary-box.ai-error { color: var(--color-text-quaternary); font-style: italic; }
     /* Toggle failed server-side — the click had no effect. */
@@ -66,6 +97,16 @@
     /* outline, not color: .dot has no text and fills entirely via
        background, so a color animation is invisible on it (#83 review). */
     @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+    @media (max-width: 768px) {
+        /* This row is the first thing on the page and it is right-aligned,
+           so the fixed ☰ launcher (36px, right: 20px — dashboard.css) sat
+           straight on top of "+ Neu planen" and cut its label in half. Not
+           a scrolling artefact: at rest, every time. Same 44px reservation
+           .project-header has held on the dashboard since #95's follow-up.
+           flex-wrap alongside it, so a narrower screen drops the second
+           button to its own line instead of squeezing both. */
+        .page-actions { padding-right: 44px; }
+    }
 {% endblock %}
 
 {% comment %}
@@ -84,9 +125,8 @@ is gone; the sidebar already covers that.
 
 {% block content %}
 <div class="page">
-    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 24px;">
-        <a href="{% url 'download_plan' %}"
-           style="font-size:13px; color:var(--color-text-quaternary); text-decoration:none; padding:7px 12px; border:1px solid var(--color-border-primary); border-radius:6px;"
+    <div class="page-actions">
+        <a href="{% url 'download_plan' %}" class="btn-download"
            title="Als Markdown-Datei speichern — nutzbar in Notion, Obsidian, KI-Tools">
             ↓ Plan herunterladen
         </a>
@@ -138,6 +178,13 @@ is gone; the sidebar already covers that.
     <div class="summary-box ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar.</div>
     {% endif %}
 
+    {% comment %}
+    The summary and the full list are both runs of tasks, and once the card
+    around each of them went the two ran into one another. The label says
+    which is which, in the same key as "KI-Wochenübersicht" above — a
+    section marker, not a heading with its own weight.
+    {% endcomment %}
+    <div class="summary-label list-label">Alle Aufgaben</div>
     <div class="task-list">
         {% for task in project.tasks %}
         <div class="task-row {% if task.done %}done{% endif %}" id="row-{{ task.id }}">
@@ -154,9 +201,6 @@ is gone; the sidebar already covers that.
             {% endif %}
             {% if task.postpone_count and task.postpone_count >= 2 %}
             <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
-            {% endif %}
-            {% if task.kontext %}
-            <span class="task-kontext">{{ task.kontext.0 }}</span>
             {% endif %}
         </div>
         {% endfor %}

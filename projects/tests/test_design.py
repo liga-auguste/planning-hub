@@ -16,8 +16,12 @@ from django.test import (
 )
 from django.urls import reverse
 
-from ..ai import build_prompt
+from ..ai import (
+    AIUnavailableError,
+    build_prompt,
+)
 from .base import (
+    CLOSEOUT_TODAY,
     DemoModeTestCase,
     PlannerStepsMixin,
     _fake_upcoming_project_with_task,
@@ -126,11 +130,954 @@ class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
         )
 
 
+class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
+    """/mein-plan/ opens with a right-aligned row of two buttons, and the
+    fixed ☰ launcher sat straight on top of "+ Neu planen", cutting its
+    label in half. At rest, every time — not a scrolling artefact. The page
+    had no @media block at all."""
+
+    def test_the_actions_row_reserves_room_for_the_launcher(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "@media (max-width: 768px) {")
+        self.assertContains(response, ".page-actions { padding-right: 44px; }")
+
+    def test_the_row_wraps_rather_than_squeezing_both_buttons(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".page-actions { display: flex; justify-content: flex-end; "
+            "flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }",
+        )
+
+    def test_the_row_is_styled_rather_than_carrying_inline_styles(self):
+        """A media rule cannot reach an inline style, so the row had to
+        become a class before it could reserve anything."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/my_plan.html"
+        ).read_text()
+        self.assertIn('<div class="page-actions">', contents)
+        self.assertNotIn(
+            'style="display:flex; justify-content:flex-end; gap:8px;', contents
+        )
+
+    def test_both_buttons_still_render(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "↓ Plan herunterladen")
+        self.assertContains(response, "+ Neu planen")
+
+
+class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
+    """Four surfaces render a dot, a task name and a date — the dashboard's
+    task rows and its summary, /mein-plan/'s list and its summary — and each
+    had grown its own scale. The same task read as two different things
+    depending on which page you were on.
+
+    One set, and it is the larger one: a 14px dot, a 14px name (the app's
+    own base size, per base.css) and a 13px date one step below it. The 7px
+    dot in particular read as a bullet rather than as the control it is."""
+
+    NAME = "font-size: 14px"
+    DATE = "font-size: 13px"
+
+    def test_the_dashboard_row(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f".task-name {{ {self.NAME};")
+        self.assertContains(response, f".task-due {{ {self.DATE};")
+
+    def test_the_dashboard_summary(self):
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            f".ai-card ul ul li {{ display: flex; align-items: center; "
+            f"gap: 12px; {self.NAME};",
+        )
+
+    def test_the_mein_plan_row_and_summary(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, f".task-name {{ {self.NAME};")
+        self.assertContains(response, f".task-date {{ {self.DATE};")
+
+    def test_the_close_out_triage_row(self):
+        self.given_session_plan()
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, f".triage-task-name {{ {self.NAME};")
+        self.assertContains(response, f".triage-task-due {{ {self.DATE};")
+
+    def test_one_dot_size_on_both_pages(self):
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            dashboard,
+            ".dot { display: inline-block; width: 14px; height: 14px;",
+        )
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".dot { width: 14px; height: 14px;",
+        )
+
+    def test_the_day_card_follows_the_same_scale(self):
+        # It carries a dot and a task name, so it belongs to this set even
+        # though its date is the column it sits in.
+        self.assertContains(
+            self.client.get(reverse("dashboard")), f"{self.NAME}; cursor: grab; }}"
+        )
+
+    def test_the_board_keeps_its_own_scale(self):
+        """The one component that is still a card, and the only task surface
+        with no dot. Left at 12/11: three columns of cards are a dense
+        overview, not a reading list."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "line-height: 1.4; }")
+        self.assertContains(response, ".kanban-card-meta { font-size: 11px;")
+
+
+class KanbanStacksBelowTheBreakpointTest(DemoModeTestCase):
+    """Three columns with a 220px floor do not fit a phone, so the board
+    scrolled sideways and cut its second column down the middle — the same
+    defect the day columns had, and the same answer.
+
+    Each stage keeps its heading and its count and lists its cards
+    underneath, on the page's own surface like every other list here. The
+    desktop grid is untouched."""
+
+    def css(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_columns_stack(self):
+        self.assertIn(
+            ".kanban { display: block; overflow-x: visible; margin-top: 28px; }",
+            self.css(),
+        )
+
+    def test_a_card_becomes_a_row_on_the_page_surface(self):
+        self.assertIn(
+            ".kanban-card { background: none; border: none; border-radius: 0; "
+            "padding: 11px 0; margin-bottom: 0; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+            self.css(),
+        )
+
+    def test_the_overdue_accent_survives_the_de_boxing(self):
+        # It is the board's only urgency signal, so it stays — as a rule
+        # down the left edge with the row indented past it.
+        css = self.css()
+        self.assertIn(".kanban-card.overdue { padding-left: 10px; }", css)
+        self.assertIn(
+            ".kanban-card.overdue { border-left: 3px solid var(--color-overdue); }", css
+        )
+
+    def test_a_done_card_is_not_tinted_twice(self):
+        # The strike-through and the muted name already say it.
+        self.assertIn(".kanban-card.done { background: none; }", self.css())
+
+    def test_an_empty_stage_keeps_its_heading(self):
+        # min-height: 0, so it collapses to the heading rather than leaving
+        # a 120px hole — but the shape of the board still reads.
+        self.assertIn(
+            ".kanban-col { background: none; border-radius: 0; padding: 0; "
+            "min-height: 0; margin-bottom: 20px; }",
+            self.css(),
+        )
+
+    def test_the_desktop_grid_is_untouched(self):
+        self.assertIn(
+            ".kanban { display: grid; "
+            "grid-template-columns: repeat(3, minmax(220px, 1fr)); "
+            "gap: 12px; margin-top: 36px; overflow-x: auto; }",
+            self.css(),
+        )
+
+    def test_the_column_counts_still_render(self):
+        html = self.css()
+        for column in ("open", "urgent", "done"):
+            self.assertIn(f'id="count-{column}"', html)
+
+
+class PageHeadingProjectNameTest(DemoModeTestCase):
+    """Whose plan a heading belongs to, per view.
+
+    A demo session holds exactly one project, so the heading over it names
+    that project — the one place a visitor can otherwise lose track of whose
+    plan they are looking at. It had two headings to do that in until #240
+    hid the Heute view for a session plan while that view is reworked, and
+    one for as long as it stays hidden.
+
+    Production names no project in its Heute heading on purpose: that view
+    spans every project at once, which is what it is for."""
+
+    def test_a_session_plan_names_its_project_in_the_heading_it_has(self):
+        plan = self.given_session_plan(name="Adventskonzert Gospelchor")
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('id="view-today"', html)
+        # The overview runs from its own id to the first project section.
+        overview = html[
+            html.index('id="view-overview"') : html.index('class="project-section"')
+        ]
+        self.assertIn('<div class="page-heading">Dashboard</div>', overview)
+        self.assertIn(plan["name"], overview)
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_names_no_project_there(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            html = self.client.get(reverse("dashboard")).content.decode()
+        # The Heute view runs from its own id to the first project section.
+        today_view = html[
+            html.index('id="view-today"') : html.index('class="project-section"')
+        ]
+        self.assertIn('<div class="page-heading">Heute</div>', today_view)
+        self.assertNotIn("header-project", today_view)
+
+    def test_both_headings_come_from_one_partial(self):
+        """Or the two views drift, which is how they got here."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertEqual(contents.count('{% include "projects/_page_heading.html"'), 2)
+        # The inline styles it replaced cannot come back one view at a time.
+        self.assertNotIn('style="font-size: 22px; font-weight: 700;"', contents)
+
+    def test_only_the_overview_offers_the_refresh_button(self):
+        """It re-reads Notion for the whole page, so one is enough — and it
+        belongs beside the view that shows everything."""
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertEqual(html.count('class="refresh-form"'), 0)
+
+
+class DashboardHeaderBreaksTest(DemoModeTestCase):
+    """Two things went wrong at the top of the dashboard on a phone.
+
+    The project's date is one phrase and broke after the day number, leaving
+    the month on a line of its own — nowrap, the same fix the close-out
+    triage date needed.
+
+    And the 20px above the "KI-Wochenübersicht" label normally comes from
+    the date line between it and the header. #153 drops that line while a
+    moment is simulated and took the gap with it, so the label sat straight
+    under the project name. An adjacent-sibling rule puts it back in exactly
+    that case."""
+
+    def test_the_project_date_never_breaks(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".header-project-date { font-weight: 400; "
+            "color: var(--color-text-quaternary); font-size: 13px; "
+            "white-space: nowrap; }",
+        )
+
+    def test_the_label_keeps_its_gap_when_the_date_line_is_dropped(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".ai-card-header + .ai-card-label { margin-top: 20px; }",
+        )
+
+    def test_the_date_line_still_carries_the_gap_outside_a_moment(self):
+        # The adjacent-sibling rule must not double it up on the normal path.
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")), "margin-bottom: 20px;"
+        )
+
+
+class DownloadFabShrinksOnAPhoneTest(DemoModeTestCase):
+    """A ~230px pill fixed over the page covers the sentence the reader is
+    in the middle of — unlike the ☰, which is a corner. Below the breakpoint
+    it becomes the same affordance at the ☰'s own scale: the arrow keeps its
+    meaning, and the label it drops lives on in the title and the accessible
+    name."""
+
+    def fab_page(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_label_sits_in_its_own_element(self):
+        # Or there would be nothing for the rule below to hide.
+        self.assertContains(
+            self.fab_page(),
+            '<span class="download-fab-label">Plan herunterladen</span>',
+        )
+
+    def test_it_shrinks_to_the_arrow_below_the_breakpoint(self):
+        response = self.fab_page()
+        self.assertContains(
+            response,
+            ".download-fab { width: 48px; height: 48px; padding: 0; "
+            "border-radius: 50%; justify-content: center; gap: 0; "
+            "font-size: 18px; bottom: 20px; right: 20px; }",
+        )
+        self.assertContains(response, ".download-fab-label { display: none; }")
+
+    def test_the_wording_survives_the_shrink(self):
+        response = self.fab_page()
+        self.assertContains(response, 'title="Plan herunterladen"')
+        self.assertContains(response, 'aria-label="Plan herunterladen"')
+
+    def test_the_desktop_pill_is_untouched(self):
+        self.assertContains(
+            self.fab_page(),
+            ".download-fab { position: fixed; bottom: 28px; right: 28px;",
+        )
+
+
+class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
+    """The last card in the app's task lists. Same de-boxing as the others,
+    plus the two breaks that were wrong on a phone.
+
+    The due date was a span *inside* the name's span, so it lived in the
+    name's own inline flow: "So, 29. November" broke after "29." and left
+    the month alone on the next line. It is a sibling now, and nowrap.
+
+    The move button carries a whole date ("→ So, 6. Dezember") and cannot
+    shrink, so on a phone it and the due date left the name nothing. The
+    name takes the first line and the two of them share the second."""
+
+    def triage_page(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Noten kopieren",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            return self.client.get(reverse("close_week_start"))
+
+    def test_the_list_draws_no_card(self):
+        response = self.triage_page()
+        self.assertContains(response, ".triage-list { margin-bottom: 28px; }")
+        self.assertNotContains(response, ".triage-list { background:")
+
+    def test_the_rows_sit_flush_with_a_hairline_between_them(self):
+        self.assertContains(
+            self.triage_page(),
+            ".triage-row { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 12px; padding: 12px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+        )
+
+    def test_the_due_date_is_a_sibling_of_the_name_and_never_breaks(self):
+        response = self.triage_page()
+        self.assertContains(
+            response,
+            '<span class="triage-task-name">Noten kopieren</span>',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            ".triage-task-due { font-size: 13px; "
+            "color: var(--color-text-quaternary); white-space: nowrap; }",
+        )
+
+    def test_the_name_is_the_item_that_gives_way(self):
+        self.assertContains(
+            self.triage_page(),
+            ".triage-task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; "
+            "overflow-wrap: break-word; }",
+        )
+
+    def test_the_button_takes_its_own_line_on_a_phone(self):
+        response = self.triage_page()
+        self.assertContains(response, ".triage-task-name { flex-basis: 100%; }")
+        # It swaps itself for a "verschoben" badge once the move lands, so
+        # the badge has to sit where the button did.
+        self.assertContains(
+            response,
+            ".triage-row .move-btn, .triage-row .badge-neutral { margin-left: auto; }",
+        )
+
+    def test_the_title_clears_the_launcher(self):
+        self.assertContains(self.triage_page(), ".page-title { padding-right: 44px; }")
+
+
+class WeekNavigationStacksBelowTheBreakpointTest(DemoModeTestCase):
+    """ "Diese Woche" and its navigation cannot share a line at phone width:
+    the heading broke into two lines while ←, the week range, → and the
+    reset link were squeezed beside it.
+
+    As a block the heading takes its own line, and the navigation — already
+    a flex container, so block-level — falls underneath it with room to
+    breathe. No new markup and no second component."""
+
+    def test_the_heading_and_its_navigation_stack(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".week-nav-row { display: block; }")
+        self.assertContains(response, ".week-nav { margin-top: 8px; }")
+
+    def test_the_desktop_row_is_untouched(self):
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".week-nav-row { display: flex; align-items: center; "
+            "justify-content: space-between; }",
+        )
+
+    def test_the_navigation_still_renders_all_of_its_controls(self):
+        html = self.client.get(reverse("dashboard") + "?view=today").content.decode()
+        self.assertIn('class="week-nav-btn"', html)
+        self.assertIn('class="week-range-label"', html)
+        self.assertIn('title="Vorherige Woche"', html)
+        self.assertIn('title="Nächste Woche"', html)
+
+
+class TaskListsAreOneSurfaceTest(DemoModeTestCase):
+    """#149 asked for the app's two task lists to read as one component. It
+    first got there by giving the dashboard /mein-plan/'s card; it is here
+    by taking the card off both instead — which is also where #96 was
+    already heading when it de-boxed .ai-card and .project-section and left
+    these two out.
+
+    A list of tasks is one surface with a hairline between the rows. The
+    card's border and its 16px inset cost width on a phone and read as a
+    second frame inside a page that already has one. .task-list stays as the
+    element grouping a run of rows — sortRows walks its children — and
+    simply draws nothing."""
+
+    def test_neither_list_draws_a_card(self):
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertNotContains(dashboard, ".task-list { background:")
+        self.given_session_plan()
+        self.assertNotContains(
+            self.client.get(reverse("my_plan")), ".task-list { background:"
+        )
+
+    def test_the_rows_sit_flush_with_the_page(self):
+        """No side padding: the row's text lines up with the heading above
+        it instead of being inset by a frame that is no longer there."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".task-row { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 12px; padding: 11px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+        )
+
+    def test_both_pages_separate_their_rows_the_same_way(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".task-row { display: flex; align-items: center; padding: 11px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); gap: 12px; }",
+        )
+
+    def test_the_last_row_carries_no_trailing_line(self):
+        # Separators between rows, not a frame around them.
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".task-row:last-child { border-bottom: none; }",
+        )
+
+    def test_the_grouping_element_is_still_rendered(self):
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        # Two Heute lists (Überfällig, Heute fällig) and the project detail.
+        self.assertEqual(contents.count('<div class="task-list">'), 3)
+
+    def test_the_kanban_and_the_overview_keep_their_own_look(self):
+        """The board is a different component — cards that move between
+        columns — and stays one."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".kanban-card { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 6px; "
+            "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
+        )
+
+
+class MeinPlanSeparatesTheSummaryFromTheListTest(DemoModeTestCase):
+    """The summary and the full list are both runs of tasks. While each sat
+    in its own card the boundary was drawn by the boxes; once those went,
+    the summary's last task row ran straight into the list's first.
+
+    A label says which is which, in the same key as "KI-Wochenübersicht"
+    above it — a section marker, not a heading with its own weight — plus
+    the gap the first label does not need."""
+
+    def test_the_list_is_labelled(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            '<div class="summary-label list-label">Alle Aufgaben</div>',
+        )
+
+    def test_it_wears_the_same_key_as_the_summary_label(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-label { font-size: 11px; font-weight: 600; "
+            "color: var(--color-text-quaternary); letter-spacing: 0.07em; "
+            "text-transform: uppercase; margin-bottom: 10px; }",
+        )
+        self.assertContains(response, ".list-label { margin-top: 36px; }")
+
+    def test_it_is_there_even_when_the_summary_is_not(self):
+        """It labels the list, not the boundary — a plan whose summary
+        failed still has one list that wants naming."""
+        self.given_session_plan()
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "nicht verfügbar")
+        self.assertContains(response, ">Alle Aufgaben</div>")
+
+
+class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
+    """#149, second half: .summary-box ul kept the browser's default
+    list-style, so the AI summary rendered disc bullets next to the dot
+    markers that already structure the content. The dashboard's .ai-card ul
+    has set list-style: none since it was written — this matches it.
+
+    The ol keeps its 20px: the numbers carry the ordering and have to land
+    inside the box (#64)."""
+
+    def test_the_summary_list_has_no_markers_of_its_own(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-box ul { list-style: none; padding-left: 0; margin: 8px 0; }",
+        )
+
+    def test_the_dot_markers_stay(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        # A flex item now, so its own margin is gone and the row's gap
+        # carries the separation — see the alignment test below.
+        self.assertContains(
+            response, ".summary-box .dot { flex-shrink: 0; margin-right: 0; }"
+        )
+
+    def test_every_task_dot_on_the_page_shares_one_indent(self):
+        """The summary and the "Alle Aufgaben" list show the same tasks, so
+        two columns of dots at two different offsets read as two different
+        kinds of thing. The nested list drops its own indent, and the gap
+        between dot and name matches .task-row's own — the block heading
+        above each run carries the grouping on its weight alone."""
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, ".summary-box ul ul { list-style: none; padding-left: 0; }"
+        )
+        # A flex row, so the template's own newline between the dot and the
+        # name — which collapses to a space in an inline line box and put
+        # the summary's names a few pixels right of the list's — is dropped
+        # and the gap is exactly the 12px .task-row uses.
+        self.assertContains(
+            response,
+            ".summary-box ul ul li { display: flex; align-items: center; gap: 12px; }",
+        )
+        self.assertContains(response, ".summary-box .task-date { margin-left: 0; }")
+        # The same rule on the dashboard's own summary, which is the other
+        # place a run of task dots renders — and the same flex row, so the
+        # date sits at the edge there too.
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            dashboard,
+            ".ai-card ul ul li { display: flex; align-items: center; gap: 12px; "
+            "font-size: 14px; font-weight: 400; "
+            "color: var(--color-text-tertiary); padding: 2px 0; "
+            "border-top: none; }",
+        )
+        self.assertContains(
+            dashboard,
+            ".ai-card ul ul li .toggle-form, .ai-card ul ul li .dot "
+            "{ margin-right: 0; }",
+        )
+        self.assertContains(
+            dashboard, ".ai-card ul ul li .task-due { margin-left: 0; }"
+        )
+        self.assertContains(
+            response,
+            ".task-row { display: flex; align-items: center; padding: 11px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); gap: 12px; }",
+        )
+
+    def test_numbered_lists_keep_room_for_their_numbers(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, ".summary-box ol { padding-left: 20px; margin: 8px 0; }"
+        )
+
+
+class WeekViewIsAListBelowTheBreakpointTest(DemoModeTestCase):
+    """#180 met the phone with a horizontal swipe-scroll, one day roughly a
+    screen wide. It reads badly: the week is seven swipes long, only one day
+    is ever visible, and the question the view exists to answer — what is
+    coming this week — cannot be seen without scrubbing through it.
+
+    Below 768px the columns become a plain vertical list, built out of the
+    components the Heute lists above them already use: the day is a heading
+    in the same key as "Überfällig" / "Heute fällig", and its tasks sit in
+    the same bordered card. The desktop grid is untouched."""
+
+    def css(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_swipe_scroll_is_gone(self):
+        css = self.css()
+        self.assertNotIn("scroll-snap-type: x mandatory", css)
+        self.assertNotIn("grid-auto-columns: 78vw", css)
+        self.assertNotIn(".day-column { scroll-snap-align: start; }", css)
+
+    def test_the_columns_stack(self):
+        self.assertIn(
+            ".day-columns { display: block; overflow-x: visible; "
+            "margin: 0; padding: 0; }",
+            self.css(),
+        )
+
+    def test_a_days_tasks_sit_on_the_same_surface_the_other_lists_use(self):
+        css = self.css()
+        self.assertIn(".day-column-body { min-height: 0; }", css)
+        # Neither list draws a card, so the two are one component.
+        self.assertNotIn(".task-list { background:", css)
+
+    def test_a_day_card_becomes_a_row(self):
+        css = self.css()
+        self.assertIn(
+            ".day-task-card { background: none; border: none; border-radius: 0; "
+            "gap: 12px; padding: 11px 0; margin-bottom: 0; "
+            "border-bottom: 1px solid var(--color-border-primary); cursor: default; }",
+            css,
+        )
+        # A 160px column had to truncate; a full-width row does not.
+        self.assertIn(
+            ".day-task-name { white-space: normal; overflow: visible; "
+            "text-overflow: clip; overflow-wrap: break-word; }",
+            css,
+        )
+
+    def test_a_quiet_day_keeps_its_heading_but_draws_no_card(self):
+        self.assertIn(".day-column-body:empty { display: none; }", self.css())
+
+    def test_the_empty_rule_can_be_relied_on(self):
+        """:empty only holds if an empty day really is empty, so the
+        element is rendered without whitespace inside it."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn(
+            '<div class="day-column-body" data-date="{{ day.date_iso }}">'
+            "{% for task in day.tasks %}"
+            '{% include "projects/_day_task_card.html" %}{% endfor %}</div>',
+            contents,
+        )
+
+    def test_the_desktop_grid_is_untouched(self):
+        css = self.css()
+        self.assertIn(
+            ".day-columns { display: grid; "
+            "grid-template-columns: repeat(7, minmax(160px, 1fr)); "
+            "gap: 8px; overflow-x: auto; }",
+            css,
+        )
+        self.assertIn(".day-columns { width: calc(100vw - 284px - 68px);", css)
+
+
+class TaskActionsMenuTest(DemoModeTestCase):
+    """#239 stage 1: the row's actions move into a ⋮ menu, on every viewport
+    width — one interaction to build and test rather than a desktop variant
+    and a mobile one. The trigger is typographic, following the precedent
+    the ⠿ drag handle, the × delete and the ⚙ on the rules link set: it
+    inherits `color` in both themes, which a pictographic emoji ignores (see
+    CLAUDE.md, and PictographicEmojiTest enforces it either way).
+
+    The `→ heute` button leaves the row — it is the one control that could
+    live somewhere else, and it sat permanently in every overdue row
+    competing for width. The date click stays as a desktop shortcut and the
+    dot stays the direct toggle."""
+
+    def rows(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard"))
+
+    def test_every_row_carries_a_trigger(self):
+        self.assertContains(self.rows(), 'class="task-menu-trigger"')
+
+    def test_the_trigger_is_the_typographic_glyph(self):
+        self.assertContains(self.rows(), ">⋮</button>")
+
+    def test_the_touch_target_grows_through_padding_not_glyph_size(self):
+        # #146's approach. The negative vertical margin keeps the row at its
+        # own height while the hit area extends past it.
+        self.assertContains(
+            self.rows(),
+            ".task-menu-trigger { background: none; "
+            "border: 1px solid var(--color-border-primary); "
+            "color: var(--color-text-quaternary); cursor: pointer; font-size: 15px; "
+            "line-height: 1; padding: 7px 9px; margin: -7px 0; border-radius: 6px; }",
+        )
+
+    def test_the_trigger_carries_a_border_at_rest(self):
+        """A bare glyph only announces itself on hover, and on a phone there
+        is no hover — the form factor this row was reworked for. The border
+        is what makes it read as a control rather than as punctuation."""
+        self.assertContains(
+            self.rows(),
+            "border: 1px solid var(--color-border-primary); color: var(--color-text-quaternary); cursor: pointer;",
+        )
+
+    def test_each_item_carries_the_chevron_in_a_column_of_its_own(self):
+        """A flush-left list of plain labels reads as text; the right-hand
+        column is what makes it read as a menu. The glyph is the same › the
+        AI summary's project links wear — in this codebase it already means
+        "this can be activated", not "a submenu follows".
+
+        ::after rather than markup: the trash item rewrites its own
+        textContent when it arms, and would take a real child element with
+        it."""
+        response = self.rows()
+        self.assertContains(
+            response,
+            ".task-menu-item::after { content: '\u203a'; "
+            "color: var(--color-text-quaternary); font-size: 13px; }",
+        )
+        self.assertContains(
+            response,
+            ".task-menu-item { display: flex; align-items: center; "
+            "justify-content: space-between; gap: 16px;",
+        )
+
+    def test_the_row_no_longer_carries_a_today_button(self):
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/_task_row.html"
+        ).read_text()
+        self.assertNotIn("today-btn", contents)
+
+    def test_the_closed_menu_actually_stays_closed(self):
+        # .task-menu-items sets display: flex, an author rule, which beats
+        # the UA's own [hidden] { display: none } outright — without this
+        # every row would render its menu open.
+        self.assertContains(self.rows(), ".task-menu-items[hidden] { display: none; }")
+
+    def test_the_menu_escapes_the_cards_clipping(self):
+        # .task-list clips its contents to the card's radius, so a dropdown
+        # positioned inside the row would be cut off. Fixed positioning,
+        # placed from the trigger's own rect when it opens.
+        self.assertContains(self.rows(), ".task-menu-items { position: fixed;")
+
+    def test_the_menu_stays_inside_the_viewport_in_both_directions(self):
+        """Only `left` was clamped. A row near the bottom of the screen is
+        the normal case in a list this long, and a six-item menu is ~190px
+        tall, so the last items landed under the fold — with no way to
+        reach them, because the menu is fixed and every scroll closes it.
+        Worse, focusing the first item scrolls an off-screen menu into view,
+        which is a scroll like any other: the menu shut in the tick it
+        opened. It flips above the trigger where it does not fit below."""
+        html = self.rows().content.decode()
+        self.assertIn(
+            "const fitsBelow = rect.bottom + 4 + items.offsetHeight + 8 "
+            "<= window.innerHeight;",
+            html,
+        )
+        self.assertIn(
+            "const top = fitsBelow ? rect.bottom + 4 : "
+            "Math.max(8, rect.top - items.offsetHeight - 4);",
+            html,
+        )
+
+
+class TaskActionsMenuKeyboardTest(DemoModeTestCase):
+    """#200: core interactions are mouse-only, and a menu is where that gets
+    better or worse. Built reachable from the start rather than retrofitted."""
+
+    def dashboard(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_trigger_announces_itself_as_a_menu(self):
+        html = self.dashboard()
+        self.assertIn('aria-haspopup="true"', html)
+        self.assertIn('aria-expanded="false"', html)
+        self.assertIn('role="menu"', html)
+        self.assertIn('role="menuitem"', html)
+
+    def test_the_arrow_keys_walk_the_items(self):
+        html = self.dashboard()
+        self.assertIn("e.key === 'ArrowDown'", html)
+        self.assertIn("e.key === 'ArrowUp'", html)
+
+    def test_escape_closes_and_returns_focus_to_the_trigger(self):
+        html = self.dashboard()
+        self.assertIn("e.key === 'Escape'", html)
+        self.assertIn("closeTaskMenu({focusTrigger: true})", html)
+
+    def test_opening_moves_focus_into_the_menu(self):
+        self.assertIn(
+            "items.querySelector('.task-menu-item')?.focus();", self.dashboard()
+        )
+
+
+class MobileLauncherClearanceTest(DemoModeTestCase):
+    """.sidebar-toggle-mobile is position: fixed (top: 26px, right: 20px —
+    dashboard.css), so whatever is at the top right is covered.
+
+    Where it collides *at rest* — the banners, the project header, the
+    Zeitreise bar, the Heute headings with their week navigation on the
+    right edge — the element reserves the button's 44px. A list does not: a
+    row scrolling under the button is a transient overlap, 44px of gutter
+    down the whole list is a permanent one, and paying the second to avoid
+    the first is the wrong way round. It also stranded the actions trigger
+    short of the card's edge on every row."""
+
+    def test_the_at_rest_collisions_reserve_their_space(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }",
+        )
+        self.assertContains(response, ".project-header { padding-right: 44px;")
+
+    def test_the_zeitreise_notice_reserves_nothing(self):
+        """It renders only for a simulated moment, which needs a moment to
+        have been offered — and the Zeitreise bar renders above it whenever
+        any exist. So it is never the page's first element, and 44px it does
+        not need is 44px its notice and button cannot use to stay on one
+        line."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".sim-banner, ")
+        self.assertNotContains(response, ", .sim-banner")
+
+    def test_nothing_inside_a_list_reserves_it(self):
+        """The rows, the Heute headings and the day headings all sit deep
+        inside the view, so the button only ever passes over them while
+        scrolling. On the week-navigation heading the reserve was visible
+        as a 44px stub of dead space at the end of its row."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".today-week-heading { padding-right: 44px; }")
+        self.assertNotContains(response, "margin-bottom: 8px; padding-right: 44px; }")
+
+    def test_the_zeitreise_tiles_clear_the_button_by_height(self):
+        """The bar is first in both views, so the launcher sat on its
+        top-right moment tile. It clears the button by height, not by
+        width: the tiles wrap, so a right-hand inset costs every row of
+        them the same 44px — a dead strip beside the whole bar, and one
+        more wrap row — to protect a corner the button only covers on the
+        first. The label row grows to the button's own band instead."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".timelapse-label { min-height: 38px; }")
+        self.assertNotContains(response, ".timelapse-bar { padding-right: 44px; }")
+
+    def test_the_rows_reserve_nothing(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".task-row, .today-week-heading {")
+        self.assertNotContains(response, ".task-name { flex-basis: 100%;")
+
+
+class TaskRowNeverCollidesTest(DemoModeTestCase):
+    """#238: the row was a two-part flex container with nothing stopping its
+    parts from colliding. `.task-name` carried no flex at all, so it shrank
+    to its min-content width — the longest single word — and `.task-left`
+    (min-width: 0) then ended up narrower than its own contents, which the
+    unshrinkable `.task-project` overflowed straight across the date beside
+    it. Neither box clipped, so the two runs of text simply painted over
+    each other.
+
+    The fix is structural rather than a clip, and it holds at every width:
+    `.task-left` goes, so the row itself is the flex container, and the name
+    is the item that gives way — it grows, it may shrink past its longest
+    word, and it breaks that word rather than overflowing. The task name is
+    never truncated: production names are long, and the truncated part is
+    the part that identifies the task.
+
+    The row keeps /mein-plan/'s shape — dot, name, date, actions on one
+    line — at every width. It stacked below the breakpoint for a while,
+    which gave a long name the full width and cost every short one a second
+    line, and made the app's two task lists read as one component on the
+    desktop and as two on a phone."""
+
+    def test_the_name_is_the_item_that_gives_way(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; "
+            "overflow-wrap: break-word; }",
+        )
+
+    def test_the_row_itself_wraps_and_no_longer_nests_a_left_half(self):
+        response = self.client.get(reverse("dashboard"))
+        # The padding and gap are #149's, asserted in
+        # TaskListMatchesMeinPlanTest — what this is about is flex-wrap on
+        # the row itself and the absence of the nested half.
+        self.assertContains(
+            response, ".task-row { display: flex; align-items: center; flex-wrap: wrap;"
+        )
+        # The class itself, not the string: the rules above explain
+        # themselves by naming the half that used to be there.
+        self.assertNotContains(response, 'class="task-left"')
+        self.assertNotContains(response, ".task-left {")
+
+    def test_the_meta_half_is_styled_rather_than_carrying_inline_styles(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-right { display: flex; align-items: center; gap: 4px; "
+            "margin-left: auto; }",
+        )
+        self.assertNotContains(
+            response, 'style="display:flex;align-items:center;gap:4px;"'
+        )
+
+    def test_the_row_keeps_its_one_line_shape_below_the_breakpoint(self):
+        # No basis, no negative margins, no per-element indents: the desktop
+        # rule is the rule, which is what makes this list and /mein-plan/'s
+        # the same component at every width (#149).
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".task-name { flex-basis:")
+        self.assertNotContains(response, ".task-row > .toggle-form")
+        self.assertNotContains(response, ".task-right { margin-left: 0;")
+
+    def test_the_project_label_is_the_one_that_truncates(self):
+        """When the two labels cannot both fit, the project gives way: it
+        repeats all the way down a Heute list, while the truncated part of a
+        task name is the part that identifies it. flex-shrink: 3 is what
+        makes it go first rather than the two shrinking in step."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".task-project { flex-shrink: 3; min-width: 0; overflow: hidden; "
+            "text-overflow: ellipsis; }",
+        )
+
+    def test_the_task_name_is_never_truncated(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".task-name { text-overflow: ellipsis")
+
+    def test_both_task_lists_render_from_the_one_partial(self):
+        """The project detail used to hold its own copy of the row markup,
+        so every rule above would have had to be true of two templates."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn(
+            '{% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}',
+            contents,
+        )
+
+
 class DeboxingRegressionTest(DemoModeTestCase):
-    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these
-    boxed areas untouched — locked in before any code change so a later step
+    """#96: the sidebar-tile/.ai-card de-boxing explicitly left these boxed
+    areas untouched — locked in before any code change so a later step
     can't quietly widen the scope. (.project-section joined the de-boxed
-    side in a #96 follow-up — see ProjectSectionDeboxTest.)"""
+    side in a #96 follow-up — see ProjectSectionDeboxTest, and
+    /mein-plan/'s two boxes followed later still; the test below says so
+    rather than being deleted, so the scope reads as a decision.)"""
 
     def test_kanban_card_keeps_its_border(self):
         response = self.client.get(reverse("dashboard"))
@@ -141,24 +1088,22 @@ class DeboxingRegressionTest(DemoModeTestCase):
             "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
         )
 
-    def test_my_plan_task_list_keeps_border_and_radius(self):
+    def test_my_plan_boxes_were_the_exception_and_no_longer_are(self):
+        """#96 kept these two out of the de-boxing and this test held them
+        there. The exception has since ended: a list of tasks is one surface
+        with a hairline between its rows, and the summary is text on the
+        page — both cost width and read as a second frame inside a page that
+        already has one. Left here rather than deleted, so the scope this
+        class exists to guard is visibly a decision and not a drift."""
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(
             response,
-            ".task-list { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }",
+            ".summary-box { padding: 0; margin-bottom: 24px; "
+            "line-height: 1.7; font-size: 14px; }",
         )
-
-    def test_my_plan_summary_box_keeps_border_and_radius(self):
-        self.given_session_plan()
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(
-            response,
-            ".summary-box { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
-            "padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }",
-        )
+        self.assertNotContains(response, ".task-list { background:")
+        self.assertNotContains(response, ".summary-box { background:")
 
 
 class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
@@ -188,6 +1133,72 @@ class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
         self.assertContains(response, ".demo-banner span { flex: 1 1 200px; }")
 
 
+class SimBannerNarrowViewportWrapTest(DemoModeTestCase):
+    """The Zeitreise notice is the same shape as the demo banner — a run of
+    text plus one control — and never got the same treatment. Without
+    flex-wrap the row cannot break, so at phone width the notice and
+    "Zurück zu heute" were each squeezed into two cramped lines side by
+    side instead of the link dropping cleanly below.
+
+    Same three parts as DemoBannerNarrowViewportWrapTest, for the same
+    reasons: wrap, an explicit basis on the text so a wide layout does not
+    break early, and nowrap on the control so it stays one word."""
+
+    def banner_css(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data='{"date": "2026-09-01"}',
+            content_type="application/json",
+        )
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_banner_wraps_instead_of_squeezing(self):
+        self.assertContains(
+            self.banner_css(),
+            ".sim-banner { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 6px 10px;",
+        )
+
+    def test_the_text_gets_an_explicit_basis(self):
+        # Without it, flex-wrap breaks the row against the text's full
+        # unbroken width even when there is room for it to wrap internally.
+        self.assertContains(self.banner_css(), ".sim-banner span { flex: 1 1 200px; }")
+
+    def test_the_control_stays_on_one_line(self):
+        # "Zurück zu heute" broke across two lines in the squeeze.
+        self.assertContains(
+            self.banner_css(),
+            ".sim-banner-reset { margin-left: auto; white-space: nowrap;",
+        )
+
+    def test_the_control_is_short_enough_to_share_the_line(self):
+        """The banner beside it already names the simulated date, so the
+        short form loses no meaning and buys the row the width it needs to
+        stay on one line down to a small phone. The title keeps the full
+        wording for a pointer."""
+        response = self.banner_css()
+        self.assertContains(response, 'title="Zurück zum heutigen Datum">Zurück<')
+        self.assertNotContains(response, ">Zurück zu heute<")
+
+    def test_the_banner_actually_renders_for_a_simulated_moment(self):
+        # Or every assertion above would pass against a page that never
+        # shows the element they describe.
+        self.assertContains(self.banner_css(), 'class="sim-banner"')
+
+    def test_the_plain_notice_needs_no_wrapping(self):
+        """.stale-notice is a block of text with no flex row to break, so
+        it wraps on its own — listed here so "all banners" is on the
+        record rather than assumed."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".stale-notice { background: var(--color-overdue-tint); "
+            "color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; "
+            "font-size: 12px; margin-bottom: 16px; }",
+        )
+
+
 class BaseResetParityTest(DemoModeTestCase):
     """#64 unit 4: base_public.html reset itself while base_dashboard.html
     inherited Reboot's. Two sources for the same thing is what produces
@@ -215,9 +1226,9 @@ class BaseResetParityTest(DemoModeTestCase):
     def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
         self.given_session_plan()
         response = self.client.get("/mein-plan/")
-        self.assertContains(
-            response, ".summary-box ul, .summary-box ol { padding-left: 20px"
-        )
+        # #149 split the two: the ul lost its markers and its indent with
+        # them, the ol kept both — its numbers carry the ordering.
+        self.assertContains(response, ".summary-box ol { padding-left: 20px")
         self.assertContains(response, ".summary-box p { margin: 0 0 8px; }")
 
     def test_ordered_lists_keep_room_for_their_numbers(self):
@@ -231,7 +1242,7 @@ class BaseResetParityTest(DemoModeTestCase):
         self.given_session_plan()
         self.assertContains(
             self.client.get("/mein-plan/"),
-            ".summary-box ul, .summary-box ol { padding-left: 20px",
+            ".summary-box ol { padding-left: 20px",
         )
 
     def test_summary_headings_cover_every_level_markdown_can_emit(self):

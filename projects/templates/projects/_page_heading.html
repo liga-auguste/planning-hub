@@ -1,0 +1,28 @@
+{% comment %}
+A view's own title, plus the demo plan's project name where there is one.
+
+Both the overview and the Heute view render it. A demo session holds exactly
+one project, so naming it is the difference between a page that says "Heute"
+and one that says whose "Heute" this is. Production shows neither: its Heute
+view spans every project at once, and its overview's projects carry their
+date in their own Notion name already.
+
+`title` is passed by the caller; everything else comes from the context
+dashboard() already sets for the overview.
+{% endcomment %}
+<div class="ai-card-header page-heading-row">
+    <div class="page-heading">{{ title }}</div>
+    {% if demo_project_name %}
+    <div class="header-project">
+        {{ demo_project_name }}
+        <span class="header-project-date">— {{ demo_project_date }}</span>
+        {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if not demo_mode and show_refresh %}
+    <form method="post" action="{% url 'refresh' %}" class="refresh-form">
+        {% csrf_token %}
+        <button type="submit" class="refresh-btn">↻ Aktualisieren</button>
+    </form>
+    {% endif %}
+</div>

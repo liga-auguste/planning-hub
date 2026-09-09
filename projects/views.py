@@ -20,6 +20,7 @@ from .ai import (
     _number_projects_and_tasks,
     generate_closeout_summary,
     generate_weekly_summary,
+    resolve_kontext_hint,
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
@@ -39,7 +40,9 @@ from .notion import (
     get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
+    rename_task,
     toggle_task,
+    trash_task,
     update_task_date,
 )
 
@@ -64,12 +67,21 @@ logger = logging.getLogger(__name__)
 # read. It is bumped anyway so that STALE_CACHE_KEY, which never expires,
 # cannot keep serving a shape no code writes any more — and because a
 # formatted date living in this cache was the bug in the first place.
-CACHE_KEY = "dashboard_data_v9"
+#
+# #145 (v10) is the same kind: the cached summary_data gained an optional
+# kontext_hinweis field, and an entry written before it simply renders
+# without the hint. Bumped for the same STALE_CACHE_KEY reason, and so the
+# first summary after the deploy can carry a hint instead of the last cached
+# one holding it back for up to eight hours. UNASSIGNED_CACHE_KEY goes with
+# it by the #19 lockstep even though its own shape is unchanged — the two
+# are counted across each other everywhere, and a half-refreshed pair is the
+# state _patch_cached_tasks refuses to work with anyway.
+CACHE_KEY = "dashboard_data_v10"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v9"
+STALE_CACHE_KEY = "dashboard_data_stale_v10"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -79,9 +91,9 @@ STALE_CACHE_KEY = "dashboard_data_stale_v9"
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
 # #210: v4 — and they gained kanban_column, bumped in the same lockstep.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v4"
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v5"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v4"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v5"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -1078,6 +1090,17 @@ def dashboard(request):
         if summary_data
         else None
     )
+    # #145: production only, and DEMO_MODE is what says that — not
+    # has_session_plan, which is false for the demo's example projects too
+    # and would have let the hint render on the public demo. Kontext never
+    # reaches a demo prompt at all (#18), so build_prompt does not ask for
+    # the field there either; this is the second half of the same rule, so
+    # that a summary cached before that change cannot surface one.
+    kontext_hint = (
+        resolve_kontext_hint(summary_data)
+        if summary_data and not settings.DEMO_MODE
+        else ""
+    )
 
     timelapse_moments = (
         request.session.get("demo_timelapse_moments", []) if settings.DEMO_MODE else []
@@ -1117,6 +1140,7 @@ def dashboard(request):
             "month_groups": month_groups,
             "years": years,
             "summary": summary,
+            "kontext_hint": kontext_hint,
             "today": today,
             "today_display": format_date(today, role="long"),
             "today_iso": today.isoformat(),
@@ -1355,6 +1379,123 @@ def toggle_task_view(request, task_id):
     return JsonResponse({"ok": True, **figures})
 
 
+def _parse_posted_name(request):
+    """Returns (name, error_response). #154/#61's shape: a malformed body is
+    a 400, never a 500, and a name is only a name once it has something in
+    it — an empty rename would leave a row nothing identifies it by."""
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return None, error
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None, JsonResponse({"error": "invalid name"}, status=400)
+    return name.strip(), None
+
+
+def rename_task_view(request, task_id):
+    """#239 stage 2. Shaped like toggle_task_view: POST only, a 400 on a
+    malformed body, a 404 for a task that was never saved rather than a
+    cheerful ok (#61).
+
+    No figures in the answer — a rename changes no count, no stage and no
+    position. It is the one write that moves nothing."""
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    name, error = _parse_posted_name(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        # #217: a Zeitreise moment is a rendering of a date, not a place to
+        # change things. Same refusal as toggle_task_view, and the menu
+        # offers no item while one is active.
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        task["name"] = name
+        request.session["demo_plan"] = plan
+    else:
+        try:
+            rename_task(task_id, name)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+
+        # #199: a rename moves nothing in the chronological order
+        # (_annotate_tasks sorts by due date), so the cached lists carry it
+        # rather than being thrown away and re-read from Notion at a Claude
+        # call's expense. _remap_summary_refs is then a no-op over an
+        # unchanged order, which is exactly what a toggle already relies on.
+        def relabel(task):
+            task["name"] = name
+
+        if _patch_cached_tasks(task_id, relabel, timezone.localdate()) is None:
+            _bust_dashboard_cache()
+    return JsonResponse({"ok": True, "name": name})
+
+
+def trash_task_view(request, task_id):
+    """#239 stage 3. Same shape as rename_task_view above — POST only, a 404
+    for a task that was never saved (#61), refused while a Zeitreise moment
+    is active (#217).
+
+    The cache is busted rather than patched, deliberately.
+    _patch_cached_tasks mutates in place and has no removal path, and a
+    removal shifts every count *and* every cached task_ref, since
+    _number_projects_and_tasks numbers by position. _remap_summary_refs
+    exists for exactly that and could carry it, but _patch_cached_tasks
+    would have to give up its mutate(task) signature to get there — and that
+    is the one place every other write hangs off. A removal is rare; the
+    fallback costs one Notion read and, because the summary lives in the
+    same entry, one Claude call. That is the price of not reshaping the
+    patch path for the least frequent write in the app.
+
+    The answer therefore carries no figures — there is nothing warm left to
+    derive them from — and the client reloads. Which is also the strongest
+    form of #210: every count, progress bar and board badge is re-rendered
+    by the server rather than reconciled by hand.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    _, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        plan["tasks"] = [t for t in plan["tasks"] if t["id"] != task_id]
+        request.session["demo_plan"] = plan
+        # The cached summaries were numbered against an order this task was
+        # part of, so they cannot be rewritten — a ref no longer points at
+        # the task it was written for. Swept rather than remapped, the same
+        # treatment reschedule_task_view gives a summary it cannot renumber.
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
+    else:
+        try:
+            trash_task(task_id)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
+
+
 def reschedule_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
@@ -1367,6 +1508,12 @@ def reschedule_task_view(request, task_id):
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
     due_display = format_date(parsed_date, role="long")
+    # #238: two formats, because the client writes this answer into two
+    # elements. The Kanban card spells the month out; the task row was
+    # shortened to give the task name back the width it costs on a phone. One
+    # field for both would have put the long form back into every rescheduled
+    # row until the next reload.
+    due_display_row = format_date(parsed_date, role="row")
 
     # Read before the branches: both of them derive the figures below
     # against it. A demo visitor's time travel has to count here the way it
@@ -1501,6 +1648,7 @@ def reschedule_task_view(request, task_id):
             "ok": True,
             "postpone_count": postpone_count,
             "due_display": due_display,
+            "due_display_row": due_display_row,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
             **figures,
         }

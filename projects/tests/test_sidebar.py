@@ -357,12 +357,17 @@ class SidebarModeGroupingTest(DemoModeTestCase):
         )
         self.assertContains(response, "Plan als Liste")
         self.assertContains(response, "Woche abschließen")
-        # Both groups carry the same two entries; the headings say which
-        # data each one is over. Asserted as a pair rather than by substring,
-        # because "Dashboard" now appears in both by design.
+        # Asserted as an ordered list rather than by substring, because
+        # "Dashboard" appears in both groups by design.
+        #
+        # "Heute" is the one entry the two groups do not share while #240
+        # hides that view for a session plan: it is a cross-project view and
+        # "Dein Projekt" is one project. A hold, not a split for good — the
+        # entry comes back with the panel. Meanwhile the list a single plan
+        # needs is "Plan als Liste", which that group carries.
         html = response.content.decode()
         self.assertEqual(
-            _sidebar_group(html, "Dein Projekt", 2), ["Dashboard", "Heute"]
+            _sidebar_group(html, "Dein Projekt", 2), ["Dashboard", "Plan als Liste"]
         )
         self.assertEqual(
             _sidebar_group(html, "Demo-Projekte", 2), ["Dashboard", "Heute"]
@@ -485,12 +490,15 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         # The removed wordmark row used to keep the top-of-page band free
         # of the fixed hamburger launcher on mobile; every element that can
         # now render first reserves the button's footprint on the right,
-        # mirroring .project-header's existing reservation.
+        # mirroring .project-header's existing reservation. Two exceptions,
+        # both covered in test_design.py: the Zeitreise bar renders before
+        # all of them and had the same collision, but its tiles wrap, so it
+        # clears the button by height instead; and the Zeitreise notice
+        # renders only underneath that bar, so it is never first at all.
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header "
-            "{ padding-right: 44px; }",
+            ".demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }",
         )
 
     def test_pages_without_a_sidebar_render_no_header(self):
@@ -1030,7 +1038,7 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
-            ".dot { display: inline-block; width: 7px; height: 7px; "
+            ".dot { display: inline-block; width: 14px; height: 14px; "
             "border-radius: 50%; margin-right: 8px;",
         )
 

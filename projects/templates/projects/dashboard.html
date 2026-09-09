@@ -4,7 +4,11 @@
 {% block title %}Planning Hub{% endblock %}
 
 {% block extra_css %}
-        .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; background: var(--color-text-quaternary); }
+        /* One dot size across the app: 14px, the one /mein-plan/ has
+           always drawn. The 7px version read as a bullet rather than as
+           the control it is, and put the same task under two different
+           markers depending on which page you were looking at. */
+        .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; background: var(--color-text-quaternary); }
         button.dot { border: none; padding: 0; cursor: pointer; background: var(--color-text-quaternary); }
         button.dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
         /* Kept above the done rule: equal specificity, and toggling only
@@ -15,6 +19,23 @@
         .dot.done { background: var(--color-done); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
+        /* The heading row, shared by the overview and the Heute view
+           (_page_heading.html). It was inline styles on two elements before
+           the two views started sharing it; a media rule cannot reach those,
+           and a third copy was one view away. */
+        .page-heading-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; row-gap: 2px; margin-bottom: 4px; }
+        .page-heading { font-size: 22px; font-weight: 700; }
+        .header-project { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
+        /* nowrap: the date is one phrase, and at phone width it broke after
+           the day number and left the month on a line of its own. */
+        .header-project-date { font-weight: 400; color: var(--color-text-quaternary); font-size: 13px; white-space: nowrap; }
+        .refresh-form { margin-left: auto; align-self: center; }
+        .refresh-btn { font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+        /* The 20px above the label normally comes from the date line between
+           the two. #153 drops that line while a moment is simulated, and
+           took the gap with it — the label then sat straight under the
+           project name. Adjacent sibling, so it only fires in that case. */
+        .ai-card-header + .ai-card-label { margin-top: 20px; }
         /* All six levels: the summary is markdown.markdown() output, so the
            heading depth is the model's to pick, not ours (#64). */
         .ai-card h1, .ai-card h2, .ai-card h3,
@@ -25,8 +46,23 @@
         .ai-card ul > li:first-child { border-top: none; }
         .ai-card ul ul { padding-left: 0; margin: 4px 0 6px; }
         /* border-top: none — nested lis also match .ai-card ul > li above and
-           would inherit its separator line. */
-        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0 2px 16px; border-top: none; }
+           would inherit its separator line.
+           No left indent: every other task dot on the page sits flush, and
+           two columns of dots at two different offsets read as two different
+           kinds of thing. The project heading above each run carries the
+           grouping on its own weight, which is all it ever needed — the
+           indent was doing that job a second time. Same change /mein-plan/'s
+           summary took. */
+        .ai-card ul ul li { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
+        /* The same row /mein-plan/'s list draws: dot and name left, date
+           right. It was an inline line box, so the date trailed the name
+           wherever the name happened to end and no two lines agreed on
+           where it sat. .task-name already carries flex: 1 1 auto for the
+           task rows, so the name grows and the date lands at the edge with
+           no rule of its own. The margins these three carry for their inline
+           uses have to give way to the row's gap. */
+        .ai-card ul ul li .toggle-form, .ai-card ul ul li .dot { margin-right: 0; }
+        .ai-card ul ul li .task-due { margin-left: 0; }
         /* Off-format — the prompt asks for `-` bullets — but a numbered list
            still has to land inside the card. Reboot's padding is what held the
            markers, and the #64 reset took it away; padding-left keeps them from
@@ -47,6 +83,10 @@
            itself (8px from .dot) to keep the gap identical. */
         .ai-card span.dot { margin-right: 10px; }
         .ai-card ul ul li .dot { vertical-align: middle; }
+        /* #145: a footnote under the week's blocks, not a block of its own —
+           it describes a way of working, not a project. Separated by the
+           same hairline the blocks use between each other. */
+        .ai-kontext-hint { font-size: 12px; color: var(--color-text-tertiary); border-top: 1px solid var(--color-border-primary); padding-top: 12px; margin-top: 20px; }
         .ai-error { color: var(--color-text-quaternary); font-style: italic; }
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
         .project-section { margin-bottom: 8px; padding: 0; }
@@ -56,12 +96,41 @@
         .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
         /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
         .postpone-badge { margin-left: 6px; }
-        .task-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
+        /* #238: the row is the wrapping container itself. It used to nest a
+           .task-left half, and a nested flex child cannot wrap onto its
+           neighbour's line — the second line below 768px needs the meta to
+           be a sibling of the name, not a cousin. justify-content goes with
+           it: .task-name grows, so .task-right's own margin-left: auto puts
+           it against the right edge just the same. */
+        /* #96 de-boxed .ai-card and .project-section and left the two task
+           lists out; this is where that stops being an exception. A list of
+           tasks is one surface with a hairline between the rows, not a card
+           — the card's own border and 16px inset cost width and read as a
+           second frame inside a page that already has one. .task-list stays
+           as the element grouping a run of rows (sortRows walks its
+           children); it simply draws nothing. */
+        .task-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
-        .task-left { display: flex; align-items: center; flex: 1; min-width: 0; }
-        .task-name { font-size: 13px; }
+        /* The gap is the row's only horizontal spacing now, so the elements'
+           own margins have to give way to it. Scoped rather than removed:
+           .dot and .task-due both also render inside the AI summary, which
+           lays its items out inline and still needs them. */
+        .task-row .dot { margin-right: 0; }
+        .task-row .task-due { margin-left: 0; }
+        .task-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+        /* #238: the one item in the row that gives way. Without a flex of
+           its own it shrank to min-content — the longest single word — which
+           rendered a production task name as six lines of one word each,
+           and left .task-left narrower than its own contents so the
+           unshrinkable .task-project painted straight across the date.
+           min-width: 0 lets the name shrink past that floor and
+           overflow-wrap breaks the word that no longer fits, so the row can
+           always absorb its own content instead of overflowing it. No
+           ellipsis: production task names are long and the truncated part
+           is the part that identifies the task. */
+        .task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
         .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
-        .task-due { font-size: 12px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
+        .task-due { font-size: 13px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
         /* The affordance follows the behaviour: only a date carrying
            data-task-id is wired up for rescheduling (#10 §5). */
         .task-due[data-task-id] { cursor: pointer; }
@@ -69,21 +138,58 @@
         .task-due.today { color: var(--color-today); font-weight: 500; }
         .task-due.overdue { color: var(--color-overdue); font-weight: 500; }
         .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
+        /* #239: same swap-in-place shape as the date input above, sized to
+           take the name's place in the row rather than its own width. */
+        .task-name-input { font-size: 13px; flex: 1 1 auto; min-width: 0; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 2px 6px; background: var(--color-bg-primary); color: var(--color-text-primary); }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
         .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
         /* outline, not color: .dot buttons carry no text and fill entirely
            via background, so a color animation is invisible on them (#83
            review) — outline reads on both the dot and text targets. */
         @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
-        .today-btn { font-size: 11px; color: var(--color-text-quaternary); background: none; border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
-        .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
-        .task-kontext { font-size: 11px; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 6px; margin-left: 8px; white-space: nowrap; }
+        /* #239: the row's actions. The trigger is typographic like the ⠿
+           drag handle and the × delete, so it follows `color` in both
+           themes. Its touch target grows through padding rather than glyph
+           size (#146); the negative vertical margin keeps the row at its own
+           height while the hit area extends past it. */
+        .task-menu { position: relative; display: inline-flex; }
+        /* The border is what makes it read as a control rather than as a
+           stray piece of punctuation at the end of the row. A bare glyph
+           only announces itself on hover, and on a phone there is no hover
+           — which is the form factor this whole row was reworked for. */
+        .task-menu-trigger { background: none; border: 1px solid var(--color-border-primary); color: var(--color-text-quaternary); cursor: pointer; font-size: 15px; line-height: 1; padding: 7px 9px; margin: -7px 0; border-radius: 6px; }
+        .task-menu-trigger:hover { background: var(--color-bg-tertiary); border-color: var(--color-border-secondary); color: var(--color-text-primary); }
+        .task-menu-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+        /* Fixed, not absolute: .task-list clips its contents to the card's
+           radius, so a dropdown positioned inside the row would be cut off.
+           The coordinates are written from the trigger's own rect when it
+           opens, and any scroll or resize closes it rather than leaving it
+           behind — see openTaskMenu below. */
+        .task-menu-items { position: fixed; z-index: 30; min-width: 180px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; box-shadow: var(--shadow-medium); padding: 4px; display: flex; flex-direction: column; }
+        /* display: flex above is an author rule and beats the UA's own
+           [hidden] { display: none } outright, so the closed menu would
+           render open on every row. The state has to be stated here. */
+        .task-menu-items[hidden] { display: none; }
+        .task-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: none; border: none; text-align: left; font-size: 12px; color: var(--color-text-primary); padding: 8px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+        /* The same › the AI summary's project links wear — in this codebase
+           it already means "this can be activated", not "a submenu follows".
+           Right-aligned in a column of its own: a flush-left list of plain
+           labels reads as text, and the column is what makes it read as a
+           menu. ::after rather than markup, because the trash item rewrites
+           its own textContent when it arms and would take a real child
+           element with it. */
+        .task-menu-item::after { content: '›'; color: var(--color-text-quaternary); font-size: 13px; }
+        .task-menu-item:hover, .task-menu-item:focus-visible { background: var(--color-bg-tertiary); outline: none; }
+        .task-menu-item-danger { color: var(--color-overdue); }
+        /* Armed by a first click on itself. The colour is the row's own
+           overdue signal, so the menu introduces no palette of its own. */
+        .task-menu-item-danger.armed { background: var(--color-overdue-tint); font-weight: 600; }
         /* #53: the Heute/Diese-Woche view spans projects, so each row needs
            its own project label — the single-project views never do. Sits
            after task-name (not before) so every task-name starts at the
            same indent right after the dot, instead of drifting with each
            row's project-name width. */
-        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 8px; white-space: nowrap; flex-shrink: 0; }
+        .task-project { font-size: 11px; color: var(--color-text-quaternary); white-space: nowrap; flex-shrink: 0; }
         .task-project.ai-project-link { color: var(--color-text-tertiary); }
         .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
         .today-week-heading:first-child { margin-top: 0; }
@@ -111,7 +217,7 @@
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; flex: 1; }
-        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
+        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 14px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
            on a ~160px card the shared 8px .dot margin was a third of the
            gap eaten by chrome instead of the task name. */
@@ -201,8 +307,17 @@
         .kanban-card-meta span:last-child { white-space: nowrap; flex-shrink: 0; }
         .kanban-card.overdue .kanban-card-meta { color: var(--color-overdue); }
         .kanban-card.done .kanban-card-meta { color: var(--color-border-secondary); }
-        .sim-banner { display: flex; align-items: center; gap: 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
-        .sim-banner-reset { margin-left: auto; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
+        /* Text plus one control, the same shape .demo-banner has — and the
+           same treatment, which this one never got: without flex-wrap the
+           row cannot break, so at phone width the notice and "Zurück zu
+           heute" were each squeezed into two cramped lines side by side
+           instead of the link dropping cleanly below. The explicit basis is
+           what keeps a wide layout from breaking early: the wrap decision
+           is made against the text's full unbroken width, not the narrower
+           box it would render at if allowed to wrap internally. */
+        .sim-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
+        .sim-banner span { flex: 1 1 200px; }
+        .sim-banner-reset { margin-left: auto; white-space: nowrap; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
         .sim-banner-reset:hover { opacity: 1; }
         .demo-banner { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px 10px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
         /* Flex-wrap alone breaks the row too early: the line-wrap decision is
@@ -239,19 +354,131 @@
                first now rises into its band. Same reservation as
                .project-header above: 20px content-body inset + the 36px
                button minus the box's own 14px side padding, plus a gap. */
-            .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
-            /* #180: 7 fixed columns don't fit a phone-width viewport (the
-               primary form factor per #53) — horizontal swipe-scroll, one
-               day roughly a screen-width wide, rather than a tab/paginator
-               component that would need its own JS state. */
-            .day-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78vw; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+            /* .sim-banner is deliberately not in this list. It renders only
+               for a simulated moment, which needs a moment to have been
+               offered — and the Zeitreise bar renders above it whenever any
+               exist (see the TIMELAPSE_MOMENTS block below, which is what
+               unhides it). So the banner is never the page's first element,
+               and 44px it does not need is 44px the notice and its button
+               cannot use to stay on one line. */
+            .demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
+            /* The Zeitreise bar is the first element of the view it renders
+               in, so the launcher sat on its top-right moment tile. Since
+               #240 that is the overview alone — the bar needs a session
+               plan and "Heute" is not rendered for one. It clears the
+               button by height rather than by width: the tiles wrap, so a
+               right-hand inset
+               costs every row of them the same 44px — a dead strip beside
+               the whole bar, and one more wrap row — to protect a corner
+               the button only covers on the first. Growing the label row to
+               the button's own band (26px top + 36px tall, against
+               .content-body's 24px, so 38px) starts the tiles below it
+               instead, and the label is a short left-aligned word that does
+               not care how tall its row is. */
+            .timelapse-label { min-height: 38px; }
+            /* #180 met the phone with a horizontal swipe-scroll, one day
+               roughly a screen wide. It reads badly in practice: the week
+               is seven swipes long, only one day is ever visible, and the
+               one question the view exists to answer — what is coming this
+               week — cannot be seen at all without scrubbing through it.
+               So below the breakpoint the columns become a plain vertical
+               list, built out of the components the Heute lists above it
+               already use: the day is a heading in the same key as
+               "Überfällig" / "Heute fällig", and its tasks sit in the same
+               bordered card. Nothing new to learn, and the week reads top
+               to bottom like everything else on the page. */
+            .day-columns { display: block; overflow-x: visible; margin: 0; padding: 0; }
+            .day-column { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
+            .day-column:last-child { margin-bottom: 0; }
+            .day-column-header { text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+            /* Nothing of its own, like .task-list: a day's tasks are rows
+               on the page's own surface, separated by the same hairline. */
+            .day-column-body { min-height: 0; }
+            /* A quiet day keeps its heading — the week's shape is worth
+               seeing — but draws no empty card. The cost is that a task
+               cannot be dragged onto a day that has none yet; at this width
+               the row's own "Datum ändern" reaches every day, empty ones
+               included, which is the better answer on a touch screen
+               anyway. The template renders this element without whitespace
+               so :empty can be relied on. */
+            .day-column-body:empty { display: none; }
+            /* The same row .task-row is: same padding, same gap, same
+               hairline, and a name that wraps rather than being cut off —
+               a 160px column had to truncate, a full-width row does not. */
+            .day-task-card { background: none; border: none; border-radius: 0; gap: 12px; padding: 11px 0; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); cursor: default; }
+            .day-task-card:last-child { border-bottom: none; }
+            .day-task-card .dot { margin-right: 0; }
+            .day-task-name { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
             /* At this width the moments wrap to two per row, and a label that
                does not fit one is better read over two lines than cut off —
                the label is the whole point of the moment. Flex stretches a
                row's cards to the tallest, so the row stays even. The date is
                short and stays on one line. */
             .moment-title { white-space: normal; }
-            .day-column { scroll-snap-align: start; }
+            /* The row keeps the shape /mein-plan/ has always had: dot,
+               name, date, actions on one line, at every width. It stacked
+               below the breakpoint for a while, which gave a long name the
+               full width and cost every short one a second line — and the
+               two task lists in the app then read as one component on the
+               desktop and as two on a phone, which is the opposite of what
+               #149 was for.
+               Nothing is needed here to keep the row from colliding: that
+               is .task-name's own flex/min-width/overflow-wrap, which holds
+               at every width. The one thing this width has to settle is
+               which label gives way when the two cannot both fit. It is the
+               project, not the task: the project name repeats all the way
+               down a Heute list and an ellipsis costs nothing there, while
+               the truncated part of a task name is the part that identifies
+               it. flex-shrink: 3 is what makes the project go first rather
+               than the two shrinking in step.
+               The launcher reserve is deliberately absent. A row scrolling
+               under the fixed ☰ is a transient overlap; 44px of gutter down
+               the whole list is a permanent one, and paying the second to
+               avoid the first is the wrong way round. Elements that sit
+               under the button *at rest* — the banners, the project header,
+               the Zeitreise bar, the Heute headings with their week
+               navigation — reserve their space above; a list does not. */
+            /* "Diese Woche" and its navigation cannot share a line at this
+               width: the heading broke into two lines while ←, the week
+               range, → and the reset link were squeezed beside it. As a
+               block the heading takes its own line and the navigation —
+               already a flex container, so block-level — falls underneath
+               with room to breathe.
+               No launcher reserve on either this or the day headings: both
+               sit deep inside the Heute view, so the ☰ only ever passes
+               over them while scrolling, and that is the transient overlap
+               the rows do not pay for either. Here it was visible as a
+               45px stub of dead space at the end of the navigation row. */
+            .week-nav-row { display: block; }
+            .week-nav { margin-top: 8px; }
+            /* Three columns with a 220px floor do not fit a phone, so the
+               board scrolled sideways and cut its second column down the
+               middle — the same defect the day columns had, and the same
+               answer: stack. Each stage keeps its heading and its count and
+               lists its cards underneath, on the page's own surface like
+               every other list here. A stage with nothing in it keeps its
+               heading, so the shape of the board still reads. */
+            .kanban { display: block; overflow-x: visible; margin-top: 28px; }
+            .kanban-col { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
+            .kanban-col:last-child { margin-bottom: 0; }
+            .kanban-card { background: none; border: none; border-radius: 0; padding: 11px 0; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); }
+            .kanban-card:last-child { border-bottom: none; }
+            /* The board's only urgency signal, so it survives the de-boxing
+               — as a rule down the left edge with the row indented past it
+               rather than as one side of a card that is no longer there. */
+            .kanban-card.overdue { padding-left: 10px; }
+            /* The strike-through and the muted name already say "done"; a
+               full-width tinted band would say it a second time and much
+               louder than the hairlines around it. */
+            .kanban-card.done { background: none; }
+            /* A ~230px pill fixed over the page covers the sentence the
+               reader is in the middle of — unlike the ☰, which is a corner.
+               Same affordance at the ☰'s own scale instead: the arrow keeps
+               its meaning, and the label it drops lives on in the title and
+               the accessible name. */
+            .download-fab { width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; gap: 0; font-size: 18px; bottom: 20px; right: 20px; }
+            .download-fab-label { display: none; }
+            .task-project { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         }
 {% endblock %}
 
@@ -290,22 +517,7 @@
         {% include "projects/_status_banners.html" %}
 
         <div class="ai-card">
-            <div class="ai-card-header" style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
-                <div style="font-size: 22px; font-weight: 700;">Dashboard</div>
-                {% if demo_project_name %}
-                <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
-                    {{ demo_project_name }}
-                    <span style="font-weight:400; color:var(--color-text-quaternary); font-size:13px;">— {{ demo_project_date }}</span>
-                    {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
-                </div>
-                {% endif %}
-                {% if not demo_mode %}
-                <form method="post" action="{% url 'refresh' %}" style="margin-left:auto; align-self:center;">
-                    {% csrf_token %}
-                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Aktualisieren</button>
-                </form>
-                {% endif %}
-            </div>
+            {% include "projects/_page_heading.html" with title="Dashboard" show_refresh=True %}
             {% comment %}
             Hidden while a moment is simulated (#153): the sim banner is the
             single date authority then — the real date next to it read as a
@@ -342,6 +554,14 @@
                 {% endfor %}
             </ul>
             {% endif %}{% endfor %}
+            {% comment %}
+            #145: the one thing kontext is for — work that can be batched
+            across projects. Below the blocks rather than inside one: the
+            blocks are per project, and a statement about two of them would
+            be attributed to whichever one happened to hold it. Absent
+            whenever Claude found no cluster, which is most weeks.
+            {% endcomment %}
+            {% if kontext_hint %}<p class="ai-kontext-hint">{{ kontext_hint }}</p>{% endif %}
             {% else %}
             <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
             {% endif %}
@@ -405,28 +625,63 @@
         </div>
     </div>
 
+    {% comment %}
+    #240: hidden for a demo session plan, for now.
+
+    "Heute" is shaped as a cross-project work surface — overdue, due today,
+    then the week broken into days — and a visitor's plan is one project. In
+    that shape it re-sorts the tasks the dashboard above has just shown,
+    under three more headings, and on a phone that is most of a scroll spent
+    on a second reading of the same list. Hidden rather than reworked in
+    this cut: what it should say about a single project is a design question
+    and this branch was already carrying two issues.
+
+    So this is a hold, not a verdict — the view is being worked on, and
+    bringing it back for a session plan is a matter of giving it something
+    to say there, not of undoing a decision. Whoever does that flips this
+    condition and the one in _sidebar_nav.html back; the JS below already
+    treats a missing #view-today as "there is no such view", which is what
+    keeps both states cheap to switch between.
+
+    Unaffected either way: the demo example projects and production, which
+    have the projects the view spans.
+    {% endcomment %}
+    {% if not has_session_plan %}
     <div id="view-today" style="display: none;">
         {% comment %}
-        Same timelapse bar and banners as view-overview above, same
-        reasoning (#50, #183): without them, switching to "Heute" during a
-        simulated moment (or while looking at demo example data) silently
-        drops the only way to change it, or the only notice of it.
+        The same banners as view-overview above, same reasoning (#50, #183):
+        without them, switching to "Heute" while looking at demo example
+        data silently drops the only notice that the data is an example, and
+        a failed Notion read loses the notice that it failed.
+
+        No timelapse bar beside them while this view is hidden for a session
+        plan: the bar renders only for one (_timelapse_bar.html), which is
+        exactly the case the view is not rendered in, so the include here
+        could not produce anything and reads as dead code. It belongs back
+        here the moment the view does — that is what #183 established, and
+        nothing about it has changed.
         {% endcomment %}
-        {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
 
-        <div class="ai-card-header" style="margin-bottom: 24px;">
-            <div style="font-size: 22px; font-weight: 700;">Heute</div>
-        </div>
+        {% comment %}
+        The same heading the overview carries, so a demo session's "Heute"
+        says whose it is. Production shows no project name here: this view
+        spans every project at once, which is what it is for.
+        {% endcomment %}
+        {% include "projects/_page_heading.html" with title="Heute" %}
 
         {% if heute_overdue %}
         <div class="today-week-heading">Überfällig</div>
-        {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        <div class="task-list">
+            {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        </div>
         {% endif %}
 
         <div class="today-week-heading">Heute fällig</div>
         {% if heute_today %}
-        {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        <div class="task-list">
+            {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        </div>
         {% else %}
         <p class="ai-error">Für heute liegt nichts mehr an.</p>
         {% endif %}
@@ -447,13 +702,18 @@
                     <span>{{ day.weekday_label }} {{ day.date|date:'d.m.' }}</span>
                     {% if day.total_count %}<span class="day-column-count">{{ day.done_count }}/{{ day.total_count }}</span>{% endif %}
                 </div>
-                <div class="day-column-body" data-date="{{ day.date_iso }}">
-                    {% for task in day.tasks %}{% include "projects/_day_task_card.html" %}{% endfor %}
-                </div>
+                {% comment %}
+                Rendered without whitespace inside the element: below 768px
+                a day with no tasks draws no card at all, and the rule that
+                does it (.day-column-body:empty) only holds if an empty day
+                really is empty.
+                {% endcomment %}
+                <div class="day-column-body" data-date="{{ day.date_iso }}">{% for task in day.tasks %}{% include "projects/_day_task_card.html" %}{% endfor %}</div>
             </div>
             {% endfor %}
         </div>
     </div>
+    {% endif %}
 
     {% for group in month_groups %}
     {% for project in group.projects %}
@@ -472,36 +732,18 @@
             {% if demo_mode %}<span class="project-date">{{ project.event_date_display }}</span>{% endif %}
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
         </div>
-        {% for task in project.tasks %}
-        <div class="task-row">
-            <div class="task-left">
-                {% include "projects/_task_dot.html" %}
-                <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-                {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
-            </div>
-            <span class="task-right" style="display:flex;align-items:center;gap:4px;">
-                {% comment %}
-                Rescheduling is offered where it persists: to Notion in production,
-                to session['demo_plan'] for a demo session plan. The demo example
-                projects are in no session, so there the date only renders (#10 §5).
-                {% endcomment %}
-                <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
-                      {% if not viewing_demo_data %}
-                      data-task-id="{{ task.id }}"
-                      data-raw-date="{{ task.due|date:'Y-m-d' }}"
-                      title="Datum ändern"
-                      {% endif %}>
-                    {{ task.due|plan_date:"long" }}
-                </span>
-                {% if task.postpone_count and task.postpone_count >= 2 %}
-                <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
-                {% endif %}
-                {% if task.urgency == 'overdue' %}{% if not viewing_demo_data %}
-                <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
-                {% endif %}{% endif %}
-            </span>
+        {% comment %}
+        The same partial the Heute view renders (#238). The copy that used to
+        live here was identical bar the .task-project span, which only ever
+        renders for a task carrying project_name — and only _build_week_view
+        sets that (views.py), so a project-detail row never had one. One
+        template, so a change to the row lands on both lists at once.
+        {% endcomment %}
+        {% if project.tasks %}
+        <div class="task-list">
+            {% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}
         </div>
-        {% endfor %}
+        {% endif %}
     </div>
     {% endfor %}
     {% endfor %}
@@ -509,8 +751,15 @@
 
 {% block body_fixed %}
 {% if has_session_plan %}
-<a class="download-fab" href="{% url 'download_plan' %}">
-    <span>↓</span> Plan herunterladen
+{% comment %}
+The label sits in its own element so the button can shrink to the arrow
+alone below the breakpoint, where a full-width pill fixed over the page
+covers whatever the reader is in the middle of. title and aria-label carry
+the wording either way.
+{% endcomment %}
+<a class="download-fab" href="{% url 'download_plan' %}"
+   title="Plan herunterladen" aria-label="Plan herunterladen">
+    <span>↓</span><span class="download-fab-label">Plan herunterladen</span>
 </a>
 {% endif %}
 {% endblock %}
@@ -522,9 +771,17 @@
     // pushing a redundant history entry on top of the one that triggered them.
     let syncingHistory = false;
 
+    // #240: null for a demo session plan, which renders no "Heute" view at
+    // all. Read once here rather than guarded at each use — the element
+    // never appears or disappears within a page, and the two places that
+    // *switch* to the view check this instead, so a ?view=today URL a
+    // visitor kept from before simply shows the overview. That is the answer
+    // an unknown ?project= id already gets.
+    const todayView = document.getElementById('view-today');
+
     function showOverview() {
         document.getElementById('view-overview').style.display = 'block';
-        document.getElementById('view-today').style.display = 'none';
+        if (todayView) todayView.style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
@@ -533,7 +790,7 @@
 
     function showToday() {
         document.getElementById('view-overview').style.display = 'none';
-        document.getElementById('view-today').style.display = 'block';
+        todayView.style.display = 'block';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-today').classList.add('active');
@@ -542,7 +799,7 @@
 
     function showProject(id) {
         document.getElementById('view-overview').style.display = 'none';
-        document.getElementById('view-today').style.display = 'none';
+        if (todayView) todayView.style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.getElementById('project-' + id).style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -555,7 +812,7 @@
         const projectId = event.state && event.state.project;
         if (projectId && document.getElementById('project-' + projectId)) {
             showProject(projectId);
-        } else if (event.state && event.state.view === 'today') {
+        } else if (event.state && event.state.view === 'today' && todayView) {
             showToday();
         } else {
             showOverview();
@@ -571,7 +828,7 @@
             history.replaceState({project: projectId}, '', '?project=' + projectId);
             showProject(projectId);
             syncingHistory = false;
-        } else if (params.get('view') === 'today') {
+        } else if (params.get('view') === 'today' && todayView) {
             syncingHistory = true;
             // window.location.search, not the hardcoded '?view=today' below —
             // a prev/next-week link lands here with a `week` param that must
@@ -843,9 +1100,11 @@ async function preloadOne(dateStr) {
             const data = await response.json();
             if (!data.ok) return;
             preloaded.add(dateStr);
-            // #183: the bar now renders once per view (view-overview and
-            // view-today) instead of a single id="timelapse-moments" — mark
-            // every matching button across both, not just the first found.
+            // #183 gave the bar a class instead of a single
+            // id="timelapse-moments", so every matching button is marked
+            // rather than the first one found. #240 left it with one copy —
+            // the bar needs a session plan and "Heute" is not rendered for
+            // one — but the selector is right either way and says so.
             document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
         } finally {
             preloadPromises.delete(dateStr);
@@ -964,7 +1223,10 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     }
     const data = await response.json();
     dueSpan.dataset.rawDate = newDate;
-    dueSpan.textContent = data.due_display;
+    // #238: the row's own short form. The Kanban card, written in
+    // applyRescheduleFigures below, takes the long one — one field for both
+    // would put the long month back into the row until the next reload.
+    dueSpan.textContent = data.due_display_row;
     reclassify(dueSpan, data.urgency);
     // The row is handed in rather than walked up to from dueSpan: the date
     // picker swaps the span out of the DOM while it is open, so closest()
@@ -985,9 +1247,10 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         // new date is still in the past. A row moved *into* overdue does not
         // grow one back: that needs markup and a listener, not a class, so
         // it waits for the next reload the way the Kanban counts and the
-        // sidebar ring do.
-        const todayBtn = row.querySelector('.today-btn');
-        if (todayBtn && data.urgency !== 'overdue') todayBtn.remove();
+        // sidebar ring do. #239 moved it into the row's actions menu; the
+        // rule is unchanged, only where the item lives.
+        const todayItem = row.querySelector('.task-menu-item[data-action="today"]');
+        if (todayItem && data.urgency !== 'overdue') todayItem.remove();
         if (stageBefore && stageBefore !== data.urgency) {
             window.location.reload();
         } else if (applyRescheduleFigures(taskId, newDate, data)) {
@@ -1021,15 +1284,258 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
     });
 });
 
-document.querySelectorAll('.today-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+// #239: the row's actions menu. It adds no endpoint of its own — every
+// item drives a control the row already had, so there is exactly one
+// implementation of each write and the interaction can be settled without
+// anything changing server-side.
+//
+// One menu open at a time, held here rather than read back off the DOM:
+// closing has to restore focus to the trigger it belongs to (#200), and by
+// then the click that closed it may be anywhere on the page.
+let openTaskMenu = null;
+
+function closeTaskMenu({focusTrigger = false} = {}) {
+    if (!openTaskMenu) return;
+    const {trigger, items} = openTaskMenu;
+    // A destructive item that was armed but not confirmed goes back to
+    // asking, so reopening the menu never starts one click from a removal.
+    items.querySelectorAll('.task-menu-item[data-action="trash"]').forEach(disarmTrash);
+    items.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    openTaskMenu = null;
+    if (focusTrigger) trigger.focus();
+}
+
+function openTaskMenuFor(trigger) {
+    closeTaskMenu();
+    const items = trigger.nextElementSibling;
+    items.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    // Measured after unhiding, or the offsets are 0 and the menu lands at the
+    // viewport edge. Right-aligned to the trigger, nudged back inside the
+    // viewport on a narrow screen.
+    const rect = trigger.getBoundingClientRect();
+    // Below the trigger where it fits, above it where it does not. A row at
+    // the bottom of the screen is the normal case in a list this long, and a
+    // six-item menu is ~190px tall — without the flip its last items land
+    // under the fold, and since the menu is fixed and any scroll closes it
+    // (below), scrolling down to them is not a way to reach them. It would
+    // also open and shut in the same tick: focusing the first item scrolls
+    // an off-screen menu into view, which is a scroll like any other.
+    // Math.max clamps the last resort, a menu taller than the space either
+    // side, to a start inside the viewport rather than above its top edge.
+    const fitsBelow = rect.bottom + 4 + items.offsetHeight + 8 <= window.innerHeight;
+    const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - items.offsetHeight - 4);
+    items.style.top = `${top}px`;
+    items.style.left = `${Math.max(8, rect.right - items.offsetWidth)}px`;
+    openTaskMenu = {trigger, items};
+    // #200: the menu is reachable by keyboard from the moment it opens.
+    items.querySelector('.task-menu-item')?.focus();
+}
+
+document.querySelectorAll('.task-menu-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+        // Or the document listener below would close it again in the same tick.
         e.stopPropagation();
-        const taskId = btn.dataset.taskId;
-        const dueSpan = btn.closest('.task-right').querySelector('.task-due');
-        // No reload of its own: this button only renders on overdue rows, so
-        // the move always changes stage and reschedule() reloads for it —
-        // see the rule above sortRows().
-        await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));
+        if (openTaskMenu && openTaskMenu.trigger === trigger) closeTaskMenu({focusTrigger: true});
+        else openTaskMenuFor(trigger);
+    });
+});
+
+document.addEventListener('click', () => closeTaskMenu());
+// Fixed coordinates are written once, on open — a scrolled page would leave
+// the menu floating beside nothing, so it closes instead of following.
+// Capturing, because the day columns and the board scroll inside the page.
+window.addEventListener('scroll', () => closeTaskMenu(), true);
+window.addEventListener('resize', () => closeTaskMenu());
+
+document.addEventListener('keydown', (e) => {
+    if (!openTaskMenu) return;
+    const items = [...openTaskMenu.items.querySelectorAll('.task-menu-item')];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeTaskMenu({focusTrigger: true});
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        items[(at + 1) % items.length].focus();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        items[(at - 1 + items.length) % items.length].focus();
+    } else if (e.key === 'Tab') {
+        // Tab is the way out of the menu, not a way around it.
+        closeTaskMenu();
+    }
+});
+
+// #239 stage 3: a two-step inside the menu rather than a modal, which
+// would sit outside the page's own language and block everything behind it.
+// The label says what the second click does, so the step is readable rather
+// than a habit to click through.
+const TRASH_LABEL = 'In den Papierkorb';
+const TRASH_ARMED_LABEL = 'Wirklich in den Papierkorb?';
+
+function disarmTrash(item) {
+    item.classList.remove('armed');
+    item.textContent = TRASH_LABEL;
+}
+
+async function trashTask(taskId, trigger) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/trash/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({})
+        });
+    } catch {
+        response = null;
+    }
+    if (!response || !response.ok) {
+        flashActionFailed(trigger);
+        return;
+    }
+    // A removal changes every count and every cached task_ref, and the
+    // server has no warm cache left to derive figures from — so the page is
+    // re-rendered rather than reconciled by hand. Which is #210's rule in
+    // its strongest form: nothing on the page is left to guess.
+    window.location.reload();
+}
+
+// #239 stage 2: the row's name, edited where it stands — the same
+// swap-the-element-out shape the date has used since #10, rather than a
+// browser prompt() that would sit outside the page's own visual language.
+function startRename(row, taskId) {
+    const nameSpan = row.querySelector('.task-name');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = nameSpan.textContent.trim();
+    input.className = 'task-name-input';
+    nameSpan.replaceWith(input);
+    input.focus();
+    input.select();
+    // The input leaves the DOM exactly once, and commits at most once. Enter
+    // and blur both go through commit(), and whichever runs second finds it
+    // already settled — including the blur that Enter's own swap fires.
+    let settled = false;
+    const restore = () => {
+        if (settled) return;
+        settled = true;
+        input.replaceWith(nameSpan);
+    };
+    // Blur commits rather than discards, the same answer the date input this
+    // is shaped after gives: `change` fires there before the blur, so tapping
+    // away from a date keeps it. Two controls that swap into the same row
+    // must not answer the same gesture differently — and on a touch screen,
+    // tapping outside the field is a normal way to finish. Escape is the way
+    // to cancel; it settles the input first, so the blur behind it is a no-op.
+    const commit = async () => {
+        if (settled) return;
+        const value = input.value.trim();
+        restore();
+        // An empty name, or the one already there, is a cancel — the
+        // server would refuse the first with a 400 anyway (#154).
+        if (!value || value === nameSpan.textContent.trim()) return;
+        await commitRename(taskId, value, nameSpan);
+    };
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            restore();
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+        }
+    });
+    input.addEventListener('blur', commit);
+}
+
+async function commitRename(taskId, name, nameSpan) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/rename/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({name})
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — same feedback as an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        // Notion disagreed or the request never arrived — the row keeps the
+        // name it had rather than claiming a change that didn't happen.
+        flashActionFailed(nameSpan);
+        return;
+    }
+    const data = await response.json();
+    applyTaskName(taskId, data.name);
+}
+
+// The same task renders in more than one place, so a rename updates every
+// copy — the same rule and the same selector list applyTaskDone follows.
+function applyTaskName(taskId, name) {
+    document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
+        const card = f.closest('.task-row, li, .day-task-card');
+        const nameSpan = card && card.querySelector('.task-name, .day-task-name');
+        if (nameSpan) nameSpan.textContent = name;
+    });
+    const boardName = document.querySelector(`.kanban-card[data-task-id="${taskId}"] .kanban-card-name`);
+    if (boardName) boardName.textContent = name;
+}
+
+document.querySelectorAll('.task-menu-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const row = item.closest('.task-row');
+        const action = item.dataset.action;
+        if (action === 'trash' && !item.classList.contains('armed')) {
+            // First click arms, and the menu stays open so the second one
+            // lands on a label that says what it will do.
+            item.classList.add('armed');
+            item.textContent = TRASH_ARMED_LABEL;
+            return;
+        }
+        // Read before the close, which clears it — a failed write flashes
+        // the trigger, and by then the menu it belonged to is gone.
+        const trigger = openTaskMenu && openTaskMenu.trigger;
+        // "Datum ändern" and "Umbenennen" both hand focus to the input they
+        // open in the row, and the menu must not take it straight back.
+        closeTaskMenu({focusTrigger: !['reschedule', 'rename'].includes(action)});
+        if (action === 'project') {
+            showProject(item.dataset.projectId);
+            return;
+        }
+        if (action === 'trash') {
+            await trashTask(item.dataset.taskId, trigger || item);
+            return;
+        }
+        if (action === 'rename') {
+            startRename(row, item.dataset.taskId);
+            return;
+        }
+        if (action === 'toggle') {
+            // The row's own form, so the toggle has one implementation
+            // whether the dot or the menu triggered it.
+            row.querySelector('.toggle-form')?.requestSubmit();
+            return;
+        }
+        const dueSpan = row.querySelector('.task-due');
+        if (action === 'reschedule') {
+            // The same click a mouse makes on the date, so the inline date
+            // input and its handler are not written a second time.
+            dueSpan.click();
+            return;
+        }
+        if (action === 'today') {
+            // No reload of its own: this item only renders on overdue rows,
+            // so the move always changes stage and reschedule() reloads for
+            // it — see the rule above sortRows().
+            await reschedule(item.dataset.taskId, TODAY, dueSpan, row);
+        }
     });
 });
 </script>
