@@ -19,7 +19,6 @@ are in no session, so there the date only renders (#10 §5).
     <span class="task-project">{{ task.project_name }}</span>
     {% endif %}
     {% endif %}
-    {% if task.kontext %}<span class="task-kontext">{{ task.kontext.0 }}</span>{% endif %}
     <span class="task-right">
         <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
               {% if not viewing_demo_data %}

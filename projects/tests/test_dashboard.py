@@ -155,9 +155,9 @@ class KontextBadgeTest(DemoModeTestCase):
     render a .task-kontext badge."""
 
     def assertRendersNoBadge(self, response):
-        # Not a bare "task-kontext" substring check: both templates define
-        # the .task-kontext CSS rule unconditionally in their <style> block,
-        # so only the rendered span markup tells the two cases apart.
+        # #145 took the badge and its CSS rule off both templates, so the
+        # bare class name would do now — the span check stays as it was
+        # written, since it is the rendered markup this is about.
         self.assertNotContains(response, 'class="task-kontext">')
 
     def test_the_multi_view_renders_no_kontext_badge(self):
@@ -174,17 +174,23 @@ class KontextBadgeTest(DemoModeTestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class ProductionKontextBadgeTest(TestCase):
-    """The one path kontext still reaches after #18: real Notion data in
-    production. Pins that it renders as a word — the live [&#x27;Büro&#x27;]
-    bug _build_session_project used to cause elsewhere (#9) — now anchored
-    on the sole surviving path instead of on demo fixtures."""
+class ProductionKontextIsNotRenderedTest(TestCase):
+    """#145: production rows used to carry a kontext chip that repeated all
+    the way down the list (Büro x4, Planung x3) and afforded nothing — it
+    could not be clicked, filtered or grouped by. It was noise between the
+    name and the date, and on a phone it was noise competing for the width
+    the name needs.
+
+    Collection and persistence are untouched: the Notion multi-select and
+    the planner review dropdown still write it, and the summary prompt now
+    reads it (see the batch instruction in ai.py). Kontext is an AI-only
+    signal, not a UI element."""
 
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
 
-    def test_dashboard_renders_kontext_as_a_word(self):
+    def test_a_task_carrying_kontext_renders_no_badge(self):
         project = _fake_upcoming_project_with_task()
         project["tasks"][0]["kontext"] = ["Büro"]
         with (
@@ -195,7 +201,10 @@ class ProductionKontextBadgeTest(TestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, 'class="task-kontext">Büro<')
+        self.assertNotContains(response, "task-kontext")
+        self.assertNotContains(response, "Büro")
+        # The [&#x27;Büro&#x27;] shape (#9) cannot come back either — there
+        # is no longer anywhere for a raw list to be rendered into.
         self.assertNotContains(response, "[&#x27;")
 
 
