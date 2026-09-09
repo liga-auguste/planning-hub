@@ -248,9 +248,40 @@ class TaskActionsMenuTest(DemoModeTestCase):
         # own height while the hit area extends past it.
         self.assertContains(
             self.rows(),
-            ".task-menu-trigger { background: none; border: none; "
+            ".task-menu-trigger { background: none; "
+            "border: 1px solid var(--color-border-primary); "
             "color: var(--color-text-quaternary); cursor: pointer; font-size: 15px; "
-            "line-height: 1; padding: 9px 11px; margin: -9px 0; border-radius: 6px; }",
+            "line-height: 1; padding: 7px 9px; margin: -7px 0; border-radius: 6px; }",
+        )
+
+    def test_the_trigger_carries_a_border_at_rest(self):
+        """A bare glyph only announces itself on hover, and on a phone there
+        is no hover — the form factor this row was reworked for. The border
+        is what makes it read as a control rather than as punctuation."""
+        self.assertContains(
+            self.rows(),
+            "border: 1px solid var(--color-border-primary); color: var(--color-text-quaternary); cursor: pointer;",
+        )
+
+    def test_each_item_carries_the_chevron_in_a_column_of_its_own(self):
+        """A flush-left list of plain labels reads as text; the right-hand
+        column is what makes it read as a menu. The glyph is the same › the
+        AI summary's project links wear — in this codebase it already means
+        "this can be activated", not "a submenu follows".
+
+        ::after rather than markup: the trash item rewrites its own
+        textContent when it arms, and would take a real child element with
+        it."""
+        response = self.rows()
+        self.assertContains(
+            response,
+            ".task-menu-item::after { content: '\u203a'; "
+            "color: var(--color-text-quaternary); font-size: 13px; }",
+        )
+        self.assertContains(
+            response,
+            ".task-menu-item { display: flex; align-items: center; "
+            "justify-content: space-between; gap: 16px;",
         )
 
     def test_the_row_no_longer_carries_a_today_button(self):
