@@ -16,7 +16,10 @@ from django.test import (
 )
 from django.urls import reverse
 
-from ..ai import build_prompt
+from ..ai import (
+    AIUnavailableError,
+    build_prompt,
+)
 from .base import (
     DemoModeTestCase,
     PlannerStepsMixin,
@@ -226,6 +229,45 @@ class TaskListsAreOneSurfaceTest(DemoModeTestCase):
             "border: 1px solid var(--color-border-primary); border-radius: 6px; "
             "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
         )
+
+
+class MeinPlanSeparatesTheSummaryFromTheListTest(DemoModeTestCase):
+    """The summary and the full list are both runs of tasks. While each sat
+    in its own card the boundary was drawn by the boxes; once those went,
+    the summary's last task row ran straight into the list's first.
+
+    A label says which is which, in the same key as "KI-Wochenübersicht"
+    above it — a section marker, not a heading with its own weight — plus
+    the gap the first label does not need."""
+
+    def test_the_list_is_labelled(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            '<div class="summary-label list-label">Alle Aufgaben</div>',
+        )
+
+    def test_it_wears_the_same_key_as_the_summary_label(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-label { font-size: 11px; font-weight: 600; "
+            "color: var(--color-text-quaternary); letter-spacing: 0.07em; "
+            "text-transform: uppercase; margin-bottom: 10px; }",
+        )
+        self.assertContains(response, ".list-label { margin-top: 36px; }")
+
+    def test_it_is_there_even_when_the_summary_is_not(self):
+        """It labels the list, not the boundary — a plan whose summary
+        failed still has one list that wants naming."""
+        self.given_session_plan()
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].side_effect = AIUnavailableError("boom")
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "nicht verfügbar")
+        self.assertContains(response, ">Alle Aufgaben</div>")
 
 
 class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):

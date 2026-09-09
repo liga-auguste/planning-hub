@@ -74,6 +74,10 @@
     .summary-box .task-date { margin-left: 8px; }
     .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
+    /* The second use of the label, over the full list. It needs a gap above
+       it that the first one does not: the summary ends in a task row, and
+       without the space the two runs of tasks read as one. */
+    .list-label { margin-top: 36px; }
     .summary-box hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 16px 0; }
     .summary-box.ai-error { color: var(--color-text-quaternary); font-style: italic; }
     /* Toggle failed server-side — the click had no effect. */
@@ -162,6 +166,13 @@ is gone; the sidebar already covers that.
     <div class="summary-box ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar.</div>
     {% endif %}
 
+    {% comment %}
+    The summary and the full list are both runs of tasks, and once the card
+    around each of them went the two ran into one another. The label says
+    which is which, in the same key as "KI-Wochenübersicht" above — a
+    section marker, not a heading with its own weight.
+    {% endcomment %}
+    <div class="summary-label list-label">Alle Aufgaben</div>
     <div class="task-list">
         {% for task in project.tasks %}
         <div class="task-row {% if task.done %}done{% endif %}" id="row-{{ task.id }}">
