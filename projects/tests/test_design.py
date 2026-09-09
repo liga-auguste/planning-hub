@@ -168,6 +168,68 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class KanbanStacksBelowTheBreakpointTest(DemoModeTestCase):
+    """Three columns with a 220px floor do not fit a phone, so the board
+    scrolled sideways and cut its second column down the middle — the same
+    defect the day columns had, and the same answer.
+
+    Each stage keeps its heading and its count and lists its cards
+    underneath, on the page's own surface like every other list here. The
+    desktop grid is untouched."""
+
+    def css(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_columns_stack(self):
+        self.assertIn(
+            ".kanban { display: block; overflow-x: visible; margin-top: 28px; }",
+            self.css(),
+        )
+
+    def test_a_card_becomes_a_row_on_the_page_surface(self):
+        self.assertIn(
+            ".kanban-card { background: none; border: none; border-radius: 0; "
+            "padding: 11px 0; margin-bottom: 0; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+            self.css(),
+        )
+
+    def test_the_overdue_accent_survives_the_de_boxing(self):
+        # It is the board's only urgency signal, so it stays — as a rule
+        # down the left edge with the row indented past it.
+        css = self.css()
+        self.assertIn(".kanban-card.overdue { padding-left: 10px; }", css)
+        self.assertIn(
+            ".kanban-card.overdue { border-left: 3px solid var(--color-overdue); }", css
+        )
+
+    def test_a_done_card_is_not_tinted_twice(self):
+        # The strike-through and the muted name already say it.
+        self.assertIn(".kanban-card.done { background: none; }", self.css())
+
+    def test_an_empty_stage_keeps_its_heading(self):
+        # min-height: 0, so it collapses to the heading rather than leaving
+        # a 120px hole — but the shape of the board still reads.
+        self.assertIn(
+            ".kanban-col { background: none; border-radius: 0; padding: 0; "
+            "min-height: 0; margin-bottom: 20px; }",
+            self.css(),
+        )
+
+    def test_the_desktop_grid_is_untouched(self):
+        self.assertIn(
+            ".kanban { display: grid; "
+            "grid-template-columns: repeat(3, minmax(220px, 1fr)); "
+            "gap: 12px; margin-top: 36px; overflow-x: auto; }",
+            self.css(),
+        )
+
+    def test_the_column_counts_still_render(self):
+        html = self.css()
+        for column in ("open", "urgent", "done"):
+            self.assertIn(f'id="count-{column}"', html)
+
+
 class HeuteViewNamesItsProjectTest(DemoModeTestCase):
     """A demo session holds exactly one project, so its Heute view belongs
     to that project — and said only "Heute". The overview named it and this

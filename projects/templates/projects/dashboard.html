@@ -429,6 +429,26 @@
                45px stub of dead space at the end of the navigation row. */
             .week-nav-row { display: block; }
             .week-nav { margin-top: 8px; }
+            /* Three columns with a 220px floor do not fit a phone, so the
+               board scrolled sideways and cut its second column down the
+               middle — the same defect the day columns had, and the same
+               answer: stack. Each stage keeps its heading and its count and
+               lists its cards underneath, on the page's own surface like
+               every other list here. A stage with nothing in it keeps its
+               heading, so the shape of the board still reads. */
+            .kanban { display: block; overflow-x: visible; margin-top: 28px; }
+            .kanban-col { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
+            .kanban-col:last-child { margin-bottom: 0; }
+            .kanban-card { background: none; border: none; border-radius: 0; padding: 11px 0; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); }
+            .kanban-card:last-child { border-bottom: none; }
+            /* The board's only urgency signal, so it survives the de-boxing
+               — as a rule down the left edge with the row indented past it
+               rather than as one side of a card that is no longer there. */
+            .kanban-card.overdue { padding-left: 10px; }
+            /* The strike-through and the muted name already say "done"; a
+               full-width tinted band would say it a second time and much
+               louder than the hairlines around it. */
+            .kanban-card.done { background: none; }
             /* A ~230px pill fixed over the page covers the sentence the
                reader is in the middle of — unlike the ☰, which is a corner.
                Same affordance at the ☰'s own scale instead: the arrow keeps
