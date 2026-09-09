@@ -15,6 +15,14 @@
         .dot.done { background: var(--color-done); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
+        /* nowrap: the date is one phrase, and at phone width it broke after
+           the day number and left the month on a line of its own. */
+        .header-project-date { font-weight: 400; color: var(--color-text-quaternary); font-size: 13px; white-space: nowrap; }
+        /* The 20px above the label normally comes from the date line between
+           the two. #153 drops that line while a moment is simulated, and
+           took the gap with it — the label then sat straight under the
+           project name. Adjacent sibling, so it only fires in that case. */
+        .ai-card-header + .ai-card-label { margin-top: 20px; }
         /* All six levels: the summary is markdown.markdown() output, so the
            heading depth is the model's to pick, not ours (#64). */
         .ai-card h1, .ai-card h2, .ai-card h3,
@@ -412,6 +420,13 @@
                45px stub of dead space at the end of the navigation row. */
             .week-nav-row { display: block; }
             .week-nav { margin-top: 8px; }
+            /* A ~230px pill fixed over the page covers the sentence the
+               reader is in the middle of — unlike the ☰, which is a corner.
+               Same affordance at the ☰'s own scale instead: the arrow keeps
+               its meaning, and the label it drops lives on in the title and
+               the accessible name. */
+            .download-fab { width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; gap: 0; font-size: 18px; bottom: 20px; right: 20px; }
+            .download-fab-label { display: none; }
             .task-project { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         }
 {% endblock %}
@@ -456,7 +471,7 @@
                 {% if demo_project_name %}
                 <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
                     {{ demo_project_name }}
-                    <span style="font-weight:400; color:var(--color-text-quaternary); font-size:13px;">— {{ demo_project_date }}</span>
+                    <span class="header-project-date">— {{ demo_project_date }}</span>
                     {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
                 </div>
                 {% endif %}
@@ -668,8 +683,15 @@
 
 {% block body_fixed %}
 {% if has_session_plan %}
-<a class="download-fab" href="{% url 'download_plan' %}">
-    <span>↓</span> Plan herunterladen
+{% comment %}
+The label sits in its own element so the button can shrink to the arrow
+alone below the breakpoint, where a full-width pill fixed over the page
+covers whatever the reader is in the middle of. title and aria-label carry
+the wording either way.
+{% endcomment %}
+<a class="download-fab" href="{% url 'download_plan' %}"
+   title="Plan herunterladen" aria-label="Plan herunterladen">
+    <span>↓</span><span class="download-fab-label">Plan herunterladen</span>
 </a>
 {% endif %}
 {% endblock %}

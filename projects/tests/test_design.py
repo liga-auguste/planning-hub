@@ -168,6 +168,83 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class DashboardHeaderBreaksTest(DemoModeTestCase):
+    """Two things went wrong at the top of the dashboard on a phone.
+
+    The project's date is one phrase and broke after the day number, leaving
+    the month on a line of its own — nowrap, the same fix the close-out
+    triage date needed.
+
+    And the 20px above the "KI-Wochenübersicht" label normally comes from
+    the date line between it and the header. #153 drops that line while a
+    moment is simulated and took the gap with it, so the label sat straight
+    under the project name. An adjacent-sibling rule puts it back in exactly
+    that case."""
+
+    def test_the_project_date_never_breaks(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".header-project-date { font-weight: 400; "
+            "color: var(--color-text-quaternary); font-size: 13px; "
+            "white-space: nowrap; }",
+        )
+
+    def test_the_label_keeps_its_gap_when_the_date_line_is_dropped(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".ai-card-header + .ai-card-label { margin-top: 20px; }",
+        )
+
+    def test_the_date_line_still_carries_the_gap_outside_a_moment(self):
+        # The adjacent-sibling rule must not double it up on the normal path.
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")), "margin-bottom: 20px;"
+        )
+
+
+class DownloadFabShrinksOnAPhoneTest(DemoModeTestCase):
+    """A ~230px pill fixed over the page covers the sentence the reader is
+    in the middle of — unlike the ☰, which is a corner. Below the breakpoint
+    it becomes the same affordance at the ☰'s own scale: the arrow keeps its
+    meaning, and the label it drops lives on in the title and the accessible
+    name."""
+
+    def fab_page(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_label_sits_in_its_own_element(self):
+        # Or there would be nothing for the rule below to hide.
+        self.assertContains(
+            self.fab_page(),
+            '<span class="download-fab-label">Plan herunterladen</span>',
+        )
+
+    def test_it_shrinks_to_the_arrow_below_the_breakpoint(self):
+        response = self.fab_page()
+        self.assertContains(
+            response,
+            ".download-fab { width: 48px; height: 48px; padding: 0; "
+            "border-radius: 50%; justify-content: center; gap: 0; "
+            "font-size: 18px; bottom: 20px; right: 20px; }",
+        )
+        self.assertContains(response, ".download-fab-label { display: none; }")
+
+    def test_the_wording_survives_the_shrink(self):
+        response = self.fab_page()
+        self.assertContains(response, 'title="Plan herunterladen"')
+        self.assertContains(response, 'aria-label="Plan herunterladen"')
+
+    def test_the_desktop_pill_is_untouched(self):
+        self.assertContains(
+            self.fab_page(),
+            ".download-fab { position: fixed; bottom: 28px; right: 28px;",
+        )
+
+
 class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
     """The last card in the app's task lists. Same de-boxing as the others,
     plus the two breaks that were wrong on a phone.
