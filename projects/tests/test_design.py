@@ -126,6 +126,84 @@ class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
         )
 
 
+class TaskRowMobileStackingTest(DemoModeTestCase):
+    """#238: the row was a two-part flex container with nothing stopping its
+    parts from colliding. `.task-name` carried no flex at all, so it shrank
+    to its min-content width — the longest single word — and `.task-left`
+    (min-width: 0) then ended up narrower than its own contents, which the
+    unshrinkable `.task-project` overflowed straight across the date beside
+    it. Neither box clipped, so the two runs of text simply painted over
+    each other.
+
+    The fix is structural rather than a clip: `.task-left` goes, so the row
+    itself is the wrapping container, and the name is the one item that
+    gives way — it grows, it may shrink past its longest word, and it
+    breaks that word rather than overflowing. Nothing is truncated:
+    production task names are long, and an ellipsis would hide the part
+    that identifies the task.
+
+    Below 768px the row stacks. The name's basis is the full width minus
+    the dot's own 15px (7px wide, 8px margin-right), so line one is exactly
+    full and everything after it wraps to a second line indented to match
+    the name rather than the dot.
+    """
+
+    def test_the_name_is_the_item_that_gives_way(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-name { font-size: 13px; flex: 1 1 auto; min-width: 0; "
+            "overflow-wrap: break-word; }",
+        )
+
+    def test_the_row_itself_wraps_and_no_longer_nests_a_left_half(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-row { display: flex; align-items: center; flex-wrap: wrap; "
+            "padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }",
+        )
+        # The class itself, not the string: the rules above explain
+        # themselves by naming the half that used to be there.
+        self.assertNotContains(response, 'class="task-left"')
+        self.assertNotContains(response, ".task-left {")
+
+    def test_the_meta_half_is_styled_rather_than_carrying_inline_styles(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-right { display: flex; align-items: center; gap: 4px; "
+            "margin-left: auto; }",
+        )
+        self.assertNotContains(
+            response, 'style="display:flex;align-items:center;gap:4px;"'
+        )
+
+    def test_below_the_breakpoint_the_name_takes_the_whole_first_line(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".task-name { flex-basis: calc(100% - 15px); }")
+
+    def test_below_the_breakpoint_the_meta_indents_under_the_name(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, ".task-project, .task-right { margin-left: 15px; }"
+        )
+        # .task-due's own desktop 16px would push the date a second indent
+        # deep once .task-right starts a line of its own.
+        self.assertContains(response, ".task-due { margin-left: 0; }")
+
+    def test_both_task_lists_render_from_the_one_partial(self):
+        """The project detail used to hold its own copy of the row markup,
+        so every rule above would have had to be true of two templates."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn(
+            '{% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}',
+            contents,
+        )
+
+
 class DeboxingRegressionTest(DemoModeTestCase):
     """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these
     boxed areas untouched — locked in before any code change so a later step

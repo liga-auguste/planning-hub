@@ -56,10 +56,26 @@
         .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
         /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
         .postpone-badge { margin-left: 6px; }
-        .task-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
+        /* #238: the row is the wrapping container itself. It used to nest a
+           .task-left half, and a nested flex child cannot wrap onto its
+           neighbour's line — the second line below 768px needs the meta to
+           be a sibling of the name, not a cousin. justify-content goes with
+           it: .task-name grows, so .task-right's own margin-left: auto puts
+           it against the right edge just the same. */
+        .task-row { display: flex; align-items: center; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
-        .task-left { display: flex; align-items: center; flex: 1; min-width: 0; }
-        .task-name { font-size: 13px; }
+        .task-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+        /* #238: the one item in the row that gives way. Without a flex of
+           its own it shrank to min-content — the longest single word — which
+           rendered a production task name as six lines of one word each,
+           and left .task-left narrower than its own contents so the
+           unshrinkable .task-project painted straight across the date.
+           min-width: 0 lets the name shrink past that floor and
+           overflow-wrap breaks the word that no longer fits, so the row can
+           always absorb its own content instead of overflowing it. No
+           ellipsis: production task names are long and the truncated part
+           is the part that identifies the task. */
+        .task-name { font-size: 13px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
         .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
         .task-due { font-size: 12px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
         /* The affordance follows the behaviour: only a date carrying
@@ -251,6 +267,16 @@
                row's cards to the tallest, so the row stays even. The date is
                short and stays on one line. */
             .moment-title { white-space: normal; }
+            /* #238: the row stacks. The dot contributes exactly 15px (7px
+               wide, 8px margin-right), so a name based on the rest of the
+               line fills line one to the pixel and everything after it
+               wraps — project name, date and badges onto a second line
+               indented by that same 15px, level with the name rather than
+               with the dot. .task-due's own 16px would put the date a
+               second indent deep once .task-right starts a line of its own. */
+            .task-name { flex-basis: calc(100% - 15px); }
+            .task-project, .task-right { margin-left: 15px; }
+            .task-due { margin-left: 0; }
             .day-column { scroll-snap-align: start; }
         }
 {% endblock %}
