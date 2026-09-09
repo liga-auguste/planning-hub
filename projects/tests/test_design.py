@@ -220,6 +220,91 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         )
 
 
+class WeekViewIsAListBelowTheBreakpointTest(DemoModeTestCase):
+    """#180 met the phone with a horizontal swipe-scroll, one day roughly a
+    screen wide. It reads badly: the week is seven swipes long, only one day
+    is ever visible, and the question the view exists to answer — what is
+    coming this week — cannot be seen without scrubbing through it.
+
+    Below 768px the columns become a plain vertical list, built out of the
+    components the Heute lists above them already use: the day is a heading
+    in the same key as "Überfällig" / "Heute fällig", and its tasks sit in
+    the same bordered card. The desktop grid is untouched."""
+
+    def css(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_swipe_scroll_is_gone(self):
+        css = self.css()
+        self.assertNotIn("scroll-snap-type: x mandatory", css)
+        self.assertNotIn("grid-auto-columns: 78vw", css)
+        self.assertNotIn(".day-column { scroll-snap-align: start; }", css)
+
+    def test_the_columns_stack(self):
+        self.assertIn(
+            ".day-columns { display: block; overflow-x: visible; "
+            "margin: 0; padding: 0; }",
+            self.css(),
+        )
+
+    def test_a_days_tasks_sit_in_the_same_card_the_other_lists_use(self):
+        css = self.css()
+        self.assertIn(
+            ".day-column-body { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
+            "overflow: hidden; min-height: 0; }",
+            css,
+        )
+        # The declaration .task-list carries, so the two are one component.
+        self.assertIn(
+            ".task-list { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
+            "overflow: hidden; }",
+            css,
+        )
+
+    def test_a_day_card_becomes_a_row(self):
+        css = self.css()
+        self.assertIn(
+            ".day-task-card { background: none; border: none; border-radius: 0; "
+            "gap: 12px; padding: 11px 16px; margin-bottom: 0; "
+            "border-bottom: 1px solid var(--color-border-primary); cursor: default; }",
+            css,
+        )
+        # A 160px column had to truncate; a full-width row does not.
+        self.assertIn(
+            ".day-task-name { white-space: normal; overflow: visible; "
+            "text-overflow: clip; overflow-wrap: break-word; }",
+            css,
+        )
+
+    def test_a_quiet_day_keeps_its_heading_but_draws_no_card(self):
+        self.assertIn(".day-column-body:empty { display: none; }", self.css())
+
+    def test_the_empty_rule_can_be_relied_on(self):
+        """:empty only holds if an empty day really is empty, so the
+        element is rendered without whitespace inside it."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn(
+            '<div class="day-column-body" data-date="{{ day.date_iso }}">'
+            "{% for task in day.tasks %}"
+            '{% include "projects/_day_task_card.html" %}{% endfor %}</div>',
+            contents,
+        )
+
+    def test_the_desktop_grid_is_untouched(self):
+        css = self.css()
+        self.assertIn(
+            ".day-columns { display: grid; "
+            "grid-template-columns: repeat(7, minmax(160px, 1fr)); "
+            "gap: 8px; overflow-x: auto; }",
+            css,
+        )
+        self.assertIn(".day-columns { width: calc(100vw - 284px - 68px);", css)
+
+
 class TaskActionsMenuTest(DemoModeTestCase):
     """#239 stage 1: the row's actions move into a ⋮ menu, on every viewport
     width — one interaction to build and test rather than a desktop variant

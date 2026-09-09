@@ -309,11 +309,39 @@
                .project-header above: 20px content-body inset + the 36px
                button minus the box's own 14px side padding, plus a gap. */
             .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
-            /* #180: 7 fixed columns don't fit a phone-width viewport (the
-               primary form factor per #53) — horizontal swipe-scroll, one
-               day roughly a screen-width wide, rather than a tab/paginator
-               component that would need its own JS state. */
-            .day-columns { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 78vw; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; margin: 0 -20px; padding-left: 20px; padding-right: 20px; }
+            /* #180 met the phone with a horizontal swipe-scroll, one day
+               roughly a screen wide. It reads badly in practice: the week
+               is seven swipes long, only one day is ever visible, and the
+               one question the view exists to answer — what is coming this
+               week — cannot be seen at all without scrubbing through it.
+               So below the breakpoint the columns become a plain vertical
+               list, built out of the components the Heute lists above it
+               already use: the day is a heading in the same key as
+               "Überfällig" / "Heute fällig", and its tasks sit in the same
+               bordered card. Nothing new to learn, and the week reads top
+               to bottom like everything else on the page. */
+            .day-columns { display: block; overflow-x: visible; margin: 0; padding: 0; }
+            .day-column { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
+            .day-column:last-child { margin-bottom: 0; }
+            .day-column-header { text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-right: 44px; }
+            /* The same card .task-list draws, so a day's tasks and the
+               Heute lists are one component rather than two. */
+            .day-column-body { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; min-height: 0; }
+            /* A quiet day keeps its heading — the week's shape is worth
+               seeing — but draws no empty card. The cost is that a task
+               cannot be dragged onto a day that has none yet; at this width
+               the row's own "Datum ändern" reaches every day, empty ones
+               included, which is the better answer on a touch screen
+               anyway. The template renders this element without whitespace
+               so :empty can be relied on. */
+            .day-column-body:empty { display: none; }
+            /* The same row .task-row is: same padding, same gap, same
+               hairline, and a name that wraps rather than being cut off —
+               a 160px column had to truncate, a full-width row does not. */
+            .day-task-card { background: none; border: none; border-radius: 0; gap: 12px; padding: 11px 16px; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); cursor: default; }
+            .day-task-card:last-child { border-bottom: none; }
+            .day-task-card .dot { margin-right: 0; }
+            .day-task-name { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
             /* At this width the moments wrap to two per row, and a label that
                does not fit one is better read over two lines than cut off —
                the label is the whole point of the moment. Flex stretches a
@@ -374,7 +402,6 @@
                trailing the date in the middle of the row. */
             .task-right { margin-left: 0; flex: 1 1 auto; }
             .task-menu { margin-left: auto; }
-            .day-column { scroll-snap-align: start; }
         }
 {% endblock %}
 
@@ -582,9 +609,13 @@
                     <span>{{ day.weekday_label }} {{ day.date|date:'d.m.' }}</span>
                     {% if day.total_count %}<span class="day-column-count">{{ day.done_count }}/{{ day.total_count }}</span>{% endif %}
                 </div>
-                <div class="day-column-body" data-date="{{ day.date_iso }}">
-                    {% for task in day.tasks %}{% include "projects/_day_task_card.html" %}{% endfor %}
-                </div>
+                {% comment %}
+                Rendered without whitespace inside the element: below 768px
+                a day with no tasks draws no card at all, and the rule that
+                does it (.day-column-body:empty) only holds if an empty day
+                really is empty.
+                {% endcomment %}
+                <div class="day-column-body" data-date="{{ day.date_iso }}">{% for task in day.tasks %}{% include "projects/_day_task_card.html" %}{% endfor %}</div>
             </div>
             {% endfor %}
         </div>
