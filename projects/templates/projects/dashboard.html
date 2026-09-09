@@ -317,7 +317,14 @@
                first now rises into its band. Same reservation as
                .project-header above: 20px content-body inset + the 36px
                button minus the box's own 14px side padding, plus a gap. */
-            .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
+            /* .sim-banner is deliberately not in this list. It renders only
+               for a simulated moment, which needs a moment to have been
+               offered — and the Zeitreise bar renders above it whenever any
+               exist (see the TIMELAPSE_MOMENTS block below, which is what
+               unhides it). So the banner is never the page's first element,
+               and 44px it does not need is 44px the notice and its button
+               cannot use to stay on one line. */
+            .demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
             /* The Zeitreise bar is first in both views, so the launcher sat
                on its top-right moment tile. It clears the button by height
                rather than by width: the tiles wrap, so a right-hand inset

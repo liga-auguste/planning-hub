@@ -473,10 +473,19 @@ class MobileLauncherClearanceTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header "
-            "{ padding-right: 44px; }",
+            ".demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }",
         )
         self.assertContains(response, ".project-header { padding-right: 44px;")
+
+    def test_the_zeitreise_notice_reserves_nothing(self):
+        """It renders only for a simulated moment, which needs a moment to
+        have been offered — and the Zeitreise bar renders above it whenever
+        any exist. So it is never the page's first element, and 44px it does
+        not need is 44px its notice and button cannot use to stay on one
+        line."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".sim-banner, ")
+        self.assertNotContains(response, ", .sim-banner")
 
     def test_the_week_heading_reserves_it_for_its_navigation(self):
         # "Diese Woche" carries ← / → on its right edge, which is content.
@@ -693,6 +702,15 @@ class SimBannerNarrowViewportWrapTest(DemoModeTestCase):
             self.banner_css(),
             ".sim-banner-reset { margin-left: auto; white-space: nowrap;",
         )
+
+    def test_the_control_is_short_enough_to_share_the_line(self):
+        """The banner beside it already names the simulated date, so the
+        short form loses no meaning and buys the row the width it needs to
+        stay on one line down to a small phone. The title keeps the full
+        wording for a pointer."""
+        response = self.banner_css()
+        self.assertContains(response, 'title="Zurück zum heutigen Datum">Zurück<')
+        self.assertNotContains(response, ">Zurück zu heute<")
 
     def test_the_banner_actually_renders_for_a_simulated_moment(self):
         # Or every assertion above would pass against a page that never
