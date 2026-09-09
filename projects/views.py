@@ -20,6 +20,7 @@ from .ai import (
     _number_projects_and_tasks,
     generate_closeout_summary,
     generate_weekly_summary,
+    resolve_kontext_hint,
     resolve_weekly_summary,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
@@ -64,12 +65,21 @@ logger = logging.getLogger(__name__)
 # read. It is bumped anyway so that STALE_CACHE_KEY, which never expires,
 # cannot keep serving a shape no code writes any more — and because a
 # formatted date living in this cache was the bug in the first place.
-CACHE_KEY = "dashboard_data_v9"
+#
+# #145 (v10) is the same kind: the cached summary_data gained an optional
+# kontext_hinweis field, and an entry written before it simply renders
+# without the hint. Bumped for the same STALE_CACHE_KEY reason, and so the
+# first summary after the deploy can carry a hint instead of the last cached
+# one holding it back for up to eight hours. UNASSIGNED_CACHE_KEY goes with
+# it by the #19 lockstep even though its own shape is unchanged — the two
+# are counted across each other everywhere, and a half-refreshed pair is the
+# state _patch_cached_tasks refuses to work with anyway.
+CACHE_KEY = "dashboard_data_v10"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v9"
+STALE_CACHE_KEY = "dashboard_data_stale_v10"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -79,9 +89,9 @@ STALE_CACHE_KEY = "dashboard_data_stale_v9"
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
 # #210: v4 — and they gained kanban_column, bumped in the same lockstep.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v4"
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v5"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v4"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v5"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -1078,6 +1088,13 @@ def dashboard(request):
         if summary_data
         else None
     )
+    # #145: production only. A demo plan is one project, and kontext never
+    # reaches a demo prompt at all (#18), so there is nothing to batch across.
+    kontext_hint = (
+        resolve_kontext_hint(summary_data)
+        if summary_data and not has_session_plan
+        else ""
+    )
 
     timelapse_moments = (
         request.session.get("demo_timelapse_moments", []) if settings.DEMO_MODE else []
@@ -1117,6 +1134,7 @@ def dashboard(request):
             "month_groups": month_groups,
             "years": years,
             "summary": summary,
+            "kontext_hint": kontext_hint,
             "today": today,
             "today_display": format_date(today, role="long"),
             "today_iso": today.isoformat(),

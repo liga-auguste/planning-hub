@@ -193,6 +193,7 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             "  Nicht: 'Tasks offen'. Sondern: 'Plakate müssen heute raus' oder 'noch gut im Zeitplan'.",
             "  Nenne den Projektnamen NICHT im Satz — er wird aus den Daten ergänzt.",
             '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
+            '- "kontext_hinweis" (optional, oberste Ebene, kein Block): Wenn zwei oder mehr offene Aufgaben aus VERSCHIEDENEN Projekten denselben Kontext teilen und im selben Zeitraum liegen, nenne die Gelegenheit, sie zusammen zu erledigen — ein einziger Satz, z. B. "Wenn du ohnehin im Büro bist: GEMA-Meldung und Musikervertrag in einem Rutsch." Gibt es keine solche Häufung über Projektgrenzen hinweg, lass das Feld weg.',
             "",
             "Zuordnung der Blöcke:",
             '- "jetzt_faellig": überfällige und diese Woche fällige Projekte.',
@@ -416,6 +417,25 @@ def _resolve_ref(ref, numbered: list):
     if not 1 <= ref <= len(numbered):
         return None
     return numbered[ref - 1]
+
+
+def resolve_kontext_hint(data: dict) -> str:
+    """The cross-project batch opportunity Claude may have spotted, or "".
+
+    #145: kontext exists to batch work *across* projects, and until now
+    nothing in the app did that — the prompt carried the data and never
+    asked for anything to be done with it. A separate top-level field
+    rather than a sentence inside an assessment: the blocks are per project
+    (project_ref), so a statement about two of them placed inside one would
+    be attributed to a project it does not belong to.
+
+    Optional by design. A week with no cluster gets no hint, and so does a
+    summary cached before this field existed — the same robustness rule
+    resolve_weekly_summary follows, so whatever the model emitted, the
+    template gets something it can render.
+    """
+    hint = data.get("kontext_hinweis")
+    return hint if isinstance(hint, str) else ""
 
 
 def resolve_weekly_summary(

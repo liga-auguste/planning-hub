@@ -840,10 +840,16 @@ class DashboardCacheVersionTest(SimpleTestCase):
     """#210 adds kanban_column to every cached task dict. The cache stores
     already-annotated projects and does not re-annotate on a hit, so a
     pre-deploy entry would render an empty board — and STALE_CACHE_KEY never
-    expires, so it would serve that shape indefinitely."""
+    expires, so it would serve that shape indefinitely.
+
+    #145 (v10) is the softer kind of bump the note above CACHE_KEY
+    describes: the cached summary_data gained an optional kontext_hinweis,
+    and an older entry renders correctly without it. Bumped so the
+    never-expiring copy cannot hold the new field back indefinitely, and so
+    the first summary after the deploy can carry one."""
 
     def test_both_key_pairs_are_bumped_together(self):
-        self.assertEqual(CACHE_KEY, "dashboard_data_v9")
-        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v9")
-        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v4")
-        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v4")
+        self.assertEqual(CACHE_KEY, "dashboard_data_v10")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v10")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v5")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v5")

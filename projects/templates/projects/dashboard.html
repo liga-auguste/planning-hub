@@ -47,6 +47,10 @@
            itself (8px from .dot) to keep the gap identical. */
         .ai-card span.dot { margin-right: 10px; }
         .ai-card ul ul li .dot { vertical-align: middle; }
+        /* #145: a footnote under the week's blocks, not a block of its own —
+           it describes a way of working, not a project. Separated by the
+           same hairline the blocks use between each other. */
+        .ai-kontext-hint { font-size: 12px; color: var(--color-text-tertiary); border-top: 1px solid var(--color-border-primary); padding-top: 12px; margin-top: 20px; }
         .ai-error { color: var(--color-text-quaternary); font-style: italic; }
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
         .project-section { margin-bottom: 8px; padding: 0; }
@@ -382,6 +386,14 @@
                 {% endfor %}
             </ul>
             {% endif %}{% endfor %}
+            {% comment %}
+            #145: the one thing kontext is for — work that can be batched
+            across projects. Below the blocks rather than inside one: the
+            blocks are per project, and a statement about two of them would
+            be attributed to whichever one happened to hold it. Absent
+            whenever Claude found no cluster, which is most weeks.
+            {% endcomment %}
+            {% if kontext_hint %}<p class="ai-kontext-hint">{{ kontext_hint }}</p>{% endif %}
             {% else %}
             <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
             {% endif %}
