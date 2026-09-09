@@ -291,7 +291,25 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(
-            response, ".summary-box .dot { vertical-align: middle; margin-right: 6px; }"
+            response,
+            ".summary-box .dot { vertical-align: middle; margin-right: 12px; }",
+        )
+
+    def test_every_task_dot_on_the_page_shares_one_indent(self):
+        """The summary and the "Alle Aufgaben" list show the same tasks, so
+        two columns of dots at two different offsets read as two different
+        kinds of thing. The nested list drops its own indent, and the gap
+        between dot and name matches .task-row's own — the block heading
+        above each run carries the grouping on its weight alone."""
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, ".summary-box ul ul { list-style: none; padding-left: 0; }"
+        )
+        self.assertContains(
+            response,
+            ".task-row { display: flex; align-items: center; padding: 11px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); gap: 12px; }",
         )
 
     def test_numbered_lists_keep_room_for_their_numbers(self):

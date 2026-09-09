@@ -66,9 +66,14 @@
     .summary-box ol { padding-left: 20px; margin: 8px 0; }
     .summary-box li { margin-bottom: 4px; }
     /* The nested task list carries its own checkboxes (#122) — the dot is
-       the marker, a second bullet in front of it would double up. */
-    .summary-box ul ul { list-style: none; padding-left: 8px; }
-    .summary-box .dot { vertical-align: middle; margin-right: 6px; }
+       the marker, a second bullet in front of it would double up.
+       No indent of its own, and the same 12px between dot and name that
+       .task-row's gap gives: the summary and the "Alle Aufgaben" list below
+       it show the same tasks, and the eye reads two columns of dots at two
+       different offsets as two different kinds of thing. The block heading
+       above each run carries the grouping on its own weight. */
+    .summary-box ul ul { list-style: none; padding-left: 0; }
+    .summary-box .dot { vertical-align: middle; margin-right: 12px; }
     /* The task list below lays this out with flex gap; inside the summary
        it is an inline span and needs its own separation from the name. */
     .summary-box .task-date { margin-left: 8px; }
