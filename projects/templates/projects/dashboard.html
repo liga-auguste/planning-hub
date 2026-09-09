@@ -351,7 +351,7 @@
             .day-columns { display: block; overflow-x: visible; margin: 0; padding: 0; }
             .day-column { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
             .day-column:last-child { margin-bottom: 0; }
-            .day-column-header { text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-right: 44px; }
+            .day-column-header { text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
             /* Nothing of its own, like .task-list: a day's tasks are rows
                on the page's own surface, separated by the same hairline. */
             .day-column-body { min-height: 0; }
@@ -399,7 +399,19 @@
                under the button *at rest* — the banners, the project header,
                the Zeitreise bar, the Heute headings with their week
                navigation — reserve their space above; a list does not. */
-            .today-week-heading { padding-right: 44px; }
+            /* "Diese Woche" and its navigation cannot share a line at this
+               width: the heading broke into two lines while ←, the week
+               range, → and the reset link were squeezed beside it. As a
+               block the heading takes its own line and the navigation —
+               already a flex container, so block-level — falls underneath
+               with room to breathe.
+               No launcher reserve on either this or the day headings: both
+               sit deep inside the Heute view, so the ☰ only ever passes
+               over them while scrolling, and that is the transient overlap
+               the rows do not pay for either. Here it was visible as a
+               45px stub of dead space at the end of the navigation row. */
+            .week-nav-row { display: block; }
+            .week-nav { margin-top: 8px; }
             .task-project { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         }
 {% endblock %}

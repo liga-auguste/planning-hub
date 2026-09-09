@@ -167,6 +167,35 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class WeekNavigationStacksBelowTheBreakpointTest(DemoModeTestCase):
+    """ "Diese Woche" and its navigation cannot share a line at phone width:
+    the heading broke into two lines while ←, the week range, → and the
+    reset link were squeezed beside it.
+
+    As a block the heading takes its own line, and the navigation — already
+    a flex container, so block-level — falls underneath it with room to
+    breathe. No new markup and no second component."""
+
+    def test_the_heading_and_its_navigation_stack(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".week-nav-row { display: block; }")
+        self.assertContains(response, ".week-nav { margin-top: 8px; }")
+
+    def test_the_desktop_row_is_untouched(self):
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".week-nav-row { display: flex; align-items: center; "
+            "justify-content: space-between; }",
+        )
+
+    def test_the_navigation_still_renders_all_of_its_controls(self):
+        html = self.client.get(reverse("dashboard") + "?view=today").content.decode()
+        self.assertIn('class="week-nav-btn"', html)
+        self.assertIn('class="week-range-label"', html)
+        self.assertIn('title="Vorherige Woche"', html)
+        self.assertIn('title="Nächste Woche"', html)
+
+
 class TaskListsAreOneSurfaceTest(DemoModeTestCase):
     """#149 asked for the app's two task lists to read as one component. It
     first got there by giving the dashboard /mein-plan/'s card; it is here
@@ -539,12 +568,14 @@ class MobileLauncherClearanceTest(DemoModeTestCase):
         self.assertNotContains(response, ".sim-banner, ")
         self.assertNotContains(response, ", .sim-banner")
 
-    def test_the_week_heading_reserves_it_for_its_navigation(self):
-        # "Diese Woche" carries ← / → on its right edge, which is content.
-        self.assertContains(
-            self.client.get(reverse("dashboard")),
-            ".today-week-heading { padding-right: 44px; }",
-        )
+    def test_nothing_inside_a_list_reserves_it(self):
+        """The rows, the Heute headings and the day headings all sit deep
+        inside the view, so the button only ever passes over them while
+        scrolling. On the week-navigation heading the reserve was visible
+        as a 44px stub of dead space at the end of its row."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, ".today-week-heading { padding-right: 44px; }")
+        self.assertNotContains(response, "margin-bottom: 8px; padding-right: 44px; }")
 
     def test_the_zeitreise_tiles_clear_the_button_by_height(self):
         """The bar is first in both views, so the launcher sat on its
