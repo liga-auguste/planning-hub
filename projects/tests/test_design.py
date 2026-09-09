@@ -164,50 +164,53 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
-class TaskListMatchesMeinPlanTest(DemoModeTestCase):
-    """#149: the two task lists in the app did not look like one component.
-    /mein-plan/ renders a bordered card with roomy rows; the dashboard
-    rendered bare rows with only a hairline between them. The card
-    container, the row padding and the dot/name/date arrangement are ported
-    across, so the same data reads the same way in both places.
+class TaskListsAreOneSurfaceTest(DemoModeTestCase):
+    """#149 asked for the app's two task lists to read as one component. It
+    first got there by giving the dashboard /mein-plan/'s card; it is here
+    by taking the card off both instead — which is also where #96 was
+    already heading when it de-boxed .ai-card and .project-section and left
+    these two out.
 
-    Both dashboard lists, not just the project detail: .task-row is one
-    shared rule and the Heute view uses the same class, so restyling both is
-    one rule and one test rather than a scope selector making one class
-    behave two ways.
+    A list of tasks is one surface with a hairline between the rows. The
+    card's border and its 16px inset cost width on a phone and read as a
+    second frame inside a page that already has one. .task-list stays as the
+    element grouping a run of rows — sortRows walks its children — and
+    simply draws nothing."""
 
-    Done last of #238's stages, on the final layout and the final set of
-    elements — after the collision was fixed, the date shortened and the
-    kontext chip removed. Anything earlier would have styled a row that was
-    still about to change."""
-
-    def test_the_dashboard_lists_wear_the_mein_plan_card(self):
-        response = self.client.get(reverse("dashboard"))
-        self.assertContains(
-            response,
-            ".task-list { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
-            "overflow: hidden; }",
+    def test_neither_list_draws_a_card(self):
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertNotContains(dashboard, ".task-list { background:")
+        self.given_session_plan()
+        self.assertNotContains(
+            self.client.get(reverse("my_plan")), ".task-list { background:"
         )
 
-    def test_the_rows_wear_the_mein_plan_padding_and_gap(self):
-        response = self.client.get(reverse("dashboard"))
+    def test_the_rows_sit_flush_with_the_page(self):
+        """No side padding: the row's text lines up with the heading above
+        it instead of being inset by a frame that is no longer there."""
         self.assertContains(
-            response,
+            self.client.get(reverse("dashboard")),
             ".task-row { display: flex; align-items: center; flex-wrap: wrap; "
-            "gap: 12px; padding: 11px 16px; "
+            "gap: 12px; padding: 11px 0; "
             "border-bottom: 1px solid var(--color-border-primary); }",
         )
 
-    def test_the_gap_replaces_the_elements_own_margins(self):
-        response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".task-row .dot { margin-right: 0; }")
-        # .task-due keeps its 16px in the AI summary, which lays its items
-        # out inline rather than with a gap.
-        self.assertContains(response, ".task-row .task-due { margin-left: 0; }")
-        self.assertContains(response, ".task-due { font-size: 12px;")
+    def test_both_pages_separate_their_rows_the_same_way(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".task-row { display: flex; align-items: center; padding: 11px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); gap: 12px; }",
+        )
 
-    def test_both_lists_are_wrapped_in_the_card(self):
+    def test_the_last_row_carries_no_trailing_line(self):
+        # Separators between rows, not a frame around them.
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".task-row:last-child { border-bottom: none; }",
+        )
+
+    def test_the_grouping_element_is_still_rendered(self):
         contents = (
             settings.BASE_DIR / "projects/templates/projects/dashboard.html"
         ).read_text()
@@ -215,11 +218,10 @@ class TaskListMatchesMeinPlanTest(DemoModeTestCase):
         self.assertEqual(contents.count('<div class="task-list">'), 3)
 
     def test_the_kanban_and_the_overview_keep_their_own_look(self):
-        """#149 is about the two task lists. The board is a different
-        component and stays one."""
-        response = self.client.get(reverse("dashboard"))
+        """The board is a different component — cards that move between
+        columns — and stays one."""
         self.assertContains(
-            response,
+            self.client.get(reverse("dashboard")),
             ".kanban-card { background: var(--color-bg-primary); "
             "border: 1px solid var(--color-border-primary); border-radius: 6px; "
             "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
@@ -285,27 +287,17 @@ class WeekViewIsAListBelowTheBreakpointTest(DemoModeTestCase):
             self.css(),
         )
 
-    def test_a_days_tasks_sit_in_the_same_card_the_other_lists_use(self):
+    def test_a_days_tasks_sit_on_the_same_surface_the_other_lists_use(self):
         css = self.css()
-        self.assertIn(
-            ".day-column-body { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
-            "overflow: hidden; min-height: 0; }",
-            css,
-        )
-        # The declaration .task-list carries, so the two are one component.
-        self.assertIn(
-            ".task-list { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
-            "overflow: hidden; }",
-            css,
-        )
+        self.assertIn(".day-column-body { min-height: 0; }", css)
+        # Neither list draws a card, so the two are one component.
+        self.assertNotIn(".task-list { background:", css)
 
     def test_a_day_card_becomes_a_row(self):
         css = self.css()
         self.assertIn(
             ".day-task-card { background: none; border: none; border-radius: 0; "
-            "gap: 12px; padding: 11px 16px; margin-bottom: 0; "
+            "gap: 12px; padding: 11px 0; margin-bottom: 0; "
             "border-bottom: 1px solid var(--color-border-primary); cursor: default; }",
             css,
         )
@@ -602,10 +594,12 @@ class TaskRowNeverCollidesTest(DemoModeTestCase):
 
 
 class DeboxingRegressionTest(DemoModeTestCase):
-    """#96: the sidebar-tile/.ai-card de-boxing explicitly leaves these
-    boxed areas untouched — locked in before any code change so a later step
+    """#96: the sidebar-tile/.ai-card de-boxing explicitly left these boxed
+    areas untouched — locked in before any code change so a later step
     can't quietly widen the scope. (.project-section joined the de-boxed
-    side in a #96 follow-up — see ProjectSectionDeboxTest.)"""
+    side in a #96 follow-up — see ProjectSectionDeboxTest, and
+    /mein-plan/'s two boxes followed later still; the test below says so
+    rather than being deleted, so the scope reads as a decision.)"""
 
     def test_kanban_card_keeps_its_border(self):
         response = self.client.get(reverse("dashboard"))
@@ -616,24 +610,22 @@ class DeboxingRegressionTest(DemoModeTestCase):
             "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
         )
 
-    def test_my_plan_task_list_keeps_border_and_radius(self):
+    def test_my_plan_boxes_were_the_exception_and_no_longer_are(self):
+        """#96 kept these two out of the de-boxing and this test held them
+        there. The exception has since ended: a list of tasks is one surface
+        with a hairline between its rows, and the summary is text on the
+        page — both cost width and read as a second frame inside a page that
+        already has one. Left here rather than deleted, so the scope this
+        class exists to guard is visibly a decision and not a drift."""
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(
             response,
-            ".task-list { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }",
+            ".summary-box { padding: 0; margin-bottom: 24px; "
+            "line-height: 1.7; font-size: 14px; }",
         )
-
-    def test_my_plan_summary_box_keeps_border_and_radius(self):
-        self.given_session_plan()
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(
-            response,
-            ".summary-box { background: var(--color-bg-primary); "
-            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
-            "padding: 24px 28px; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }",
-        )
+        self.assertNotContains(response, ".task-list { background:")
+        self.assertNotContains(response, ".summary-box { background:")
 
 
 class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):

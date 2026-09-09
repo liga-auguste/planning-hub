@@ -66,13 +66,14 @@
            be a sibling of the name, not a cousin. justify-content goes with
            it: .task-name grows, so .task-right's own margin-left: auto puts
            it against the right edge just the same. */
-        /* #149: the same card /mein-plan/ has always drawn around its list,
-           so the two surfaces read as one component. Identical declaration
-           to my_plan.html's .task-list, deliberately — a shared partial for
-           four lines of CSS across two independent <style> blocks would cost
-           more than the duplication. */
-        .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
-        .task-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); }
+        /* #96 de-boxed .ai-card and .project-section and left the two task
+           lists out; this is where that stops being an exception. A list of
+           tasks is one surface with a hairline between the rows, not a card
+           — the card's own border and 16px inset cost width and read as a
+           second frame inside a page that already has one. .task-list stays
+           as the element grouping a run of rows (sortRows walks its
+           children); it simply draws nothing. */
+        .task-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
         /* The gap is the row's only horizontal spacing now, so the elements'
            own margins have to give way to it. Scoped rather than removed:
@@ -351,9 +352,9 @@
             .day-column { background: none; border-radius: 0; padding: 0; min-height: 0; margin-bottom: 20px; }
             .day-column:last-child { margin-bottom: 0; }
             .day-column-header { text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-right: 44px; }
-            /* The same card .task-list draws, so a day's tasks and the
-               Heute lists are one component rather than two. */
-            .day-column-body { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; min-height: 0; }
+            /* Nothing of its own, like .task-list: a day's tasks are rows
+               on the page's own surface, separated by the same hairline. */
+            .day-column-body { min-height: 0; }
             /* A quiet day keeps its heading — the week's shape is worth
                seeing — but draws no empty card. The cost is that a task
                cannot be dragged onto a day that has none yet; at this width
@@ -365,7 +366,7 @@
             /* The same row .task-row is: same padding, same gap, same
                hairline, and a name that wraps rather than being cut off —
                a 160px column had to truncate, a full-width row does not. */
-            .day-task-card { background: none; border: none; border-radius: 0; gap: 12px; padding: 11px 16px; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); cursor: default; }
+            .day-task-card { background: none; border: none; border-radius: 0; gap: 12px; padding: 11px 0; margin-bottom: 0; border-bottom: 1px solid var(--color-border-primary); cursor: default; }
             .day-task-card:last-child { border-bottom: none; }
             .day-task-card .dot { margin-right: 0; }
             .day-task-name { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
