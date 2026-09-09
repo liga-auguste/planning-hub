@@ -126,6 +126,100 @@ class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
         )
 
 
+class TaskListMatchesMeinPlanTest(DemoModeTestCase):
+    """#149: the two task lists in the app did not look like one component.
+    /mein-plan/ renders a bordered card with roomy rows; the dashboard
+    rendered bare rows with only a hairline between them. The card
+    container, the row padding and the dot/name/date arrangement are ported
+    across, so the same data reads the same way in both places.
+
+    Both dashboard lists, not just the project detail: .task-row is one
+    shared rule and the Heute view uses the same class, so restyling both is
+    one rule and one test rather than a scope selector making one class
+    behave two ways.
+
+    Done last of #238's stages, on the final layout and the final set of
+    elements — after the collision was fixed, the date shortened and the
+    kontext chip removed. Anything earlier would have styled a row that was
+    still about to change."""
+
+    def test_the_dashboard_lists_wear_the_mein_plan_card(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-list { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 10px; "
+            "overflow: hidden; }",
+        )
+
+    def test_the_rows_wear_the_mein_plan_padding_and_gap(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".task-row { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 12px; padding: 11px 16px; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+        )
+
+    def test_the_gap_replaces_the_elements_own_margins(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".task-row .dot { margin-right: 0; }")
+        # .task-due keeps its 16px in the AI summary, which lays its items
+        # out inline rather than with a gap.
+        self.assertContains(response, ".task-row .task-due { margin-left: 0; }")
+        self.assertContains(response, ".task-due { font-size: 12px;")
+
+    def test_both_lists_are_wrapped_in_the_card(self):
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        # Two Heute lists (Überfällig, Heute fällig) and the project detail.
+        self.assertEqual(contents.count('<div class="task-list">'), 3)
+
+    def test_the_kanban_and_the_overview_keep_their_own_look(self):
+        """#149 is about the two task lists. The board is a different
+        component and stays one."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            ".kanban-card { background: var(--color-bg-primary); "
+            "border: 1px solid var(--color-border-primary); border-radius: 6px; "
+            "padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }",
+        )
+
+
+class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
+    """#149, second half: .summary-box ul kept the browser's default
+    list-style, so the AI summary rendered disc bullets next to the dot
+    markers that already structure the content. The dashboard's .ai-card ul
+    has set list-style: none since it was written — this matches it.
+
+    The ol keeps its 20px: the numbers carry the ordering and have to land
+    inside the box (#64)."""
+
+    def test_the_summary_list_has_no_markers_of_its_own(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            ".summary-box ul { list-style: none; padding-left: 0; margin: 8px 0; }",
+        )
+
+    def test_the_dot_markers_stay(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, ".summary-box .dot { vertical-align: middle; margin-right: 6px; }"
+        )
+
+    def test_numbered_lists_keep_room_for_their_numbers(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, ".summary-box ol { padding-left: 20px; margin: 8px 0; }"
+        )
+
+
 class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
     """#238: .sidebar-toggle-mobile is position: fixed (top: 26px, right:
     20px — dashboard.css), so whatever scrolls under it is covered. The
@@ -192,10 +286,11 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
 
     def test_the_row_itself_wraps_and_no_longer_nests_a_left_half(self):
         response = self.client.get(reverse("dashboard"))
+        # The padding and gap are #149's, asserted in
+        # TaskListMatchesMeinPlanTest — what this is about is flex-wrap on
+        # the row itself and the absence of the nested half.
         self.assertContains(
-            response,
-            ".task-row { display: flex; align-items: center; flex-wrap: wrap; "
-            "padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }",
+            response, ".task-row { display: flex; align-items: center; flex-wrap: wrap;"
         )
         # The class itself, not the string: the rules above explain
         # themselves by naming the half that used to be there.
@@ -215,16 +310,22 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
 
     def test_below_the_breakpoint_the_name_takes_the_whole_first_line(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".task-name { flex-basis: calc(100% - 15px); }")
+        self.assertContains(response, ".task-name { flex-basis: 100%; }")
 
     def test_below_the_breakpoint_the_meta_indents_under_the_name(self):
+        # The dot hangs into the row's left padding — 7px wide, minus 19px,
+        # plus the row's 12px gap contributes nothing at all — so the name
+        # fills line one exactly and line two starts at the content-box
+        # edge, level with the name. No per-element margins to keep in step.
         response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".task-row { padding-left: 35px; }")
         self.assertContains(
-            response, ".task-project, .task-right { margin-left: 15px; }"
+            response,
+            ".task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }",
         )
-        # .task-due's own desktop 16px would push the date a second indent
-        # deep once .task-right starts a line of its own.
-        self.assertContains(response, ".task-due { margin-left: 0; }")
+        # The desktop auto margin would push the whole wrapped line right,
+        # away from the name it belongs under.
+        self.assertContains(response, ".task-right { margin-left: 0; }")
 
     def test_both_task_lists_render_from_the_one_partial(self):
         """The project detail used to hold its own copy of the row markup,
@@ -327,9 +428,9 @@ class BaseResetParityTest(DemoModeTestCase):
     def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
         self.given_session_plan()
         response = self.client.get("/mein-plan/")
-        self.assertContains(
-            response, ".summary-box ul, .summary-box ol { padding-left: 20px"
-        )
+        # #149 split the two: the ul lost its markers and its indent with
+        # them, the ol kept both — its numbers carry the ordering.
+        self.assertContains(response, ".summary-box ol { padding-left: 20px")
         self.assertContains(response, ".summary-box p { margin: 0 0 8px; }")
 
     def test_ordered_lists_keep_room_for_their_numbers(self):
@@ -343,7 +444,7 @@ class BaseResetParityTest(DemoModeTestCase):
         self.given_session_plan()
         self.assertContains(
             self.client.get("/mein-plan/"),
-            ".summary-box ul, .summary-box ol { padding-left: 20px",
+            ".summary-box ol { padding-left: 20px",
         )
 
     def test_summary_headings_cover_every_level_markdown_can_emit(self):

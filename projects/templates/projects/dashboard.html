@@ -66,8 +66,20 @@
            be a sibling of the name, not a cousin. justify-content goes with
            it: .task-name grows, so .task-right's own margin-left: auto puts
            it against the right edge just the same. */
-        .task-row { display: flex; align-items: center; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px solid var(--color-border-primary); }
+        /* #149: the same card /mein-plan/ has always drawn around its list,
+           so the two surfaces read as one component. Identical declaration
+           to my_plan.html's .task-list, deliberately — a shared partial for
+           four lines of CSS across two independent <style> blocks would cost
+           more than the duplication. */
+        .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
+        .task-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); }
         .task-row:last-child { border-bottom: none; }
+        /* The gap is the row's only horizontal spacing now, so the elements'
+           own margins have to give way to it. Scoped rather than removed:
+           .dot and .task-due both also render inside the AI summary, which
+           lays its items out inline and still needs them. */
+        .task-row .dot { margin-right: 0; }
+        .task-row .task-due { margin-left: 0; }
         .task-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
         /* #238: the one item in the row that gives way. Without a flex of
            its own it shrank to min-content — the longest single word — which
@@ -102,7 +114,7 @@
            after task-name (not before) so every task-name starts at the
            same indent right after the dot, instead of drifting with each
            row's project-name width. */
-        .task-project { font-size: 11px; color: var(--color-text-quaternary); margin-left: 8px; white-space: nowrap; flex-shrink: 0; }
+        .task-project { font-size: 11px; color: var(--color-text-quaternary); white-space: nowrap; flex-shrink: 0; }
         .task-project.ai-project-link { color: var(--color-text-tertiary); }
         .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
         .today-week-heading:first-child { margin-top: 0; }
@@ -292,9 +304,23 @@
                top of the viewport. With the name on its own line, that is
                where it hurts least. */
             .task-row, .today-week-heading { padding-right: 44px; }
-            .task-name { flex-basis: calc(100% - 15px); }
-            .task-project, .task-right { margin-left: 15px; }
-            .task-due { margin-left: 0; }
+            /* The row stacks: name on the first line, the meta under it.
+               The dot hangs into the row's left padding (7px wide, minus
+               19px, plus the 12px gap = no contribution at all), so a name
+               based on the full width fills line one to the pixel and
+               everything after it wraps. Line two then starts at the
+               content-box edge — 19px past the row's own 16px padding,
+               level with the name rather than with the dot — with no
+               per-element margins to keep in step. */
+            .task-row { padding-left: 35px; }
+            .task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }
+            .task-name { flex-basis: 100%; }
+            /* The desktop rule pushes the meta against the right edge, which
+               is where it belongs beside the name. On its own wrapped line
+               an auto margin would do the same to the whole line, leaving it
+               hard right under the launcher reserve instead of under the
+               name it belongs to. */
+            .task-right { margin-left: 0; }
             .day-column { scroll-snap-align: start; }
         }
 {% endblock %}
@@ -473,12 +499,16 @@
 
         {% if heute_overdue %}
         <div class="today-week-heading">Überfällig</div>
-        {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        <div class="task-list">
+            {% for task in heute_overdue %}{% include "projects/_task_row.html" %}{% endfor %}
+        </div>
         {% endif %}
 
         <div class="today-week-heading">Heute fällig</div>
         {% if heute_today %}
-        {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        <div class="task-list">
+            {% for task in heute_today %}{% include "projects/_task_row.html" %}{% endfor %}
+        </div>
         {% else %}
         <p class="ai-error">Für heute liegt nichts mehr an.</p>
         {% endif %}
@@ -531,7 +561,11 @@
         sets that (views.py), so a project-detail row never had one. One
         template, so a change to the row lands on both lists at once.
         {% endcomment %}
-        {% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}
+        {% if project.tasks %}
+        <div class="task-list">
+            {% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
     {% endfor %}

@@ -44,10 +44,16 @@
        base_dashboard zeroes it, so a stray paragraph needs its own spacing. */
     .summary-box p { margin: 0 0 8px; }
     .summary-box strong { font-weight: 600; }
-    /* ol alongside ul for the same reason as the six heading levels: the reset
-       took away Reboot's padding, which is what holds bullets and numbers
-       inside the box, and markdown output picks the list type. */
-    .summary-box ul, .summary-box ol { padding-left: 20px; margin: 8px 0; }
+    /* #149: no markers of its own. The summary's top-level list carries the
+       dot markers that already structure the content (#122), so the browser's
+       default disc rendered a second bullet in front of each — the dashboard's
+       .ai-card ul has set list-style: none since it was written.
+       ol keeps its indent for the same reason as the six heading levels: the
+       reset took away Reboot's padding, which is what holds the numbers
+       inside the box, and markdown output picks the list type. Unlike the
+       bullets, the numbers carry the ordering. */
+    .summary-box ul { list-style: none; padding-left: 0; margin: 8px 0; }
+    .summary-box ol { padding-left: 20px; margin: 8px 0; }
     .summary-box li { margin-bottom: 4px; }
     /* The nested task list carries its own checkboxes (#122) — the dot is
        the marker, a second bullet in front of it would double up. */
