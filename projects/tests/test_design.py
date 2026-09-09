@@ -654,6 +654,63 @@ class DemoBannerNarrowViewportWrapTest(DemoModeTestCase):
         self.assertContains(response, ".demo-banner span { flex: 1 1 200px; }")
 
 
+class SimBannerNarrowViewportWrapTest(DemoModeTestCase):
+    """The Zeitreise notice is the same shape as the demo banner — a run of
+    text plus one control — and never got the same treatment. Without
+    flex-wrap the row cannot break, so at phone width the notice and
+    "Zurück zu heute" were each squeezed into two cramped lines side by
+    side instead of the link dropping cleanly below.
+
+    Same three parts as DemoBannerNarrowViewportWrapTest, for the same
+    reasons: wrap, an explicit basis on the text so a wide layout does not
+    break early, and nowrap on the control so it stays one word."""
+
+    def banner_css(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data='{"date": "2026-09-01"}',
+            content_type="application/json",
+        )
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_banner_wraps_instead_of_squeezing(self):
+        self.assertContains(
+            self.banner_css(),
+            ".sim-banner { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 6px 10px;",
+        )
+
+    def test_the_text_gets_an_explicit_basis(self):
+        # Without it, flex-wrap breaks the row against the text's full
+        # unbroken width even when there is room for it to wrap internally.
+        self.assertContains(self.banner_css(), ".sim-banner span { flex: 1 1 200px; }")
+
+    def test_the_control_stays_on_one_line(self):
+        # "Zurück zu heute" broke across two lines in the squeeze.
+        self.assertContains(
+            self.banner_css(),
+            ".sim-banner-reset { margin-left: auto; white-space: nowrap;",
+        )
+
+    def test_the_banner_actually_renders_for_a_simulated_moment(self):
+        # Or every assertion above would pass against a page that never
+        # shows the element they describe.
+        self.assertContains(self.banner_css(), 'class="sim-banner"')
+
+    def test_the_plain_notice_needs_no_wrapping(self):
+        """.stale-notice is a block of text with no flex row to break, so
+        it wraps on its own — listed here so "all banners" is on the
+        record rather than assumed."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".stale-notice { background: var(--color-overdue-tint); "
+            "color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; "
+            "font-size: 12px; margin-bottom: 16px; }",
+        )
+
+
 class BaseResetParityTest(DemoModeTestCase):
     """#64 unit 4: base_public.html reset itself while base_dashboard.html
     inherited Reboot's. Two sources for the same thing is what produces

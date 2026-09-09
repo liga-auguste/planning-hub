@@ -270,8 +270,17 @@
         .kanban-card-meta span:last-child { white-space: nowrap; flex-shrink: 0; }
         .kanban-card.overdue .kanban-card-meta { color: var(--color-overdue); }
         .kanban-card.done .kanban-card-meta { color: var(--color-border-secondary); }
-        .sim-banner { display: flex; align-items: center; gap: 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
-        .sim-banner-reset { margin-left: auto; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
+        /* Text plus one control, the same shape .demo-banner has — and the
+           same treatment, which this one never got: without flex-wrap the
+           row cannot break, so at phone width the notice and "Zurück zu
+           heute" were each squeezed into two cramped lines side by side
+           instead of the link dropping cleanly below. The explicit basis is
+           what keeps a wide layout from breaking early: the wrap decision
+           is made against the text's full unbroken width, not the narrower
+           box it would render at if allowed to wrap internally. */
+        .sim-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
+        .sim-banner span { flex: 1 1 200px; }
+        .sim-banner-reset { margin-left: auto; white-space: nowrap; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
         .sim-banner-reset:hover { opacity: 1; }
         .demo-banner { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px 10px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
         /* Flex-wrap alone breaks the row too early: the line-wrap decision is
