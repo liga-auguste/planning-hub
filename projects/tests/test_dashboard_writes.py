@@ -276,11 +276,11 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All four handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler and #239's rename — carry the widened
-        # guard; their error paths (flash / return false / revert the drag)
-        # stay.
-        self.assertContains(response, self.GUARD, count=4)
+        # All five handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler and #239's rename and trash — carry the
+        # widened guard; their error paths (flash / return false / revert
+        # the drag) stay.
+        self.assertContains(response, self.GUARD, count=5)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
@@ -766,13 +766,13 @@ class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
         # /rename/ arrived with stage 2 and is asserted there.
         # The four items all drive controls the row already had —
         # "Projekt öffnen" renders only where a task carries a project_id,
-        # asserted in TaskActionsMenuMirrorsItsControlsTest. /rename/
-        # arrived with stage 2 and is asserted there.
+        # asserted in TaskActionsMenuMirrorsItsControlsTest. The two items
+        # with endpoints of their own arrived with stages 2 and 3 and are
+        # asserted there.
         html = self.dashboard_html()
         for action in ("toggle", "reschedule", "today"):
             self.assertIn(f'data-action="{action}"', html)
-        for path in ("/delete/", "/trash/"):
-            self.assertNotIn(path, html)
+        self.assertNotIn("/delete/", html)
 
     def test_the_date_click_survives_as_a_desktop_shortcut(self):
         # The one-click reschedule used daily is not lost to the menu.
@@ -1038,6 +1038,194 @@ class RenameTaskProductionTest(TestCase):
             response = self.post_name()
         self.assertEqual(response.json(), {"ok": True, "name": "Neuer Name"})
         self.assertIsNone(cache.get(CACHE_KEY))
+
+
+class TrashTaskDemoModeTest(DemoModeTestCase):
+    """#239 stage 3 in a demo session: the task leaves
+    session['demo_plan'], the same place the other writes land."""
+
+    def post_trash(self, task_id):
+        return self.client.post(
+            reverse("trash_task", args=[task_id]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+    def test_the_task_leaves_the_session_plan(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_trash("demo-session-0").json(), {"ok": True})
+        self.assertEqual(self.client.session["demo_plan"]["tasks"], [])
+
+    def test_it_is_gone_from_every_list_on_the_next_render(self):
+        self.given_session_plan()
+        self.post_trash("demo-session-0")
+        self.assertNotContains(
+            self.client.get(reverse("dashboard")), "Programm festlegen"
+        )
+
+    def test_the_cached_summaries_are_swept(self):
+        # Their task_refs were numbered against an order this task was part
+        # of, so they cannot be rewritten — a ref no longer points at the
+        # task it was written for.
+        self.given_session_plan()
+        self.client.get(reverse("dashboard"))
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = _summary_data()
+        session.save()
+        self.post_trash("demo-session-0")
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_a_trash_during_a_moment_is_refused(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertEqual(self.post_trash("demo-session-0").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_unknown_task_is_a_404(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_trash("demo-1-7").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("trash_task", args=["demo-session-0"]))
+        self.assertEqual(response.status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("trash_task", args=["demo-session-0"]),
+            data="not json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+
+@override_settings(DEMO_MODE=False)
+class TrashTaskProductionTest(TestCase):
+    """The production half. The cache is busted rather than patched —
+    _patch_cached_tasks mutates in place and has no removal path, and a
+    removal shifts every count and every cached task_ref. The cost is one
+    Notion read and one Claude call on the next render, paid for the least
+    frequent write in the app rather than reshaping the path every other
+    write hangs off."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_trash(self, task_id="task-1"):
+        return self.client.post(
+            reverse("trash_task", args=[task_id]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.trash_task") as mock_trash:
+            response = self.post_trash()
+        mock_trash.assert_called_once_with("task-1")
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_a_notion_failure_is_a_502_and_leaves_the_cache_alone(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        with patch(
+            "projects.views.trash_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_trash().status_code, 502)
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+
+    def test_a_confirmed_removal_busts_every_cached_copy(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        with patch("projects.views.trash_task"):
+            self.post_trash()
+        for key in (
+            CACHE_KEY,
+            STALE_CACHE_KEY,
+            UNASSIGNED_CACHE_KEY,
+            STALE_UNASSIGNED_CACHE_KEY,
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(cache.get(key))
+
+    def test_the_task_is_gone_from_the_next_render(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+            with patch("projects.views.trash_task"):
+                self.post_trash()
+            project["tasks"] = []
+            response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "Programm festlegen")
+
+
+class TrashHappensBehindASecondClickTest(DemoModeTestCase):
+    """The only action that reads as irreversible, so it asks — a two-step
+    inside the menu rather than a modal, which would sit outside the page's
+    own language and block everything behind it."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_item_says_papierkorb_not_loeschen(self):
+        # The Notion API cannot permanently delete: the page stays
+        # restorable in the trash, and "Löschen" would promise otherwise.
+        html = self.dashboard_html()
+        self.assertIn(">In den Papierkorb</button>", html)
+        self.assertNotIn(">Löschen</button>", html)
+
+    def test_the_first_click_only_arms_it(self):
+        html = self.dashboard_html()
+        self.assertIn(
+            "if (action === 'trash' && !item.classList.contains('armed')) {", html
+        )
+        self.assertIn("item.textContent = TRASH_ARMED_LABEL;", html)
+
+    def test_closing_the_menu_disarms_it(self):
+        # Reopening never starts one click away from a removal.
+        html = self.dashboard_html()
+        self.assertIn(
+            "items.querySelectorAll('.task-menu-item[data-action=\"trash\"]')"
+            ".forEach(disarmTrash);",
+            html,
+        )
+
+    def test_a_confirmed_removal_reloads_the_page(self):
+        # Every count, progress bar and board badge is re-rendered by the
+        # server rather than reconciled by hand (#210) — there is no warm
+        # cache left to derive figures from anyway.
+        html = self.dashboard_html()
+        self.assertIn("`/task/${taskId}/trash/`", html)
+        self.assertIn("window.location.reload();", html)
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):

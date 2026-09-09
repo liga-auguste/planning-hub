@@ -357,6 +357,28 @@ def rename_task(task_id: str, new_name: str) -> None:
         )
 
 
+def trash_task(task_id: str) -> None:
+    """#239: moves the task page to Notion's trash, where it stays
+    restorable.
+
+    The API cannot permanently delete. "Delete a page"
+    (https://developers.notion.com/reference/archive-a-page) states it
+    plainly, and it is the Update page endpoint underneath — which is why
+    the UI says "In den Papierkorb" rather than "Löschen": the data survives
+    either way, and "Löschen" would promise something final the API does not
+    deliver.
+
+    `archived` rather than `in_trash`: the field name depends on the API
+    version, and the pinned notion-client==2.2.1 sends
+    Notion-Version: 2022-06-28 (notion_client/client.py), where `archived`
+    is the field. `in_trash` is the current name and `archived` is removed
+    as of version 2026-03-11, so an SDK or version bump has to come past
+    this call and change it.
+    """
+    with translate_notion_errors():
+        _client().pages.update(page_id=task_id, archived=True)
+
+
 def increment_postpone_count(task_id: str) -> int:
     """Read-then-write, since Notion has no atomic increment. Deliberately
     not folded into update_task_date (#171): two calls instead of one costs

@@ -15,10 +15,18 @@ server-side:
   Datum ändern       the date span's click       -> task/<id>/reschedule/
   → heute            reschedule() with TODAY     -> task/<id>/reschedule/
   Projekt öffnen     showProject(), Heute only
+  In den Papierkorb  removes the task            -> task/<id>/trash/
 
-"Umbenennen" (#239 stage 2) is the one item with an endpoint of its own.
-It carries both conditions, like the writes below it: a Zeitreise moment is
-read-only (#217) and the demo example projects are in no session (#10 §5).
+"Umbenennen" (#239 stage 2) and "In den Papierkorb" (stage 3) are the two
+items with an endpoint of their own. They carry both conditions, like the
+writes beside them: a Zeitreise moment is read-only (#217) and the demo
+example projects are in no session (#10 §5).
+
+"In den Papierkorb", not "Löschen": the Notion API cannot permanently
+delete, the page stays restorable in the trash, and "Löschen" would promise
+something final. Last in the list, and armed by a second click on itself —
+a two-step inside the menu rather than a modal, which would sit outside the
+page's own language and block everything behind it.
 
 The conditions mirror the controls they drive, so the menu can never offer
 what the row itself does not: no toggle while a Zeitreise moment is active
@@ -44,5 +52,8 @@ project_id — the Heute view.
         {% if task.project_id %}
         <button type="button" role="menuitem" class="task-menu-item" data-action="project" data-project-id="{{ task.project_id }}">Projekt öffnen</button>
         {% endif %}
+        {% if not viewing_demo_data %}{% if not sim_date %}
+        <button type="button" role="menuitem" class="task-menu-item task-menu-item-danger" data-action="trash" data-task-id="{{ task.id }}">In den Papierkorb</button>
+        {% endif %}{% endif %}
     </div>
 </span>

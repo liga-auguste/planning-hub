@@ -42,6 +42,7 @@ from .notion import (
     increment_postpone_count,
     rename_task,
     toggle_task,
+    trash_task,
     update_task_date,
 )
 
@@ -1433,6 +1434,62 @@ def rename_task_view(request, task_id):
         if _patch_cached_tasks(task_id, relabel, timezone.localdate()) is None:
             _bust_dashboard_cache()
     return JsonResponse({"ok": True, "name": name})
+
+
+def trash_task_view(request, task_id):
+    """#239 stage 3. Same shape as rename_task_view above — POST only, a 404
+    for a task that was never saved (#61), refused while a Zeitreise moment
+    is active (#217).
+
+    The cache is busted rather than patched, deliberately.
+    _patch_cached_tasks mutates in place and has no removal path, and a
+    removal shifts every count *and* every cached task_ref, since
+    _number_projects_and_tasks numbers by position. _remap_summary_refs
+    exists for exactly that and could carry it, but _patch_cached_tasks
+    would have to give up its mutate(task) signature to get there — and that
+    is the one place every other write hangs off. A removal is rare; the
+    fallback costs one Notion read and, because the summary lives in the
+    same entry, one Claude call. That is the price of not reshaping the
+    patch path for the least frequent write in the app.
+
+    The answer therefore carries no figures — there is nothing warm left to
+    derive them from — and the client reloads. Which is also the strongest
+    form of #210: every count, progress bar and board badge is re-rendered
+    by the server rather than reconciled by hand.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    _, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        task = (
+            next((t for t in plan["tasks"] if t["id"] == task_id), None)
+            if plan
+            else None
+        )
+        if task is None:
+            return JsonResponse({"error": "unknown task"}, status=404)
+        plan["tasks"] = [t for t in plan["tasks"] if t["id"] != task_id]
+        request.session["demo_plan"] = plan
+        # The cached summaries were numbered against an order this task was
+        # part of, so they cannot be rewritten — a ref no longer points at
+        # the task it was written for. Swept rather than remapped, the same
+        # treatment reschedule_task_view gives a summary it cannot renumber.
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
+    else:
+        try:
+            trash_task(task_id)
+        except NotionUnavailableError:
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
 
 
 def reschedule_task_view(request, task_id):

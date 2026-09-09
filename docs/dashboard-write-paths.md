@@ -48,9 +48,26 @@ read falls back to.
 | Write | Projects | Summary | Fallback |
 |---|---|---|---|
 | Toggle a task | patched in place | kept | full bust |
+| Rename a task | patched in place | kept | full bust |
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
+| Move a task to the trash | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
+
+A rename ([#239](https://github.com/liga-auguste/planning-hub/issues/239)) sits with the
+toggle: `_annotate_tasks` sorts by due date, so a new name moves nothing and the summary's
+`task_refs` still point where they did.
+
+A removal is the one write with no patch path, and that is a decision rather than an
+omission. `_patch_cached_tasks` mutates in place and has no way to drop a task, and a
+removal shifts every count *and* every cached `task_ref`, since
+`_number_projects_and_tasks` numbers by position. `_remap_summary_refs` exists for exactly
+that and could carry it, but `_patch_cached_tasks` would have to give up its
+`mutate(task)` signature to get there — and that is the one place every other write hangs
+off. A removal is rare; the bust costs one Notion read and, because the summary lives in
+the same entry, one Claude call. The answer therefore carries no figures and the client
+reloads, which is the rule above in its strongest form: nothing on the page is left to
+reconcile by hand.
 
 `_patch_cached_tasks(task_id, mutate, today, drop_summary=False)` applies `mutate` to
 every cached copy of one task and re-runs `_annotate_tasks` on top of it. Each

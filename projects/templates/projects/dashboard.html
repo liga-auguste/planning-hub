@@ -131,6 +131,10 @@
         .task-menu-items[hidden] { display: none; }
         .task-menu-item { background: none; border: none; text-align: left; font-size: 12px; color: var(--color-text-primary); padding: 8px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
         .task-menu-item:hover, .task-menu-item:focus-visible { background: var(--color-bg-tertiary); outline: none; }
+        .task-menu-item-danger { color: var(--color-overdue); }
+        /* Armed by a first click on itself. The colour is the row's own
+           overdue signal, so the menu introduces no palette of its own. */
+        .task-menu-item-danger.armed { background: var(--color-overdue-tint); font-weight: 600; }
         /* #53: the Heute/Diese-Woche view spans projects, so each row needs
            its own project label — the single-project views never do. Sits
            after task-name (not before) so every task-name starts at the
@@ -1124,6 +1128,9 @@ let openTaskMenu = null;
 function closeTaskMenu({focusTrigger = false} = {}) {
     if (!openTaskMenu) return;
     const {trigger, items} = openTaskMenu;
+    // A destructive item that was armed but not confirmed goes back to
+    // asking, so reopening the menu never starts one click from a removal.
+    items.querySelectorAll('.task-menu-item[data-action="trash"]').forEach(disarmTrash);
     items.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
     openTaskMenu = null;
@@ -1180,6 +1187,41 @@ document.addEventListener('keydown', (e) => {
         closeTaskMenu();
     }
 });
+
+// #239 stage 3: a two-step inside the menu rather than a modal, which
+// would sit outside the page's own language and block everything behind it.
+// The label says what the second click does, so the step is readable rather
+// than a habit to click through.
+const TRASH_LABEL = 'In den Papierkorb';
+const TRASH_ARMED_LABEL = 'Wirklich in den Papierkorb?';
+
+function disarmTrash(item) {
+    item.classList.remove('armed');
+    item.textContent = TRASH_LABEL;
+}
+
+async function trashTask(taskId, trigger) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/trash/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({})
+        });
+    } catch {
+        response = null;
+    }
+    if (!response || !response.ok) {
+        flashActionFailed(trigger);
+        return;
+    }
+    // A removal changes every count and every cached task_ref, and the
+    // server has no warm cache left to derive figures from — so the page is
+    // re-rendered rather than reconciled by hand. Which is #210's rule in
+    // its strongest form: nothing on the page is left to guess.
+    window.location.reload();
+}
 
 // #239 stage 2: the row's name, edited where it stands — the same
 // swap-the-element-out shape the date has used since #10, rather than a
@@ -1259,13 +1301,25 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         e.stopPropagation();
         const row = item.closest('.task-row');
         const action = item.dataset.action;
-        // Closed before the action runs: "Datum ändern" hands focus to the
-        // date input it opens, and the menu must not take it straight back.
-        // "Datum ändern" and "Umbenennen" both hand focus to the input
-        // they open in the row, and the menu must not take it straight back.
+        if (action === 'trash' && !item.classList.contains('armed')) {
+            // First click arms, and the menu stays open so the second one
+            // lands on a label that says what it will do.
+            item.classList.add('armed');
+            item.textContent = TRASH_ARMED_LABEL;
+            return;
+        }
+        // Read before the close, which clears it — a failed write flashes
+        // the trigger, and by then the menu it belonged to is gone.
+        const trigger = openTaskMenu && openTaskMenu.trigger;
+        // "Datum ändern" and "Umbenennen" both hand focus to the input they
+        // open in the row, and the menu must not take it straight back.
         closeTaskMenu({focusTrigger: !['reschedule', 'rename'].includes(action)});
         if (action === 'project') {
             showProject(item.dataset.projectId);
+            return;
+        }
+        if (action === 'trash') {
+            await trashTask(item.dataset.taskId, trigger || item);
             return;
         }
         if (action === 'rename') {
