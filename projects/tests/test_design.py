@@ -126,6 +126,44 @@ class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
         )
 
 
+class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
+    """/mein-plan/ opens with a right-aligned row of two buttons, and the
+    fixed ☰ launcher sat straight on top of "+ Neu planen", cutting its
+    label in half. At rest, every time — not a scrolling artefact. The page
+    had no @media block at all."""
+
+    def test_the_actions_row_reserves_room_for_the_launcher(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "@media (max-width: 768px) {")
+        self.assertContains(response, ".page-actions { padding-right: 44px; }")
+
+    def test_the_row_wraps_rather_than_squeezing_both_buttons(self):
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".page-actions { display: flex; justify-content: flex-end; "
+            "flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }",
+        )
+
+    def test_the_row_is_styled_rather_than_carrying_inline_styles(self):
+        """A media rule cannot reach an inline style, so the row had to
+        become a class before it could reserve anything."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/my_plan.html"
+        ).read_text()
+        self.assertIn('<div class="page-actions">', contents)
+        self.assertNotIn(
+            'style="display:flex; justify-content:flex-end; gap:8px;', contents
+        )
+
+    def test_both_buttons_still_render(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, "↓ Plan herunterladen")
+        self.assertContains(response, "+ Neu planen")
+
+
 class TaskListMatchesMeinPlanTest(DemoModeTestCase):
     """#149: the two task lists in the app did not look like one component.
     /mein-plan/ renders a bordered card with roomy rows; the dashboard
@@ -458,6 +496,17 @@ class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
         self.assertNotContains(
             self.client.get(reverse("dashboard")),
             ".task-row, .today-week-heading { padding-right: 44px; }",
+        )
+
+    def test_the_zeitreise_tiles_reserve_it_too(self):
+        """The bar is the first thing in both views, so the launcher sat on
+        the top-right moment tile — permanently, not only while scrolling.
+        On the bar rather than on .timelapse-moments: the label above the
+        tiles is short and left-aligned, so one rule costs nothing."""
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header, "
+            ".timelapse-bar { padding-right: 44px; }",
         )
 
     def test_the_header_still_reserves_its_own(self):

@@ -10,6 +10,8 @@
     .page { width: 100%; max-width: 720px; margin: 0 auto; }
     .btn-new { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 7px 16px; font-size: 13px; cursor: pointer; text-decoration: none; }
     .btn-new:hover { opacity: 0.85; }
+    .page-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+    .btn-download { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; padding: 7px 12px; border: 1px solid var(--color-border-primary); border-radius: 6px; white-space: nowrap; }
     .project-header { margin-bottom: 32px; }
     .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
     .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
@@ -71,6 +73,16 @@
     /* outline, not color: .dot has no text and fills entirely via
        background, so a color animation is invisible on it (#83 review). */
     @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+    @media (max-width: 768px) {
+        /* This row is the first thing on the page and it is right-aligned,
+           so the fixed ☰ launcher (36px, right: 20px — dashboard.css) sat
+           straight on top of "+ Neu planen" and cut its label in half. Not
+           a scrolling artefact: at rest, every time. Same 44px reservation
+           .project-header has held on the dashboard since #95's follow-up.
+           flex-wrap alongside it, so a narrower screen drops the second
+           button to its own line instead of squeezing both. */
+        .page-actions { padding-right: 44px; }
+    }
 {% endblock %}
 
 {% comment %}
@@ -89,9 +101,8 @@ is gone; the sidebar already covers that.
 
 {% block content %}
 <div class="page">
-    <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom: 24px;">
-        <a href="{% url 'download_plan' %}"
-           style="font-size:13px; color:var(--color-text-quaternary); text-decoration:none; padding:7px 12px; border:1px solid var(--color-border-primary); border-radius:6px;"
+    <div class="page-actions">
+        <a href="{% url 'download_plan' %}" class="btn-download"
            title="Als Markdown-Datei speichern — nutzbar in Notion, Obsidian, KI-Tools">
             ↓ Plan herunterladen
         </a>
