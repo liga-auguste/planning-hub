@@ -485,15 +485,15 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         # The removed wordmark row used to keep the top-of-page band free
         # of the fixed hamburger launcher on mobile; every element that can
         # now render first reserves the button's footprint on the right,
-        # mirroring .project-header's existing reservation. .timelapse-bar
-        # joined the list once a demo session showed the launcher sitting on
-        # its top-right moment tile — it renders before the banners in both
-        # views, so it is first more often than any of them.
+        # mirroring .project-header's existing reservation. The Zeitreise
+        # bar renders before all four and had the same collision, but the
+        # tiles inside it wrap — it clears the button by height instead,
+        # see WeekViewIsAListBelowTheBreakpointTest's neighbourhood.
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header, "
-            ".timelapse-bar { padding-right: 44px; }",
+            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header "
+            "{ padding-right: 44px; }",
         )
 
     def test_pages_without_a_sidebar_render_no_header(self):

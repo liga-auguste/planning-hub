@@ -473,8 +473,8 @@ class MobileLauncherClearanceTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header, "
-            ".timelapse-bar { padding-right: 44px; }",
+            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header "
+            "{ padding-right: 44px; }",
         )
         self.assertContains(response, ".project-header { padding-right: 44px;")
 
@@ -485,16 +485,16 @@ class MobileLauncherClearanceTest(DemoModeTestCase):
             ".today-week-heading { padding-right: 44px; }",
         )
 
-    def test_the_zeitreise_tiles_reserve_it_too(self):
-        """The bar is the first thing in both views, so the launcher sat on
-        the top-right moment tile — permanently, not only while scrolling.
-        On the bar rather than on .timelapse-moments: the label above the
-        tiles is short and left-aligned, so one rule costs nothing."""
-        self.assertContains(
-            self.client.get(reverse("dashboard")),
-            ".demo-banner, .sim-banner, .stale-notice, .ai-card-header, "
-            ".timelapse-bar { padding-right: 44px; }",
-        )
+    def test_the_zeitreise_tiles_clear_the_button_by_height(self):
+        """The bar is first in both views, so the launcher sat on its
+        top-right moment tile. It clears the button by height, not by
+        width: the tiles wrap, so a right-hand inset costs every row of
+        them the same 44px — a dead strip beside the whole bar, and one
+        more wrap row — to protect a corner the button only covers on the
+        first. The label row grows to the button's own band instead."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".timelapse-label { min-height: 38px; }")
+        self.assertNotContains(response, ".timelapse-bar { padding-right: 44px; }")
 
     def test_the_rows_reserve_nothing(self):
         response = self.client.get(reverse("dashboard"))

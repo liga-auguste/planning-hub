@@ -308,7 +308,18 @@
                first now rises into its band. Same reservation as
                .project-header above: 20px content-body inset + the 36px
                button minus the box's own 14px side padding, plus a gap. */
-            .demo-banner, .sim-banner, .stale-notice, .ai-card-header, .timelapse-bar { padding-right: 44px; }
+            .demo-banner, .sim-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
+            /* The Zeitreise bar is first in both views, so the launcher sat
+               on its top-right moment tile. It clears the button by height
+               rather than by width: the tiles wrap, so a right-hand inset
+               costs every row of them the same 44px — a dead strip beside
+               the whole bar, and one more wrap row — to protect a corner
+               the button only covers on the first. Growing the label row to
+               the button's own band (26px top + 36px tall, against
+               .content-body's 24px, so 38px) starts the tiles below it
+               instead, and the label is a short left-aligned word that does
+               not care how tall its row is. */
+            .timelapse-label { min-height: 38px; }
             /* #180 met the phone with a horizontal swipe-scroll, one day
                roughly a screen wide. It reads badly in practice: the week
                is seven swipes long, only one day is ever visible, and the
