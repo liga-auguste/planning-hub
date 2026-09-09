@@ -126,6 +126,40 @@ class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
         )
 
 
+class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
+    """#238: .sidebar-toggle-mobile is position: fixed (top: 26px, right:
+    20px — dashboard.css), so whatever scrolls under it is covered. The
+    project header has reserved its 44px since #95's follow-up; the lists
+    below it never did, and on a phone the launcher sat on top of a task
+    row, hiding a date on one and part of a name on another.
+
+    The reservation goes on the rows and the Heute headings rather than on
+    their containers: #view-today already holds elements carrying their own
+    44px (.ai-card-header, the banners) and a .day-columns grid that bleeds
+    into the viewport edge with a negative margin, so a container inset
+    would double up on the first and break the second. The headings are in
+    because "Diese Woche" carries the week navigation on its right edge.
+
+    The cost is stated rather than hidden: 44px of name width down the whole
+    list, for a button occupying only the top ~62px of the viewport. Static
+    CSS cannot do better — the alternative is a launcher that hides on
+    scroll, which is JS with its own state. After the stacking above the
+    name has its own line, which is where that loss hurts least.
+    """
+
+    def test_the_lists_reserve_the_same_44px_the_header_does(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, ".task-row, .today-week-heading { padding-right: 44px; }"
+        )
+
+    def test_the_header_still_reserves_its_own(self):
+        """Left where it is: the two reservations sit on siblings, so
+        neither doubles the other up."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".project-header { padding-right: 44px;")
+
+
 class TaskRowMobileStackingTest(DemoModeTestCase):
     """#238: the row was a two-part flex container with nothing stopping its
     parts from colliding. `.task-name` carried no flex at all, so it shrank

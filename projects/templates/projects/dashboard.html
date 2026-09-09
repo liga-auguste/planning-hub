@@ -274,6 +274,21 @@
                indented by that same 15px, level with the name rather than
                with the dot. .task-due's own 16px would put the date a
                second indent deep once .task-right starts a line of its own. */
+            /* #238: the fixed ☰ launcher (36px, right: 20px — dashboard.css)
+               covers whatever scrolls under it, and the lists reserved
+               nothing. Same 44px .project-header has held since #95's
+               follow-up, on the rows and the Heute headings rather than on
+               their containers: #view-today already holds elements carrying
+               their own 44px (.ai-card-header, the banners) and a
+               .day-columns grid that bleeds to the viewport edge with a
+               negative margin, so a container inset would double the first
+               and break the second. The headings are in because "Diese
+               Woche" carries the week navigation on its right edge.
+               The cost is real and unavoidable in static CSS: 44px of name
+               width down the whole list for a button that only occupies the
+               top of the viewport. With the name on its own line, that is
+               where it hurts least. */
+            .task-row, .today-week-heading { padding-right: 44px; }
             .task-name { flex-basis: calc(100% - 15px); }
             .task-project, .task-right { margin-left: 15px; }
             .task-due { margin-left: 0; }
