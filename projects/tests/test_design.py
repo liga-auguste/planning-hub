@@ -438,8 +438,12 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
             ".task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }",
         )
         # The desktop auto margin would push the whole wrapped line right,
-        # away from the name it belongs under.
-        self.assertContains(response, ".task-right { margin-left: 0; }")
+        # away from the name it belongs under. Growing into the line
+        # instead keeps its two ends apart: date at the name's indent,
+        # actions trigger at the row's right edge rather than trailing the
+        # date in the middle of the row.
+        self.assertContains(response, ".task-right { margin-left: 0; flex: 1 1 auto; }")
+        self.assertContains(response, ".task-menu { margin-left: auto; }")
 
     def test_both_task_lists_render_from_the_one_partial(self):
         """The project detail used to hold its own copy of the row markup,

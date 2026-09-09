@@ -357,8 +357,13 @@
                is where it belongs beside the name. On its own wrapped line
                an auto margin would do the same to the whole line, leaving it
                hard right under the launcher reserve instead of under the
-               name it belongs to. */
-            .task-right { margin-left: 0; }
+               name it belongs to.
+               Growing into that line instead is what keeps the two ends
+               apart: the date sits at the name's indent, and the actions
+               trigger takes the free space to its right rather than
+               trailing the date in the middle of the row. */
+            .task-right { margin-left: 0; flex: 1 1 auto; }
+            .task-menu { margin-left: auto; }
             .day-column { scroll-snap-align: start; }
         }
 {% endblock %}
