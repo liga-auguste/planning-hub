@@ -21,6 +21,7 @@ from ..ai import (
     build_prompt,
 )
 from .base import (
+    CLOSEOUT_TODAY,
     DemoModeTestCase,
     PlannerStepsMixin,
     _fake_upcoming_project_with_task,
@@ -165,6 +166,79 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, "↓ Plan herunterladen")
         self.assertContains(response, "+ Neu planen")
+
+
+class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
+    """The last card in the app's task lists. Same de-boxing as the others,
+    plus the two breaks that were wrong on a phone.
+
+    The due date was a span *inside* the name's span, so it lived in the
+    name's own inline flow: "So, 29. November" broke after "29." and left
+    the month alone on the next line. It is a sibling now, and nowrap.
+
+    The move button carries a whole date ("→ So, 6. Dezember") and cannot
+    shrink, so on a phone it and the due date left the name nothing. The
+    name takes the first line and the two of them share the second."""
+
+    def triage_page(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Noten kopieren",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            return self.client.get(reverse("close_week_start"))
+
+    def test_the_list_draws_no_card(self):
+        response = self.triage_page()
+        self.assertContains(response, ".triage-list { margin-bottom: 28px; }")
+        self.assertNotContains(response, ".triage-list { background:")
+
+    def test_the_rows_sit_flush_with_a_hairline_between_them(self):
+        self.assertContains(
+            self.triage_page(),
+            ".triage-row { display: flex; align-items: center; flex-wrap: wrap; "
+            "gap: 12px; padding: 12px 0; "
+            "border-bottom: 1px solid var(--color-border-primary); }",
+        )
+
+    def test_the_due_date_is_a_sibling_of_the_name_and_never_breaks(self):
+        response = self.triage_page()
+        self.assertContains(
+            response,
+            '<span class="triage-task-name">Noten kopieren</span>',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            ".triage-task-due { font-size: 12px; "
+            "color: var(--color-text-quaternary); white-space: nowrap; }",
+        )
+
+    def test_the_name_is_the_item_that_gives_way(self):
+        self.assertContains(
+            self.triage_page(),
+            ".triage-task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; "
+            "overflow-wrap: break-word; }",
+        )
+
+    def test_the_button_takes_its_own_line_on_a_phone(self):
+        response = self.triage_page()
+        self.assertContains(response, ".triage-task-name { flex-basis: 100%; }")
+        # It swaps itself for a "verschoben" badge once the move lands, so
+        # the badge has to sit where the button did.
+        self.assertContains(
+            response,
+            ".triage-row .move-btn, .triage-row .badge-neutral { margin-left: auto; }",
+        )
+
+    def test_the_title_clears_the_launcher(self):
+        self.assertContains(self.triage_page(), ".page-title { padding-right: 44px; }")
 
 
 class WeekNavigationStacksBelowTheBreakpointTest(DemoModeTestCase):
