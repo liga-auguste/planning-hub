@@ -1033,7 +1033,7 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
-            ".dot { display: inline-block; width: 7px; height: 7px; "
+            ".dot { display: inline-block; width: 14px; height: 14px; "
             "border-radius: 50%; margin-right: 8px;",
         )
 

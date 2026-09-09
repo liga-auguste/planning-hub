@@ -168,6 +168,72 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
+    """Four surfaces render a dot, a task name and a date — the dashboard's
+    task rows and its summary, /mein-plan/'s list and its summary — and each
+    had grown its own scale. The same task read as two different things
+    depending on which page you were on.
+
+    One set, and it is the larger one: a 14px dot, a 14px name (the app's
+    own base size, per base.css) and a 13px date one step below it. The 7px
+    dot in particular read as a bullet rather than as the control it is."""
+
+    NAME = "font-size: 14px"
+    DATE = "font-size: 13px"
+
+    def test_the_dashboard_row(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, f".task-name {{ {self.NAME};")
+        self.assertContains(response, f".task-due {{ {self.DATE};")
+
+    def test_the_dashboard_summary(self):
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            f".ai-card ul ul li {{ display: flex; align-items: center; "
+            f"gap: 12px; {self.NAME};",
+        )
+
+    def test_the_mein_plan_row_and_summary(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, f".task-name {{ {self.NAME};")
+        self.assertContains(response, f".task-date {{ {self.DATE};")
+
+    def test_the_close_out_triage_row(self):
+        self.given_session_plan()
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, f".triage-task-name {{ {self.NAME};")
+        self.assertContains(response, f".triage-task-due {{ {self.DATE};")
+
+    def test_one_dot_size_on_both_pages(self):
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            dashboard,
+            ".dot { display: inline-block; width: 14px; height: 14px;",
+        )
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".dot { width: 14px; height: 14px;",
+        )
+
+    def test_the_day_card_follows_the_same_scale(self):
+        # It carries a dot and a task name, so it belongs to this set even
+        # though its date is the column it sits in.
+        self.assertContains(
+            self.client.get(reverse("dashboard")), f"{self.NAME}; cursor: grab; }}"
+        )
+
+    def test_the_board_keeps_its_own_scale(self):
+        """The one component that is still a card, and the only task surface
+        with no dot. Left at 12/11: three columns of cards are a dense
+        overview, not a reading list."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "line-height: 1.4; }")
+        self.assertContains(response, ".kanban-card-meta { font-size: 11px;")
+
+
 class KanbanStacksBelowTheBreakpointTest(DemoModeTestCase):
     """Three columns with a 220px floor do not fit a phone, so the board
     scrolled sideways and cut its second column down the middle — the same
@@ -410,7 +476,7 @@ class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
         )
         self.assertContains(
             response,
-            ".triage-task-due { font-size: 12px; "
+            ".triage-task-due { font-size: 13px; "
             "color: var(--color-text-quaternary); white-space: nowrap; }",
         )
 
@@ -620,7 +686,7 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         self.assertContains(
             dashboard,
             ".ai-card ul ul li { display: flex; align-items: center; gap: 12px; "
-            "font-size: 12px; font-weight: 400; "
+            "font-size: 14px; font-weight: 400; "
             "color: var(--color-text-tertiary); padding: 2px 0; "
             "border-top: none; }",
         )
@@ -917,7 +983,7 @@ class TaskRowNeverCollidesTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
             response,
-            ".task-name { font-size: 13px; flex: 1 1 auto; min-width: 0; "
+            ".task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; "
             "overflow-wrap: break-word; }",
         )
 

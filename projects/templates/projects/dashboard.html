@@ -4,7 +4,11 @@
 {% block title %}Planning Hub{% endblock %}
 
 {% block extra_css %}
-        .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; background: var(--color-text-quaternary); }
+        /* One dot size across the app: 14px, the one /mein-plan/ has
+           always drawn. The 7px version read as a bullet rather than as
+           the control it is, and put the same task under two different
+           markers depending on which page you were looking at. */
+        .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; background: var(--color-text-quaternary); }
         button.dot { border: none; padding: 0; cursor: pointer; background: var(--color-text-quaternary); }
         button.dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
         /* Kept above the done rule: equal specificity, and toggling only
@@ -49,7 +53,7 @@
            grouping on its own weight, which is all it ever needed — the
            indent was doing that job a second time. Same change /mein-plan/'s
            summary took. */
-        .ai-card ul ul li { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
+        .ai-card ul ul li { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
         /* The same row /mein-plan/'s list draws: dot and name left, date
            right. It was an inline line box, so the date trailed the name
            wherever the name happened to end and no two lines agreed on
@@ -124,9 +128,9 @@
            always absorb its own content instead of overflowing it. No
            ellipsis: production task names are long and the truncated part
            is the part that identifies the task. */
-        .task-name { font-size: 13px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
+        .task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
         .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
-        .task-due { font-size: 12px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
+        .task-due { font-size: 13px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
         /* The affordance follows the behaviour: only a date carrying
            data-task-id is wired up for rescheduling (#10 §5). */
         .task-due[data-task-id] { cursor: pointer; }
@@ -213,7 +217,7 @@
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; flex: 1; }
-        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; cursor: grab; }
+        .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 14px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
            on a ~160px card the shared 8px .dot margin was a third of the
            gap eaten by chrome instead of the task name. */
