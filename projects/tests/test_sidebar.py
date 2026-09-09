@@ -357,12 +357,17 @@ class SidebarModeGroupingTest(DemoModeTestCase):
         )
         self.assertContains(response, "Plan als Liste")
         self.assertContains(response, "Woche abschließen")
-        # Both groups carry the same two entries; the headings say which
-        # data each one is over. Asserted as a pair rather than by substring,
-        # because "Dashboard" now appears in both by design.
+        # Asserted as an ordered list rather than by substring, because
+        # "Dashboard" appears in both groups by design.
+        #
+        # "Heute" is the one entry the two groups do not share while #240
+        # hides that view for a session plan: it is a cross-project view and
+        # "Dein Projekt" is one project. A hold, not a split for good — the
+        # entry comes back with the panel. Meanwhile the list a single plan
+        # needs is "Plan als Liste", which that group carries.
         html = response.content.decode()
         self.assertEqual(
-            _sidebar_group(html, "Dein Projekt", 2), ["Dashboard", "Heute"]
+            _sidebar_group(html, "Dein Projekt", 2), ["Dashboard", "Plan als Liste"]
         )
         self.assertEqual(
             _sidebar_group(html, "Demo-Projekte", 2), ["Dashboard", "Heute"]

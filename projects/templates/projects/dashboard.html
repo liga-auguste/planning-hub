@@ -362,9 +362,12 @@
                and 44px it does not need is 44px the notice and its button
                cannot use to stay on one line. */
             .demo-banner, .stale-notice, .ai-card-header { padding-right: 44px; }
-            /* The Zeitreise bar is first in both views, so the launcher sat
-               on its top-right moment tile. It clears the button by height
-               rather than by width: the tiles wrap, so a right-hand inset
+            /* The Zeitreise bar is the first element of the view it renders
+               in, so the launcher sat on its top-right moment tile. Since
+               #240 that is the overview alone — the bar needs a session
+               plan and "Heute" is not rendered for one. It clears the
+               button by height rather than by width: the tiles wrap, so a
+               right-hand inset
                costs every row of them the same 44px — a dead strip beside
                the whole bar, and one more wrap row — to protect a corner
                the button only covers on the first. Growing the label row to
@@ -622,14 +625,42 @@
         </div>
     </div>
 
+    {% comment %}
+    #240: hidden for a demo session plan, for now.
+
+    "Heute" is shaped as a cross-project work surface — overdue, due today,
+    then the week broken into days — and a visitor's plan is one project. In
+    that shape it re-sorts the tasks the dashboard above has just shown,
+    under three more headings, and on a phone that is most of a scroll spent
+    on a second reading of the same list. Hidden rather than reworked in
+    this cut: what it should say about a single project is a design question
+    and this branch was already carrying two issues.
+
+    So this is a hold, not a verdict — the view is being worked on, and
+    bringing it back for a session plan is a matter of giving it something
+    to say there, not of undoing a decision. Whoever does that flips this
+    condition and the one in _sidebar_nav.html back; the JS below already
+    treats a missing #view-today as "there is no such view", which is what
+    keeps both states cheap to switch between.
+
+    Unaffected either way: the demo example projects and production, which
+    have the projects the view spans.
+    {% endcomment %}
+    {% if not has_session_plan %}
     <div id="view-today" style="display: none;">
         {% comment %}
-        Same timelapse bar and banners as view-overview above, same
-        reasoning (#50, #183): without them, switching to "Heute" during a
-        simulated moment (or while looking at demo example data) silently
-        drops the only way to change it, or the only notice of it.
+        The same banners as view-overview above, same reasoning (#50, #183):
+        without them, switching to "Heute" while looking at demo example
+        data silently drops the only notice that the data is an example, and
+        a failed Notion read loses the notice that it failed.
+
+        No timelapse bar beside them while this view is hidden for a session
+        plan: the bar renders only for one (_timelapse_bar.html), which is
+        exactly the case the view is not rendered in, so the include here
+        could not produce anything and reads as dead code. It belongs back
+        here the moment the view does — that is what #183 established, and
+        nothing about it has changed.
         {% endcomment %}
-        {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
 
         {% comment %}
@@ -682,6 +713,7 @@
             {% endfor %}
         </div>
     </div>
+    {% endif %}
 
     {% for group in month_groups %}
     {% for project in group.projects %}
@@ -739,9 +771,17 @@ the wording either way.
     // pushing a redundant history entry on top of the one that triggered them.
     let syncingHistory = false;
 
+    // #240: null for a demo session plan, which renders no "Heute" view at
+    // all. Read once here rather than guarded at each use — the element
+    // never appears or disappears within a page, and the two places that
+    // *switch* to the view check this instead, so a ?view=today URL a
+    // visitor kept from before simply shows the overview. That is the answer
+    // an unknown ?project= id already gets.
+    const todayView = document.getElementById('view-today');
+
     function showOverview() {
         document.getElementById('view-overview').style.display = 'block';
-        document.getElementById('view-today').style.display = 'none';
+        if (todayView) todayView.style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
@@ -750,7 +790,7 @@ the wording either way.
 
     function showToday() {
         document.getElementById('view-overview').style.display = 'none';
-        document.getElementById('view-today').style.display = 'block';
+        todayView.style.display = 'block';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-today').classList.add('active');
@@ -759,7 +799,7 @@ the wording either way.
 
     function showProject(id) {
         document.getElementById('view-overview').style.display = 'none';
-        document.getElementById('view-today').style.display = 'none';
+        if (todayView) todayView.style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.getElementById('project-' + id).style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
@@ -772,7 +812,7 @@ the wording either way.
         const projectId = event.state && event.state.project;
         if (projectId && document.getElementById('project-' + projectId)) {
             showProject(projectId);
-        } else if (event.state && event.state.view === 'today') {
+        } else if (event.state && event.state.view === 'today' && todayView) {
             showToday();
         } else {
             showOverview();
@@ -788,7 +828,7 @@ the wording either way.
             history.replaceState({project: projectId}, '', '?project=' + projectId);
             showProject(projectId);
             syncingHistory = false;
-        } else if (params.get('view') === 'today') {
+        } else if (params.get('view') === 'today' && todayView) {
             syncingHistory = true;
             // window.location.search, not the hardcoded '?view=today' below —
             // a prev/next-week link lands here with a `week` param that must
@@ -1060,9 +1100,11 @@ async function preloadOne(dateStr) {
             const data = await response.json();
             if (!data.ok) return;
             preloaded.add(dateStr);
-            // #183: the bar now renders once per view (view-overview and
-            // view-today) instead of a single id="timelapse-moments" — mark
-            // every matching button across both, not just the first found.
+            // #183 gave the bar a class instead of a single
+            // id="timelapse-moments", so every matching button is marked
+            // rather than the first one found. #240 left it with one copy —
+            // the bar needs a session plan and "Heute" is not rendered for
+            // one — but the selector is right either way and says so.
             document.querySelectorAll(`[data-moment-date="${dateStr}"]`).forEach(btn => btn.classList.add('moment-preloaded'));
         } finally {
             preloadPromises.delete(dateStr);

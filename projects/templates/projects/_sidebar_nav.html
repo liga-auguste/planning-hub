@@ -7,13 +7,23 @@ gets the fast client-side toggle (id="nav-overview"/"nav-today",
 onclick=showOverview()/showToday()); the other group's links are real
 ones, since that data isn't loaded into this page at all.
 
-One view, one name — and the group heading says whose data it is. Both
-groups list the same two entries, "Dashboard" and "Heute", because that is
-what they are: one view each, over a different set of projects. The
+One view, one name — and the group heading says whose data it is. The
 headings ("Dein Projekt" / "Demo-Projekte") carry the difference, so no
 entry has to. Previously the demo overview read "Mehrprojekt-Dashboard"
 where it was the jump-in link and "Dashboard" where it was the toggle, so
 the same view changed its name as the visitor moved between the two.
+
+"Heute" is not listed under "Dein Projekt" for now (#240). The view is
+hidden for a session plan while it is being worked on — in its current
+shape it is a cross-project surface, and over one project it re-sorted the
+tasks the dashboard above had just shown. An entry whose toggle has nothing
+to toggle is a dead link that also throws, so the two move together: this
+branch and the has_session_plan condition around #view-today in
+dashboard.html are flipped back as a pair. Until then "Plan als Liste",
+already in this group, is where a single plan's tasks are read in full.
+
+Unaffected: the "Demo-Projekte" group and production's own nav at the
+bottom of this file, which have the projects the view spans.
 
 "Mehrprojekt-Dashboard" stays where it is still doing the work: the landing
 page and /mein-plan/'s CTA have no sidebar and no group heading, so their
@@ -47,16 +57,9 @@ page is marked active instead, since there's no JS toggle to do it.
         <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
         Dashboard
     </a>
-    <a class="sidebar-item" id="nav-today" onclick="showToday()">
-        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
-        Heute
-    </a>
     {% else %}
     <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
-    </a>
-    <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
     </a>
     {% endif %}
     <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
@@ -68,9 +71,6 @@ page is marked active instead, since there's no JS toggle to do it.
 {% elif plan_exists %}
     <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
-    </a>
-    <a class="sidebar-item" href="{% url 'dashboard' %}?view=today" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute
     </a>
     <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon">☰</span>Plan als Liste

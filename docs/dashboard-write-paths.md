@@ -8,7 +8,12 @@ half of [Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
 ## Context
 
 The dashboard renders three views out of one document — the overview, the Heute view and
-the per-project sections — plus a shared sidebar. Each one grew its own surface for task
+the per-project sections — plus a shared sidebar. (Two, for a demo session plan: "Heute"
+spans projects and that state has one, so [#240](https://github.com/liga-auguste/planning-hub/issues/240)
+hides it there for now. Everything below holds either way — the client sync addresses its
+surfaces by selector, so a view that is absent simply matches nothing, and a view that comes
+back needs no change here.) Each one grew
+its own surface for task
 state: the AI summary's checkboxes, the "Diese Woche" progress bar, the Kanban board and
 its column counts, the Heute lists, the day columns and their counters, the sidebar
 progress rings.

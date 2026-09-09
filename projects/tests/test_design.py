@@ -296,24 +296,28 @@ class KanbanStacksBelowTheBreakpointTest(DemoModeTestCase):
             self.assertIn(f'id="count-{column}"', html)
 
 
-class HeuteViewNamesItsProjectTest(DemoModeTestCase):
-    """A demo session holds exactly one project, so its Heute view belongs
-    to that project — and said only "Heute". The overview named it and this
-    view did not, which is the one place a visitor can lose track of whose
-    plan they are looking at.
+class PageHeadingProjectNameTest(DemoModeTestCase):
+    """Whose plan a heading belongs to, per view.
 
-    Production shows no project name here on purpose: its Heute view spans
-    every project at once, which is what it is for."""
+    A demo session holds exactly one project, so the heading over it names
+    that project — the one place a visitor can otherwise lose track of whose
+    plan they are looking at. It had two headings to do that in until #240
+    hid the Heute view for a session plan while that view is reworked, and
+    one for as long as it stays hidden.
 
-    def test_the_demo_heute_view_names_the_project(self):
+    Production names no project in its Heute heading on purpose: that view
+    spans every project at once, which is what it is for."""
+
+    def test_a_session_plan_names_its_project_in_the_heading_it_has(self):
         plan = self.given_session_plan(name="Adventskonzert Gospelchor")
         html = self.client.get(reverse("dashboard")).content.decode()
-        # The Heute view runs from its own id to the first project section.
-        today_view = html[
-            html.index('id="view-today"') : html.index('class="project-section"')
+        self.assertNotIn('id="view-today"', html)
+        # The overview runs from its own id to the first project section.
+        overview = html[
+            html.index('id="view-overview"') : html.index('class="project-section"')
         ]
-        self.assertIn('<div class="page-heading">Heute</div>', today_view)
-        self.assertIn(plan["name"], today_view)
+        self.assertIn('<div class="page-heading">Dashboard</div>', overview)
+        self.assertIn(plan["name"], overview)
 
     @override_settings(DEMO_MODE=False)
     def test_production_names_no_project_there(self):

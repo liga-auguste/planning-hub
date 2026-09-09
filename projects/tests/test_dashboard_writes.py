@@ -824,15 +824,20 @@ class TaskActionsMenuMirrorsItsControlsTest(DemoModeTestCase):
             ]
         )
         html = self.client.get(reverse("dashboard")).content.decode()
-        # One per rendered overdue row — the same task renders in more than
-        # one list, the Heute bucket and the project detail. Counted on the
-        # rendered button, not on the bare attribute: the JS below carries
-        # the same selector to remove the item when a move lifts the row out
-        # of overdue.
+        # One per rendered overdue row, wherever the row renders. Counted on
+        # the rendered button, not on the bare attribute: the JS below
+        # carries the same selector to remove the item when a move lifts the
+        # row out of overdue.
+        #
+        # The equality is the rule; how many rows carry it is a question for
+        # whichever lists the page happens to render, and #240 changed that
+        # number by hiding the Heute view for a session plan — it will change
+        # again when that view returns. The lower bound is what keeps the
+        # equality from passing at nothing at all.
+        self.assertGreater(html.count(">→ heute</button>"), 0)
         self.assertEqual(
             html.count(">→ heute</button>"), html.count('class="dot overdue "')
         )
-        self.assertEqual(html.count(">→ heute</button>"), 2)
 
     def test_the_project_item_renders_beside_every_project_label(self):
         # Only _build_week_view tags a task with its project (views.py), so
