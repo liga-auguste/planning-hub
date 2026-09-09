@@ -31,8 +31,6 @@ are in no session, so there the date only renders (#10 §5).
         {% if task.postpone_count and task.postpone_count >= 2 %}
         <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
         {% endif %}
-        {% if task.urgency == 'overdue' %}{% if not viewing_demo_data %}
-        <button class="today-btn" data-task-id="{{ task.id }}">→ heute</button>
-        {% endif %}{% endif %}
+        {% include "projects/_task_actions_menu.html" %}
     </span>
 </div>

@@ -220,6 +220,89 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         )
 
 
+class TaskActionsMenuTest(DemoModeTestCase):
+    """#239 stage 1: the row's actions move into a ⋮ menu, on every viewport
+    width — one interaction to build and test rather than a desktop variant
+    and a mobile one. The trigger is typographic, following the precedent
+    the ⠿ drag handle, the × delete and the ⚙ on the rules link set: it
+    inherits `color` in both themes, which a pictographic emoji ignores (see
+    CLAUDE.md, and PictographicEmojiTest enforces it either way).
+
+    The `→ heute` button leaves the row — it is the one control that could
+    live somewhere else, and it sat permanently in every overdue row
+    competing for width. The date click stays as a desktop shortcut and the
+    dot stays the direct toggle."""
+
+    def rows(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard"))
+
+    def test_every_row_carries_a_trigger(self):
+        self.assertContains(self.rows(), 'class="task-menu-trigger"')
+
+    def test_the_trigger_is_the_typographic_glyph(self):
+        self.assertContains(self.rows(), ">⋮</button>")
+
+    def test_the_touch_target_grows_through_padding_not_glyph_size(self):
+        # #146's approach. The negative vertical margin keeps the row at its
+        # own height while the hit area extends past it.
+        self.assertContains(
+            self.rows(),
+            ".task-menu-trigger { background: none; border: none; "
+            "color: var(--color-text-quaternary); cursor: pointer; font-size: 15px; "
+            "line-height: 1; padding: 9px 11px; margin: -9px 0; border-radius: 6px; }",
+        )
+
+    def test_the_row_no_longer_carries_a_today_button(self):
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/_task_row.html"
+        ).read_text()
+        self.assertNotIn("today-btn", contents)
+
+    def test_the_closed_menu_actually_stays_closed(self):
+        # .task-menu-items sets display: flex, an author rule, which beats
+        # the UA's own [hidden] { display: none } outright — without this
+        # every row would render its menu open.
+        self.assertContains(self.rows(), ".task-menu-items[hidden] { display: none; }")
+
+    def test_the_menu_escapes_the_cards_clipping(self):
+        # .task-list clips its contents to the card's radius, so a dropdown
+        # positioned inside the row would be cut off. Fixed positioning,
+        # placed from the trigger's own rect when it opens.
+        self.assertContains(self.rows(), ".task-menu-items { position: fixed;")
+
+
+class TaskActionsMenuKeyboardTest(DemoModeTestCase):
+    """#200: core interactions are mouse-only, and a menu is where that gets
+    better or worse. Built reachable from the start rather than retrofitted."""
+
+    def dashboard(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_trigger_announces_itself_as_a_menu(self):
+        html = self.dashboard()
+        self.assertIn('aria-haspopup="true"', html)
+        self.assertIn('aria-expanded="false"', html)
+        self.assertIn('role="menu"', html)
+        self.assertIn('role="menuitem"', html)
+
+    def test_the_arrow_keys_walk_the_items(self):
+        html = self.dashboard()
+        self.assertIn("e.key === 'ArrowDown'", html)
+        self.assertIn("e.key === 'ArrowUp'", html)
+
+    def test_escape_closes_and_returns_focus_to_the_trigger(self):
+        html = self.dashboard()
+        self.assertIn("e.key === 'Escape'", html)
+        self.assertIn("closeTaskMenu({focusTrigger: true})", html)
+
+    def test_opening_moves_focus_into_the_menu(self):
+        self.assertIn(
+            "items.querySelector('.task-menu-item')?.focus();", self.dashboard()
+        )
+
+
 class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
     """#238: .sidebar-toggle-mobile is position: fixed (top: 26px, right:
     20px — dashboard.css), so whatever scrolls under it is covered. The

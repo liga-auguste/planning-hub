@@ -107,8 +107,27 @@
            via background, so a color animation is invisible on them (#83
            review) — outline reads on both the dot and text targets. */
         @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
-        .today-btn { font-size: 11px; color: var(--color-text-quaternary); background: none; border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; cursor: pointer; margin-left: 6px; }
-        .today-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+        /* #239: the row's actions. The trigger is typographic like the ⠿
+           drag handle and the × delete, so it follows `color` in both
+           themes. Its touch target grows through padding rather than glyph
+           size (#146); the negative vertical margin keeps the row at its own
+           height while the hit area extends past it. */
+        .task-menu { position: relative; display: inline-flex; }
+        .task-menu-trigger { background: none; border: none; color: var(--color-text-quaternary); cursor: pointer; font-size: 15px; line-height: 1; padding: 9px 11px; margin: -9px 0; border-radius: 6px; }
+        .task-menu-trigger:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
+        .task-menu-trigger:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+        /* Fixed, not absolute: .task-list clips its contents to the card's
+           radius, so a dropdown positioned inside the row would be cut off.
+           The coordinates are written from the trigger's own rect when it
+           opens, and any scroll or resize closes it rather than leaving it
+           behind — see openTaskMenu below. */
+        .task-menu-items { position: fixed; z-index: 30; min-width: 180px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; box-shadow: var(--shadow-medium); padding: 4px; display: flex; flex-direction: column; }
+        /* display: flex above is an author rule and beats the UA's own
+           [hidden] { display: none } outright, so the closed menu would
+           render open on every row. The state has to be stated here. */
+        .task-menu-items[hidden] { display: none; }
+        .task-menu-item { background: none; border: none; text-align: left; font-size: 12px; color: var(--color-text-primary); padding: 8px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+        .task-menu-item:hover, .task-menu-item:focus-visible { background: var(--color-bg-tertiary); outline: none; }
         /* #53: the Heute/Diese-Woche view spans projects, so each row needs
            its own project label — the single-project views never do. Sits
            after task-name (not before) so every task-name starts at the
@@ -1052,9 +1071,10 @@ async function reschedule(taskId, newDate, dueSpan, row) {
         // new date is still in the past. A row moved *into* overdue does not
         // grow one back: that needs markup and a listener, not a class, so
         // it waits for the next reload the way the Kanban counts and the
-        // sidebar ring do.
-        const todayBtn = row.querySelector('.today-btn');
-        if (todayBtn && data.urgency !== 'overdue') todayBtn.remove();
+        // sidebar ring do. #239 moved it into the row's actions menu; the
+        // rule is unchanged, only where the item lives.
+        const todayItem = row.querySelector('.task-menu-item[data-action="today"]');
+        if (todayItem && data.urgency !== 'overdue') todayItem.remove();
         if (stageBefore && stageBefore !== data.urgency) {
             window.location.reload();
         } else if (applyRescheduleFigures(taskId, newDate, data)) {
@@ -1088,15 +1108,107 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
     });
 });
 
-document.querySelectorAll('.today-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+// #239: the row's actions menu. It adds no endpoint of its own — every
+// item drives a control the row already had, so there is exactly one
+// implementation of each write and the interaction can be settled without
+// anything changing server-side.
+//
+// One menu open at a time, held here rather than read back off the DOM:
+// closing has to restore focus to the trigger it belongs to (#200), and by
+// then the click that closed it may be anywhere on the page.
+let openTaskMenu = null;
+
+function closeTaskMenu({focusTrigger = false} = {}) {
+    if (!openTaskMenu) return;
+    const {trigger, items} = openTaskMenu;
+    items.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    openTaskMenu = null;
+    if (focusTrigger) trigger.focus();
+}
+
+function openTaskMenuFor(trigger) {
+    closeTaskMenu();
+    const items = trigger.nextElementSibling;
+    items.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    // Measured after unhiding, or offsetWidth is 0 and the menu lands at the
+    // viewport edge. Right-aligned to the trigger, nudged back inside the
+    // viewport on a narrow screen.
+    const rect = trigger.getBoundingClientRect();
+    items.style.top = `${rect.bottom + 4}px`;
+    items.style.left = `${Math.max(8, rect.right - items.offsetWidth)}px`;
+    openTaskMenu = {trigger, items};
+    // #200: the menu is reachable by keyboard from the moment it opens.
+    items.querySelector('.task-menu-item')?.focus();
+}
+
+document.querySelectorAll('.task-menu-trigger').forEach(trigger => {
+    trigger.addEventListener('click', (e) => {
+        // Or the document listener below would close it again in the same tick.
         e.stopPropagation();
-        const taskId = btn.dataset.taskId;
-        const dueSpan = btn.closest('.task-right').querySelector('.task-due');
-        // No reload of its own: this button only renders on overdue rows, so
-        // the move always changes stage and reschedule() reloads for it —
-        // see the rule above sortRows().
-        await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));
+        if (openTaskMenu && openTaskMenu.trigger === trigger) closeTaskMenu({focusTrigger: true});
+        else openTaskMenuFor(trigger);
+    });
+});
+
+document.addEventListener('click', () => closeTaskMenu());
+// Fixed coordinates are written once, on open — a scrolled page would leave
+// the menu floating beside nothing, so it closes instead of following.
+// Capturing, because the day columns and the board scroll inside the page.
+window.addEventListener('scroll', () => closeTaskMenu(), true);
+window.addEventListener('resize', () => closeTaskMenu());
+
+document.addEventListener('keydown', (e) => {
+    if (!openTaskMenu) return;
+    const items = [...openTaskMenu.items.querySelectorAll('.task-menu-item')];
+    const at = items.indexOf(document.activeElement);
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeTaskMenu({focusTrigger: true});
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        items[(at + 1) % items.length].focus();
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        items[(at - 1 + items.length) % items.length].focus();
+    } else if (e.key === 'Tab') {
+        // Tab is the way out of the menu, not a way around it.
+        closeTaskMenu();
+    }
+});
+
+document.querySelectorAll('.task-menu-item').forEach(item => {
+    item.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const row = item.closest('.task-row');
+        const action = item.dataset.action;
+        // Closed before the action runs: "Datum ändern" hands focus to the
+        // date input it opens, and the menu must not take it straight back.
+        closeTaskMenu({focusTrigger: action !== 'reschedule'});
+        if (action === 'project') {
+            showProject(item.dataset.projectId);
+            return;
+        }
+        if (action === 'toggle') {
+            // The row's own form, so the toggle has one implementation
+            // whether the dot or the menu triggered it.
+            row.querySelector('.toggle-form')?.requestSubmit();
+            return;
+        }
+        const dueSpan = row.querySelector('.task-due');
+        if (action === 'reschedule') {
+            // The same click a mouse makes on the date, so the inline date
+            // input and its handler are not written a second time.
+            dueSpan.click();
+            return;
+        }
+        if (action === 'today') {
+            // No reload of its own: this item only renders on overdue rows,
+            // so the move always changes stage and reschedule() reloads for
+            // it — see the rule above sortRows().
+            await reschedule(item.dataset.taskId, TODAY, dueSpan, row);
+        }
     });
 });
 </script>

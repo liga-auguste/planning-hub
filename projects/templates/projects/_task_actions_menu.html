@@ -1,0 +1,40 @@
+{% comment %}
+#239 stage 1: the row's actions, on every viewport width. One interaction
+to build and test rather than a desktop variant and a mobile one.
+
+The trigger is typographic, following the precedent the ⠿ drag handle, the
+× delete and the ⚙ on the rules link set — it inherits `color` in both
+themes, which a pictographic emoji ignores (CLAUDE.md).
+
+Nothing here is a new endpoint. Each item drives a control the row already
+had, so the interaction can be settled without anything going wrong
+server-side:
+
+  Erledigt / Offen   the row's own .toggle-form  -> task/<id>/toggle/
+  Datum ändern       the date span's click       -> task/<id>/reschedule/
+  → heute            reschedule() with TODAY     -> task/<id>/reschedule/
+  Projekt öffnen     showProject(), Heute only
+
+The conditions mirror the controls they drive, so the menu can never offer
+what the row itself does not: no toggle while a Zeitreise moment is active
+(_task_dot.html, #217), no writes on the demo example projects, which are
+in no session (#10 §5), and "Projekt öffnen" only where a task carries a
+project_id — the Heute view.
+{% endcomment %}
+<span class="task-menu">
+    <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen" title="Aktionen">⋮</button>
+    <div class="task-menu-items" role="menu" hidden>
+        {% if not sim_date %}
+        <button type="button" role="menuitem" class="task-menu-item" data-action="toggle">{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}</button>
+        {% endif %}
+        {% if not viewing_demo_data %}
+        <button type="button" role="menuitem" class="task-menu-item" data-action="reschedule">Datum ändern</button>
+        {% if task.urgency == 'overdue' %}
+        <button type="button" role="menuitem" class="task-menu-item" data-action="today" data-task-id="{{ task.id }}">→ heute</button>
+        {% endif %}
+        {% endif %}
+        {% if task.project_id %}
+        <button type="button" role="menuitem" class="task-menu-item" data-action="project" data-project-id="{{ task.project_id }}">Projekt öffnen</button>
+        {% endif %}
+    </div>
+</span>

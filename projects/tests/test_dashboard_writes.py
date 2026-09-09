@@ -657,9 +657,12 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         self.assertIn(
             "await reschedule(span.dataset.taskId, input.value, span, row);", html
         )
+        # #239 moved the second call site into the actions menu, which reads
+        # the row off the clicked item rather than off a button in the row.
         self.assertIn(
-            "await reschedule(taskId, TODAY, dueSpan, btn.closest('.task-row'));", html
+            "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);", html
         )
+        self.assertIn("const row = item.closest('.task-row');", html)
 
 
 class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
@@ -725,6 +728,112 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         self.assertNotIn("postpone_count", self.client.session["demo_plan"]["tasks"][0])
 
 
+class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
+    """#239 stage 1 adds no endpoint. Each item drives a control the row
+    already had, so there is one implementation of every write and the
+    interaction can be settled without anything changing server-side.
+
+    What that means concretely is asserted here against the rendered JS:
+    the toggle item submits the row's own .toggle-form, "Datum ändern"
+    clicks the date span the mouse would, and "→ heute" calls the same
+    reschedule() the date picker does."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_toggle_item_submits_the_rows_own_form(self):
+        self.assertIn(
+            "row.querySelector('.toggle-form')?.requestSubmit();", self.dashboard_html()
+        )
+
+    def test_the_date_item_clicks_the_date_span(self):
+        self.assertIn("dueSpan.click();", self.dashboard_html())
+
+    def test_the_today_item_calls_reschedule_with_todays_date(self):
+        self.assertIn(
+            "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);",
+            self.dashboard_html(),
+        )
+
+    def test_the_project_item_opens_the_project_view(self):
+        self.assertIn("showProject(item.dataset.projectId);", self.dashboard_html())
+
+    def test_no_new_endpoint_is_referenced(self):
+        html = self.dashboard_html()
+        for path in ("/rename/", "/delete/", "/trash/"):
+            self.assertNotIn(path, html)
+
+    def test_the_date_click_survives_as_a_desktop_shortcut(self):
+        # The one-click reschedule used daily is not lost to the menu.
+        self.assertIn(
+            "document.querySelectorAll('.task-due[data-task-id]')",
+            self.dashboard_html(),
+        )
+
+
+class TaskActionsMenuMirrorsItsControlsTest(DemoModeTestCase):
+    """The menu can never offer what the row itself does not. Each item
+    carries the same condition as the control it drives."""
+
+    def test_no_toggle_item_while_a_zeitreise_moment_is_active(self):
+        # #217: a moment is a rendering of a date, not a place to check
+        # things off — _task_dot.html drops the button for the same reason.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'data-action="toggle"')
+        # The trigger stays: "Projekt öffnen" and the date are unaffected.
+        self.assertContains(response, 'class="task-menu-trigger"')
+
+    def test_the_toggle_item_is_offered_outside_a_moment(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, 'data-action="toggle"')
+
+    def test_the_today_item_only_renders_on_an_overdue_row(self):
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Längst fällig",
+                    "date": (date.today() - timedelta(days=3)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Noch Zeit",
+                    "date": (date.today() + timedelta(days=20)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        html = self.client.get(reverse("dashboard")).content.decode()
+        # One per rendered overdue row — the same task renders in more than
+        # one list, the Heute bucket and the project detail. Counted on the
+        # rendered button, not on the bare attribute: the JS below carries
+        # the same selector to remove the item when a move lifts the row out
+        # of overdue.
+        self.assertEqual(
+            html.count(">→ heute</button>"), html.count('class="dot overdue "')
+        )
+        self.assertEqual(html.count(">→ heute</button>"), 2)
+
+    def test_the_project_item_only_renders_where_a_task_carries_a_project(self):
+        # Only _build_week_view tags a task with its project (views.py), so
+        # the item belongs to the Heute view and to no other list.
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertEqual(
+            html.count('data-action="project"'), html.count('class="task-project')
+        )
+
+
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
     """§5 of #10: rescheduling is offered exactly where it persists — via Notion
     in production, via session['demo_plan'] for a demo session plan. The five demo
@@ -740,12 +849,16 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertNotContains(response, 'title="Datum ändern"')
-        self.assertNotContains(response, 'class="today-btn"')
+        # #239: the menu mirrors the controls it drives, so it cannot offer
+        # a write the row itself does not.
+        self.assertNotContains(response, ">Datum ändern</button>")
+        self.assertNotContains(response, ">→ heute</button>")
 
     def test_not_offered_without_a_session_plan(self):
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'title="Datum ändern"')
-        self.assertNotContains(response, 'class="today-btn"')
+        self.assertNotContains(response, ">Datum ändern</button>")
+        self.assertNotContains(response, ">→ heute</button>")
 
     def test_the_date_itself_still_renders_when_it_is_not_clickable(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
