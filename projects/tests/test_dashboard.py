@@ -216,13 +216,15 @@ class DateUncertainBadgeTest(DemoModeTestCase):
     def test_dashboard_shows_the_badge_for_an_uncertain_date(self):
         self.given_session_plan(event_date_uncertain=True)
         response = self.client.get(reverse("dashboard"))
-        # Renders twice: once in the visible AI-card header next to
+        # Renders three times: in the overview's heading next to
         # demo_project_date (what a visitor actually sees after generating a
-        # plan), once in the .project-section this same project also gets
-        # (hidden by default, revealed by the multi-project/timelapse
-        # toggles) — a single assertContains here previously passed even
-        # when only the hidden copy carried the badge.
-        self.assertContains(response, 'class="date-uncertain-badge"', count=2)
+        # plan), in the Heute view's heading, which shares that same partial
+        # since a demo session's Heute belongs to exactly one project, and
+        # in the .project-section this same project also gets (hidden by
+        # default, revealed by the multi-project/timelapse toggles) — a
+        # single assertContains here previously passed even when only the
+        # hidden copy carried the badge.
+        self.assertContains(response, 'class="date-uncertain-badge"', count=3)
 
     def test_dashboard_shows_no_badge_for_a_confirmed_date(self):
         self.given_session_plan()

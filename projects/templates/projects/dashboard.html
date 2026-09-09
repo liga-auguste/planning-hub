@@ -15,9 +15,18 @@
         .dot.done { background: var(--color-done); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
+        /* The heading row, shared by the overview and the Heute view
+           (_page_heading.html). It was inline styles on two elements before
+           the two views started sharing it; a media rule cannot reach those,
+           and a third copy was one view away. */
+        .page-heading-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; row-gap: 2px; margin-bottom: 4px; }
+        .page-heading { font-size: 22px; font-weight: 700; }
+        .header-project { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
         /* nowrap: the date is one phrase, and at phone width it broke after
            the day number and left the month on a line of its own. */
         .header-project-date { font-weight: 400; color: var(--color-text-quaternary); font-size: 13px; white-space: nowrap; }
+        .refresh-form { margin-left: auto; align-self: center; }
+        .refresh-btn { font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
         /* The 20px above the label normally comes from the date line between
            the two. #153 drops that line while a moment is simulated, and
            took the gap with it — the label then sat straight under the
@@ -466,22 +475,7 @@
         {% include "projects/_status_banners.html" %}
 
         <div class="ai-card">
-            <div class="ai-card-header" style="display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; row-gap:2px; margin-bottom:4px;">
-                <div style="font-size: 22px; font-weight: 700;">Dashboard</div>
-                {% if demo_project_name %}
-                <div style="font-size:15px; font-weight:600; color:var(--color-text-primary);">
-                    {{ demo_project_name }}
-                    <span class="header-project-date">— {{ demo_project_date }}</span>
-                    {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
-                </div>
-                {% endif %}
-                {% if not demo_mode %}
-                <form method="post" action="{% url 'refresh' %}" style="margin-left:auto; align-self:center;">
-                    {% csrf_token %}
-                    <button type="submit" style="font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer;">↻ Aktualisieren</button>
-                </form>
-                {% endif %}
-            </div>
+            {% include "projects/_page_heading.html" with title="Dashboard" show_refresh=True %}
             {% comment %}
             Hidden while a moment is simulated (#153): the sim banner is the
             single date authority then — the real date next to it read as a
@@ -599,9 +593,12 @@
         {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
 
-        <div class="ai-card-header" style="margin-bottom: 24px;">
-            <div style="font-size: 22px; font-weight: 700;">Heute</div>
-        </div>
+        {% comment %}
+        The same heading the overview carries, so a demo session's "Heute"
+        says whose it is. Production shows no project name here: this view
+        spans every project at once, which is what it is for.
+        {% endcomment %}
+        {% include "projects/_page_heading.html" with title="Heute" %}
 
         {% if heute_overdue %}
         <div class="today-week-heading">Überfällig</div>

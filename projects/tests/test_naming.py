@@ -52,9 +52,7 @@ class OverviewPageNamingTest(DemoModeTestCase):
 
     def test_ai_card_heading_says_dashboard(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(
-            response, '<div style="font-size: 22px; font-weight: 700;">Dashboard</div>'
-        )
+        self.assertContains(response, '<div class="page-heading">Dashboard</div>')
 
 
 class MultiProjectViewNamingTest(DemoModeTestCase):

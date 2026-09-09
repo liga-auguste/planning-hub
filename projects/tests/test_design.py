@@ -168,6 +168,61 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class HeuteViewNamesItsProjectTest(DemoModeTestCase):
+    """A demo session holds exactly one project, so its Heute view belongs
+    to that project — and said only "Heute". The overview named it and this
+    view did not, which is the one place a visitor can lose track of whose
+    plan they are looking at.
+
+    Production shows no project name here on purpose: its Heute view spans
+    every project at once, which is what it is for."""
+
+    def test_the_demo_heute_view_names_the_project(self):
+        plan = self.given_session_plan(name="Adventskonzert Gospelchor")
+        html = self.client.get(reverse("dashboard")).content.decode()
+        # The Heute view runs from its own id to the first project section.
+        today_view = html[
+            html.index('id="view-today"') : html.index('class="project-section"')
+        ]
+        self.assertIn('<div class="page-heading">Heute</div>', today_view)
+        self.assertIn(plan["name"], today_view)
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_names_no_project_there(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            html = self.client.get(reverse("dashboard")).content.decode()
+        # The Heute view runs from its own id to the first project section.
+        today_view = html[
+            html.index('id="view-today"') : html.index('class="project-section"')
+        ]
+        self.assertIn('<div class="page-heading">Heute</div>', today_view)
+        self.assertNotIn("header-project", today_view)
+
+    def test_both_headings_come_from_one_partial(self):
+        """Or the two views drift, which is how they got here."""
+        contents = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertEqual(contents.count('{% include "projects/_page_heading.html"'), 2)
+        # The inline styles it replaced cannot come back one view at a time.
+        self.assertNotIn('style="font-size: 22px; font-weight: 700;"', contents)
+
+    def test_only_the_overview_offers_the_refresh_button(self):
+        """It re-reads Notion for the whole page, so one is enough — and it
+        belongs beside the view that shows everything."""
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertEqual(html.count('class="refresh-form"'), 0)
+
+
 class DashboardHeaderBreaksTest(DemoModeTestCase):
     """Two things went wrong at the top of the dashboard on a phone.
 
