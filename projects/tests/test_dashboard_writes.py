@@ -207,6 +207,7 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
                 "ok": True,
                 "postpone_count": 4,
                 "due_display": format_date(self.NEW_DATE),
+                "due_display_row": format_date(self.NEW_DATE, role="row"),
                 "urgency": "ok",
             },
         )
@@ -682,11 +683,23 @@ class RescheduleIncrementsCounterDemoModeTest(DemoModeTestCase):
         # counter, so it reads only the fields it is here for.
         answer = response.json()
         self.assertEqual(
-            {k: answer[k] for k in ("ok", "postpone_count", "due_display", "urgency")},
+            {
+                k: answer[k]
+                for k in (
+                    "ok",
+                    "postpone_count",
+                    "due_display",
+                    "due_display_row",
+                    "urgency",
+                )
+            },
             {
                 "ok": True,
                 "postpone_count": 1,
                 "due_display": format_date(date.fromisoformat(new_date)),
+                "due_display_row": format_date(
+                    date.fromisoformat(new_date), role="row"
+                ),
                 "urgency": "ok",
             },
         )
@@ -2035,6 +2048,31 @@ class RescheduleResortsTheRowTest(DemoModeTestCase):
         block = self.reschedule_block(self.dashboard_html())
         self.assertNotIn("new Date(", block)
         self.assertNotIn("getDay(", block)
+
+
+class RescheduleAnswersBothDateFormsTest(DemoModeTestCase):
+    """#238: the row's date was shortened, the Kanban card's was not — and
+    the client writes this one answer into both elements. A single
+    due_display would have put the long month back into every rescheduled
+    row until the next reload."""
+
+    def test_the_answer_carries_the_row_form_beside_the_long_one(self):
+        self.given_session_plan()
+        new_date = date.today() + timedelta(days=14)
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": new_date.isoformat()}),
+            content_type="application/json",
+        )
+        answer = response.json()
+        self.assertEqual(answer["due_display"], format_date(new_date, role="long"))
+        self.assertEqual(answer["due_display_row"], format_date(new_date, role="row"))
+
+    def test_the_row_takes_the_short_form_and_the_board_the_long_one(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.textContent = data.due_display_row;", html)
+        self.assertIn("if (due) due.textContent = data.due_display;", html)
 
 
 class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):

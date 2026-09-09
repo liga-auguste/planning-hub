@@ -27,7 +27,7 @@ are in no session, so there the date only renders (#10 §5).
               data-raw-date="{{ task.due|date:'Y-m-d' }}"
               title="Datum ändern"
               {% endif %}>
-            {{ task.due|plan_date:"long" }}
+            {{ task.due|plan_date:"row" }}
         </span>
         {% if task.postpone_count and task.postpone_count >= 2 %}
         <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>

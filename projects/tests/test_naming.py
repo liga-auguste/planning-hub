@@ -5,8 +5,10 @@ from datetime import (
     date,
     timedelta,
 )
+from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.template import (
     Context,
@@ -233,6 +235,16 @@ class DateFormatModuleTest(SimpleTestCase):
     def test_short_role_is_the_numeric_calendar_form(self):
         self.assertEqual(format_date(date(2026, 3, 3), role="short"), "03.03.")
 
+    def test_row_role_abbreviates_the_month(self):
+        # #238: "row" rather than "short" — "short" is taken by the numeric
+        # calendar form, and roles name the surface, not the format.
+        self.assertEqual(format_date(date(2026, 9, 3), role="row"), "Do, 3. Sep")
+
+    def test_the_row_abbreviation_carries_no_period(self):
+        # MONTHS_SHORT has none, and format_week_range has read fine
+        # without one since it was written.
+        self.assertEqual(format_date(date(2026, 5, 4), role="row"), "Mo, 4. Mai")
+
     def test_none_is_empty_in_every_role(self):
         self.assertEqual(format_date(None), "")
         self.assertEqual(format_date(None, role="short"), "")
@@ -285,6 +297,14 @@ class PlanDateFilterTest(SimpleTestCase):
             "03.03.",
         )
 
+    def test_role_argument_selects_the_row_form(self):
+        self.assertEqual(
+            self.render(
+                '{% load planner_tags %}{{ v|plan_date:"row" }}', date(2026, 9, 3)
+            ),
+            "Do, 3. Sep",
+        )
+
     def test_a_missing_date_renders_as_nothing(self):
         self.assertEqual(
             self.render('{% load planner_tags %}{{ v|plan_date:"long" }}', None), ""
@@ -297,6 +317,43 @@ class PlanDateFilterTest(SimpleTestCase):
             self.render(
                 '{% load planner_tags %}{{ v|plan_date:"shrot" }}', date(2026, 6, 15)
             )
+
+
+class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
+    """#238: the abbreviated month is the task row's alone. Every other date
+    surface keeps the spelled-out "long" form, and the only way that can
+    drift is a template picking up the new role by copy-paste — so the
+    surfaces are counted against the templates themselves."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def read(self, name):
+        return (self.TEMPLATES / name).read_text()
+
+    def test_the_task_row_is_the_only_template_on_the_row_role(self):
+        on_row_role = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if 'plan_date:"row"' in path.read_text()
+        )
+        self.assertEqual(on_row_role, ["_task_row.html"])
+
+    def test_the_kanban_board_still_spells_the_month_out(self):
+        # It has the width, and #238 stage 4 is about the row only.
+        self.assertIn(
+            '<span class="kanban-card-due">{{ task.due|plan_date:"long" }}</span>',
+            self.read("dashboard.html"),
+        )
+
+    def test_the_ai_summary_still_spells_the_month_out(self):
+        self.assertIn(
+            '<span class="task-due {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>',
+            self.read("dashboard.html"),
+        )
+
+    def test_my_plan_and_the_close_out_triage_are_untouched(self):
+        self.assertEqual(self.read("my_plan.html").count('plan_date:"long"'), 2)
+        self.assertIn('plan_date:"long"', self.read("close_week_start.html"))
 
 
 @override_settings(DEMO_MODE=False)

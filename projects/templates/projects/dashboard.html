@@ -983,7 +983,10 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     }
     const data = await response.json();
     dueSpan.dataset.rawDate = newDate;
-    dueSpan.textContent = data.due_display;
+    // #238: the row's own short form. The Kanban card, written in
+    // applyRescheduleFigures below, takes the long one — one field for both
+    // would put the long month back into the row until the next reload.
+    dueSpan.textContent = data.due_display_row;
     reclassify(dueSpan, data.urgency);
     // The row is handed in rather than walked up to from dueSpan: the date
     // picker swaps the span out of the DOM while it is open, so closest()

@@ -52,6 +52,13 @@ WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 _ROLE_FORMATTERS = {
     "long": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_DE[d.month]}",
     "short": lambda d: f"{d.day:02d}.{d.month:02d}.",
+    # #238: the task row, where the spelled-out month cost width the task
+    # name needed on a phone. Named "row" and not "short": "short" is the
+    # numeric calendar form the day cards use, and per the docstring above a
+    # role names its surface rather than its format. No trailing period on
+    # the abbreviation — MONTHS_SHORT carries none and format_week_range has
+    # read fine without one since it was written.
+    "row": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_SHORT[d.month]}",
 }
 
 
@@ -59,9 +66,11 @@ def format_date(d, role="long"):
     """A display date in the format the given role calls for.
 
     The role argument exists because no single format serves every surface:
-    a task row wants the weekday ("Mo, 15. Juni"), a calendar card has room
-    for the numeric form only ("03.03."). Callers name the surface, not the
-    format, so #192 can change what a role produces in one place.
+    a task row wants the weekday but not the spelled-out month ("Mo, 15.
+    Jun"), the summary around it has room for both ("Mo, 15. Juni"), and a
+    calendar card has room for the numeric form only ("03.03."). Callers
+    name the surface, not the format, so #192 can change what a role
+    produces in one place.
 
     An unknown role raises rather than falling back to "long": callers pass
     the role as a bare string, including from templates, so a typo has no

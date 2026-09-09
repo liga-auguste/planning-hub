@@ -376,11 +376,12 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
     def test_reschedule_js_displays_the_servers_formatted_date(self):
         # #176: the raw ISO date (newDate/input.value) must never land in the
-        # UI directly — only the server's human-readable due_display may.
+        # UI directly — only the server's human-readable form may. #238 split
+        # that into two fields, the row's short one and the board's long one.
         self.given_mixed_plan()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "const data = await response.json();")
-        self.assertContains(response, "dueSpan.textContent = data.due_display;")
+        self.assertContains(response, "dueSpan.textContent = data.due_display_row;")
         self.assertNotContains(response, "dueSpan.textContent = newDate;")
         self.assertNotContains(response, "span.textContent = input.value;")
 

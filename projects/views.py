@@ -1367,6 +1367,12 @@ def reschedule_task_view(request, task_id):
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
     due_display = format_date(parsed_date, role="long")
+    # #238: two formats, because the client writes this answer into two
+    # elements. The Kanban card spells the month out; the task row was
+    # shortened to give the task name back the width it costs on a phone. One
+    # field for both would have put the long form back into every rescheduled
+    # row until the next reload.
+    due_display_row = format_date(parsed_date, role="row")
 
     # Read before the branches: both of them derive the figures below
     # against it. A demo visitor's time travel has to count here the way it
@@ -1501,6 +1507,7 @@ def reschedule_task_view(request, task_id):
             "ok": True,
             "postpone_count": postpone_count,
             "due_display": due_display,
+            "due_display_row": due_display_row,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
             **figures,
         }
