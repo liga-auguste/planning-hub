@@ -186,6 +186,28 @@ class KontextBatchInstructionTest(SimpleTestCase):
         prompt = build_prompt([self.project()], date.today(), single_project_demo=True)
         self.assertNotIn("kontext_hinweis", prompt)
 
+    def test_no_instruction_where_no_task_carries_a_kontext(self):
+        """The demo's example projects are the case the flag above misses:
+        several projects, so single_project_demo is False, and not one
+        kontext between them (#18). The instruction is a statement *about*
+        the Kontext-Übersicht, so it hangs off the same condition that block
+        does — asking for a batch hint over data the prompt does not carry
+        is an invitation to invent one, on the one deployment that is
+        public.
+        """
+        prompt = build_prompt(
+            [
+                self.project(
+                    tasks=[
+                        {"name": "Plakate", "done": False, "due": None, "kontext": []}
+                    ]
+                )
+            ],
+            date.today(),
+        )
+        self.assertNotIn("Kontext-Übersicht", prompt)
+        self.assertNotIn("kontext_hinweis", prompt)
+
 
 class KontextHintResolutionTest(SimpleTestCase):
     """The hint is a new optional top-level field rather than a sentence
@@ -269,13 +291,33 @@ class KontextHintIsProductionOnlyTest(DemoModeTestCase):
     displays kontext. A demo plan is one project anyway, so there is
     nothing to batch across."""
 
+    HINTED_SUMMARY = {
+        "jetzt_faellig": [],
+        "naechste_woche": [],
+        "kontext_hinweis": "Ab ins Büro.",
+    }
+
     def test_a_demo_session_plan_renders_no_hint(self):
         self.given_session_plan()
-        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
-            "jetzt_faellig": [],
-            "naechste_woche": [],
-            "kontext_hinweis": "Ab ins Büro.",
-        }
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].return_value = self.HINTED_SUMMARY
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, 'ai-kontext-hint">')
+        self.assertNotContains(response, "Ab ins Büro.")
+
+    def test_the_demo_example_projects_render_no_hint_either(self):
+        """The other half of #18's invariant, and the half the first gate
+        missed: it read has_session_plan, which is false here too, so the
+        example projects — the public demo's default view — were the one
+        place a hint could still land. DEMO_MODE is what "production only"
+        means. build_prompt no longer asks for the field over kontext-less
+        data either; this is the render-side half, so that a summary cached
+        before that change cannot surface one.
+        """
+        self.ai_mocks[
+            "projects.views.generate_weekly_summary"
+        ].return_value = self.HINTED_SUMMARY
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, 'ai-kontext-hint">')
         self.assertNotContains(response, "Ab ins Büro.")

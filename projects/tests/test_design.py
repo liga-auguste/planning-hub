@@ -869,6 +869,26 @@ class TaskActionsMenuTest(DemoModeTestCase):
         # placed from the trigger's own rect when it opens.
         self.assertContains(self.rows(), ".task-menu-items { position: fixed;")
 
+    def test_the_menu_stays_inside_the_viewport_in_both_directions(self):
+        """Only `left` was clamped. A row near the bottom of the screen is
+        the normal case in a list this long, and a six-item menu is ~190px
+        tall, so the last items landed under the fold — with no way to
+        reach them, because the menu is fixed and every scroll closes it.
+        Worse, focusing the first item scrolls an off-screen menu into view,
+        which is a scroll like any other: the menu shut in the tick it
+        opened. It flips above the trigger where it does not fit below."""
+        html = self.rows().content.decode()
+        self.assertIn(
+            "const fitsBelow = rect.bottom + 4 + items.offsetHeight + 8 "
+            "<= window.innerHeight;",
+            html,
+        )
+        self.assertIn(
+            "const top = fitsBelow ? rect.bottom + 4 : "
+            "Math.max(8, rect.top - items.offsetHeight - 4);",
+            html,
+        )
+
 
 class TaskActionsMenuKeyboardTest(DemoModeTestCase):
     """#200: core interactions are mouse-only, and a menu is where that gets

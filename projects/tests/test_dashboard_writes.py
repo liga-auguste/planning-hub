@@ -959,9 +959,23 @@ class RenameHappensInTheRowTest(DemoModeTestCase):
         self.assertIn("if (e.key === 'Escape') {", html)
         self.assertIn("} else if (e.key === 'Enter') {", html)
 
+    def test_leaving_the_field_commits_rather_than_discards(self):
+        """The date input this is shaped after commits on `change`, which
+        fires before the blur — so tapping away from a date keeps it. The
+        name discarded instead, silently, and two controls that swap into
+        the same row must not answer the same gesture differently. On a
+        touch screen tapping outside the field is a normal way to finish,
+        and a discard with no feedback is the one outcome the row cannot
+        show. Escape stays the way to cancel: it settles the input, so the
+        blur behind it is a no-op."""
+        html = self.dashboard_html()
+        self.assertIn("input.addEventListener('blur', commit);", html)
+        self.assertNotIn("input.addEventListener('blur', restore);", html)
+
     def test_the_input_leaves_the_dom_exactly_once(self):
-        # Enter swaps the span back and the blur that follows must not swap
-        # a second time.
+        # Both Enter and blur go through commit(), so whichever runs second
+        # — including the blur that Enter's own swap fires — finds the input
+        # already settled and neither swaps twice nor posts twice.
         html = self.dashboard_html()
         self.assertIn("let settled = false;", html)
         self.assertIn("if (settled) return;", html)

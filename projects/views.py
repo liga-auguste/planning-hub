@@ -1090,11 +1090,15 @@ def dashboard(request):
         if summary_data
         else None
     )
-    # #145: production only. A demo plan is one project, and kontext never
-    # reaches a demo prompt at all (#18), so there is nothing to batch across.
+    # #145: production only, and DEMO_MODE is what says that — not
+    # has_session_plan, which is false for the demo's example projects too
+    # and would have let the hint render on the public demo. Kontext never
+    # reaches a demo prompt at all (#18), so build_prompt does not ask for
+    # the field there either; this is the second half of the same rule, so
+    # that a summary cached before that change cannot surface one.
     kontext_hint = (
         resolve_kontext_hint(summary_data)
-        if summary_data and not has_session_plan
+        if summary_data and not settings.DEMO_MODE
         else ""
     )
 

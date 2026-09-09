@@ -193,7 +193,19 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             "  Nicht: 'Tasks offen'. Sondern: 'Plakate müssen heute raus' oder 'noch gut im Zeitplan'.",
             "  Nenne den Projektnamen NICHT im Satz — er wird aus den Daten ergänzt.",
             '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
-            '- "kontext_hinweis" (optional, oberste Ebene, kein Block): Wenn zwei oder mehr offene Aufgaben aus VERSCHIEDENEN Projekten denselben Kontext teilen und im selben Zeitraum liegen, nenne die Gelegenheit, sie zusammen zu erledigen — ein einziger Satz, z. B. "Wenn du ohnehin im Büro bist: GEMA-Meldung und Musikervertrag in einem Rutsch." Gibt es keine solche Häufung über Projektgrenzen hinweg, lass das Feld weg.',
+        ]
+        # Asked for only where the Kontext-Übersicht above was actually
+        # emitted. The hint is a statement *about* that block, so requesting
+        # it over data the prompt does not carry invites a sentence about
+        # contexts the reader never sees — and demo mode is exactly that
+        # case: no task carries a kontext (#18), the block is omitted, and
+        # this instruction goes with it rather than being filtered out again
+        # at render time.
+        if kontext_lines:
+            lines.append(
+                '- "kontext_hinweis" (optional, oberste Ebene, kein Block): Wenn zwei oder mehr offene Aufgaben aus VERSCHIEDENEN Projekten denselben Kontext teilen und im selben Zeitraum liegen, nenne die Gelegenheit, sie zusammen zu erledigen — ein einziger Satz, z. B. "Wenn du ohnehin im Büro bist: GEMA-Meldung und Musikervertrag in einem Rutsch." Gibt es keine solche Häufung über Projektgrenzen hinweg, lass das Feld weg.'
+            )
+        lines += [
             "",
             "Zuordnung der Blöcke:",
             '- "jetzt_faellig": überfällige und diese Woche fällige Projekte.',

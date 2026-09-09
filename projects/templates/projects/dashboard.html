@@ -1269,11 +1269,22 @@ function openTaskMenuFor(trigger) {
     const items = trigger.nextElementSibling;
     items.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
-    // Measured after unhiding, or offsetWidth is 0 and the menu lands at the
+    // Measured after unhiding, or the offsets are 0 and the menu lands at the
     // viewport edge. Right-aligned to the trigger, nudged back inside the
     // viewport on a narrow screen.
     const rect = trigger.getBoundingClientRect();
-    items.style.top = `${rect.bottom + 4}px`;
+    // Below the trigger where it fits, above it where it does not. A row at
+    // the bottom of the screen is the normal case in a list this long, and a
+    // six-item menu is ~190px tall — without the flip its last items land
+    // under the fold, and since the menu is fixed and any scroll closes it
+    // (below), scrolling down to them is not a way to reach them. It would
+    // also open and shut in the same tick: focusing the first item scrolls
+    // an off-screen menu into view, which is a scroll like any other.
+    // Math.max clamps the last resort, a menu taller than the space either
+    // side, to a start inside the viewport rather than above its top edge.
+    const fitsBelow = rect.bottom + 4 + items.offsetHeight + 8 <= window.innerHeight;
+    const top = fitsBelow ? rect.bottom + 4 : Math.max(8, rect.top - items.offsetHeight - 4);
+    items.style.top = `${top}px`;
     items.style.left = `${Math.max(8, rect.right - items.offsetWidth)}px`;
     openTaskMenu = {trigger, items};
     // #200: the menu is reachable by keyboard from the moment it opens.
@@ -1362,29 +1373,40 @@ function startRename(row, taskId) {
     nameSpan.replaceWith(input);
     input.focus();
     input.select();
-    // The input leaves the DOM exactly once. Enter commits and swaps back,
-    // and the blur that follows must not swap a second time.
+    // The input leaves the DOM exactly once, and commits at most once. Enter
+    // and blur both go through commit(), and whichever runs second finds it
+    // already settled — including the blur that Enter's own swap fires.
     let settled = false;
     const restore = () => {
         if (settled) return;
         settled = true;
         input.replaceWith(nameSpan);
     };
-    input.addEventListener('keydown', async (e) => {
+    // Blur commits rather than discards, the same answer the date input this
+    // is shaped after gives: `change` fires there before the blur, so tapping
+    // away from a date keeps it. Two controls that swap into the same row
+    // must not answer the same gesture differently — and on a touch screen,
+    // tapping outside the field is a normal way to finish. Escape is the way
+    // to cancel; it settles the input first, so the blur behind it is a no-op.
+    const commit = async () => {
+        if (settled) return;
+        const value = input.value.trim();
+        restore();
+        // An empty name, or the one already there, is a cancel — the
+        // server would refuse the first with a 400 anyway (#154).
+        if (!value || value === nameSpan.textContent.trim()) return;
+        await commitRename(taskId, value, nameSpan);
+    };
+    input.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             e.preventDefault();
             restore();
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            const value = input.value.trim();
-            restore();
-            // An empty name, or the one already there, is a cancel — the
-            // server would refuse the first with a 400 anyway (#154).
-            if (!value || value === nameSpan.textContent.trim()) return;
-            await commitRename(taskId, value, nameSpan);
+            commit();
         }
     });
-    input.addEventListener('blur', restore);
+    input.addEventListener('blur', commit);
 }
 
 async function commitRename(taskId, name, nameSpan) {
