@@ -356,9 +356,23 @@ class MobileLauncherClearsTheTaskListsTest(DemoModeTestCase):
     """
 
     def test_the_lists_reserve_the_same_44px_the_header_does(self):
+        # On the name and on the Heute headings, not on the row. After the
+        # stacking those are the only *content* reaching the right edge —
+        # the date sits at the left of its own line, and the only thing
+        # beside it is the actions trigger, a control the reader steers to
+        # rather than something they must read at a glance. On the row the
+        # reserve was 44px of dead gutter down the whole list, with the
+        # trigger visibly stranded short of the card's edge.
         response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".today-week-heading { padding-right: 44px; }")
         self.assertContains(
-            response, ".task-row, .today-week-heading { padding-right: 44px; }"
+            response, ".task-name { flex-basis: 100%; padding-right: 44px; }"
+        )
+
+    def test_the_row_itself_reserves_nothing(self):
+        self.assertNotContains(
+            self.client.get(reverse("dashboard")),
+            ".task-row, .today-week-heading { padding-right: 44px; }",
         )
 
     def test_the_header_still_reserves_its_own(self):
@@ -423,8 +437,13 @@ class TaskRowMobileStackingTest(DemoModeTestCase):
         )
 
     def test_below_the_breakpoint_the_name_takes_the_whole_first_line(self):
+        # The padding is the launcher reserve, asserted in
+        # MobileLauncherClearsTheTaskListsTest — it insets the text without
+        # narrowing the box, so line one is still filled to the pixel.
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, ".task-name { flex-basis: 100%; }")
+        self.assertContains(
+            response, ".task-name { flex-basis: 100%; padding-right: 44px; }"
+        )
 
     def test_below_the_breakpoint_the_meta_indents_under_the_name(self):
         # The dot hangs into the row's left padding — 7px wide, minus 19px,

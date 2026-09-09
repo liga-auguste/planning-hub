@@ -341,7 +341,7 @@
                width down the whole list for a button that only occupies the
                top of the viewport. With the name on its own line, that is
                where it hurts least. */
-            .task-row, .today-week-heading { padding-right: 44px; }
+            .today-week-heading { padding-right: 44px; }
             /* The row stacks: name on the first line, the meta under it.
                The dot hangs into the row's left padding (7px wide, minus
                19px, plus the 12px gap = no contribution at all), so a name
@@ -352,7 +352,17 @@
                per-element margins to keep in step. */
             .task-row { padding-left: 35px; }
             .task-row > .toggle-form, .task-row > .dot { margin-left: -19px; }
-            .task-name { flex-basis: 100%; }
+            /* The launcher reserve sits on the name rather than on the row.
+               After the stacking above, the name is the only *content* that
+               reaches the right edge — the date is at the left of its own
+               line, and the only thing beside it is the actions trigger,
+               which is a control the reader steers to rather than something
+               they must be able to read at a glance. Padding rather than a
+               narrower basis: the box still fills line one to the pixel, so
+               the meta still wraps and the trigger still reaches the card's
+               edge, while the text stays clear of the button. On the row it
+               cost 44px of dead gutter down the whole list. */
+            .task-name { flex-basis: 100%; padding-right: 44px; }
             /* The desktop rule pushes the meta against the right edge, which
                is where it belongs beside the name. On its own wrapped line
                an auto margin would do the same to the whole line, leaving it
