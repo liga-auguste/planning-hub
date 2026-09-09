@@ -614,12 +614,23 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
         )
         self.assertContains(response, ".summary-box .task-date { margin-left: 0; }")
         # The same rule on the dashboard's own summary, which is the other
-        # place a run of task dots renders.
+        # place a run of task dots renders — and the same flex row, so the
+        # date sits at the edge there too.
+        dashboard = self.client.get(reverse("dashboard"))
         self.assertContains(
-            self.client.get(reverse("dashboard")),
-            ".ai-card ul ul li { font-size: 12px; font-weight: 400; "
+            dashboard,
+            ".ai-card ul ul li { display: flex; align-items: center; gap: 12px; "
+            "font-size: 12px; font-weight: 400; "
             "color: var(--color-text-tertiary); padding: 2px 0; "
             "border-top: none; }",
+        )
+        self.assertContains(
+            dashboard,
+            ".ai-card ul ul li .toggle-form, .ai-card ul ul li .dot "
+            "{ margin-right: 0; }",
+        )
+        self.assertContains(
+            dashboard, ".ai-card ul ul li .task-due { margin-left: 0; }"
         )
         self.assertContains(
             response,

@@ -49,7 +49,16 @@
            grouping on its own weight, which is all it ever needed — the
            indent was doing that job a second time. Same change /mein-plan/'s
            summary took. */
-        .ai-card ul ul li { font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
+        .ai-card ul ul li { display: flex; align-items: center; gap: 12px; font-size: 12px; font-weight: 400; color: var(--color-text-tertiary); padding: 2px 0; border-top: none; }
+        /* The same row /mein-plan/'s list draws: dot and name left, date
+           right. It was an inline line box, so the date trailed the name
+           wherever the name happened to end and no two lines agreed on
+           where it sat. .task-name already carries flex: 1 1 auto for the
+           task rows, so the name grows and the date lands at the edge with
+           no rule of its own. The margins these three carry for their inline
+           uses have to give way to the row's gap. */
+        .ai-card ul ul li .toggle-form, .ai-card ul ul li .dot { margin-right: 0; }
+        .ai-card ul ul li .task-due { margin-left: 0; }
         /* Off-format — the prompt asks for `-` bullets — but a numbered list
            still has to land inside the card. Reboot's padding is what held the
            markers, and the #64 reset took it away; padding-left keeps them from
