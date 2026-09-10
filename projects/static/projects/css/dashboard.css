@@ -145,9 +145,21 @@
    JS (base_dashboard.html) needs no mobile-specific branch of its own.
 
    The state class moved from .sidebar to :root (#236), so what used to be
-   a sibling selector is a descendant one now — the specificity is the same
-   (0,2,0) either way, which is what keeps these overrides winning by
-   cascade order the way the comment above .main describes. */
+   a sibling or compound selector is a descendant one now. Five of the six
+   keep the specificity they had, all (0,3,0) before and after: the
+   .sidebar-content, .sidebar-header and .sidebar-logo-text overrides, plus
+   the two former ~ combinators for .sidebar-toggle-mobile and
+   .sidebar-backdrop. The sixth rises — .sidebar:not(.collapsed) was
+   (0,2,0), :root:not(.sidebar-collapsed) .sidebar is (0,3,0), because
+   :root is a pseudo-class and so adds a component the old subject didn't
+   carry. Harmless: it only strengthens a rule that already won on order.
+
+   What none of that changes is the rule the comment above .main describes,
+   and it is the one to keep in mind when adding to this block: the two
+   overrides that carry no state at all — .sidebar's width and .main's
+   margin-left — are plain (0,1,0), tie with their desktop counterparts and
+   win on cascade order alone. Those are the ones a later edit can silently
+   kill by moving a rule, not the (0,3,0) ones. */
 @media (max-width: 768px) {
     .sidebar {
         /* Not the desktop's --sidebar-width, and not a flat vw share
