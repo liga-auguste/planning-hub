@@ -681,19 +681,11 @@ class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
         self.assertNotContains(response, 'class="timelapse-bar"')
 
 
-class NoToggleDuringAMomentTest(DemoModeTestCase):
-    """#217: dashboard() renders a moment by forcing every task due by
-    sim_date to done on a deep copy — that is what a moment *is*. A toggle
-    therefore persisted into the session and changed nothing the visitor
-    could see: the clicked dot un-struck itself while the Kanban card, the
-    week bar, the day counters and the sidebar ring all still read it as
-    done, and a reload put the strike-through back. A visitor cannot tell
-    "nothing happened" from "it happened and you cannot see it", so the
-    interaction goes while the moment is on — the same rule that keeps
-    rescheduling to where it persists (#10 §5), applied to visibility.
-    """
-
-    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
+class MomentFixtureMixin:
+    """The two-task moment fixture, shared by the classes that need a moment
+    to be active. A mixin rather than a base class, and not named test*, so
+    unittest collects it nowhere — the same reason base.py is not
+    test_base.py."""
 
     def given_two_tasks_around_a_moment(self):
         """A moment with one task due before it (forced done) and one after
@@ -724,6 +716,21 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
         session["demo_sim_date"] = moment.isoformat()
         session.save()
         return moment
+
+
+class NoToggleDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
+    """#217: dashboard() renders a moment by forcing every task due by
+    sim_date to done on a deep copy — that is what a moment *is*. A toggle
+    therefore persisted into the session and changed nothing the visitor
+    could see: the clicked dot un-struck itself while the Kanban card, the
+    week bar, the day counters and the sidebar ring all still read it as
+    done, and a reload put the strike-through back. A visitor cannot tell
+    "nothing happened" from "it happened and you cannot see it", so the
+    interaction goes while the moment is on — the same rule that keeps
+    rescheduling to where it persists (#10 §5), applied to visibility.
+    """
+
+    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
 
     def post_toggle(self, task_id, done=True):
         return self.client.post(
@@ -815,3 +822,33 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
             content_type="application/json",
         )
         self.assertEqual(moved.status_code, 200)
+
+
+class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
+    """#244: #217 took the write affordances out of a moment and said nothing
+    about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor
+    who clicks gets no refusal, no hint and no cursor change on the way in. The
+    write protection stays exactly as #217 built it; what is added is the
+    explanation, in the three places a visitor looks: the banner, the dot that
+    was clicked, and the menu that dropped the entries."""
+
+    CONSEQUENCE = "hier lässt sich nichts abhaken"
+
+    def dashboard(self):
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_banner_names_the_consequence_not_only_the_date(self):
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), self.CONSEQUENCE)
+
+    def test_the_banner_says_nothing_extra_without_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), self.CONSEQUENCE)
+
+    def test_the_simulated_date_is_still_named_exactly_once(self):
+        """#153's one-date rule, re-asserted against the new copy. The notice
+        and the menu note spell it inflected and lowercase ("Im simulierten
+        Zeitpunkt"), so neither collides with the banner's own label — a
+        deliberate choice, not luck."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "Simulierter Zeitpunkt", count=1)
