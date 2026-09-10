@@ -65,10 +65,15 @@ class SidebarMobileDefaultCollapseTest(DemoModeTestCase):
         self.assertContains(response, "window.matchMedia('(max-width: 768px)')")
 
     def test_mobile_wins_over_a_stored_preference_on_load(self):
+        # #236 moved this decision into the <head> script, so it now holds
+        # before the first paint instead of being corrected after it — the
+        # rule itself is unchanged.
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
-            "const startCollapsed = tabletBreakpoint.matches || storedCollapsed === 'true';",
+            "if (window.matchMedia('(max-width: 768px)').matches\n"
+            "        || localStorage.getItem('sidebarCollapsed') === 'true') {\n"
+            "        root.classList.add('sidebar-collapsed');",
         )
 
     def test_the_breakpoint_listener_also_lets_mobile_win(self):
@@ -99,13 +104,18 @@ class SidebarMobileOverlayTest(DemoModeTestCase):
             Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
         ).read_text()
         self.assertIn("transform: translateX(-100%);", css)
-        self.assertIn(".sidebar:not(.collapsed) { transform: translateX(0); }", css)
+        self.assertIn(
+            ":root:not(.sidebar-collapsed) .sidebar { transform: translateX(0); }", css
+        )
 
     def test_content_never_reflows_on_mobile(self):
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
         ).read_text()
-        self.assertIn(".main, .main.sidebar-collapsed { margin-left: 0; }", css)
+        # One declaration since #236: .main's margin-left is
+        # calc(--sidebar-width + --sidebar-gap) at every state, so the
+        # mobile override no longer needs a collapsed twin to zero out.
+        self.assertIn(".main { margin-left: 0; }", css)
 
     def test_both_extra_controls_share_the_existing_toggle(self):
         response = self.client.get("/dashboard/")
@@ -134,10 +144,11 @@ class SidebarMobileWidthAndScrollClearanceTest(DemoModeTestCase):
         ).read_text()
 
     def test_mobile_sidebar_width_is_proportional_not_fixed(self):
-        self.assertIn(
-            "@media (max-width: 768px) {\n    .sidebar, .sidebar.collapsed {",
-            self.css,
-        )
+        # One .sidebar rule since #236: collapsed on mobile means slid
+        # off-screen, not narrow, so both states share this width — and the
+        # rule beats the desktop var(--sidebar-width) by cascade order, which
+        # is what keeps a stored drag width off the overlay.
+        self.assertIn("@media (max-width: 768px) {\n    .sidebar {", self.css)
         self.assertIn("width: min(85vw, 320px);", self.css)
 
     def test_sidebar_content_reserves_room_for_the_pinned_controls(self):
@@ -156,45 +167,151 @@ class SidebarMobileWidthAndScrollClearanceTest(DemoModeTestCase):
         )
 
 
-class SidebarCollapseClearsInlineWidthTest(DemoModeTestCase):
-    """#137: the resize handle stores its result as inline styles on
-    .sidebar and .main. An inline style always beats a stylesheet rule, so
-    after any drag the collapse paths — which only toggled classes — left
-    the panel at its dragged width instead of the 48px rail. Every collapse
-    path now clears the inline styles, and every expand path restores the
-    stored width through one shared helper that also refuses to put a
-    desktop drag width onto the mobile overlay."""
+class SidebarWidthIsACustomPropertyTest(DemoModeTestCase):
+    """#137 used to be a constraint to honour: the resize handle stored its
+    result as inline styles on .sidebar and .main, an inline style beats any
+    stylesheet rule, and so every collapse path had to clear them by hand or
+    the 48px rail could never apply.
+
+    #236 retires it instead. The width lives on :root as --sidebar-width,
+    the collapsed state sets that same property from a class on <html>, and
+    the head script writes only --sidebar-width-stored — a *different*
+    property, so there is nothing left for the collapsed rule to beat.
+    clearInlineWidth(), applySavedWidth() and its tablet-breakpoint guard are
+    gone along with the inline styles they existed to manage."""
 
     def setUp(self):
         super().setUp()
         self.response = self.client.get("/dashboard/")
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
 
-    def test_collapsing_clears_both_inline_styles(self):
+    def test_the_two_properties_carry_the_width(self):
+        self.assertIn("--sidebar-width: var(--sidebar-width-stored, 260px);", self.css)
+        self.assertIn(":root.sidebar-collapsed { --sidebar-width: 48px; }", self.css)
+
+    def test_the_head_script_writes_only_the_stored_property(self):
         self.assertContains(
             self.response,
-            "function clearInlineWidth() {\n"
-            "        sidebar.style.width = '';\n"
-            "        main.style.marginLeft = '';\n"
-            "    }",
+            "root.style.setProperty('--sidebar-width-stored', stored + 'px');",
         )
+        self.assertNotContains(self.response, "setProperty('--sidebar-width'")
 
-    def test_toggle_and_breakpoint_listener_clear_or_restore(self):
-        # The same clear-or-restore pair must sit in both dynamic collapse
-        # paths: toggleSidebar() and the tabletBreakpoint change listener.
+    def test_no_javascript_writes_a_width_onto_an_element(self):
+        self.assertNotContains(self.response, "sidebar.style.width")
+        self.assertNotContains(self.response, "main.style.marginLeft")
+
+    def test_the_clearing_helpers_are_gone(self):
+        # Matched on the definitions and the calls, not the bare names: the
+        # JS comment still names both helpers, which is the point — someone
+        # grepping for #137's mechanism should land on why it went away.
+        self.assertNotContains(self.response, "function clearInlineWidth()")
+        self.assertNotContains(self.response, "function applySavedWidth()")
+        self.assertNotContains(self.response, "clearInlineWidth();")
+        self.assertNotContains(self.response, "applySavedWidth();")
+        self.assertNotContains(self.response, "if (tabletBreakpoint.matches) return;")
+
+    def test_toggling_writes_the_class_and_nothing_else(self):
         self.assertContains(
             self.response,
-            "if (collapsed) clearInlineWidth();\n        else applySavedWidth();",
-            count=2,
+            "const collapsed = root.classList.toggle('sidebar-collapsed');\n"
+            "        localStorage.setItem('sidebarCollapsed', collapsed);",
         )
 
-    def test_the_initial_collapsed_load_also_clears(self):
+
+class SidebarStateBeforeFirstPaintTest(DemoModeTestCase):
+    """#236: the collapsed flag and the dragged width were read from
+    localStorage by a script at the *bottom* of the page. The server always
+    rendered the sidebar expanded, so every dashboard load painted the 260px
+    default first and then corrected it — and because .sidebar and .main
+    carry 200ms width/margin transitions, the browser animated that
+    correction: a visible 260 → 48px slide with the day columns stretching
+    along behind it. A Zeitreise switch, which reloads the whole document,
+    made it happen often enough to read as "the page rebuilds itself".
+
+    The fix is paint order, not the transition: a value that is already
+    right at the first paint has nothing to transition from. Same
+    construction as _theme_preload.html, and for the same reason."""
+
+    def setUp(self):
+        super().setUp()
+        self.response = self.client.get(reverse("dashboard"))
+        self.html = self.response.content.decode()
+        self.css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_script_is_blocking_and_sits_in_the_head(self):
+        self.assertContains(self.response, "var root = document.documentElement;")
+        self.assertLess(
+            self.html.index("var root = document.documentElement;"),
+            self.html.index("</head>"),
+        )
+
+    def test_it_runs_right_after_the_theme_preload(self):
+        # Both decide an attribute on <html> before the first paint, and
+        # both are the only two scripts allowed to block the head.
+        base = (
+            Path(settings.BASE_DIR) / "projects/templates/projects/base_dashboard.html"
+        ).read_text()
+        self.assertIn(
+            "{% include 'projects/_theme_preload.html' %}\n"
+            "    {% include 'projects/_sidebar_preload.html' %}",
+            base,
+        )
+
+    def test_it_writes_the_class_and_the_property_onto_the_root_element(self):
+        self.assertContains(self.response, "root.classList.add('sidebar-collapsed');")
         self.assertContains(
             self.response,
-            "toggleBtn.textContent = '›';\n        clearInlineWidth();",
+            "root.style.setProperty('--sidebar-width-stored', stored + 'px');",
         )
 
-    def test_saved_width_is_never_restored_below_the_tablet_breakpoint(self):
-        self.assertContains(self.response, "if (tabletBreakpoint.matches) return;")
+    def test_a_stored_width_outside_the_drag_range_is_ignored(self):
+        # The drag clamps to 180-500; anything else — absent, unparseable,
+        # tampered with — has to leave the default standing, or an invalid
+        # value would take .sidebar's width down with it.
+        self.assertContains(self.response, "if (stored >= 180 && stored <= 500) {")
+
+    def test_the_breakpoint_is_decided_there_too(self):
+        # #25 held before this change as well, just one paint too late.
+        self.assertLess(
+            self.html.index("window.matchMedia('(max-width: 768px)').matches"),
+            self.html.index("</head>"),
+        )
+
+    def test_no_state_class_is_left_on_the_sidebar_or_main(self):
+        # The class has to be settable before either element exists, so it
+        # lives on :root. Any leftover .sidebar.collapsed / .main.sidebar-collapsed
+        # rule would be dead CSS that still reads as the live mechanism.
+        self.assertNotIn(".sidebar.collapsed", self.css)
+        self.assertNotIn(".main.sidebar-collapsed", self.css)
+        self.assertNotContains(self.response, "classList.add('collapsed')")
+        self.assertNotContains(self.response, "classList.toggle('collapsed'")
+
+    def test_the_width_transition_stays(self):
+        # Deliberately not removed: the 200ms slide is not the bug, the
+        # wrong starting value was. Suppressing the transition would hide
+        # the symptom and cost the animation on a real toggle.
+        self.assertIn("transition: width 0.2s ease;", self.css)
+        self.assertIn("transition: margin-left 0.2s ease;", self.css)
+
+    def test_the_collapse_arrow_is_drawn_by_css_not_flipped_by_js(self):
+        # The last piece of state the old script applied after the paint:
+        # the button rendered ‹ from the template and JS rewrote it to ›.
+        self.assertContains(
+            self.response,
+            '<button class="sidebar-toggle" id="sidebar-toggle" '
+            'title="Sidebar ein-/ausblenden" aria-label="Sidebar ein-/ausblenden">'
+            "</button>",
+        )
+        self.assertIn(".sidebar-toggle::before { content: '‹'; }", self.css)
+        self.assertIn(
+            ":root.sidebar-collapsed .sidebar-toggle::before { content: '›'; }",
+            self.css,
+        )
+        self.assertNotContains(self.response, "toggleBtn.textContent")
 
 
 class SidebarDefaultWidthTest(DemoModeTestCase):
@@ -207,11 +324,18 @@ class SidebarDefaultWidthTest(DemoModeTestCase):
     no longer matches .sidebar's width 1:1 — see SidebarFloatingTileTest."""
 
     def test_sidebar_and_main_agree_on_the_narrower_width(self):
+        # Since #236 the 260px is the fallback of --sidebar-width and .main
+        # derives its margin from that same property, so the two cannot
+        # disagree by construction rather than by matching numbers.
         css = (
             Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
         ).read_text()
-        self.assertIn(".sidebar {\n    width: 260px;", css)
-        self.assertIn(".main {\n    margin-left: 284px;", css)
+        self.assertIn("--sidebar-width: var(--sidebar-width-stored, 260px);", css)
+        self.assertIn(".sidebar {\n    width: var(--sidebar-width);", css)
+        self.assertIn(
+            ".main {\n    margin-left: calc(var(--sidebar-width) + var(--sidebar-gap));",
+            css,
+        )
 
 
 class SidebarFloatingTileTest(DemoModeTestCase):
@@ -240,8 +364,14 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         self.assertIn("top: 12px; left: 12px; bottom: 12px;", self.css)
 
     def test_main_margin_left_accounts_for_the_gap(self):
-        self.assertIn(".main {\n    margin-left: 284px;", self.css)
-        self.assertIn(".main.sidebar-collapsed { margin-left: 72px; }", self.css)
+        # 260 + 24 = 284 expanded, 48 + 24 = 72 collapsed — the same two
+        # numbers as before, now derived from the properties instead of
+        # written out twice (#236).
+        self.assertIn("--sidebar-gap: 24px;", self.css)
+        self.assertIn(
+            ".main {\n    margin-left: calc(var(--sidebar-width) + var(--sidebar-gap));",
+            self.css,
+        )
 
     def test_mobile_overlay_keeps_its_own_shadow_and_full_width(self):
         # Explicitly untouched by the floating-tile change (see plan on #96).
@@ -249,10 +379,15 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         self.assertIn("box-shadow: var(--shadow-medium);", self.css)
 
     def test_drag_resize_keeps_the_gap_offset(self):
+        # The drag writes the width property and .main's margin-left adds
+        # --sidebar-gap to it in CSS, so the offset can no longer be dropped
+        # by a code path that forgets it — SIDEBAR_GAP left the JS with it.
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
-            response, "main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';"
+            response,
+            "root.style.setProperty('--sidebar-width-stored', draggedWidth + 'px');",
         )
+        self.assertNotContains(response, "SIDEBAR_GAP")
 
     def test_mobile_launcher_shares_the_content_bodys_right_inset(self):
         # Production mode's "Aktualisieren" button (dashboard.html, inside
@@ -286,8 +421,10 @@ class SidebarFloatingTileTest(DemoModeTestCase):
         # condition. The base rule has to come first, or the override is
         # silently dead on every width, mobile included.
         self.assertLess(
-            self.css.index(".main {\n    margin-left: 284px;"),
-            self.css.index(".main, .main.sidebar-collapsed { margin-left: 0; }"),
+            self.css.index(
+                ".main {\n    margin-left: calc(var(--sidebar-width) + var(--sidebar-gap));"
+            ),
+            self.css.index(".main { margin-left: 0; }"),
         )
 
 
@@ -464,7 +601,7 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
 
     def test_collapsed_rail_hides_only_the_wordmark(self):
         self.assertIn(
-            ".sidebar.collapsed .sidebar-logo-text { display: none; }", self.css
+            ":root.sidebar-collapsed .sidebar-logo-text { display: none; }", self.css
         )
 
     def test_link_has_an_accessible_name_independent_of_collapse(self):

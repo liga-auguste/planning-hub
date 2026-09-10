@@ -9,6 +9,7 @@
     <link rel="icon" type="image/png" href="{% static 'projects/logo_weiss.png' %}" media="(prefers-color-scheme: dark)">
     <link rel="apple-touch-icon" href="{% static 'projects/logo_schwarz.png' %}">
     {% include 'projects/_theme_preload.html' %}
+    {% include 'projects/_sidebar_preload.html' %}
     <link href="{% static 'projects/css/bootstrap.min.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/base.css' %}" rel="stylesheet">
     <link href="{% static 'projects/css/dashboard.css' %}" rel="stylesheet">
@@ -20,7 +21,8 @@
 {% block body %}
 <div class="sidebar" id="sidebar">
     <div class="sidebar-resize" id="sidebar-resize"></div>
-    <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden">‹</button>
+    {# The ‹ / › glyph comes from .sidebar-toggle::before, so it is right at the first paint instead of being flipped by JS afterwards (#236) — hence the aria-label. #}
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Sidebar ein-/ausblenden" aria-label="Sidebar ein-/ausblenden"></button>
     {# Sibling of .sidebar-content, not inside it, so the collapsed rail keeps the icon mark (#95) — same constraint as .theme-toggle (#12). #}
     <a class="sidebar-header" href="{% url 'dashboard' %}" aria-label="Planning Hub – Dashboard">
         <img src="{% static 'projects/logo_schwarz.png' %}" alt="" class="logo-light">
@@ -48,68 +50,32 @@
 
 {% include 'projects/_cookie_banner.html' %}
 <script>
-const sidebar = document.getElementById('sidebar');
-const main = document.querySelector('.main');
 const toggleBtn = document.getElementById('sidebar-toggle');
 const toggleBtnMobile = document.getElementById('sidebar-toggle-mobile');
 const backdrop = document.getElementById('sidebar-backdrop');
 const handle = document.getElementById('sidebar-resize');
-// The sidebar floats 12px off the viewport edge with another 12px of space
-// before .main's content starts (#96) — .main's margin-left has to track
-// the sidebar's width plus this fixed gap, not the width alone.
-const SIDEBAR_GAP = 24;
+const root = document.documentElement;
+// The collapsed state and the stored drag width are already on <html> when
+// this runs — _sidebar_preload.html puts them there in <head>, before the
+// first paint (#236). Everything below is the live toggling only.
+//
+// Both live as CSS on :root: the class decides --sidebar-width, and the
+// three rules that used to hard-code 260/48/284/72px read that one property
+// (.sidebar, .main's margin-left, and the day columns in dashboard.html).
+// Nothing here writes a width onto an element any more, so #137's inline
+// styles — and the clearInlineWidth() / applySavedWidth() pair that had to
+// undo them on every collapse path — are gone rather than honoured.
 
-if (sidebar && main && toggleBtn) {
+if (toggleBtn) {
     const tabletBreakpoint = window.matchMedia('(max-width: 768px)');
-    const storedCollapsed = localStorage.getItem('sidebarCollapsed');
-    // Below the tablet breakpoint (768px, matching the rest of the app) the
-    // sidebar always starts collapsed, even if a prior desktop session
-    // stored an explicit "open" preference — arriving on a phone (e.g. from
-    // the landing page's demo link) with someone else's desktop choice
-    // claiming 320px of the screen defeats the point of the breakpoint (#25).
-    // A stored "closed" preference still applies on desktop as before.
-    const startCollapsed = tabletBreakpoint.matches || storedCollapsed === 'true';
-
-    // The resize handle stores its result as inline styles, and an inline
-    // style always beats a stylesheet rule — so every collapse path must
-    // clear them or .sidebar.collapsed's 48px rail can never apply (#137).
-    function clearInlineWidth() {
-        sidebar.style.width = '';
-        main.style.marginLeft = '';
-    }
-
-    // Counterpart for the expand paths. Never restores below the tablet
-    // breakpoint: there the sidebar is a fixed-width overlay and .main
-    // keeps margin-left 0, both of which a desktop drag width would beat.
-    function applySavedWidth() {
-        if (tabletBreakpoint.matches) return;
-        const savedWidth = localStorage.getItem('sidebarWidth');
-        if (savedWidth) {
-            sidebar.style.width = savedWidth + 'px';
-            main.style.marginLeft = (parseInt(savedWidth) + SIDEBAR_GAP) + 'px';
-        }
-    }
-
-    if (startCollapsed) {
-        sidebar.classList.add('collapsed');
-        main.classList.add('sidebar-collapsed');
-        toggleBtn.textContent = '›';
-        clearInlineWidth();
-    } else {
-        applySavedWidth();
-    }
 
     // Shared by the in-panel arrow, the mobile-only launcher button and the
     // backdrop tap: on mobile the sidebar is a full-screen overlay (see
     // dashboard.css), so opening/closing it is one toggle no matter which
     // control triggered it.
     function toggleSidebar() {
-        const collapsed = sidebar.classList.toggle('collapsed');
-        main.classList.toggle('sidebar-collapsed', collapsed);
-        toggleBtn.textContent = collapsed ? '›' : '‹';
+        const collapsed = root.classList.toggle('sidebar-collapsed');
         localStorage.setItem('sidebarCollapsed', collapsed);
-        if (collapsed) clearInlineWidth();
-        else applySavedWidth();
     }
 
     toggleBtn.addEventListener('click', toggleSidebar);
@@ -117,21 +83,17 @@ if (sidebar && main && toggleBtn) {
     if (backdrop) backdrop.addEventListener('click', toggleSidebar);
 
     // Fires only when the breakpoint is actually crossed, not on every
-    // resize pixel. Same rule as the initial state above: crossing into
-    // mobile always collapses it, crossing back out to desktop restores
-    // whatever was explicitly stored (or opens, if nothing was).
+    // resize pixel. Same rule as the head script's initial state: crossing
+    // into mobile always collapses it, crossing back out to desktop
+    // restores whatever was explicitly stored (or opens, if nothing was).
     tabletBreakpoint.addEventListener('change', (e) => {
         const collapsed = e.matches || localStorage.getItem('sidebarCollapsed') === 'true';
-        sidebar.classList.toggle('collapsed', collapsed);
-        main.classList.toggle('sidebar-collapsed', collapsed);
-        toggleBtn.textContent = collapsed ? '›' : '‹';
-        if (collapsed) clearInlineWidth();
-        else applySavedWidth();
+        root.classList.toggle('sidebar-collapsed', collapsed);
     });
 
     if (handle) {
         handle.addEventListener('mousedown', (e) => {
-            if (sidebar.classList.contains('collapsed')) return;
+            if (root.classList.contains('sidebar-collapsed')) return;
             handle.classList.add('dragging');
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
@@ -140,14 +102,17 @@ if (sidebar && main && toggleBtn) {
     }
 }
 
+// The drag writes the property, not the element: --sidebar-width-stored is
+// what the head script reads back on the next load, and the mobile block's
+// own width rule beats it there without needing a breakpoint guard here.
+let draggedWidth = null;
 function onMouseMove(e) {
-    const width = Math.max(180, Math.min(500, e.clientX));
-    sidebar.style.width = width + 'px';
-    main.style.marginLeft = (width + SIDEBAR_GAP) + 'px';
+    draggedWidth = Math.max(180, Math.min(500, e.clientX));
+    root.style.setProperty('--sidebar-width-stored', draggedWidth + 'px');
 }
 function onMouseUp() {
     handle.classList.remove('dragging');
-    localStorage.setItem('sidebarWidth', parseInt(sidebar.style.width));
+    if (draggedWidth !== null) localStorage.setItem('sidebarWidth', draggedWidth);
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
 }

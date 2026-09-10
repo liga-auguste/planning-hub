@@ -232,8 +232,10 @@
            (dashboard.css) — sensible for prose and task lists, but a
            7-column calendar grid benefits from the rest of a wide monitor
            instead of sitting inside that same cap. Breaking just this
-           element out needs the sidebar's own footprint (284px expanded /
-           72px collapsed, dashboard.css's .main / .main.sidebar-collapsed)
+           element out needs the sidebar's own footprint (its width plus the
+           fixed 24px gap, i.e. exactly .main's margin-left — both read the
+           same --sidebar-width / --sidebar-gap that dashboard.css defines
+           on :root, so this follows a collapse and a drag on its own)
            subtracted from 100vw, plus .main's own 48px left inset (measured,
            not itself a token anywhere — this rule doesn't move the grid's
            left edge, only how far right it's allowed to stretch) and a 20px
@@ -244,8 +246,7 @@
            with its own swipe-scroll sizing, so a viewport-based width here
            would only fight it. */
         @media (min-width: 769px) {
-            .day-columns { width: calc(100vw - 284px - 68px); max-width: none; }
-            .main.sidebar-collapsed .day-columns { width: calc(100vw - 72px - 68px); }
+            .day-columns { width: calc(100vw - var(--sidebar-width) - var(--sidebar-gap) - 68px); max-width: none; }
         }
         .day-task-card.sortable-ghost { opacity: 0.3; }
         .day-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

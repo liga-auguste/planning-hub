@@ -788,7 +788,11 @@ class WeekViewIsAListBelowTheBreakpointTest(DemoModeTestCase):
             "gap: 8px; overflow-x: auto; }",
             css,
         )
-        self.assertIn(".day-columns { width: calc(100vw - 284px - 68px);", css)
+        self.assertIn(
+            ".day-columns { width: calc(100vw - var(--sidebar-width) "
+            "- var(--sidebar-gap) - 68px);",
+            css,
+        )
 
 
 class TaskActionsMenuTest(DemoModeTestCase):
