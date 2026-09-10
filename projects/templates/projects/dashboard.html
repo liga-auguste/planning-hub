@@ -1047,14 +1047,68 @@ const preloadPromises = new Map();
 // last silently overwrites the other's write — one moment's cached summary
 // vanishes even though its own request reported ok:true. Routing every
 // session-writing fetch through this queue keeps them from ever overlapping.
-let sessionWriteQueue = Promise.resolve();
-function withSessionLock(fn) {
-    const run = sessionWriteQueue.then(fn, fn);
-    sessionWriteQueue = run.catch(() => {});
-    return run;
+//
+// #235: the queue keeps two lists instead of one promise chain. A click is
+// the only thing on screen the visitor is waiting for, so its work takes
+// the next free slot and the background preloads keep the ones behind it.
+// The serialisation itself is unchanged — one task at a time, always.
+const priorityQueue = [];
+const backgroundQueue = [];
+let sessionLockRunning = false;
+
+function withSessionLock(fn, {priority = false, key = null} = {}) {
+    return new Promise((resolve, reject) => {
+        (priority ? priorityQueue : backgroundQueue).push({fn, key, resolve, reject});
+        drainSessionQueue();
+    });
+}
+
+function drainSessionQueue() {
+    if (sessionLockRunning) return;
+    const entry = priorityQueue.shift() || backgroundQueue.shift();
+    if (!entry) return;
+    sessionLockRunning = true;
+    Promise.resolve().then(entry.fn).then(entry.resolve, entry.reject).finally(() => {
+        sessionLockRunning = false;
+        drainSessionQueue();
+    });
+}
+
+// Moves a task that is queued but has not started yet into the priority
+// list. preloadAll registers all four moments 800 ms after load, so any
+// click after that point finds its own moment already queued: inserting
+// new priority work would not help — that entry has to move forward.
+//
+// A task that is already running is not promoted, and is never aborted.
+// Aborting client-side does not stop Django from finishing the request and
+// saving its session snapshot, which is the clobbering this queue exists
+// to prevent. Waiting out that one call is the floor, and it is also what
+// keeps window.location.reload() — a document navigation, outside this
+// queue by construction — from firing into a session write still in
+// flight, which the reloaded dashboard would then write over.
+function promoteSessionTask(key) {
+    const index = backgroundQueue.findIndex(entry => entry.key === key);
+    if (index !== -1) priorityQueue.push(backgroundQueue.splice(index, 1)[0]);
+}
+
+// A click drops the preloads that have not started rather than deferring
+// them: the reload throws this page away regardless, preloadAll() starts
+// over 800 ms later, and precached_moments (views.py) keeps the preloads
+// that did finish from being paid for a second time. The clicked moment's
+// own entry is kept — it is the one thing the visitor is waiting for, and
+// preloadOne promotes it instead.
+function dropPendingPreloads(keepKey = null) {
+    for (let i = backgroundQueue.length - 1; i >= 0; i--) {
+        const entry = backgroundQueue[i];
+        if (entry.key !== null && entry.key === keepKey) continue;
+        backgroundQueue.splice(i, 1);
+        if (entry.key) preloadPromises.delete(entry.key);
+        entry.resolve();
+    }
 }
 
 async function setSimDate(dateStr, clickedBtn) {
+    dropPendingPreloads(dateStr);
     document.querySelectorAll('.moment-btn, .moment-btn-today').forEach(b => b.classList.remove('loading'));
     // The spinner used to live inside the clicked tile, but toggling its
     // display there changed the tile's height and made the whole row
@@ -1066,13 +1120,13 @@ async function setSimDate(dateStr, clickedBtn) {
         clickedBtn.querySelector('.moment-title') && (clickedBtn.querySelector('.moment-title').style.opacity = '0.7');
     }
     if (dateStr) {
-        await preloadOne(dateStr);
+        await preloadOne(dateStr, {priority: true});
     }
     await withSessionLock(() => fetch('/timelapse/', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
         body: JSON.stringify({date: dateStr})
-    }));
+    }), {priority: true});
     // The reload now usually lands on an already-cached summary (#93), so it
     // happens fast enough that the browser's blank-frame swap between the
     // old and new document reads as a flicker instead of a load. Chrome
@@ -1085,9 +1139,14 @@ async function setSimDate(dateStr, clickedBtn) {
     window.location.reload();
 }
 
-async function preloadOne(dateStr) {
+async function preloadOne(dateStr, {priority = false} = {}) {
     if (preloaded.has(dateStr)) return;
-    if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);
+    if (preloadPromises.has(dateStr)) {
+        // Registered by preloadAll and still waiting: a click has to move
+        // that entry forward, not queue a second one behind it.
+        if (priority) promoteSessionTask(dateStr);
+        return preloadPromises.get(dateStr);
+    }
     const promise = withSessionLock(async () => {
         if (preloaded.has(dateStr)) return;
         try {
@@ -1109,7 +1168,7 @@ async function preloadOne(dateStr) {
         } finally {
             preloadPromises.delete(dateStr);
         }
-    });
+    }, {priority, key: dateStr});
     preloadPromises.set(dateStr, promise);
     return promise;
 }

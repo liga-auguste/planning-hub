@@ -505,16 +505,15 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
     def test_sim_date_awaits_preload_before_reloading(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
-            response, "if (dateStr) {\n        await preloadOne(dateStr);\n    }"
+            response,
+            "if (dateStr) {\n        await preloadOne(dateStr, {priority: true});\n    }",
         )
 
     def test_preload_one_dedupes_concurrent_calls_for_the_same_date(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, "const preloadPromises = new Map();")
-        self.assertContains(
-            response,
-            "if (preloadPromises.has(dateStr)) return preloadPromises.get(dateStr);",
-        )
+        self.assertContains(response, "if (preloadPromises.has(dateStr)) {")
+        self.assertContains(response, "return preloadPromises.get(dateStr);")
 
     def test_preload_one_checks_json_ok_not_just_http_status(self):
         response = self.client.get(reverse("dashboard"))
@@ -526,9 +525,14 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
         preloadAll's Promise.all) raced and silently dropped each other's
         cached summary — reproduced by clearing all moment summaries and
         observing only some survive a fresh preloadAll(). withSessionLock
-        forces every session-writing fetch onto one queue."""
+        forces every session-writing fetch onto one queue.
+
+        #235 replaced the promise chain with an explicit queue, so this
+        asserts the flag that still lets exactly one task be in flight: the
+        serialisation is what has to survive, not the shape it had."""
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "let sessionWriteQueue = Promise.resolve();")
+        self.assertContains(response, "let sessionLockRunning = false;")
+        self.assertContains(response, "if (sessionLockRunning) return;")
         self.assertContains(response, "withSessionLock(() => fetch('/timelapse/', {")
         self.assertContains(response, "const promise = withSessionLock(async () => {")
 
@@ -588,6 +592,67 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
             response, ".timelapse-bar.loading .timelapse-spinner { display: block; }"
         )
         self.assertNotContains(response, '<div class="spinner"></div>')
+
+
+class TimelapseClickPriorityTest(DemoModeTestCase):
+    """#235: a click used to enter the session-write queue at the back, so
+    even an already-cached moment (green dot, no API call needed) waited for
+    every queued preload to finish first. Markup contract only — the queue's
+    runtime ordering gets a manual browser pass, the same boundary
+    TimelapsePreloadMarkupTest documents."""
+
+    def test_the_lock_keeps_two_lists_and_takes_the_priority_one_first(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "const priorityQueue = [];")
+        self.assertContains(response, "const backgroundQueue = [];")
+        self.assertContains(
+            response,
+            "const entry = priorityQueue.shift() || backgroundQueue.shift();",
+        )
+
+    def test_a_click_asks_for_priority_for_both_of_its_writes(self):
+        """The preload the click needs and the /timelapse/ POST that stores
+        the date. The POST is trivial — it writes one session key — but it
+        used to wait behind every remaining Claude call all the same."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "await preloadOne(dateStr, {priority: true});")
+        self.assertContains(response, "}), {priority: true});")
+
+    def test_a_click_drops_the_preloads_that_have_not_started(self):
+        """First statement of setSimDate, before the spinner. Deferring them
+        would be pointless work: the reload throws the page away and
+        preloadAll() starts over 800 ms later."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            "async function setSimDate(dateStr, clickedBtn) {\n"
+            "    dropPendingPreloads(dateStr);",
+        )
+        self.assertContains(response, "function dropPendingPreloads(keepKey = null) {")
+
+    def test_the_clicked_moment_is_promoted_rather_than_awaited_at_the_back(self):
+        """preloadAll registers all four moments 800 ms after load, and
+        preloadOne hands a second caller the promise it already registered.
+        Without promotion a click after that point gets the background
+        promise and waits at the back of the queue no matter what priority
+        it asked for — which is every click, not an edge case."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "if (priority) promoteSessionTask(dateStr);")
+        self.assertContains(response, "function promoteSessionTask(key) {")
+        self.assertContains(
+            response,
+            "if (index !== -1) priorityQueue.push(backgroundQueue.splice(index, 1)[0]);",
+        )
+
+    def test_an_in_flight_preload_is_never_aborted(self):
+        """The floor this issue requires: a click waits out the one call
+        already running. Aborting it client-side does not stop Django from
+        finishing the request and saving its session snapshot — that is the
+        clobbering the queue exists to prevent — and it would let
+        location.reload(), which sits outside the queue, fire into a session
+        write still in flight."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, "AbortController")
 
 
 class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
