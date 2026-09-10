@@ -18,6 +18,13 @@
     .back { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
     .back:hover { color: var(--color-text-primary); }
     .error-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+    /* #129: says that a new plan replaces the existing one. The neutral chip
+       surface, not .error-notice's red — nothing has gone wrong, this is a
+       statement about what the next click does. Same reasoning .demo-banner
+       carries (docs/demo-mode.md). */
+    .replace-notice { background: var(--color-bg-tertiary); color: var(--color-text-secondary); border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
+    .replace-notice a { color: inherit; text-decoration: underline; }
+    .replace-notice a:hover { color: var(--color-text-primary); }
     /* Bootstrap's .btn reads these; margin has no variable, so each step
        keeps its own margin-top rule. */
     .btn-primary {

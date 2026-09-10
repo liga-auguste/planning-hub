@@ -2118,3 +2118,34 @@ class SignalDotColorTest(DemoModeTestCase):
                 self.assertContains(
                     pages[name], ".task-date.today { color: var(--color-today); }"
                 )
+
+
+class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):
+    """A Django `{# … #}` comment is single-line only. Written across several
+    lines it is not a comment at all — the whole block renders as visible body
+    text, and nothing in the template language complains. It happened on
+    landing.html (#129) and reached a browser before anyone saw it: the tests
+    there asserted on the links, which were still correct.
+
+    `{#` in a rendered page is the reliable marker, since a leaked block keeps
+    its braces."""
+
+    def pages(self):
+        self.given_session_plan()
+        return {
+            "index": self.client.get(reverse("index")),
+            "dashboard": self.client.get(reverse("dashboard")),
+            "my_plan": self.client.get(reverse("my_plan")),
+            "planner_tiles": self.client.get(reverse("planner_start")),
+            "planner_describe": self.client.get(
+                reverse("planner_start") + "?type=konzert"
+            ),
+            "rules": self.client.get(reverse("rules_list")),
+            "impressum": self.client.get(reverse("impressum")),
+            "datenschutz": self.client.get(reverse("datenschutz")),
+        }
+
+    def test_no_page_leaks_an_unclosed_template_comment(self):
+        for name, response in self.pages().items():
+            with self.subTest(page=name):
+                self.assertNotContains(response, "{#")

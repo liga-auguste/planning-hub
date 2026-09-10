@@ -1307,3 +1307,96 @@ class PlannerCreateNotionFailureTest(TestCase):
             self.post_plan()
         self.assertIsNone(cache.get(CACHE_KEY))
         self.assertIsNone(cache.get(STALE_CACHE_KEY))
+
+
+class PlannerReplacesExistingPlanNoticeTest(DemoModeTestCase):
+    """#129 finding 3: planner_create writes session["demo_plan"]
+    unconditionally, so a second run silently replaced the first. The guard is
+    a notice at both ends of the flow — entry and review — not a block: the
+    visitor who wants exactly this must not pay an extra click for it."""
+
+    def review_page(self):
+        return self.client.post(
+            reverse("planner_review"),
+            data={
+                "description": "Konzert am 15. September 2026",
+                "answers": "keine weiteren Angaben",
+            },
+        )
+
+    def test_the_tile_step_names_the_plan_it_would_replace(self):
+        self.given_session_plan(name="Adventskonzert")
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, 'class="replace-notice"')
+        self.assertContains(response, "Adventskonzert")
+        self.assertContains(response, f'href="{reverse("my_plan")}"')
+
+    def test_the_describe_step_carries_the_same_notice(self):
+        self.given_session_plan(name="Adventskonzert")
+        response = self.client.get(reverse("planner_start") + "?type=konzert")
+        self.assertContains(response, 'class="replace-notice"')
+        self.assertContains(response, "Adventskonzert")
+
+    def test_the_tile_step_stays_quiet_without_a_plan(self):
+        response = self.client.get(reverse("planner_start"))
+        self.assertNotContains(response, 'class="replace-notice"')
+
+    def test_the_describe_step_stays_quiet_without_a_plan(self):
+        response = self.client.get(reverse("planner_start") + "?type=konzert")
+        self.assertNotContains(response, 'class="replace-notice"')
+
+    def test_the_review_step_names_the_plan_above_the_submit_button(self):
+        self.given_session_plan(name="Adventskonzert")
+        response = self.review_page()
+        self.assertContains(response, 'class="replace-notice"')
+        self.assertContains(response, "Adventskonzert")
+        markup = response.content.decode()
+        self.assertLess(
+            markup.index('class="replace-notice"'),
+            markup.index('class="review-actions"'),
+        )
+
+    def test_the_review_step_stays_quiet_without_a_plan(self):
+        response = self.review_page()
+        self.assertNotContains(response, 'class="replace-notice"')
+
+    def test_creating_still_replaces_the_plan(self):
+        """The guard is a notice, not a block — this locks in that the
+        behaviour did *not* change."""
+        self.given_session_plan(name="Adventskonzert")
+        self.client.post(
+            reverse("planner_create"),
+            data={
+                "description": "Sommerfest",
+                "project_name": "Sommerfest",
+                "event_date": (date.today() + timedelta(days=40)).isoformat(),
+                "task_name": ["Bühne bestellen"],
+                "task_date": [(date.today() + timedelta(days=10)).isoformat()],
+            },
+        )
+        self.assertEqual(self.client.session["demo_plan"]["name"], "Sommerfest")
+
+
+@override_settings(DEMO_MODE=False)
+class PlannerReplaceNoticeIsDemoOnlyTest(DemoModeTestCase):
+    """In production a second project is simply a second project — nothing is
+    replaced, so nothing may claim it is."""
+
+    def test_the_review_step_never_carries_the_notice(self):
+        # Production reads the Notion history here — stubbed, or this test
+        # reaches the real API on any machine that has a key (#215).
+        self.given_session_plan(name="Adventskonzert")
+        with patch("projects.planner_views.get_historical_projects", return_value=[]):
+            response = self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 15. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            )
+        self.assertNotContains(response, 'class="replace-notice"')
+
+    def test_the_tile_step_never_carries_the_notice(self):
+        self.given_session_plan(name="Adventskonzert")
+        response = self.client.get(reverse("planner_start"))
+        self.assertNotContains(response, 'class="replace-notice"')
