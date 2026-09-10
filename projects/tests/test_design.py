@@ -2140,6 +2140,13 @@ class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):
             "planner_describe": self.client.get(
                 reverse("planner_start") + "?type=konzert"
             ),
+            "planner_review": self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 15. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            ),
             "rules": self.client.get(reverse("rules_list")),
             "impressum": self.client.get(reverse("impressum")),
             "datenschutz": self.client.get(reverse("datenschutz")),
