@@ -780,7 +780,14 @@ def _strip_trailing_date(name):
 
 def index(request):
     if settings.DEMO_MODE:
-        return render(request, "projects/landing.html")
+        # plan_exists, not has_session_plan: the landing page shows no plan at
+        # all, so the question it asks is "does one exist" — the distinction
+        # docs/demo-mode.md draws between the two flags (#129).
+        return render(
+            request,
+            "projects/landing.html",
+            {"plan_exists": bool(request.session.get("demo_plan"))},
+        )
     return redirect("dashboard")
 
 
