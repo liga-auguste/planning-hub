@@ -173,6 +173,18 @@ class MyPlanDisplayNameTest(DemoModeTestCase):
         self.assertNotContains(response, "Adventskonzert 12.09.2026")
 
 
+class ReplaceNoticeDisplayNameTest(DemoModeTestCase):
+    """#129: the notice names the plan a new run would replace — through
+    _strip_trailing_date like every other place a plan name reaches a screen,
+    not the raw session value."""
+
+    def test_the_notice_shows_the_cleaned_name(self):
+        self.given_session_plan(name="Adventskonzert 12.09.2026")
+        response = self.client.get(reverse("planner_start"))
+        self.assertContains(response, "Adventskonzert")
+        self.assertNotContains(response, "Adventskonzert 12.09.2026")
+
+
 class DashboardDisplayNameStripsFullDateTest(TestCase):
     """#134: _strip_year only caught a bare trailing year, so a full date
     ("12.09.2026") survived into display_name on the production dashboard."""

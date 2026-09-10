@@ -138,6 +138,9 @@
                 {% endfor %}
             </tbody>
         </table>
+        {% if replaces_plan %}
+        <p class="replace-notice">Speichern ersetzt deinen bisherigen Plan <a href="{% url 'my_plan' %}">{{ replaces_plan }}</a>.</p>
+        {% endif %}
         <div class="review-actions">
             <button type="button" id="add-task-row" class="btn-add">+ Aufgabe hinzufügen</button>
             {% if demo_mode %}

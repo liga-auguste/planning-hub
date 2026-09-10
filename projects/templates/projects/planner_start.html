@@ -60,6 +60,9 @@
         <a href="{% url 'index' %}" class="back">← Startseite</a>
         <h1>Welche Art von Projekt?</h1>
         <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
+        {% if replaces_plan %}
+        <p class="replace-notice">Du hast bereits einen Plan: <a href="{% url 'my_plan' %}">{{ replaces_plan }}</a>. Ein neuer Plan ersetzt ihn.</p>
+        {% endif %}
         <div class="tiles">
             {% for tile in tiles %}
             {% if tile.custom %}
@@ -89,6 +92,9 @@
         <p class="subtitle">Beschreibe kurz das Projekt — Typ, Datum, Beteiligte.</p>
         {% if error %}
         <p class="error-notice">Die Klärungsfragen konnten gerade nicht erstellt werden. Deine Beschreibung ist erhalten geblieben — bitte versuche es gleich noch einmal.</p>
+        {% endif %}
+        {% if replaces_plan %}
+        <p class="replace-notice">Du hast bereits einen Plan: <a href="{% url 'my_plan' %}">{{ replaces_plan }}</a>. Ein neuer Plan ersetzt ihn.</p>
         {% endif %}
         <form method="post">
             {% csrf_token %}

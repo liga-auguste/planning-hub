@@ -23,7 +23,7 @@ from .notion import (
     get_historical_projects,
 )
 from .planner import generate_plan, get_clarifying_questions
-from .views import _bust_dashboard_cache, _parse_json_dict_body
+from .views import _bust_dashboard_cache, _parse_json_dict_body, _strip_trailing_date
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +201,17 @@ def _clear_planner_draft(request):
         request.session.pop(key, None)
 
 
+def _existing_plan_name(request):
+    """The plan a new run would replace, cleaned for display — None when there
+    is nothing to replace. Production has no session plan at all: a second
+    project there is simply a second project, so the notice never appears
+    (#129)."""
+    if not settings.DEMO_MODE:
+        return None
+    plan = request.session.get("demo_plan")
+    return _strip_trailing_date(plan["name"]) if plan else None
+
+
 def _step2_back_url(request):
     project_type = request.session.get("demo_project_type", "")
     return f"{reverse('planner_start')}?{urlencode({'type': project_type})}"
@@ -236,6 +247,7 @@ def planner_start(request):
                         "placeholder": _tile_placeholder(
                             request.session.get("demo_project_type", "")
                         ),
+                        "replaces_plan": _existing_plan_name(request),
                     },
                 )
             questions_html = md.markdown(questions)
@@ -273,6 +285,7 @@ def planner_start(request):
             "show_tiles": show_tiles,
             "tiles": tiles,
             "placeholder": _tile_placeholder(project_type),
+            "replaces_plan": _existing_plan_name(request),
         },
     )
 
@@ -353,7 +366,12 @@ def planner_review(request):
         return render(
             request,
             "projects/planner_review.html",
-            {**review_state, "kontexte": KONTEXTE, "demo_mode": settings.DEMO_MODE},
+            {
+                **review_state,
+                "kontexte": KONTEXTE,
+                "demo_mode": settings.DEMO_MODE,
+                "replaces_plan": _existing_plan_name(request),
+            },
         )
     review_state = request.session.get("planner_review_state")
     if review_state:
@@ -365,6 +383,7 @@ def planner_review(request):
                 "kontexte": KONTEXTE,
                 "demo_mode": settings.DEMO_MODE,
                 "redisplay": True,
+                "replaces_plan": _existing_plan_name(request),
             },
         )
     return redirect("planner_start")
