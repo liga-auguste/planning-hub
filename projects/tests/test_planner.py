@@ -1383,14 +1383,17 @@ class PlannerReplaceNoticeIsDemoOnlyTest(DemoModeTestCase):
     replaced, so nothing may claim it is."""
 
     def test_the_review_step_never_carries_the_notice(self):
+        # Production reads the Notion history here — stubbed, or this test
+        # reaches the real API on any machine that has a key (#215).
         self.given_session_plan(name="Adventskonzert")
-        response = self.client.post(
-            reverse("planner_review"),
-            data={
-                "description": "Konzert am 15. September 2026",
-                "answers": "keine weiteren Angaben",
-            },
-        )
+        with patch("projects.planner_views.get_historical_projects", return_value=[]):
+            response = self.client.post(
+                reverse("planner_review"),
+                data={
+                    "description": "Konzert am 15. September 2026",
+                    "answers": "keine weiteren Angaben",
+                },
+            )
         self.assertNotContains(response, 'class="replace-notice"')
 
     def test_the_tile_step_never_carries_the_notice(self):
