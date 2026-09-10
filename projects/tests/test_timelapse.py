@@ -950,3 +950,34 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
         response = self.dashboard()
         self.assertNotContains(response, 'class="toggle-form"')
         self.assertNotContains(response, "span.dot { cursor")
+
+    def test_the_menu_names_what_the_moment_took_out(self):
+        """Three ⋮ entries are dropped during a moment and were dropped
+        silently. One line replaces them, so the menu says the same thing the
+        dot does."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'class="task-menu-note"')
+        self.assertContains(
+            response,
+            "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb.",
+        )
+
+    def test_the_menu_note_is_absent_outside_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'class="task-menu-note"')
+
+    def test_the_menu_note_is_not_a_menu_item(self):
+        """Deliberately not .task-menu-item: the keyboard handler collects
+        exactly that class and openTaskMenuFor focuses the first it finds, so
+        a note carrying it would be a focusable menu entry that does nothing.
+        It also needs white-space: normal, because the items beside it are
+        nowrap and the sentence would stretch the menu to its own width."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="task-menu-note task-menu-item"')
+        self.assertNotContains(response, 'class="task-menu-item task-menu-note"')
+        self.assertContains(
+            response,
+            ".task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }",
+        )
