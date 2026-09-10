@@ -259,6 +259,50 @@ assertion is covered both ways — with a moment and without — and it matches 
 rendered `<input>`, not on the string `csrfmiddlewaretoken`, which every one of those JS
 lines also spells.
 
+## The Zeitreise write queue
+
+Every session-writing fetch on this page goes through `withSessionLock`
+(`dashboard.html`). Django saves the whole session dict on every response, not just the
+keys a request touched, so two `/timelapse/preload/` calls in flight at once each start
+from their own snapshot and the one that saves last silently overwrites the other's
+write — one moment's cached summary vanishes even though its own request reported
+`ok: true`. One task at a time is the rule, and it is not negotiable.
+
+What #235 changed is only *which* task goes next. The lock keeps two lists instead of one
+promise chain, and `drainSessionQueue()` takes `priorityQueue.shift() || backgroundQueue.shift()`.
+A click puts its work in the priority list; `preloadAll()`'s four background preloads stay
+in the other one. Before that, a click was appended to the tail of the chain like anything
+else, so clicking a moment whose green dot promised "generated and ready" still waited for
+up to three unrelated Claude calls to finish.
+
+Two details carry the fix:
+
+- **A queued preload is promoted, not queued behind.** `preloadOne` hands a second caller
+  the promise it already registered for that date, and `preloadAll()` has registered all
+  four moments 800 ms after load. Inserting fresh priority work would therefore change
+  nothing for any click later than that — the click has to move the existing entry into
+  the priority list, which is what `promoteSessionTask(key)` does.
+- **The preloads that have not started are dropped.** `setSimDate` calls
+  `dropPendingPreloads(dateStr)` as its first statement, keeping only the clicked
+  moment's own entry. Deferring the rest would be work for a page that is about to be
+  thrown away: the reload restarts `preloadAll()` 800 ms later, and `precached_moments`
+  (`views.py`) keeps the preloads that did finish from being paid for a second time.
+
+**An in-flight call is never aborted.** Aborting client-side does not stop Django from
+finishing the request and saving its session snapshot, so an abort would cause exactly the
+clobbering the queue exists to prevent. Waiting out that one call is the floor — and it is
+also what keeps `window.location.reload()`, a document navigation that sits outside the
+queue by construction, from firing while a session write is still in flight; the reloaded
+dashboard writes to the session too (it stores the generated summary on a cache miss), so
+one of the two summaries would be dropped and cost another Claude call to regenerate. The
+window is narrow — Django saves the session only when a request modified it, and
+`SESSION_SAVE_EVERY_REQUEST` is left at its default `False` — but it is real, and silent.
+
+This all rests on the switch still being a full reload. If that ever becomes a
+fetch-and-swap (#236's open follow-up), the swap fetch is itself a session write and has
+to go through the lock, and dropping pending preloads stops being safe unless the swap
+re-triggers `preloadAll()` against the fresh `precached_moments`.
+
 ## When a reload still happens
 
 | Action | Response | Client |
