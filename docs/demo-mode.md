@@ -189,6 +189,56 @@ active).
 usage-stats view linked from nowhere in the UI, so no sidebar click ever leads there — the
 "guides you through the app" rationale doesn't apply to a page nothing points at.
 
+This move also closed two of #129's four findings before they were worked on: `/mein-plan/`
+had no link back to `/dashboard/`, and it was missing the "Über dieses Projekt" overlay that
+`dashboard.html` carries. Both came free with `_sidebar_nav.html` and `_about_overlay.html`,
+and `SidebarNavOnStandalonePagesTest` covers them.
+
+## The landing page is session-aware (#129)
+
+`landing.html`'s CTAs used to be static: "Eigenes Projekt planen" always went to
+`planner_start`, "Mehrprojekt-Dashboard ansehen" always to `/dashboard/?mode=multi`. A visitor
+who had already run the planner therefore had no route from the landing page back to their own
+Übersicht — and the one offer that page did make replaces the plan they came back for.
+
+`index()` now passes `plan_exists` (`bool(request.session.get("demo_plan"))`), the same flag
+`dashboard()` computes. Deliberately not `has_session_plan`: the landing page shows no plan at
+all, so the only question it can ask is "does one exist", which is exactly the split the four
+navigation states above draw between the two.
+
+With a plan in session the desktop action row gains "Mein Dashboard →" as the primary entry and
+the planner link drops to secondary; the multi-project link is unchanged in both states. No new
+CSS: `.action`, `.action.primary` and `.seq-cta-btn` already exist, and `.actions` already has
+`flex-wrap` for the third button.
+
+Mobile has one fixed slot (`.seq-cta-btn`) for three destinations, so one always loses. With a
+plan it goes to the visitor's own dashboard, which costs the planner its landing-page entry
+there. That is the cheap direction: the sidebar on the dashboard carries both the planner
+("Projekt selbst planen") and the multi-project view, so every destination stays one click away
+— which is not true if the CTA keeps pointing at the planner instead.
+
+## A second plan replaces the first, and says so (#129)
+
+`planner_create()` writes `request.session["demo_plan"]` unconditionally. It still does — the
+demo has one dashboard slot, and a second session key plus a restore path costs more than it
+buys. What changed is that the overwrite is no longer silent.
+
+`planner_views._existing_plan_name(request)` returns the session plan's name through
+`_strip_trailing_date` (the same cleaning every other surface applies), or `None` when there is
+nothing to replace. In production it always returns `None`: `planner_create` writes to Notion
+there, where a second project is simply a second project and nothing is being replaced.
+
+The notice appears at both ends of the flow — the entry step (`planner_start.html`, both the
+tile grid and the describe form) and the review step, directly above `.review-actions`. Step 2
+(`planner_questions.html`) deliberately carries none: "at both ends" means on entry and
+immediately before submitting, and a third copy in between would be nagging rather than
+informing. It is not a confirm checkbox either, which would cost an extra click even for the
+visitor who wants exactly this.
+
+`.replace-notice` sits on the neutral chip surface (`--color-bg-tertiary` /
+`--color-text-secondary`), not `.error-notice`'s red — nothing has gone wrong, this is a
+statement about what the next click does. Same reasoning `.demo-banner` carries below.
+
 ## The sidebar's project list, not just its links (#185)
 
 The above covered the nav *links* (Dashboard/Heute/Plan als Liste/Woche abschließen). The
@@ -318,6 +368,11 @@ Manual click-through, fresh session:
    `?mode=multi`.
 6. `/planner/?type=konzert` → rules link → "← Planer" returns to `/planner/?type=konzert`, not
    the empty tile step.
+7. Back to `/` with that plan still in session → three buttons, "Mein Dashboard" primary
+   (mobile: the fixed CTA reads "Mein Dashboard").
+8. "Eigenes Projekt planen" → the tile step names the existing plan and links to
+   `/mein-plan/` → run the planner → the notice sits above "Zum Dashboard →" → submit → the
+   old plan is gone and the new one is on the dashboard.
 
 `DEMO_MODE=false python manage.py runserver` — no regression: the production sidebar branch
 still shows "↻ Sync mit Notion" / "+ Neue Veranstaltung", now via `{% url %}` instead of a

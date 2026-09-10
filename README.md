@@ -138,7 +138,7 @@ A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
 - **8h caching with stale fallback** — Notion API responses cached in a shared database backend; a never-expiring last-known-good copy keeps the dashboard usable during outages; manual refresh button. In demo mode the multi-project summary is cached for the day, and the session plan's summaries per simulated moment
-- **DEMO_MODE** — runs on fixture data, no Notion credentials needed. Navigation between the visitor's own plan and the example projects is documented in [`docs/demo-mode.md`](docs/demo-mode.md)
+- **DEMO_MODE** — runs on fixture data, no Notion credentials needed. Navigation between the visitor's own plan and the example projects — including the session-aware landing page and the notice that a second plan replaces the first — is documented in [`docs/demo-mode.md`](docs/demo-mode.md)
 
 ---
 

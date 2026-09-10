@@ -18,25 +18,26 @@ test was added, renamed or removed.
 |---|---:|---:|---|
 | `base.py` | 2 | 0 | Shared fixtures. Not collected — see below |
 | `test_config.py` | 22 | 52 | Deployment, settings, environment, error pages, health check |
-| `test_design.py` | 29 | 97 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
-| `test_sidebar.py` | 24 | 92 | Nav, project list, progress rings, behaviour across viewports and views |
-| `test_planner.py` | 31 | 94 | The four-step planner flow and the plan-generating calls behind it |
-| `test_dashboard.py` | 22 | 53 | The dashboard read path: what renders, in which column, from which cache |
-| `test_dashboard_writes.py` | 26 | 134 | Toggle and reschedule: what they persist, answer and leave in the cache |
-| `test_week_view.py` | 12 | 73 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 14 | 60 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_design.py` | 46 | 185 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
+| `test_sidebar.py` | 25 | 101 | Nav, project list, progress rings, behaviour across viewports and views |
+| `test_planner.py` | 33 | 103 | The four-step planner flow and the plan-generating calls behind it |
+| `test_dashboard.py` | 23 | 55 | The dashboard read path: what renders, in which column, from which cache |
+| `test_dashboard_writes.py` | 36 | 196 | Toggle and reschedule: what they persist, answer and leave in the cache |
+| `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
+| `test_timelapse.py` | 16 | 73 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 5 | 8 | `/mein-plan/` |
-| `test_summary.py` | 12 | 52 | The AI weekly summary: prompt, parsing, resolution, caches |
-| `test_closeout.py` | 9 | 34 | Wochenabschluss: the ritual, its two backends, its summary |
-| `test_notion.py` | 9 | 28 | `notion.py` directly, against a mocked API |
+| `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
+| `test_summary.py` | 16 | 65 | The AI weekly summary: prompt, parsing, resolution, caches |
+| `test_closeout.py` | 10 | 51 | Wochenabschluss: the ritual, its two backends, its summary |
+| `test_notion.py` | 15 | 53 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
-| `test_naming.py` | 11 | 40 | Display names and date formatting — what something is *called* on screen |
-| **total** | **235** | **868** | |
+| `test_naming.py` | 13 | 48 | Display names and date formatting — what something is *called* on screen |
+| **total** | **283** | **1126** | |
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
 page a footer, sidebar or design test renders. And demo mode is a *mode*, not a subject —
-130 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
+164 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
 forming one. Four subjects the list did not name got their own module instead
 (`test_config`, `test_design`, `test_summary`, `test_naming`); folding them into the
 nearest neighbour would have made `test_dashboard.py` the new dumping ground.
