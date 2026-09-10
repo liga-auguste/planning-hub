@@ -852,3 +852,101 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
         deliberate choice, not luck."""
         self.given_active_moment()
         self.assertContains(self.dashboard(), "Simulierter Zeitpunkt", count=1)
+
+    def test_a_locked_dot_has_a_notice_to_answer_with(self):
+        response = self.given_active_moment() and self.dashboard()
+        self.assertContains(response, 'id="sim-lock-notice"')
+        self.assertContains(
+            response, "Im simulierten Zeitpunkt lässt sich nichts abhaken."
+        )
+
+    def test_the_notice_starts_hidden(self):
+        """It answers a click, so it must not be on the page before one."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), 'class="sim-lock-notice" role="status" hidden'
+        )
+
+    def test_no_notice_element_without_a_moment(self):
+        """Which is what lets the delegated handler treat every span.dot on
+        the page as a locked dot: outside a moment there is no element and no
+        listener at all."""
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'id="sim-lock-notice"')
+
+    def test_the_notice_offers_the_way_back_to_today(self):
+        """ "Heute anzeigen", not "Zurück zu heute": the banner's short label
+        is pinned page-wide by a design test, and the Zeitreise tile beside
+        it is already "Heute"."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'onclick="setSimDate(null)">Heute anzeigen<')
+        self.assertNotContains(response, ">Zurück zu heute<")
+
+    def test_the_notice_answers_every_attempt_not_only_the_first(self):
+        """A visitor who tries again two minutes later deserves the same
+        answer, so the timer restarts rather than an "already shown" flag
+        being set."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "clearTimeout(simLockTimer);")
+
+    def test_the_notice_dismisses_itself(self):
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), "setTimeout(hideSimLockNotice, SIM_LOCK_NOTICE_MS)"
+        )
+
+    def test_the_notice_is_placed_against_the_dot_that_was_clicked(self):
+        """Not at the top of the page: it answers where the visitor was
+        looking. All four dot surfaces are covered by one delegated listener."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, "dot.getBoundingClientRect()")
+        self.assertContains(response, "e.target.closest('span.dot')")
+
+    def test_the_notice_leaves_when_the_page_scrolls(self):
+        """Fixed coordinates are written once, on show — the same reason the
+        actions menu closes on scroll rather than following. Capturing,
+        because the day columns and the board scroll inside the page."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(),
+            "window.addEventListener('scroll', hideSimLockNotice, true)",
+        )
+
+    def test_the_notice_never_hides_behind_an_open_menu(self):
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response, ".sim-lock-notice { position: fixed; z-index: 40;"
+        )
+        self.assertContains(
+            response, ".task-menu-items { position: fixed; z-index: 30;"
+        )
+
+    def test_the_notice_obeys_its_hidden_attribute(self):
+        """display: flex otherwise beats the UA rule for [hidden] — the same
+        answer .task-menu-items[hidden] already needed."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), ".sim-lock-notice[hidden] { display: none; }"
+        )
+
+    def test_the_notice_inherits_the_banner_tokens(self):
+        """No new tokens: the surface is borrowed from the Zeitreise banner,
+        so the answer and the state it explains read as one thing."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response,
+            "background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px;",
+        )
+
+    def test_the_dot_gains_no_affordance(self):
+        """The explanation is added, the affordance is not given back (#217).
+        The span is a click target and still not a control: cursor, border
+        and :hover stay on button.dot alone."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="toggle-form"')
+        self.assertNotContains(response, "span.dot { cursor")
