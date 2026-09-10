@@ -18,7 +18,7 @@ test was added, renamed or removed.
 |---|---:|---:|---|
 | `base.py` | 2 | 0 | Shared fixtures. Not collected — see below |
 | `test_config.py` | 22 | 52 | Deployment, settings, environment, error pages, health check |
-| `test_design.py` | 46 | 185 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
+| `test_design.py` | 47 | 186 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
 | `test_sidebar.py` | 25 | 101 | Nav, project list, progress rings, behaviour across viewports and views |
 | `test_planner.py` | 33 | 103 | The four-step planner flow and the plan-generating calls behind it |
 | `test_dashboard.py` | 23 | 55 | The dashboard read path: what renders, in which column, from which cache |
@@ -32,12 +32,12 @@ test was added, renamed or removed.
 | `test_notion.py` | 15 | 53 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 48 | Display names and date formatting — what something is *called* on screen |
-| **total** | **283** | **1126** | |
+| **total** | **284** | **1127** | |
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
 page a footer, sidebar or design test renders. And demo mode is a *mode*, not a subject —
-164 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
+165 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
 forming one. Four subjects the list did not name got their own module instead
 (`test_config`, `test_design`, `test_summary`, `test_naming`); folding them into the
 nearest neighbour would have made `test_dashboard.py` the new dumping ground.

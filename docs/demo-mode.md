@@ -239,6 +239,12 @@ visitor who wants exactly this.
 `--color-text-secondary`), not `.error-notice`'s red — nothing has gone wrong, this is a
 statement about what the next click does. Same reasoning `.demo-banner` carries below.
 
+Both changes were clicked through in a running demo session, light and dark, including two
+full planner runs that ended with the second plan actually replacing the first. That pass is
+also what caught a bug no test could: a Django `{# … #}` comment is single-line only, so the
+two multiline comments added to `landing.html` here rendered as visible body text.
+`TemplateCommentsNeverReachThePageTest` now sweeps the rendered public pages for `{#`.
+
 ## The sidebar's project list, not just its links (#185)
 
 The above covered the nav *links* (Dashboard/Heute/Plan als Liste/Woche abschließen). The
