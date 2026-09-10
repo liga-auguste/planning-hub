@@ -1337,6 +1337,16 @@ class PlannerReplacesExistingPlanNoticeTest(DemoModeTestCase):
         self.assertContains(response, 'class="replace-notice"')
         self.assertContains(response, "Adventskonzert")
 
+    def test_a_nameless_plan_is_not_named(self):
+        """planner_create stores project_name unchecked, so a direct POST
+        with both fields empty leaves "name": "". The three templates guard
+        on the falsy value, so nothing renders — pinned here because the
+        alternative is an empty <a> in the middle of its own sentence, and
+        nothing else says the guard is load-bearing."""
+        self.given_session_plan(name="")
+        response = self.client.get(reverse("planner_start"))
+        self.assertNotContains(response, 'class="replace-notice"')
+
     def test_the_tile_step_stays_quiet_without_a_plan(self):
         response = self.client.get(reverse("planner_start"))
         self.assertNotContains(response, 'class="replace-notice"')
