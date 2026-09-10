@@ -1,5 +1,25 @@
+:root {
+    /* The sidebar's width is one number three rules depend on: the panel
+       itself, .main's margin-left (the width plus the fixed gap, #96) and
+       the day columns' 100vw-based width in dashboard.html. It lives here
+       so all three read the same value, and so _sidebar_preload.html can
+       set a stored drag width in <head>, before the first paint (#236).
+
+       Two properties rather than one, on purpose: the head script writes
+       only --sidebar-width-stored, and it writes it inline on <html>. An
+       inline style beats any stylesheet rule, so a stored width written
+       onto --sidebar-width itself would beat the collapsed rail below —
+       which is exactly the inline-style fight #137 had to keep clearing by
+       hand on every collapse path. Against a different property there is
+       nothing left to clear. */
+    --sidebar-width: var(--sidebar-width-stored, 260px);
+    --sidebar-gap: 24px;
+}
+/* The state class sits on <html>, not on .sidebar: it has to be set before
+   the first paint, and in <head> neither .sidebar nor .main exists yet. */
+:root.sidebar-collapsed { --sidebar-width: 48px; }
 .sidebar {
-    width: 260px;
+    width: var(--sidebar-width);
     background: var(--color-bg-primary);
     border-radius: 12px;
     box-shadow: var(--shadow-medium);
@@ -10,8 +30,7 @@
     overflow-x: hidden;
     transition: width 0.2s ease;
 }
-.sidebar.collapsed { width: 48px; }
-.sidebar.collapsed .sidebar-content { display: none; }
+:root.sidebar-collapsed .sidebar-content { display: none; }
 .sidebar-header {
     display: flex;
     align-items: center;
@@ -32,12 +51,12 @@
     white-space: nowrap;
 }
 /* Collapsed, the arrow moves to the rail's horizontal center (see
-   .sidebar.collapsed .sidebar-toggle below) right where the icon mark
+   :root.sidebar-collapsed .sidebar-toggle below) right where the icon mark
    would sit — the top padding pushes the mark below it instead of
    letting the two stack: the arrow's box ends at 48px (top: 28 + 20px
    height), so 24px sidebar padding + 32px keeps an 8px gap. */
-.sidebar.collapsed .sidebar-header { padding: 32px 0 14px; justify-content: center; }
-.sidebar.collapsed .sidebar-logo-text { display: none; }
+:root.sidebar-collapsed .sidebar-header { padding: 32px 0 14px; justify-content: center; }
+:root.sidebar-collapsed .sidebar-logo-text { display: none; }
 /* #183 follow-up: shared here (not dashboard.html's own extra_css) because
    _sidebar_nav.html is now included from my_plan.html, close_week_start.html
    and week_review.html too — each of those overrides extra_css with its own
@@ -75,7 +94,7 @@
     left: 50%;
     transform: translateX(-50%);
 }
-.sidebar.collapsed .theme-toggle { flex-direction: column; bottom: 8px; }
+:root.sidebar-collapsed .theme-toggle { flex-direction: column; bottom: 8px; }
 .sidebar-resize {
     position: absolute;
     top: 0; right: 0;
@@ -83,7 +102,7 @@
     height: 100%;
     cursor: col-resize;
 }
-.sidebar.collapsed .sidebar-resize { display: none; }
+:root.sidebar-collapsed .sidebar-resize { display: none; }
 .sidebar-toggle {
     position: absolute;
     /* Shares the sidebar header's center axis (#95): the 28px logo starts
@@ -96,7 +115,13 @@
     line-height: 1; z-index: 10;
 }
 .sidebar-toggle:hover { color: var(--color-text-primary); }
-.sidebar.collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
+/* The glyph is content, not markup: the button used to render ‹ from the
+   template and have JS flip it to › after the paint, which is the same
+   after-the-fact correction as the width (#236). The button carries an
+   aria-label, so nothing depends on the generated character. */
+.sidebar-toggle::before { content: '‹'; }
+:root.sidebar-collapsed .sidebar-toggle::before { content: '›'; }
+:root.sidebar-collapsed .sidebar-toggle { right: 50%; transform: translateX(50%); }
 .sidebar-backdrop { display: none; }
 .sidebar-toggle-mobile { display: none; }
 /* Declared here, before the @media block below, on purpose: its
@@ -105,31 +130,34 @@
    condition or not. Moving this after the @media block silently breaks
    the mobile override even though its own text stays untouched. */
 .main {
-    margin-left: 284px;
+    margin-left: calc(var(--sidebar-width) + var(--sidebar-gap));
     max-width: 920px;
     transition: margin-left 0.2s ease;
     flex: 1; display: flex; flex-direction: column;
 }
-.main.sidebar-collapsed { margin-left: 72px; }
 /* Below the tablet breakpoint the sidebar becomes a full-screen overlay
    instead of squeezing to a 48px rail: it slides in on a transform and the
    content underneath never reflows. The in-panel arrow above already
    works as its close button once the panel is open — it just needs an
    always-reachable launcher for opening it, since that arrow leaves the
    screen along with the panel it lives inside once collapsed. The scrim
-   and launcher react to `.collapsed` purely via CSS sibling selectors, so
-   the existing toggle JS (further down this file) needs no mobile-specific
-   branch of its own. */
+   and launcher react to the collapsed state purely in CSS, so the toggle
+   JS (base_dashboard.html) needs no mobile-specific branch of its own.
+
+   The state class moved from .sidebar to :root (#236), so what used to be
+   a sibling selector is a descendant one now — the specificity is the same
+   (0,2,0) either way, which is what keeps these overrides winning by
+   cascade order the way the comment above .main describes. */
 @media (max-width: 768px) {
-    .sidebar, .sidebar.collapsed {
-        /* Not the desktop's fixed 260px, and not a flat vw share either
-           (62.5vw swallowed the screen, barely any backdrop left): scale
-           with the viewport on narrow phones, but cap at 320px so larger
-           phones read as a proper drawer with visible dimmed backdrop
-           rather than nearly full-bleed. */
-        width: min(85vw, 320px);
-    }
     .sidebar {
+        /* Not the desktop's --sidebar-width, and not a flat vw share
+           either (62.5vw swallowed the screen, barely any backdrop left):
+           scale with the viewport on narrow phones, but cap at 320px so
+           larger phones read as a proper drawer with visible dimmed
+           backdrop rather than nearly full-bleed. One declaration covers
+           both states — collapsed here means slid off-screen, not narrow,
+           so a stored desktop drag width cannot reach the overlay. */
+        width: min(85vw, 320px);
         top: 0; left: 0; bottom: 0;
         border-radius: 0;
         transform: translateX(-100%);
@@ -137,13 +165,13 @@
         box-shadow: var(--shadow-medium);
         z-index: 1001;
     }
-    .sidebar:not(.collapsed) { transform: translateX(0); }
-    .sidebar.collapsed .sidebar-content { display: block; }
+    :root:not(.sidebar-collapsed) .sidebar { transform: translateX(0); }
+    :root.sidebar-collapsed .sidebar-content { display: block; }
     /* Mobile "collapsed" means slid off-screen, not a 48px rail — undo
        the rail-specific recentering (and the hidden wordmark) so the
        header doesn't visibly jump during the slide-out transition. */
-    .sidebar.collapsed .sidebar-header { padding: 0 40px 14px 16px; justify-content: flex-start; }
-    .sidebar.collapsed .sidebar-logo-text { display: inline; }
+    :root.sidebar-collapsed .sidebar-header { padding: 0 40px 14px 16px; justify-content: flex-start; }
+    :root.sidebar-collapsed .sidebar-logo-text { display: inline; }
     /* The ‹ collapse arrow (.sidebar-toggle) and the theme toggle are both
        position: absolute within .sidebar, which is what scrolls (see
        overflow-y: auto above) — so they stay pinned over the visible box
@@ -177,7 +205,7 @@
         padding: 12px 20px;
     }
     .sidebar-resize { display: none; }
-    .main, .main.sidebar-collapsed { margin-left: 0; }
+    .main { margin-left: 0; }
     .sidebar-toggle-mobile {
         /* top: 26px was originally derived from the content-area wordmark
            row's center axis; #95 moved the logo into the sidebar, so this
@@ -196,7 +224,7 @@
         cursor: pointer;
         box-shadow: var(--shadow-low);
     }
-    .sidebar.collapsed ~ .sidebar-toggle-mobile { display: flex; }
+    :root.sidebar-collapsed .sidebar-toggle-mobile { display: flex; }
     .sidebar-backdrop {
         display: block;
         position: fixed; inset: 0;
@@ -206,7 +234,7 @@
         pointer-events: none;
         transition: opacity 0.25s ease;
     }
-    .sidebar:not(.collapsed) ~ .sidebar-backdrop {
+    :root:not(.sidebar-collapsed) .sidebar-backdrop {
         opacity: 1;
         pointer-events: auto;
     }

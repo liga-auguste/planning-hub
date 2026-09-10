@@ -1,0 +1,38 @@
+<script>
+(function () {
+    /* The sidebar's collapsed state and its dragged width live in
+       localStorage, and they used to be applied by the script at the bottom
+       of base_dashboard.html: the browser painted the server's expanded
+       260px default first, then JS corrected it — and .sidebar's own
+       `transition: width 0.2s ease` turned that correction into a visible
+       200ms slide. That slide is what read as the layout "re-stretching" on
+       every dashboard load, and a Zeitreise switch, which reloads the whole
+       document, made it happen often enough to notice (#236).
+
+       Same construction as _theme_preload.html: blocking, in <head>, and
+       writing on document.documentElement — .sidebar and .main do not exist
+       yet at this point, so whatever is decided here has to land on <html>.
+       A value that is already right at the first paint has nothing to
+       transition from, so the transition itself needs no suppressing. */
+    var root = document.documentElement;
+    /* Only --sidebar-width-stored is written here, never --sidebar-width
+       itself: this is an inline style, and an inline style beats any
+       stylesheet rule — writing the width directly would let a stored drag
+       width beat the collapsed rail (dashboard.css). */
+    var stored = parseInt(localStorage.getItem('sidebarWidth'), 10);
+    /* The same 180-500 range the drag handle clamps to. Anything else —
+       absent, unparseable, out of range — leaves the 260px default, and
+       NaN fails both comparisons. */
+    if (stored >= 180 && stored <= 500) {
+        root.style.setProperty('--sidebar-width-stored', stored + 'px');
+    }
+    /* Below the tablet breakpoint the sidebar always starts collapsed, even
+       over an explicit "open" preference from a prior desktop session (#25).
+       matchMedia is readable here, so that rule now holds before the first
+       paint instead of being applied after it. */
+    if (window.matchMedia('(max-width: 768px)').matches
+        || localStorage.getItem('sidebarCollapsed') === 'true') {
+        root.classList.add('sidebar-collapsed');
+    }
+})();
+</script>

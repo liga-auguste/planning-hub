@@ -56,6 +56,56 @@ for its dark theme.
 notice needed a light background for its status color, which the base 17 tokens
 didn't name.
 
+## Layout properties
+
+Not colours, but the same mechanism and the same reason: one name for a number several
+rules depend on. Both live on `:root` in `dashboard.css` (#236).
+
+```css
+:root {
+    --sidebar-width: var(--sidebar-width-stored, 260px);
+    --sidebar-gap: 24px;
+}
+:root.sidebar-collapsed { --sidebar-width: 48px; }
+```
+
+| Property | Use |
+|---|---|
+| `--sidebar-width` | The sidebar's own width, and the basis of every rule that has to keep clear of it |
+| `--sidebar-gap` | The fixed 24px between the floating sidebar and the content (#96): 12px viewport inset + 12px breathing room |
+
+Three rules read them, and before #236 all three carried the numbers by hand — 260px and
+48px in `dashboard.css`, 284px and 72px again for `.main`'s `margin-left`, and 284/72
+a third time in `dashboard.html`'s day-column width:
+
+- `.sidebar { width: var(--sidebar-width) }`
+- `.main { margin-left: calc(var(--sidebar-width) + var(--sidebar-gap)) }`
+- `.day-columns { width: calc(100vw - var(--sidebar-width) - var(--sidebar-gap) - 68px) }`
+  (`dashboard.html`) — the easiest of the three to forget, and the most visible when it
+  lags behind the other two
+
+### Why the stored width is a second property
+
+`--sidebar-width-stored` is written by `_sidebar_preload.html`, a blocking script in
+`<head>` that reads the drag width out of `localStorage` before the first paint. It writes
+it **inline on `<html>`**, and an inline style beats any stylesheet rule.
+
+That is precisely why it must not write `--sidebar-width` itself: the inline value would
+beat `:root.sidebar-collapsed { --sidebar-width: 48px }`, and the collapsed rail would
+never apply after a drag. That fight is [#137](https://github.com/liga-auguste/planning-hub/issues/137),
+which used to be answered by clearing the inline styles by hand on every collapse path.
+Against a *different* property there is nothing to clear: the stored width only ever acts
+as the default's fallback, and the collapsed rule overrides the property that is actually
+consumed. `clearInlineWidth()` and `applySavedWidth()` are gone rather than honoured in
+one more place.
+
+The state itself is a class on `:root` for the same before-the-first-paint reason: in
+`<head>`, neither `.sidebar` nor `.main` exists yet. Every rule that used to read
+`.sidebar.collapsed` or `.main.sidebar-collapsed` now reads `:root.sidebar-collapsed`,
+including the ones inside the mobile block — converting one half of a pair and not the
+other would change its specificity and silently kill the override that cascade order,
+not specificity, was deciding.
+
 ## Rule
 
 **No new hex literals in templates.** If a color isn't one of the tokens above, either
