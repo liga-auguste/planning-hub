@@ -305,7 +305,15 @@ So the toggle is not offered while a moment is on. `_task_dot.html` renders the 
 plain `<span>` instead of the `<form>`/`<button>` — the status colour stays, the
 affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
 projects already get. Rescheduling stays: a new date visibly moves the task in or out of
-the forced-done range, so it is not the same contradiction. Full reasoning in
+the forced-done range, so it is not the same contradiction.
+
+Removing the affordance was correct and silent. The moment also takes three ⋮ entries with
+it — "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" — so a visitor had four
+write paths vanish and no word about any of them. Since #244 the page explains it three
+times over: the banner names the consequence ("— hier lässt sich nichts abhaken"), a click
+on a locked dot gets a short self-dismissing notice beside that dot with a way back to
+today, and the menu says in one line which entries the moment removed. The protection
+itself is unchanged. Full reasoning in
 [`docs/dashboard-write-paths.md`](dashboard-write-paths.md).
 
 ### The Zeitreise stays a dashboard device

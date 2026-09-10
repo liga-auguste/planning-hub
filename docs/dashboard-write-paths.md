@@ -235,6 +235,40 @@ arrives anyway gets the honest miss rather than a silent one.
 Rescheduling stays available: a new date visibly moves the task in or out of the
 forced-done range, so it is not the contradiction the toggle is.
 
+### What the page says about it
+
+Refusing correctly is only half of it. Until #244 the moment removed four write paths —
+the dot, and the ⋮ menu's "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" —
+and named none of them, so a visitor who clicked the way they had just learned to got no
+refusal, no hint and no cursor change on the way in. The protection is unchanged; three
+places now say what it costs:
+
+| Where | What it says | Reaches |
+|---|---|---|
+| `_status_banners.html` | "⏱ Simulierter Zeitpunkt: … — hier lässt sich nichts abhaken." | everyone, including a visitor who never clicks |
+| `#sim-lock-notice` (`dashboard.html`) | "Im simulierten Zeitpunkt lässt sich nichts abhaken." plus "Heute anzeigen" | the visitor who actually clicked a locked dot |
+| `.task-menu-note` (`_task_actions_menu.html`) | "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb." | the visitor who opens the menu instead |
+
+The banner names the toggle alone so the row stays on one line down to a small phone;
+rename and trash are named by the menu note, which is where a visitor finds them at all.
+Both new texts spell the moment inflected and lowercase ("Im simulierten Zeitpunkt"), so
+#153's rule that the simulated date is named exactly once still holds against the banner's
+own label.
+
+The notice is one element, moved to whichever dot was clicked by a listener delegated on
+`document` — the same reason `applyTaskDone` keeps one selector list rather than four call
+sites, and what covers all four dot surfaces without `_task_dot.html` gaining anything.
+During a moment every `span.dot` on the page is a locked dot, and the element only exists
+during a moment at all. It lives in `dashboard.html` beside the page-owned
+`{% csrf_token %}`, not in `_status_banners.html`, because that partial is included twice
+and an `id=` in it would inherit which include happened to render. Every attempt is
+answered, not only the first per moment: the 5s timer restarts rather than an
+"already shown" flag being set.
+
+A `<span>` is not focusable, so a keyboard visitor never triggers the click notice. Making
+it focusable would hand back the affordance #217 removed — that path is served by the
+banner and the menu note, both reachable. Noted rather than fixed.
+
 ### The page owns its CSRF token
 
 Removing the toggle forms removed something else with them. Every JavaScript write on
@@ -420,3 +454,12 @@ with its urgency, the unchanged behaviour with no moment active, the reschedule 
 deliberately stays, and the page's own CSRF token — present under a moment, and rendered
 ahead of the toggle forms without one, so it cannot go back to being a side effect of
 whichever form happens to render.
+
+`AMomentSaysWhatItLocksTest`, in the same module, carries what the page *says*: the
+banner's consequence clause and its absence without a moment, #153's one-date rule
+re-asserted against the new copy, the notice element (present only in a moment, hidden
+until a click, tokens borrowed from the banner, above the menu's `z-index`, obeying its own
+`[hidden]`, placed against the clicked dot, leaving on scroll, restarting rather than
+flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the
+dot gaining no affordance back, and the menu note — present in a moment, absent outside
+one, and deliberately not a `.task-menu-item` the keyboard handler would focus.

@@ -5,7 +5,14 @@ way back to today is structurally impossible (#50).
 {% endcomment %}
 {% if sim_date %}
 <div class="sim-banner">
-    <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
+    {% comment %}
+    The banner names the consequence, not only the state (#244). Naming
+    the toggle alone is deliberate: it is what a visitor tries first, and
+    it keeps the row to one line down to a small phone. Rename and trash
+    are named by the ⋮ menu's note, which is where a visitor finds them
+    at all.
+    {% endcomment %}
+    <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong> — hier lässt sich nichts abhaken.</span>
     {% comment %}
     "Zurück", not "Zurück zu heute": the banner beside it already names the
     simulated date, so the short form loses no meaning and buys the row

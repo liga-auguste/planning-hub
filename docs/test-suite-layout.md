@@ -16,15 +16,15 @@ test was added, renamed or removed.
 
 | Module | Classes | Tests | Subject |
 |---|---:|---:|---|
-| `base.py` | 2 | 0 | Shared fixtures. Not collected — see below |
+| `base.py` | 3 | 0 | Shared fixtures. Not collected — see below |
 | `test_config.py` | 22 | 52 | Deployment, settings, environment, error pages, health check |
 | `test_design.py` | 47 | 186 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
 | `test_sidebar.py` | 25 | 101 | Nav, project list, progress rings, behaviour across viewports and views |
-| `test_planner.py` | 33 | 103 | The four-step planner flow and the plan-generating calls behind it |
+| `test_planner.py` | 33 | 104 | The four-step planner flow and the plan-generating calls behind it |
 | `test_dashboard.py` | 23 | 55 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 36 | 196 | Toggle and reschedule: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 16 | 73 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_timelapse.py` | 18 | 91 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 5 | 8 | `/mein-plan/` |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
 | `test_summary.py` | 16 | 65 | The AI weekly summary: prompt, parsing, resolution, caches |
@@ -32,12 +32,12 @@ test was added, renamed or removed.
 | `test_notion.py` | 15 | 53 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 48 | Display names and date formatting — what something is *called* on screen |
-| **total** | **284** | **1127** | |
+| **total** | **289** | **1146** | |
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
 page a footer, sidebar or design test renders. And demo mode is a *mode*, not a subject —
-165 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
+166 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
 forming one. Four subjects the list did not name got their own module instead
 (`test_config`, `test_design`, `test_summary`, `test_naming`); folding them into the
 nearest neighbour would have made `test_dashboard.py` the new dumping ground.
@@ -49,10 +49,11 @@ belongs in `test_naming.py`, because the dashboard is only how it got there.
 ## Why `base.py` is not called `test_base.py`
 
 unittest discovers files matching `test*.py`. `base.py` does not match, so it is imported
-but never collected — which is the only reason its two classes can be imported into
+but never collected — which is the only reason its three classes can be imported into
 fifteen modules safely:
 
-- `DemoModeTestCase` (with `AI_STUBS`) — a `TestCase` with no test method of its own
+- `AiStubMixin` (with `AI_STUBS`) — not a `TestCase` at all
+- `DemoModeTestCase` — a `TestCase` with no test method of its own
 - `PlannerStepsMixin` — not a `TestCase` at all
 
 A *concrete* test class could not be shared this way. unittest collects every `TestCase`
@@ -62,6 +63,12 @@ importing module, and the same test would run fifteen times.
 `base.py` holds a fixture only when more than one module uses it. Everything used by a
 single module — `_sidebar_group`, `_wcag_contrast`, `_cached_task`, `_fake_task_page` —
 stays next to the class that uses it. A shared module is for what is actually shared.
+
+Two classes in one module share fixtures the same way, in that module — `MomentFixtureMixin`
+in `test_timelapse.py` holds the moment fixtures `NoToggleDuringAMomentTest` and
+`AMomentSaysWhatItLocksTest` both need. A mixin rather than a shared base class, for the
+same reason: it is not a `TestCase`, so unittest collects it nowhere, and the counts above
+count it as a class with no tests of its own.
 
 ## Why `__init__.py` is not optional
 

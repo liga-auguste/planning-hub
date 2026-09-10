@@ -37,6 +37,19 @@ project_id — the Heute view.
 <span class="task-menu">
     <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen" title="Aktionen">⋮</button>
     <div class="task-menu-items" role="menu" hidden>
+        {% comment %}
+        #244: the three entries below that a moment removes were removed
+        silently. One line names them instead — the same answer the dot gives,
+        in the other place a visitor goes looking.
+
+        A moment never coincides with the example projects: sim_date is only
+        read inside dashboard()'s has_session_plan branch, and viewing_demo_data
+        is its opposite. So "Datum ändern" is always present beside this note
+        and the menu is never the note alone.
+        {% endcomment %}
+        {% if sim_date %}
+        <div class="task-menu-note">Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb.</div>
+        {% endif %}
         {% if not sim_date %}
         <button type="button" role="menuitem" class="task-menu-item" data-action="toggle">{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}</button>
         {% endif %}

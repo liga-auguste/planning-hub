@@ -170,6 +170,14 @@
            [hidden] { display: none } outright, so the closed menu would
            render open on every row. The state has to be stated here. */
         .task-menu-items[hidden] { display: none; }
+        /* #244: what the moment took out of this menu, said instead of
+           dropped silently. Deliberately not .task-menu-item — the keyboard
+           handler collects exactly that class and openTaskMenuFor focuses
+           the first it finds, so a note carrying it would be a focusable
+           entry that does nothing. white-space: normal is required because
+           the items beside it are nowrap: without it the sentence stretches
+           the menu to its own single-line width. */
+        .task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }
         .task-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: none; border: none; text-align: left; font-size: 12px; color: var(--color-text-primary); padding: 8px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
         /* The same › the AI summary's project links wear — in this codebase
            it already means "this can be activated", not "a submenu follows".
@@ -320,6 +328,16 @@
         .sim-banner span { flex: 1 1 200px; }
         .sim-banner-reset { margin-left: auto; white-space: nowrap; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
         .sim-banner-reset:hover { opacity: 1; }
+        /* The answer borrows the banner's surface rather than inventing one,
+           so the explanation and the state it explains read as one thing.
+           [hidden] is not decoration: display: flex otherwise beats the UA
+           rule, the same answer .task-menu-items[hidden] already needed.
+           z-index clears the actions menu's 30, so the answer never lands
+           behind an open menu. */
+        .sim-lock-notice { position: fixed; z-index: 40; display: flex; align-items: center; gap: 10px; max-width: 280px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px; font-size: 12px; box-shadow: var(--shadow-medium); }
+        .sim-lock-notice[hidden] { display: none; }
+        .sim-lock-notice-reset { color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; white-space: nowrap; padding: 0; }
+        .sim-lock-notice-reset:hover { opacity: 1; }
         .demo-banner { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px 10px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
         /* Flex-wrap alone breaks the row too early: the line-wrap decision is
            made against the text's full, unbroken single-line width, not the
@@ -513,6 +531,28 @@
     of which forms this render happens to contain.
     {% endcomment %}
     {% csrf_token %}
+    {% comment %}
+    #244: the answer to a click on a locked dot. It lives here rather than in
+    _status_banners.html for the same reason the token above does — that
+    partial is included twice, and an id= placed in it would inherit which
+    include happened to render.
+
+    One element, moved to whichever dot was clicked, the same reason
+    applyTaskDone keeps one selector list rather than four call sites: the
+    dot renders from four surfaces. role="status" makes it a live region, so
+    the answer reaches a screen reader too.
+
+    Keyboard reach is deliberately not solved here: a <span> is not
+    focusable, and making it focusable would hand back the affordance #217
+    removed. A keyboard visitor is served by the banner and the menu note,
+    both reachable.
+    {% endcomment %}
+    {% if sim_date %}
+    <div id="sim-lock-notice" class="sim-lock-notice" role="status" hidden>
+        <span>Im simulierten Zeitpunkt lässt sich nichts abhaken.</span>
+        <button type="button" class="sim-lock-notice-reset" onclick="setSimDate(null)">Heute anzeigen</button>
+    </div>
+    {% endif %}
     <div id="view-overview">
         {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
@@ -1023,6 +1063,59 @@ function applyRescheduleFigures(taskId, newDate, data) {
 function flashActionFailed(el) {
     el.classList.add('action-failed');
     setTimeout(() => el.classList.remove('action-failed'), 1500);
+}
+
+// #244: the dot stays a <span> and stays without an affordance (#217). What
+// was missing is the answer to the click a visitor makes anyway. One element,
+// moved to whichever dot was clicked — the same reason applyTaskDone keeps one
+// selector list rather than four call sites.
+const SIM_LOCK_NOTICE_MS = 5000;
+const simLockNotice = document.getElementById('sim-lock-notice');
+let simLockTimer = null;
+
+function hideSimLockNotice() {
+    clearTimeout(simLockTimer);
+    simLockTimer = null;
+    if (simLockNotice) simLockNotice.hidden = true;
+}
+
+function armSimLockNotice() {
+    // Every attempt is answered, not only the first per moment: the timer
+    // restarts rather than an "already shown" flag being set.
+    clearTimeout(simLockTimer);
+    simLockTimer = setTimeout(hideSimLockNotice, SIM_LOCK_NOTICE_MS);
+}
+
+function showSimLockNotice(dot) {
+    const rect = dot.getBoundingClientRect();
+    simLockNotice.hidden = false;
+    // Measured after unhiding, like the actions menu: a hidden element's
+    // offsets are 0 and the notice would land at the viewport edge.
+    const fitsBelow = rect.bottom + 6 + simLockNotice.offsetHeight + 8 <= window.innerHeight;
+    simLockNotice.style.top = `${fitsBelow ? rect.bottom + 6 : Math.max(8, rect.top - simLockNotice.offsetHeight - 6)}px`;
+    simLockNotice.style.left = `${Math.min(Math.max(8, rect.left), window.innerWidth - simLockNotice.offsetWidth - 8)}px`;
+    armSimLockNotice();
+}
+
+if (simLockNotice) {
+    // Delegated on document rather than bound per dot: that is what covers all
+    // four dot surfaces without _task_dot.html gaining anything. During a
+    // moment every span.dot on the page is a locked dot, and this element only
+    // exists during one in the first place.
+    document.addEventListener('click', (e) => {
+        const dot = e.target.closest('span.dot');
+        if (dot) showSimLockNotice(dot);
+        else if (!e.target.closest('#sim-lock-notice')) hideSimLockNotice();
+    });
+    // Fixed coordinates are written once, on show — the same reason the actions
+    // menu closes on scroll rather than following. Capturing, because the day
+    // columns and the board scroll inside the page.
+    window.addEventListener('scroll', hideSimLockNotice, true);
+    window.addEventListener('resize', hideSimLockNotice);
+    // A notice that vanishes while the pointer is on its way to "Heute
+    // anzeigen" takes the way back with it.
+    simLockNotice.addEventListener('pointerenter', () => clearTimeout(simLockTimer));
+    simLockNotice.addEventListener('pointerleave', armSimLockNotice);
 }
 </script>
 <script>

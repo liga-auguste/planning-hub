@@ -681,19 +681,11 @@ class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
         self.assertNotContains(response, 'class="timelapse-bar"')
 
 
-class NoToggleDuringAMomentTest(DemoModeTestCase):
-    """#217: dashboard() renders a moment by forcing every task due by
-    sim_date to done on a deep copy — that is what a moment *is*. A toggle
-    therefore persisted into the session and changed nothing the visitor
-    could see: the clicked dot un-struck itself while the Kanban card, the
-    week bar, the day counters and the sidebar ring all still read it as
-    done, and a reload put the strike-through back. A visitor cannot tell
-    "nothing happened" from "it happened and you cannot see it", so the
-    interaction goes while the moment is on — the same rule that keeps
-    rescheduling to where it persists (#10 §5), applied to visibility.
-    """
-
-    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
+class MomentFixtureMixin:
+    """The two-task moment fixture, shared by the classes that need a moment
+    to be active. A mixin rather than a base class, and not named test*, so
+    unittest collects it nowhere — the same reason base.py is not
+    test_base.py."""
 
     def given_two_tasks_around_a_moment(self):
         """A moment with one task due before it (forced done) and one after
@@ -724,6 +716,21 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
         session["demo_sim_date"] = moment.isoformat()
         session.save()
         return moment
+
+
+class NoToggleDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
+    """#217: dashboard() renders a moment by forcing every task due by
+    sim_date to done on a deep copy — that is what a moment *is*. A toggle
+    therefore persisted into the session and changed nothing the visitor
+    could see: the clicked dot un-struck itself while the Kanban card, the
+    week bar, the day counters and the sidebar ring all still read it as
+    done, and a reload put the strike-through back. A visitor cannot tell
+    "nothing happened" from "it happened and you cannot see it", so the
+    interaction goes while the moment is on — the same rule that keeps
+    rescheduling to where it persists (#10 §5), applied to visibility.
+    """
+
+    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
 
     def post_toggle(self, task_id, done=True):
         return self.client.post(
@@ -815,3 +822,162 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
             content_type="application/json",
         )
         self.assertEqual(moved.status_code, 200)
+
+
+class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
+    """#244: #217 took the write affordances out of a moment and said nothing
+    about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor
+    who clicks gets no refusal, no hint and no cursor change on the way in. The
+    write protection stays exactly as #217 built it; what is added is the
+    explanation, in the three places a visitor looks: the banner, the dot that
+    was clicked, and the menu that dropped the entries."""
+
+    CONSEQUENCE = "hier lässt sich nichts abhaken"
+
+    def dashboard(self):
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_banner_names_the_consequence_not_only_the_date(self):
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), self.CONSEQUENCE)
+
+    def test_the_banner_says_nothing_extra_without_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), self.CONSEQUENCE)
+
+    def test_the_simulated_date_is_still_named_exactly_once(self):
+        """#153's one-date rule, re-asserted against the new copy. The notice
+        and the menu note spell it inflected and lowercase ("Im simulierten
+        Zeitpunkt"), so neither collides with the banner's own label — a
+        deliberate choice, not luck."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "Simulierter Zeitpunkt", count=1)
+
+    def test_a_locked_dot_has_a_notice_to_answer_with(self):
+        response = self.given_active_moment() and self.dashboard()
+        self.assertContains(response, 'id="sim-lock-notice"')
+        self.assertContains(
+            response, "Im simulierten Zeitpunkt lässt sich nichts abhaken."
+        )
+
+    def test_the_notice_starts_hidden(self):
+        """It answers a click, so it must not be on the page before one."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), 'class="sim-lock-notice" role="status" hidden'
+        )
+
+    def test_no_notice_element_without_a_moment(self):
+        """Which is what lets the delegated handler treat every span.dot on
+        the page as a locked dot: outside a moment there is no element and no
+        listener at all."""
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'id="sim-lock-notice"')
+
+    def test_the_notice_offers_the_way_back_to_today(self):
+        """ "Heute anzeigen", not "Zurück zu heute": the banner's short label
+        is pinned page-wide by a design test, and the Zeitreise tile beside
+        it is already "Heute"."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'onclick="setSimDate(null)">Heute anzeigen<')
+        self.assertNotContains(response, ">Zurück zu heute<")
+
+    def test_the_notice_answers_every_attempt_not_only_the_first(self):
+        """A visitor who tries again two minutes later deserves the same
+        answer, so the timer restarts rather than an "already shown" flag
+        being set."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "clearTimeout(simLockTimer);")
+
+    def test_the_notice_dismisses_itself(self):
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), "setTimeout(hideSimLockNotice, SIM_LOCK_NOTICE_MS)"
+        )
+
+    def test_the_notice_is_placed_against_the_dot_that_was_clicked(self):
+        """Not at the top of the page: it answers where the visitor was
+        looking. All four dot surfaces are covered by one delegated listener."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, "dot.getBoundingClientRect()")
+        self.assertContains(response, "e.target.closest('span.dot')")
+
+    def test_the_notice_leaves_when_the_page_scrolls(self):
+        """Fixed coordinates are written once, on show — the same reason the
+        actions menu closes on scroll rather than following. Capturing,
+        because the day columns and the board scroll inside the page."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(),
+            "window.addEventListener('scroll', hideSimLockNotice, true)",
+        )
+
+    def test_the_notice_never_hides_behind_an_open_menu(self):
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response, ".sim-lock-notice { position: fixed; z-index: 40;"
+        )
+        self.assertContains(
+            response, ".task-menu-items { position: fixed; z-index: 30;"
+        )
+
+    def test_the_notice_obeys_its_hidden_attribute(self):
+        """display: flex otherwise beats the UA rule for [hidden] — the same
+        answer .task-menu-items[hidden] already needed."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), ".sim-lock-notice[hidden] { display: none; }"
+        )
+
+    def test_the_notice_inherits_the_banner_tokens(self):
+        """No new tokens: the surface is borrowed from the Zeitreise banner,
+        so the answer and the state it explains read as one thing."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response,
+            "background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px;",
+        )
+
+    def test_the_dot_gains_no_affordance(self):
+        """The explanation is added, the affordance is not given back (#217).
+        The span is a click target and still not a control: cursor, border
+        and :hover stay on button.dot alone."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="toggle-form"')
+        self.assertNotContains(response, "span.dot { cursor")
+
+    def test_the_menu_names_what_the_moment_took_out(self):
+        """Three ⋮ entries are dropped during a moment and were dropped
+        silently. One line replaces them, so the menu says the same thing the
+        dot does."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'class="task-menu-note"')
+        self.assertContains(
+            response,
+            "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb.",
+        )
+
+    def test_the_menu_note_is_absent_outside_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'class="task-menu-note"')
+
+    def test_the_menu_note_is_not_a_menu_item(self):
+        """Deliberately not .task-menu-item: the keyboard handler collects
+        exactly that class and openTaskMenuFor focuses the first it finds, so
+        a note carrying it would be a focusable menu entry that does nothing.
+        It also needs white-space: normal, because the items beside it are
+        nowrap and the sentence would stretch the menu to its own width."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="task-menu-note task-menu-item"')
+        self.assertNotContains(response, 'class="task-menu-item task-menu-note"')
+        self.assertContains(
+            response,
+            ".task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }",
+        )
