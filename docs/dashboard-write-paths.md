@@ -272,11 +272,18 @@ answered, not only the first per moment: the 5s timer restarts rather than an
 A `<span>` is not focusable, so a keyboard visitor never triggers the click notice. Making
 it focusable would hand back the affordance #217 removed, so that is not the answer
 either. What is left for them is the menu note, reached by tabbing to the ⋮ trigger — and
-that is thinner than it was while the banner still carried the clause, because
-`.task-menu-note` is a plain `<div>` inside `role="menu"`, which a screen reader in menu
-mode may skip entirely. Noted rather than fixed, and named here so the gap is not
-rediscovered from scratch: the fix is a role or an `aria-describedby` on
-`.task-menu-items`, not putting the sentence back in the banner.
+that is thinner than it looks, because `.task-menu-note` is a plain `<div>` inside
+`role="menu"`, which a screen reader in menu mode may skip entirely.
+
+That is a decision, not a loose end. The whole row this section is about — a demo session
+under a Zeitreise moment — exists only in demo mode: `sim_date` is read in one place,
+inside `dashboard()`'s `DEMO_MODE` branch and only for a visitor's own session plan, so
+production never renders a locked dot, a notice or a menu note at all. The gap is
+therefore bounded by a feature that is a showcase of the planner, not a work surface
+anyone depends on. Written down rather than fixed, with the shape a fix would take if the
+Zeitreise ever became something more than that: a role or an `aria-describedby` on
+`.task-menu-items`. Putting the sentence back in the banner is not it — that trade was
+already made and reversed.
 
 ### The page owns its CSRF token
 
