@@ -544,8 +544,12 @@
 
     Keyboard reach is deliberately not solved here: a <span> is not
     focusable, and making it focusable would hand back the affordance #217
-    removed. A keyboard visitor is served by the banner and the menu note,
-    both reachable.
+    removed. What is left for a keyboard visitor is the ⋮ menu's note,
+    reached by tabbing to the trigger — thinner than it looks, since that
+    note is a plain <div> inside role="menu". The banner is not the answer
+    either: it named the consequence for one release and that turned a line
+    which is on screen the whole time into a standing warning. See
+    docs/dashboard-write-paths.md for the shape a fix would take.
     {% endcomment %}
     {% if sim_date %}
     <div id="sim-lock-notice" class="sim-lock-notice" role="status" hidden>

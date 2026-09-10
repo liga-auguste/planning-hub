@@ -829,7 +829,7 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
     about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor
     who clicks gets no refusal, no hint and no cursor change on the way in. The
     write protection stays exactly as #217 built it; what is added is the
-    explanation, in the three places a visitor looks: the banner, the dot that
+    explanation, in the two places a visitor reaches for a write: the dot that
     was clicked, and the menu that dropped the entries."""
 
     CONSEQUENCE = "hier lässt sich nichts abhaken"
@@ -837,13 +837,16 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
     def dashboard(self):
         return self.client.get(reverse("dashboard"))
 
-    def test_the_banner_names_the_consequence_not_only_the_date(self):
+    def test_the_banner_names_the_state_and_stops_there(self):
+        """The banner carried the consequence for one release and it was one
+        sentence too many: it is on screen the whole time a moment is on, so
+        it announced a refusal to every visitor including the ones who never
+        try to check anything off. The answer belongs where the attempt is
+        made — pinned here so the clause does not drift back in."""
         self.given_active_moment()
-        self.assertContains(self.dashboard(), self.CONSEQUENCE)
-
-    def test_the_banner_says_nothing_extra_without_a_moment(self):
-        self.given_two_tasks_around_a_moment()
-        self.assertNotContains(self.dashboard(), self.CONSEQUENCE)
+        response = self.dashboard()
+        self.assertContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, self.CONSEQUENCE)
 
     def test_the_simulated_date_is_still_named_exactly_once(self):
         """#153's one-date rule, re-asserted against the new copy. The notice

@@ -24,7 +24,7 @@ test was added, renamed or removed.
 | `test_dashboard.py` | 23 | 55 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 36 | 196 | Toggle and reschedule: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 18 | 91 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_timelapse.py` | 18 | 90 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 5 | 8 | `/mein-plan/` |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
 | `test_summary.py` | 16 | 65 | The AI weekly summary: prompt, parsing, resolution, caches |
@@ -32,7 +32,7 @@ test was added, renamed or removed.
 | `test_notion.py` | 15 | 53 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 48 | Display names and date formatting — what something is *called* on screen |
-| **total** | **289** | **1146** | |
+| **total** | **289** | **1145** | |
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
