@@ -240,20 +240,24 @@ forced-done range, so it is not the contradiction the toggle is.
 Refusing correctly is only half of it. Until #244 the moment removed four write paths —
 the dot, and the ⋮ menu's "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" —
 and named none of them, so a visitor who clicked the way they had just learned to got no
-refusal, no hint and no cursor change on the way in. The protection is unchanged; three
-places now say what it costs:
+refusal, no hint and no cursor change on the way in. The protection is unchanged; the
+explanation is added where the attempt is made:
 
 | Where | What it says | Reaches |
 |---|---|---|
-| `_status_banners.html` | "⏱ Simulierter Zeitpunkt: … — hier lässt sich nichts abhaken." | everyone, including a visitor who never clicks |
 | `#sim-lock-notice` (`dashboard.html`) | "Im simulierten Zeitpunkt lässt sich nichts abhaken." plus "Heute anzeigen" | the visitor who actually clicked a locked dot |
 | `.task-menu-note` (`_task_actions_menu.html`) | "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb." | the visitor who opens the menu instead |
 
-The banner names the toggle alone so the row stays on one line down to a small phone;
-rename and trash are named by the menu note, which is where a visitor finds them at all.
-Both new texts spell the moment inflected and lowercase ("Im simulierten Zeitpunkt"), so
-#153's rule that the simulated date is named exactly once still holds against the banner's
-own label.
+The banner is deliberately not a third row in that table. #244 shipped with one — it
+named the consequence too ("⏱ Simulierter Zeitpunkt: … — hier lässt sich nichts
+abhaken.") on the grounds that it reaches everyone, including a visitor who never
+clicks. That is exactly what was wrong with it: the banner is on screen the whole time a
+moment is on, so the clause announced a refusal continuously, to every visitor, most of
+whom were never going to reach for a write. An answer that arrives before the question
+is noise, and it made the banner a warning rather than a label. The banner names the
+state; the two surfaces above answer the attempt. Both spell the moment inflected and
+lowercase ("Im simulierten Zeitpunkt"), so #153's rule that the simulated date is named
+exactly once still holds against the banner's own label.
 
 The notice is one element, moved to whichever dot was clicked by a listener delegated on
 `document` — the same reason `applyTaskDone` keeps one selector list rather than four call
@@ -266,8 +270,20 @@ answered, not only the first per moment: the 5s timer restarts rather than an
 "already shown" flag being set.
 
 A `<span>` is not focusable, so a keyboard visitor never triggers the click notice. Making
-it focusable would hand back the affordance #217 removed — that path is served by the
-banner and the menu note, both reachable. Noted rather than fixed.
+it focusable would hand back the affordance #217 removed, so that is not the answer
+either. What is left for them is the menu note, reached by tabbing to the ⋮ trigger — and
+that is thinner than it looks, because `.task-menu-note` is a plain `<div>` inside
+`role="menu"`, which a screen reader in menu mode may skip entirely.
+
+That is a decision, not a loose end. The whole row this section is about — a demo session
+under a Zeitreise moment — exists only in demo mode: `sim_date` is read in one place,
+inside `dashboard()`'s `DEMO_MODE` branch and only for a visitor's own session plan, so
+production never renders a locked dot, a notice or a menu note at all. The gap is
+therefore bounded by a feature that is a showcase of the planner, not a work surface
+anyone depends on. Written down rather than fixed, with the shape a fix would take if the
+Zeitreise ever became something more than that: a role or an `aria-describedby` on
+`.task-menu-items`. Putting the sentence back in the banner is not it — that trade was
+already made and reversed.
 
 ### The page owns its CSRF token
 
@@ -456,8 +472,9 @@ ahead of the toggle forms without one, so it cannot go back to being a side effe
 whichever form happens to render.
 
 `AMomentSaysWhatItLocksTest`, in the same module, carries what the page *says*: the
-banner's consequence clause and its absence without a moment, #153's one-date rule
-re-asserted against the new copy, the notice element (present only in a moment, hidden
+banner naming the state and stopping there — the consequence clause pinned out rather
+than in, so it does not drift back — #153's one-date rule re-asserted against the new
+copy, the notice element (present only in a moment, hidden
 until a click, tokens borrowed from the banner, above the menu's `z-index`, obeying its own
 `[hidden]`, placed against the clicked dot, leaving on scroll, restarting rather than
 flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the

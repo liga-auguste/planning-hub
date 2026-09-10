@@ -309,11 +309,13 @@ the forced-done range, so it is not the same contradiction.
 
 Removing the affordance was correct and silent. The moment also takes three ⋮ entries with
 it — "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" — so a visitor had four
-write paths vanish and no word about any of them. Since #244 the page explains it three
-times over: the banner names the consequence ("— hier lässt sich nichts abhaken"), a click
-on a locked dot gets a short self-dismissing notice beside that dot with a way back to
-today, and the menu says in one line which entries the moment removed. The protection
-itself is unchanged. Full reasoning in
+write paths vanish and no word about any of them. Since #244 the page answers the attempt
+rather than announcing the rule: a click on a locked dot gets a short self-dismissing
+notice beside that dot with a way back to today, and the ⋮ menu says in one line which
+entries the moment removed. The banner stays what it was, a label naming the simulated
+date — it briefly carried the consequence too and that made a line which is on screen the
+whole time into a standing warning, aimed mostly at visitors who were never going to try.
+The protection itself is unchanged. Full reasoning in
 [`docs/dashboard-write-paths.md`](dashboard-write-paths.md).
 
 ### The Zeitreise stays a dashboard device

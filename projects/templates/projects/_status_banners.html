@@ -6,13 +6,16 @@ way back to today is structurally impossible (#50).
 {% if sim_date %}
 <div class="sim-banner">
     {% comment %}
-    The banner names the consequence, not only the state (#244). Naming
-    the toggle alone is deliberate: it is what a visitor tries first, and
-    it keeps the row to one line down to a small phone. Rename and trash
-    are named by the ⋮ menu's note, which is where a visitor finds them
-    at all.
+    The banner names the state and stops there. It carried the consequence
+    too for one release (#244) — "— hier lässt sich nichts abhaken." — and
+    that was one sentence too many for a line that is on screen the whole
+    time a moment is on: it announces a refusal to every visitor, including
+    the ones who never try to check anything off. The explanation belongs
+    where the attempt is made, so it lives on the dot (#sim-lock-notice)
+    and in the ⋮ menu's note instead, both of which appear only once
+    someone actually reaches for a write.
     {% endcomment %}
-    <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong> — hier lässt sich nichts abhaken.</span>
+    <span>⏱ Simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong></span>
     {% comment %}
     "Zurück", not "Zurück zu heute": the banner beside it already names the
     simulated date, so the short form loses no meaning and buys the row
