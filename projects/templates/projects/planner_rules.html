@@ -31,8 +31,6 @@
     .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
     .rule-text { flex: 1; line-height: 1.5; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; outline: none; word-break: break-word; min-height: 24px; }
     .rule-text:focus { border-color: var(--color-text-primary); background: var(--color-bg-tertiary); }
-    .rule-text:focus + .btn-save { display: inline-block; }
-    .btn-save { display: none; background: var(--color-solid-bg); border: none; border-radius: 4px; padding: 3px 10px; color: var(--color-solid-text); font-size: 12px; cursor: pointer; flex-shrink: 0; align-self: flex-start; margin-top: 3px; }
     .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0; align-self: flex-start; margin-top: 1px; }
     .btn-delete:hover { color: var(--color-overdue); }
     .add-section { margin-top: 28px; }
@@ -40,9 +38,46 @@
     .add-form { display: flex; gap: 8px; }
     .add-form textarea { flex: 1; border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 12px; font-size: 14px; resize: vertical; min-height: 56px; font-family: inherit; }
     .add-form textarea:focus { outline: none; border-color: var(--color-text-primary); }
-    .btn-add { background: var(--color-solid-bg); border: none; border-radius: 6px; padding: 8px 16px; color: var(--color-solid-text); font-size: 14px; cursor: pointer; white-space: nowrap; align-self: flex-end; }
+    /* #72 gave every button on the public side the landing pill and left the
+       6px near-square behind on the dashboard side. This page was missed —
+       it is the one public page that was not part of the planner flow at the
+       time. Same figures as .btn-primary and planner_review.html's own
+       .btn-add: --radius-pill, 11px/22px, weight 600. Solid rather than
+       accent, because here it is the only action on the page. */
+    .btn-add { background: var(--color-solid-bg); border: none; border-radius: var(--radius-pill); padding: 11px 22px; color: var(--color-solid-text); font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; align-self: flex-end; }
     .btn-add:hover { opacity: 0.85; }
     .empty { color: var(--color-text-quaternary); padding: 16px 0; }
+
+    /* This page is the one planner page built on Bootstrap's .card rather
+       than .planner-card, so it does not include _planner_css.html and has
+       to repeat that file's padding ladder itself: 40 -> 28 -> 20.
+       The row controls are glyphs, not boxes — they grow their hit area
+       through padding and pull the extra height back off the top with a
+       negative margin, so the row's own rhythm stays where it was (#146). */
+    @media (max-width: 768px) {
+        .card { --bs-card-spacer-x: 28px; --bs-card-spacer-y: 28px; }
+        .rule-item { padding: 12px 0; gap: 6px; }
+        .drag-handle { padding: 10px 11px; margin-top: -6px; }
+        /* .toggle-slider is `inset: 0`, so padding on .toggle would stretch
+           the visible switch instead of only what accepts the tap. The
+           pseudo-element sits inside the <label>, so a tap on it still
+           reaches the checkbox. */
+        .toggle { margin-top: 7px; }
+        .toggle::after { content: ''; position: absolute; inset: -11px -6px; }
+        .btn-delete { padding: 11px; margin-top: -4px; }
+        .rule-text { padding: 6px 8px; }
+    }
+    /* Below 560px the row layout runs out of width: "Hinzufügen" takes
+       ~117px of the ~268px the card body has left, which halves the
+       textarea and clips its three-line placeholder mid-line. The form
+       stacks instead, and the field grows tall enough for the placeholder
+       it already carries. `resize` is meaningless on touch. */
+    @media (max-width: 560px) {
+        .card { --bs-card-spacer-x: 20px; --bs-card-spacer-y: 20px; }
+        .add-form { flex-direction: column; }
+        .add-form textarea { min-height: 96px; resize: none; }
+        .btn-add { align-self: stretch; }
+    }
 {% endblock %}
 
 {% block content %}
@@ -147,6 +182,13 @@ new Sortable(document.getElementById('rules-list'), {
     animation: 150,
     handle: '.drag-handle',
     ghostClass: 'sortable-ghost',
+    // The handle is a finger-sized box on a phone (#146), so without a delay
+    // the first touch on it starts a drag instead of letting the page scroll.
+    // delayOnTouchOnly exempts the mouse, keeping the desktop drag instant.
+    // The threshold is the 3-5px the SortableJS README recommends.
+    delay: 150,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 4,
     onEnd: function () {
         const order = [...document.querySelectorAll('.rule-item[data-id]')]
             .map(el => el.dataset.id);
