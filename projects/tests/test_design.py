@@ -2156,3 +2156,85 @@ class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):
         for name, response in self.pages().items():
             with self.subTest(page=name):
                 self.assertNotContains(response, "{#")
+
+
+class RulesPageRespondsToNarrowViewportsTest(DemoModeTestCase):
+    """#146: planner_rules.html was the only planner page without a single
+    @media rule, so a phone got the desktop layout squeezed into a narrow
+    column — the add-rule textarea shared its line with the "Hinzufügen"
+    button and clipped its own placeholder mid-line.
+
+    The page does not include `_planner_css.html` (it is the one planner page
+    built on Bootstrap's `.card` rather than `.planner-card`), so the padding
+    ladder that file already defines had to be repeated here rather than
+    inherited. The values are the same ones: 40 → 28 → 20.
+
+    Rules are asserted *inside* their media block by splitting the sheet at
+    the block's opener, the way the timelapse tests do it: a bare
+    assertContains cannot tell a mobile override from a desktop rule, and
+    several of these would be wrong as desktop rules."""
+
+    def mobile_css(self, width):
+        """The tail of the rules sheet after the given breakpoint opens."""
+        response = self.client.get(reverse("rules_list"))
+        _, tail = response.content.decode().split(
+            f"@media (max-width: {width}px) {{", 1
+        )
+        return tail
+
+    def test_card_padding_follows_the_existing_ladder(self):
+        self.assertIn(
+            ".card { --bs-card-spacer-x: 28px; --bs-card-spacer-y: 28px; }",
+            self.mobile_css(768),
+        )
+        self.assertIn(
+            ".card { --bs-card-spacer-x: 20px; --bs-card-spacer-y: 20px; }",
+            self.mobile_css(560),
+        )
+
+    def test_add_form_stacks_at_phone_width(self):
+        self.assertIn(".add-form { flex-direction: column; }", self.mobile_css(560))
+
+    def test_add_button_fills_the_width_below_the_stacked_field(self):
+        # The base rule pins the button to `align-self: flex-end` so it lines
+        # up with the bottom of the textarea beside it. Once the form is a
+        # column that would leave it hugging the right edge at its own width.
+        self.assertIn(".btn-add { align-self: stretch;", self.mobile_css(560))
+
+    def test_textarea_is_tall_enough_for_its_own_placeholder(self):
+        # Three wrapped lines of "z.B. Bei externen Dienstleistern …" do not
+        # fit the desktop min-height of 56px at phone width.
+        self.assertIn(
+            ".add-form textarea { min-height: 96px; resize: none; }",
+            self.mobile_css(560),
+        )
+
+    def test_drag_handle_and_delete_grow_their_hit_area_through_padding(self):
+        mobile = self.mobile_css(768)
+        self.assertIn(".drag-handle { padding: 10px 11px;", mobile)
+        self.assertIn(".btn-delete { padding: 11px;", mobile)
+
+    def test_the_toggle_grows_a_hit_area_instead_of_growing_itself(self):
+        # .toggle-slider is `position: absolute; inset: 0`, so it fills the
+        # label's padding box — padding on .toggle would stretch the visible
+        # switch. A negative-inset ::after grows only what accepts the tap,
+        # and inside the <label> a tap on it still flips the checkbox.
+        self.assertIn(
+            ".toggle::after { content: ''; position: absolute; inset: -11px -6px; }",
+            self.mobile_css(768),
+        )
+
+    def test_desktop_layout_is_untouched(self):
+        response = self.client.get(reverse("rules_list"))
+        head = response.content.decode().split("@media (max-width: 768px) {", 1)[0]
+        self.assertIn("--bs-card-spacer-x: 40px", head)
+        self.assertIn("--bs-card-spacer-y: 40px", head)
+        self.assertIn(".add-form { display: flex; gap: 8px; }", head)
+        self.assertIn("align-self: flex-end", head)
+
+    def test_drag_waits_for_a_deliberate_touch_but_not_for_a_mouse(self):
+        # A bigger handle competes with page scrolling on touch: without a
+        # delay the first finger-down on it starts a drag instead of a
+        # scroll. delayOnTouchOnly leaves the desktop drag instant.
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "delayOnTouchOnly: true")
