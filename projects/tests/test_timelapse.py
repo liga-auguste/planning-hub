@@ -689,7 +689,14 @@ class MomentFixtureMixin:
 
     def given_two_tasks_around_a_moment(self):
         """A moment with one task due before it (forced done) and one after
-        it (still open) — so the dot's own state is observable either way."""
+        it (still open) — so the dot's own state is observable either way.
+
+        The open task sits ten days past the moment, not three: urgency is
+        calendar-week based (#169), and a three-day gap lands in the moment's
+        own ISO week on four weekdays out of seven, which made the task's
+        stage — and with it `dot ok` — depend on the day the suite ran.
+        Ten days cannot share an ISO week with the moment, on any weekday.
+        """
         moment = date.today() + timedelta(days=10)
         self.given_session_plan(
             tasks=[
@@ -702,7 +709,7 @@ class MomentFixtureMixin:
                 {
                     "id": "demo-session-1",
                     "name": "Programmhefte drucken",
-                    "date": (moment + timedelta(days=3)).isoformat(),
+                    "date": (moment + timedelta(days=10)).isoformat(),
                     "done": False,
                 },
             ]

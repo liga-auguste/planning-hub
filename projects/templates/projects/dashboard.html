@@ -223,7 +223,7 @@
            silently swallowed the drag. */
         .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; display: flex; flex-direction: column; }
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
+        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; flex: 1; }
         .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 14px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
@@ -294,8 +294,8 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
-        .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: 99px; overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: 99px; background: var(--color-solid-bg); transition: width 0.4s ease; }
+        .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-solid-bg); transition: width 0.4s ease; }
         /* minmax() floor keeps a column from being forced wider than its
            container by an unshrinkable card (long project name + due date on
            one nowrap line, see .kanban-card-meta below) — plain 1fr's auto
@@ -303,7 +303,7 @@
         .kanban { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-top: 36px; overflow-x: auto; }
         .kanban-col { background: var(--color-bg-secondary); border-radius: 8px; padding: 12px; min-height: 120px; }
         .kanban-col-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 7px; font-size: 10px; font-weight: 500; }
+        .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 10px; font-weight: 500; }
         .kanban-col.col-done .kanban-col-header { color: var(--color-text-quaternary); }
         .kanban-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
         .kanban-card:last-child { margin-bottom: 0; }

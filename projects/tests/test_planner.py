@@ -473,7 +473,8 @@ class ReviewKontextColumnTest(DemoModeTestCase):
         response = self.review_page()
         self.assertContains(
             response,
-            ".task-table select { border: 1px solid transparent; border-radius: 99px;",
+            ".task-table select { border: 1px solid transparent; "
+            "border-radius: var(--radius-pill);",
         )
 
 
