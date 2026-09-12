@@ -1,3 +1,14 @@
+/* Theme-independent tokens. Kept in their own :root block rather than in the
+   palette below, because that one is the *light* palette — everything in it
+   has a counterpart under [data-theme="dark"], and a radius has none. */
+:root {
+    /* The pill. 99px is far past every box it is applied to, so the corners
+       resolve to half the height whatever that height is — which is why one
+       value serves a 4px progress track, a 10px count chip and a 45px
+       full-width button alike. #72 made this the shape of every button on
+       the public side; the dashboard side keeps its own 6px rectangle. */
+    --radius-pill: 99px;
+}
 :root, [data-theme="light"] {
     color-scheme: light;
     --color-bg-primary: #fff;

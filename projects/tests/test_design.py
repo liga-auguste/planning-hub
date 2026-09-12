@@ -1283,6 +1283,7 @@ class DesignTokenTest(DemoModeTestCase):
         "--color-accent",
         "--color-overdue",
         "--color-today",
+        "--radius-pill",
     )
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
@@ -1709,7 +1710,9 @@ class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
     def test_every_step_wears_the_landing_pill(self):
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "--bs-btn-border-radius: 99px")
+                self.assertContains(
+                    response, "--bs-btn-border-radius: var(--radius-pill)"
+                )
                 self.assertContains(response, "--bs-btn-padding-x: 22px")
                 self.assertContains(response, "--bs-btn-padding-y: 11px")
                 self.assertContains(response, "--bs-btn-font-weight: 600")
@@ -2238,3 +2241,70 @@ class RulesPageRespondsToNarrowViewportsTest(DemoModeTestCase):
         # scroll. delayOnTouchOnly leaves the desktop drag instant.
         response = self.client.get(reverse("rules_list"))
         self.assertContains(response, "delayOnTouchOnly: true")
+
+
+class ThePillIsOneValueTest(DemoModeTestCase):
+    """#146: the pill radius was written out as `99px` at twelve call sites
+    across four templates, and prose in two of them quoted the figure as
+    "the project's own" shape — which is exactly the kind of number that
+    drifts once it is spelled rather than named. It is `--radius-pill` now.
+
+    The token lives in its own `:root` block rather than in the palette:
+    that one is the *light* palette, every entry in it has a counterpart
+    under `[data-theme="dark"]`, and a radius has none."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_the_token_carries_the_value(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        self.assertIn("--radius-pill: 99px;", css)
+
+    def test_no_template_spells_the_figure_out_any_more(self):
+        # Bootstrap's own bundled sheet is vendored, not ours to edit, so
+        # only our templates are swept.
+        for template in sorted(self.TEMPLATES.glob("*.html")):
+            with self.subTest(template=template.name):
+                self.assertNotIn("border-radius: 99px", template.read_text())
+
+
+class RulesPageWearsThePublicPillTest(DemoModeTestCase):
+    """#72 gave every button on the public side the landing pill and left
+    the 6px near-square behind on the dashboard side — the split runs along
+    the base template, not along the page. `planner_rules.html` extends
+    `base_public.html` but kept the square, the one page #72 missed: it was
+    not part of the planner flow at the time, so the stepper-driven sweep
+    never reached it. Its sibling `planner_review.html` even names the same
+    class `.btn-add` and cuts it as a pill.
+
+    It showed once #146 made the button full-width at phone size: at
+    106x37 a 6px corner passes, at 308x45 it reads as a rectangle."""
+
+    def test_the_add_button_is_the_landing_pill(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(
+            response,
+            ".btn-add { background: var(--color-solid-bg); border: none; "
+            "border-radius: var(--radius-pill); padding: 11px 22px; "
+            "color: var(--color-solid-text); font-size: 14px; "
+            "font-weight: 600;",
+        )
+
+    def test_the_dead_save_button_styles_are_gone(self):
+        # `.btn-save` and its `:focus +` sibling rule styled a button that no
+        # element ever carried — editing a rule saves on blur. Restyling the
+        # pair alongside .btn-add would have been the moment the dead code
+        # started looking maintained.
+        response = self.client.get(reverse("rules_list"))
+        self.assertNotContains(response, "btn-save")
+
+    def test_the_phone_override_no_longer_repads_the_button(self):
+        # Stacking only has to release `align-self: flex-end`; the padding
+        # now comes from the pill itself at every width.
+        _, mobile = (
+            self.client.get(reverse("rules_list"))
+            .content.decode()
+            .split("@media (max-width: 560px) {", 1)
+        )
+        self.assertIn(".btn-add { align-self: stretch; }", mobile)

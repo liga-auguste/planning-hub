@@ -56,10 +56,10 @@
         /* The hand-rolled button had `border: none`; .btn would otherwise add
            1px and grow the box by 2px in each direction. */
         --bs-btn-border-width: 0;
-        /* The landing page's pill: 99px radius, 12px/22px padding at weight
+        /* The landing page's pill: --radius-pill, 12px/22px padding at weight
            600. 11px here plus Bootstrap's line-height of 1.5 on a 14px label
            computes to the same 43px box as the hand-rolled .action pill. */
-        --bs-btn-border-radius: 99px;
+        --bs-btn-border-radius: var(--radius-pill);
         --bs-btn-padding-x: 22px;
         --bs-btn-padding-y: 11px;
         --bs-btn-font-size: 14px;

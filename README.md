@@ -113,7 +113,7 @@ Every change runs on its own branch and lands through a pull request; nothing go
 
 - **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
 - **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
-- **The test suite** is where the delegation is actually checked: 15,556 lines of tests against 5,437 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship. The tests live in a package split by subject ([`docs/test-suite-layout.md`](docs/test-suite-layout.md)); both numbers come from one command, so they stop drifting:
+- **The test suite** is where the delegation is actually checked: 15,627 lines of tests against 5,437 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship. The tests live in a package split by subject ([`docs/test-suite-layout.md`](docs/test-suite-layout.md)); both numbers come from one command, so they stop drifting:
   ```bash
   wc -l projects/tests/*.py | tail -1   # tests
   find projects planning_hub -name '*.py' \

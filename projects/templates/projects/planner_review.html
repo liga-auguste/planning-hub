@@ -33,17 +33,17 @@
     .task-table textarea[name="task_name"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 14px; width: 100%; resize: none; overflow: hidden; font-family: inherit; line-height: 1.4; display: block; background: transparent; }
     .task-table input[type="date"] { border: 1px solid transparent; border-radius: 4px; padding: 5px 8px; font-size: 13px; color: var(--color-text-tertiary); background: transparent; font-family: inherit; }
     .task-table input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.35; }
-    .task-table select { border: 1px solid transparent; border-radius: 99px; padding: 4px 12px; font-size: 12px; background: var(--color-bg-tertiary); font-family: inherit; }
+    .task-table select { border: 1px solid transparent; border-radius: var(--radius-pill); padding: 4px 12px; font-size: 12px; background: var(--color-bg-tertiary); font-family: inherit; }
     .task-table textarea:hover, .task-table textarea:focus,
     .task-table input:hover, .task-table input:focus,
     .task-table select:hover, .task-table select:focus { border-color: var(--color-border-primary); outline: none; }
     .btn-delete { background: none; border: none; color: var(--color-text-quaternary); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
     .btn-delete:hover { color: var(--color-overdue); }
-    /* Same pill shape and weight as .btn-primary (border-radius: 99px,
+    /* Same pill shape and weight as .btn-primary (border-radius: var(--radius-pill),
        11px/22px padding, 600 weight) so the two read as a matched pair —
        distinguished by color, not by form: accent instead of solid, since
        --color-solid-bg is the one color the primary button already owns. */
-    .btn-add { background: var(--color-accent); border: none; border-radius: 99px; padding: 11px 22px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .btn-add { background: var(--color-accent); border: none; border-radius: var(--radius-pill); padding: 11px 22px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
     .btn-add:hover { background: var(--color-accent-hover); }
     .review-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
     /* #173: neutral — sofort dates are clamped to today, and due-today

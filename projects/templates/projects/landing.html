@@ -32,8 +32,8 @@
        below it there was nothing for the eye to hold on to — small, uncontained
        and followed by the emptiest part of the page. As a chip it braces the
        claim from above instead of trailing after it. White on the page's
-       background-tint ground with the project's own 99px radius, which is the same figure the
-       buttons below cut — the page opens and closes on the same shape.
+       background-tint ground with the project's own --radius-pill, which is the
+       same shape the buttons below cut — the page opens and closes on it.
        fit-content is what keeps it a chip: without it the flex box would
        stretch to the full column and the background would become a band. */
     /* Wraps the badge purely for the mobile collapse animation below (see
@@ -54,7 +54,7 @@
     .status-row {
         display: flex; width: fit-content; margin: 0;
         align-items: center; gap: 8px; flex-wrap: wrap;
-        padding: 7px 16px 7px 13px; border-radius: 99px;
+        padding: 7px 16px 7px 13px; border-radius: var(--radius-pill);
         background: var(--color-bg-primary); border: 1px solid var(--color-border-primary);
         font-size: 13px; color: var(--color-text-tertiary);
     }
@@ -306,8 +306,8 @@
        stay centred against the page because nothing sits beside them competing
        for the width.
        As pills the paths read as the next step rather than as a second
-       headline. 99px is the radius the project already uses for its pills and
-       progress tracks, the same hover shade its dark buttons already use. flex-wrap
+       headline. --radius-pill is the radius the project already uses for its
+       pills and progress tracks, the same hover shade its dark buttons already use. flex-wrap
        handles narrow screens, so these need no breakpoint of their own.
        margin-bottom keeps the buttons clear of the footer's top border below
        any viewport that is too short for .landing's vertical-centring media
@@ -320,7 +320,7 @@
     }
     .action {
         display: inline-flex; align-items: center; gap: 8px;
-        padding: 12px 22px; border-radius: 99px;
+        padding: 12px 22px; border-radius: var(--radius-pill);
         font-size: 14px; font-weight: 600; text-decoration: none;
         background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); color: var(--color-text-primary);
         transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
@@ -481,7 +481,7 @@
         .seq[data-phase="2"] .seq-chips,
         .seq[data-phase="3"] .seq-chips,
         .seq[data-phase="4"] .seq-chips { display: flex; }
-        .seq-chip { border-radius: 99px; padding: 6px 12px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--color-border-primary); background: var(--color-bg-primary); color: var(--color-text-secondary); transition: transform 0.18s, background 0.3s, color 0.3s, border-color 0.3s, opacity 0.3s; }
+        .seq-chip { border-radius: var(--radius-pill); padding: 6px 12px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--color-border-primary); background: var(--color-bg-primary); color: var(--color-text-secondary); transition: transform 0.18s, background 0.3s, color 0.3s, border-color 0.3s, opacity 0.3s; }
         .seq[data-phase="3"] .seq-chip-nein { transform: scale(0.93); }
         .seq[data-phase="3"] .seq-chip-nein,
         .seq[data-phase="4"] .seq-chip-nein { background: var(--color-accent); color: var(--color-solid-text); border-color: var(--color-accent); }
@@ -514,7 +514,7 @@
            still fixed, though: once .seq-cta releases into flow (see the
            :has() rule right after), that clearance is dead space with
            nothing left to protect against, so it shrinks back down. */
-        .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: 99px; background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 90px; box-sizing: border-box; }
+        .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: var(--radius-pill); background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 90px; box-sizing: border-box; }
         .landing:has(.seq-cta.is-released) .seq-plan-secondary { margin-bottom: 12px; }
         .seq .dot { cursor: default; }
 
@@ -543,7 +543,7 @@
            scrolling past both. */
         .seq[data-step="3"] ~ .seq-cta { position: fixed; left: 20px; right: 20px; bottom: 20px; z-index: 5; margin: 0; }
         .seq[data-step="3"] ~ .seq-cta.is-released { position: static; margin: 12px 0 0; }
-        .seq-cta-btn { display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 15px 20px; border-radius: 99px; font-size: 15px; font-weight: 600; color: var(--color-solid-text); text-decoration: none; background: var(--color-solid-bg); transition: background 0.4s ease; }
+        .seq-cta-btn { display: block; width: 100%; box-sizing: border-box; text-align: center; padding: 15px 20px; border-radius: var(--radius-pill); font-size: 15px; font-weight: 600; color: var(--color-solid-text); text-decoration: none; background: var(--color-solid-bg); transition: background 0.4s ease; }
         .seq[data-step="3"] ~ .seq-cta .seq-cta-btn { background: var(--color-accent); }
 
         .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
