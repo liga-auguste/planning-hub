@@ -23,9 +23,16 @@
     .rule-item.sortable-ghost { opacity: 0.4; }
     .drag-handle { cursor: grab; color: var(--color-text-quaternary); font-size: 16px; padding: 2px 0; flex-shrink: 0; user-select: none; margin-top: 2px; }
     .drag-handle:active { cursor: grabbing; }
-    .toggle { position: relative; width: 34px; height: 18px; flex-shrink: 0; margin-top: 3px; }
+    /* The cursor belongs on the <label>, not on .toggle-slider. Below 768px
+       the hit-area ::after (see the media block) is generated content of the
+       label and therefore paints above every child of it, slider included —
+       a cursor declared on the slider would sit under the one element that
+       actually receives the pointer. On .toggle both inherit it, and at
+       desktop width the two are the same box anyway: .toggle-slider is
+       `inset: 0`. */
+    .toggle { position: relative; width: 34px; height: 18px; flex-shrink: 0; margin-top: 3px; cursor: pointer; }
     .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-    .toggle-slider { position: absolute; inset: 0; background: var(--color-border-secondary); border-radius: 18px; cursor: pointer; transition: background 0.2s; }
+    .toggle-slider { position: absolute; inset: 0; background: var(--color-border-secondary); border-radius: 18px; transition: background 0.2s; }
     .toggle input:checked + .toggle-slider { background: var(--color-solid-bg); }
     .toggle-slider::before { content: ''; position: absolute; width: 12px; height: 12px; left: 3px; top: 3px; background: var(--color-bg-primary); border-radius: 50%; transition: transform 0.2s; }
     .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
