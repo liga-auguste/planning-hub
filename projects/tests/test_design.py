@@ -2235,6 +2235,25 @@ class RulesPageRespondsToNarrowViewportsTest(DemoModeTestCase):
         self.assertIn(".add-form { display: flex; gap: 8px; }", head)
         self.assertIn("align-self: flex-end", head)
 
+    def test_the_enlarged_hit_area_keeps_the_pointer_cursor(self):
+        """The ::after is generated content of the <label>, so it paints above
+        every child of it — a cursor declared on .toggle-slider would sit
+        under the one element that actually receives the pointer, and below
+        768px the switch would hover with the default arrow. On .toggle both
+        inherit it, and at desktop width the two are the same box anyway."""
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(
+            response,
+            ".toggle { position: relative; width: 34px; height: 18px; "
+            "flex-shrink: 0; margin-top: 3px; cursor: pointer; }",
+        )
+        self.assertContains(
+            response,
+            ".toggle-slider { position: absolute; inset: 0; "
+            "background: var(--color-border-secondary); "
+            "border-radius: 18px; transition: background 0.2s; }",
+        )
+
     def test_drag_waits_for_a_deliberate_touch_but_not_for_a_mouse(self):
         # A bigger handle competes with page scrolling on touch: without a
         # delay the first finger-down on it starts a drag instead of a
