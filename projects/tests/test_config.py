@@ -502,9 +502,15 @@ class Custom404Test(TestCase):
 class Custom500Test(SimpleTestCase):
     """#27: exercises django.views.defaults.server_error directly — the same
     function Django's own error handling calls in production, independent of
-    which application code happens to raise. Renders with an empty Context
-    (no request, no context processors), which base_public.html tolerates —
-    neither it nor its includes reference request/user/messages."""
+    which application code happens to raise. It renders with an empty Context
+    (no request, no context processors), which base_public.html survives
+    because the template engine resolves missing variables to the empty
+    string — not because it is request-free. Its og:image and og:url tags do
+    read request, and on this page they come out as
+    ":///static/projects/og-image.png" and "://". The includes are genuinely
+    request-free. Malformed og tags on a page no crawler indexes are not
+    worth a fix; this note exists so the test is not mistaken for proof that
+    base_public.html needs no context."""
 
     def test_server_error_view_renders_the_custom_page(self):
         from django.views.defaults import server_error
