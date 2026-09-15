@@ -147,7 +147,10 @@ is gone; the sidebar already covers that.
         {% endif %}
     </div>
 
-    {% if summary %}
+    {% if summary_empty_state %}
+    <div class="summary-label">KI-Wochenübersicht</div>
+    <div class="summary-box ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</div>
+    {% elif summary %}
     <div class="summary-label">KI-Wochenübersicht</div>
     <div class="summary-box">
         {% for section in summary %}{% if section.blocks %}
