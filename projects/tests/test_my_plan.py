@@ -167,6 +167,20 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
         self.assertContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
 
+    def test_an_overdue_task_gets_its_own_sentence(self):
+        # "Die nächste Aufgabe ist am <past date>." named a date already
+        # gone as the next one — the failure this note exists to prevent,
+        # told backwards. Overdue work is its own sentence now.
+        self.given_plan_with_task(days_out=-30)
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response,
+            f"Überfällig seit dem "
+            f"{format_date(date.today() - timedelta(days=30), role='note')}.",
+        )
+        self.assertNotContains(response, "Die nächste Aufgabe ist am")
+        self.assertNotContains(response, "Diese Woche steht nichts an.")
+
     def test_something_due_today_drops_the_clear_week_sentence(self):
         self.given_plan_with_task(days_out=0)
         response = self.client.get(reverse("my_plan"))

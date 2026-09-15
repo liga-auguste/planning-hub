@@ -526,26 +526,40 @@ def _summary_empty_state(summary, projects, unassigned_tasks):
     (#214), or None when there is a summary to render — or none at all,
     which the templates' "nicht verfügbar" branch owns.
 
-    Each half is guarded by live data rather than by Claude's silence: an
-    empty answer while something is due this week is a model error, and
+    Every sentence is guarded by live data rather than by Claude's silence:
+    an empty answer while something is due this week is a model error, and
     "Diese Woche steht nichts an." next to a task due tomorrow would be the
-    same class of bug this issue is about, one volume louder. So the two
-    sentences are independent — either, both or neither can render.
+    same class of bug this issue is about, one volume louder. So the three
+    are independent — any combination can render, and at least one always
+    does (see below).
+
+    Overdue work gets its own key rather than riding along in next_due: a
+    date already past is not the *next* task, and "Die nächste Aufgabe ist
+    am 16. August." was the same failure the note exists to prevent, told
+    backwards. Splitting it is what keeps the note honest without ever
+    leaving the box blank — week_is_clear is false only when some open task
+    is overdue, due today or due this week, and each of those lands in
+    exactly one of the other two keys.
 
     Urgency comes from _annotate_tasks rather than being re-derived from
-    dates, so a simulated moment measures against its own date the way every
-    other surface does (#153, #169). Unassigned tasks count too: the summary
-    itself only covers projects carrying an event_date, but an "Ohne
-    Projekt" task due earlier would make the sentence contradict the list
-    below it.
+    dates — here for the overdue split too, so a simulated moment measures
+    against its own date the way every other surface does (#153, #169).
+    Unassigned tasks count too: the summary itself only covers projects
+    carrying an event_date, but an "Ohne Projekt" task due earlier would
+    make the sentence contradict the list below it.
     """
     if summary is None or summary_has_content(summary):
         return None
     tasks = [t for p in projects for t in p["tasks"]] + list(unassigned_tasks)
-    open_dates = [t["due"] for t in tasks if t["due"] and not t["done"]]
+    # Dateless open tasks (urgency "undated") drop out with the `due` test:
+    # they carry no date either sentence could name.
+    open_tasks = [t for t in tasks if t["due"] and not t["done"]]
+    overdue = [t["due"] for t in open_tasks if t["urgency"] == "overdue"]
+    upcoming = [t["due"] for t in open_tasks if t["urgency"] != "overdue"]
     return {
         "week_is_clear": not any(t["urgency"] in _PENDING_URGENCIES for t in tasks),
-        "next_due": min(open_dates, default=None),
+        "overdue_since": min(overdue, default=None),
+        "next_due": min(upcoming, default=None),
     }
 
 

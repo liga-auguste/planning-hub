@@ -895,7 +895,7 @@ class DashboardEmptySummaryTest(TestCase):
             ],
         }
 
-    def _render(self, projects, unassigned=(), summary_fails=False):
+    def _render(self, projects, unassigned=(), summary_fails=False, raw_summary=None):
         summary = patch(
             "projects.views.generate_weekly_summary",
             side_effect=AIUnavailableError("boom"),
@@ -903,7 +903,7 @@ class DashboardEmptySummaryTest(TestCase):
         if not summary_fails:
             summary = patch(
                 "projects.views.generate_weekly_summary",
-                return_value={"jetzt_faellig": [], "naechste_woche": []},
+                return_value=raw_summary or {"jetzt_faellig": [], "naechste_woche": []},
             )
         with (
             patch("projects.views.get_upcoming_projects", return_value=projects),
@@ -961,3 +961,72 @@ class DashboardEmptySummaryTest(TestCase):
         self.assertContains(response, "nicht verfügbar")
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
+
+    def test_an_overdue_task_is_not_called_the_next_one(self):
+        # A date already gone is not the *next* task. Before the split it
+        # rode along in next_due and the card read "Die nächste Aufgabe ist
+        # am <past date>." — the failure this note exists to prevent, told
+        # backwards.
+        response = self._render([self._project("p1", "Adventskonzert", [-30])])
+        overdue = format_date(date.today() - timedelta(days=30), role="note")
+        self.assertContains(response, f"Überfällig seit dem {overdue}.")
+        self.assertNotContains(response, "Die nächste Aufgabe ist am")
+        self.assertNotContains(response, "Diese Woche steht nichts an.")
+
+    def test_overdue_and_upcoming_name_their_own_dates(self):
+        response = self._render([self._project("p1", "Adventskonzert", [-30, 120])])
+        self.assertContains(
+            response,
+            f"Überfällig seit dem "
+            f"{format_date(date.today() - timedelta(days=30), role='note')}.",
+        )
+        self.assertContains(
+            response,
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=120), role='note')}.",
+        )
+
+    def test_the_oldest_overdue_date_is_the_one_named(self):
+        response = self._render([self._project("p1", "Adventskonzert", [-30, -5])])
+        self.assertContains(
+            response,
+            f"Überfällig seit dem "
+            f"{format_date(date.today() - timedelta(days=30), role='note')}.",
+        )
+        # The bare date also renders on the kanban card below, so the
+        # assertion has to pin the sentence, not the date.
+        self.assertNotContains(
+            response,
+            f"Überfällig seit dem "
+            f"{format_date(date.today() - timedelta(days=5), role='note')}.",
+        )
+
+    def test_the_kontext_hint_survives_an_empty_summary(self):
+        """#214 follow-up: kontext_hint used to sit inside the resolved arm,
+        so the empty branch swallowed it. build_prompt asks for
+        "kontext_hinweis" over every open task with no date horizon while
+        the blocks are scoped to this week and the next two — so a plan
+        months away, the very case the empty branch exists for, can carry a
+        hint and no blocks at all."""
+        response = self._render(
+            [self._project("p1", "Adventskonzert", [120])],
+            raw_summary={
+                "jetzt_faellig": [],
+                "naechste_woche": [],
+                "kontext_hinweis": "Wenn du ohnehin im Büro bist: beides zusammen.",
+            },
+        )
+        self.assertContains(response, "Diese Woche steht nichts an.")
+        self.assertContains(response, "Wenn du ohnehin im Büro bist: beides zusammen.")
+
+    def test_an_unavailable_summary_carries_no_kontext_hint(self):
+        # kontext_hint is resolved from summary_data, which is None exactly
+        # when the "nicht verfügbar" branch renders — so moving the hint out
+        # of the chain needs no guard of its own.
+        response = self._render(
+            [self._project("p1", "Adventskonzert", [120])], summary_fails=True
+        )
+        self.assertContains(response, "nicht verfügbar")
+        # The bare class name is also its own CSS rule in the <style> block,
+        # so the assertion has to name the element.
+        self.assertNotContains(response, '<p class="ai-kontext-hint">')
