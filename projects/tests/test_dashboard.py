@@ -20,6 +20,7 @@ from django.test import (
 from django.urls import reverse
 
 from ..ai import AIUnavailableError
+from ..date_format import format_date
 from ..notion import NotionUnavailableError
 from ..views import (
     _KANBAN_COLUMN,
@@ -855,3 +856,108 @@ class DashboardCacheVersionTest(SimpleTestCase):
         self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v10")
         self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v5")
         self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v5")
+
+
+@override_settings(DEMO_MODE=False)
+class DashboardEmptySummaryTest(TestCase):
+    """#214: the "KI-Wochenübersicht" label sits outside the {% if summary %}
+    block, so a summary that resolved to nothing left the heading standing
+    over nothing at all. The empty case now has its own branch, between the
+    resolved one and the "nicht verfügbar" one.
+
+    The sentence measures against every task the board shows, unassigned
+    ones included: the summary itself only covers projects carrying an
+    event_date, but an "Ohne Projekt" task due earlier would make the
+    sentence contradict the list below it.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _project(self, project_id, name, task_days):
+        return {
+            "id": project_id,
+            "name": name,
+            "event_date": date.today() + timedelta(days=max(task_days) + 7),
+            "performers": "",
+            "status": None,
+            "status_color": "gray",
+            "tasks": [
+                {
+                    "id": f"{project_id}-t{i}",
+                    "name": f"Aufgabe {i}",
+                    "due": date.today() + timedelta(days=days),
+                    "done": False,
+                    "kontext": [],
+                }
+                for i, days in enumerate(task_days)
+            ],
+        }
+
+    def _render(self, projects, unassigned=(), summary_fails=False):
+        summary = patch(
+            "projects.views.generate_weekly_summary",
+            side_effect=AIUnavailableError("boom"),
+        )
+        if not summary_fails:
+            summary = patch(
+                "projects.views.generate_weekly_summary",
+                return_value={"jetzt_faellig": [], "naechste_woche": []},
+            )
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=projects),
+            patch("projects.views.get_unassigned_tasks", return_value=list(unassigned)),
+            summary,
+        ):
+            return self.client.get(reverse("dashboard"))
+
+    def test_an_empty_summary_says_nothing_is_due(self):
+        response = self._render([self._project("p1", "Adventskonzert", [120])])
+        self.assertContains(response, "KI-Wochenübersicht")
+        self.assertContains(response, "Diese Woche steht nichts an.")
+        self.assertContains(
+            response,
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=120), role='note')}.",
+        )
+
+    def test_the_named_date_is_the_earliest_across_all_projects(self):
+        response = self._render(
+            [
+                self._project("p1", "Adventskonzert", [150]),
+                self._project("p2", "Sommerfest", [90]),
+            ]
+        )
+        self.assertContains(
+            response,
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=90), role='note')}.",
+        )
+
+    def test_an_unassigned_task_can_be_the_next_one(self):
+        response = self._render(
+            [self._project("p1", "Adventskonzert", [120])],
+            unassigned=[
+                {
+                    "id": "u1",
+                    "name": "Steuer",
+                    "due": date.today() + timedelta(days=60),
+                    "done": False,
+                    "kontext": [],
+                }
+            ],
+        )
+        self.assertContains(
+            response,
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=60), role='note')}.",
+        )
+
+    def test_an_unavailable_summary_keeps_its_own_wording(self):
+        response = self._render(
+            [self._project("p1", "Adventskonzert", [120])], summary_fails=True
+        )
+        self.assertContains(response, "nicht verfügbar")
+        self.assertNotContains(response, "Diese Woche steht nichts an.")
+        self.assertNotContains(response, "Die nächste Aufgabe ist am")
