@@ -255,9 +255,16 @@ class DateFormatModuleTest(SimpleTestCase):
         # without one since it was written.
         self.assertEqual(format_date(date(2026, 5, 4), role="row"), "Mo, 4. Mai")
 
+    def test_note_role_drops_the_weekday(self):
+        # #214: the empty-summary note names the date inside a sentence
+        # ("Die nächste Aufgabe ist am 23. Dezember."), where the weekday
+        # "long" carries would read as a second clause.
+        self.assertEqual(format_date(date(2026, 12, 23), role="note"), "23. Dezember")
+
     def test_none_is_empty_in_every_role(self):
         self.assertEqual(format_date(None), "")
         self.assertEqual(format_date(None, role="short"), "")
+        self.assertEqual(format_date(None, role="note"), "")
 
     def test_an_unknown_role_is_an_error_not_a_fallback(self):
         # Falling back to "long" would render the wrong format silently,

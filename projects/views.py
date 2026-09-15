@@ -22,6 +22,7 @@ from .ai import (
     generate_weekly_summary,
     resolve_kontext_hint,
     resolve_weekly_summary,
+    summary_has_content,
 )
 from .closeout import get_latest_closeout, is_week_closed, save_closeout
 from .date_format import (
@@ -512,6 +513,54 @@ def _build_week_view(projects, unassigned_tasks):
     for tasks in buckets.values():
         tasks.sort(key=lambda t: (t["due"], t["project_name"]))
     return buckets
+
+
+# The urgencies that mean "this week still has work in it" — the same three
+# _build_week_view buckets by, so the note and the Heute/Diese-Woche lists
+# cannot disagree about whether the week is clear.
+_PENDING_URGENCIES = {"overdue", "today", "urgent"}
+
+
+def _summary_empty_state(summary, projects, unassigned_tasks):
+    """The note that replaces a weekly summary which resolved to nothing
+    (#214), or None when there is a summary to render — or none at all,
+    which the templates' "nicht verfügbar" branch owns.
+
+    Every sentence is guarded by live data rather than by Claude's silence:
+    an empty answer while something is due this week is a model error, and
+    "Diese Woche steht nichts an." next to a task due tomorrow would be the
+    same class of bug this issue is about, one volume louder. So the three
+    are independent — any combination can render, and at least one always
+    does (see below).
+
+    Overdue work gets its own key rather than riding along in next_due: a
+    date already past is not the *next* task, and "Die nächste Aufgabe ist
+    am 16. August." was the same failure the note exists to prevent, told
+    backwards. Splitting it is what keeps the note honest without ever
+    leaving the box blank — week_is_clear is false only when some open task
+    is overdue, due today or due this week, and each of those lands in
+    exactly one of the other two keys.
+
+    Urgency comes from _annotate_tasks rather than being re-derived from
+    dates — here for the overdue split too, so a simulated moment measures
+    against its own date the way every other surface does (#153, #169).
+    Unassigned tasks count too: the summary itself only covers projects
+    carrying an event_date, but an "Ohne Projekt" task due earlier would
+    make the sentence contradict the list below it.
+    """
+    if summary is None or summary_has_content(summary):
+        return None
+    tasks = [t for p in projects for t in p["tasks"]] + list(unassigned_tasks)
+    # Dateless open tasks (urgency "undated") drop out with the `due` test:
+    # they carry no date either sentence could name.
+    open_tasks = [t for t in tasks if t["due"] and not t["done"]]
+    overdue = [t["due"] for t in open_tasks if t["urgency"] == "overdue"]
+    upcoming = [t["due"] for t in open_tasks if t["urgency"] != "overdue"]
+    return {
+        "week_is_clear": not any(t["urgency"] in _PENDING_URGENCIES for t in tasks),
+        "overdue_since": min(overdue, default=None),
+        "next_due": min(upcoming, default=None),
+    }
 
 
 def _count_done_in_range(tasks, start, end):
@@ -1097,6 +1146,7 @@ def dashboard(request):
         if summary_data
         else None
     )
+    summary_empty_state = _summary_empty_state(summary, projects, unassigned_tasks)
     # #145: production only, and DEMO_MODE is what says that — not
     # has_session_plan, which is false for the demo's example projects too
     # and would have let the hint render on the public demo. Kontext never
@@ -1147,6 +1197,7 @@ def dashboard(request):
             "month_groups": month_groups,
             "years": years,
             "summary": summary,
+            "summary_empty_state": summary_empty_state,
             "kontext_hint": kontext_hint,
             "today": today,
             "today_display": format_date(today, role="long"),
@@ -2028,6 +2079,7 @@ def my_plan(request):
         if summary_data
         else None
     )
+    summary_empty_state = _summary_empty_state(summary, [project], [])
 
     return render(
         request,
@@ -2039,6 +2091,7 @@ def my_plan(request):
             "today": today,
             "today_display": format_date(today, role="long"),
             "summary": summary,
+            "summary_empty_state": summary_empty_state,
             "summary_error": summary_error,
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html — a session plan is guaranteed here (redirect

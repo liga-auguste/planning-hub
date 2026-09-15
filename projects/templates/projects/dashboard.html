@@ -574,7 +574,14 @@
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
-            {% if summary %}
+            {% comment %}
+            #214: three states, not two. The label sits outside this chain,
+            so before the empty branch existed a summary that resolved to
+            nothing left the heading standing over nothing at all.
+            {% endcomment %}
+            {% if summary_empty_state %}
+            <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
+            {% elif summary %}
             {% for section in summary %}{% if section.blocks %}
             <h2>{{ section.title }}</h2>
             <ul>
@@ -601,17 +608,27 @@
                 {% endfor %}
             </ul>
             {% endif %}{% endfor %}
+            {% else %}
+            <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
+            {% endif %}
             {% comment %}
             #145: the one thing kontext is for — work that can be batched
             across projects. Below the blocks rather than inside one: the
             blocks are per project, and a statement about two of them would
             be attributed to whichever one happened to hold it. Absent
             whenever Claude found no cluster, which is most weeks.
+
+            Outside the three-state chain, not inside the resolved arm:
+            build_prompt asks for "kontext_hinweis" over every open task
+            with no date horizon, while the blocks are scoped to "this week"
+            and "7-14 days" — so a plan whose first task is months away, the
+            very case the empty branch above exists for, can carry a hint
+            and no blocks at all. A clear week is when batching further-out
+            work is worth naming, so the hint belongs to that state too.
+            The "unavailable" state needs no guard of its own: kontext_hint
+            is resolved from summary_data, which is None exactly then.
             {% endcomment %}
             {% if kontext_hint %}<p class="ai-kontext-hint">{{ kontext_hint }}</p>{% endif %}
-            {% else %}
-            <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
-            {% endif %}
         </div>
 
         <div class="overview-progress" style="margin-top:36px;">

@@ -59,6 +59,10 @@ _ROLE_FORMATTERS = {
     # the abbreviation — MONTHS_SHORT carries none and format_week_range has
     # read fine without one since it was written.
     "row": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_SHORT[d.month]}",
+    # #214: the empty-summary note, where the date sits inside a sentence
+    # ("Die nächste Aufgabe ist am 23. Dezember."). Not "long": the weekday
+    # that role carries would read as a second clause there.
+    "note": lambda d: f"{d.day}. {MONTHS_DE[d.month]}",
 }
 
 
