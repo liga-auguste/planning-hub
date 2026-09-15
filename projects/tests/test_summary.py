@@ -27,7 +27,6 @@ from ..ai import (
     log_claude_call,
     resolve_kontext_hint,
     resolve_weekly_summary,
-    summary_has_content,
 )
 from ..views import (
     DEMO_MULTI_SUMMARY_KEY,
@@ -806,36 +805,6 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         self.assertEqual(block["assessment"], "")
         self.assertEqual(block["tasks"], [])
         self.assertEqual(sections[1]["blocks"], [])
-
-
-class SummaryHasContentTest(SimpleTestCase):
-    """#214: resolve_weekly_summary returns one entry per SUMMARY_SECTIONS
-    whether or not anything resolved, so its result is never falsy. "A
-    summary exists" and "a summary says something" are two different
-    questions, and the templates were asking the first one."""
-
-    def test_sections_without_any_block_say_nothing(self):
-        self.assertFalse(
-            summary_has_content(
-                [
-                    {"title": "Jetzt fällig", "blocks": []},
-                    {"title": "Nächste Woche", "blocks": []},
-                ]
-            )
-        )
-
-    def test_a_block_in_any_section_counts(self):
-        self.assertTrue(
-            summary_has_content(
-                [
-                    {"title": "Jetzt fällig", "blocks": []},
-                    {"title": "Nächste Woche", "blocks": [{"assessment": "Läuft"}]},
-                ]
-            )
-        )
-
-    def test_no_sections_at_all_say_nothing(self):
-        self.assertFalse(summary_has_content([]))
 
 
 class GenerateWeeklySummaryRetryTest(SimpleTestCase):

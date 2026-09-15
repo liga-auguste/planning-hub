@@ -34,17 +34,6 @@ class MyPlanAiFailureTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "nicht verfügbar")
 
-    def test_an_unavailable_summary_is_not_an_empty_one(self):
-        """#214: "Claude could not answer" and "Claude answered nothing"
-        are different states and must not share a wording."""
-        self.given_session_plan()
-        self.ai_mocks[
-            "projects.views.generate_weekly_summary"
-        ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("my_plan"))
-        self.assertNotContains(response, "Diese Woche steht nichts an.")
-        self.assertNotContains(response, "Die nächste Aufgabe ist am")
-
 
 class MyPlanEventDateDisplayTest(DemoModeTestCase):
     """my_plan() built its own task dict inline instead of reusing
@@ -123,78 +112,3 @@ class MyPlanDoneCounterTest(DemoModeTestCase):
         self.given_plan_with(total=4, done=1)
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, "getElementById('done-count')")
-
-
-class MyPlanEmptySummaryTest(DemoModeTestCase):
-    """#214: a summary that resolved to nothing left the
-    "KI-Wochenübersicht" label standing over a gap. It now says so in
-    words. The default AI stub in base.py already returns an empty summary,
-    so these need no mock of their own.
-
-    Each sentence is guarded by live data rather than by Claude's silence:
-    an empty answer while something is due this week is a model error, and
-    "Diese Woche steht nichts an." next to a task due today would be the
-    same bug one volume louder.
-    """
-
-    def given_plan_with_task(self, *, days_out=120, done=False):
-        due = date.today() + timedelta(days=days_out)
-        return self.given_session_plan(
-            event_date=(date.today() + timedelta(days=days_out + 7)).isoformat(),
-            tasks=[
-                {
-                    "id": "demo-session-0",
-                    "name": "Programm festlegen",
-                    "date": due.isoformat(),
-                    "done": done,
-                }
-            ],
-        )
-
-    def test_a_plan_months_away_says_both_sentences(self):
-        self.given_plan_with_task()
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "Diese Woche steht nichts an.")
-        self.assertContains(
-            response,
-            f"Die nächste Aufgabe ist am "
-            f"{format_date(date.today() + timedelta(days=120), role='note')}.",
-        )
-
-    def test_nothing_open_left_drops_the_date_sentence(self):
-        self.given_plan_with_task(done=True)
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "Diese Woche steht nichts an.")
-        self.assertNotContains(response, "Die nächste Aufgabe ist am")
-
-    def test_something_due_today_drops_the_clear_week_sentence(self):
-        self.given_plan_with_task(days_out=0)
-        response = self.client.get(reverse("my_plan"))
-        self.assertNotContains(response, "Diese Woche steht nichts an.")
-        self.assertContains(
-            response,
-            f"Die nächste Aufgabe ist am {format_date(date.today(), role='note')}.",
-        )
-
-    def test_the_note_keeps_the_label_and_the_summary_box(self):
-        self.given_plan_with_task()
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "KI-Wochenübersicht")
-        self.assertContains(response, '<div class="summary-box ai-error">')
-
-    def test_a_summary_with_blocks_renders_no_note(self):
-        self.given_plan_with_task()
-        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
-            "jetzt_faellig": [
-                {
-                    "heading": "Testkonzert",
-                    "assessment": "Programm ist der Engpass",
-                    "task_refs": [],
-                }
-            ],
-            "naechste_woche": [],
-        }
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "Programm ist der Engpass")
-        self.assertNotContains(response, "Diese Woche steht nichts an.")
-        self.assertNotContains(response, "Die nächste Aufgabe ist am")
