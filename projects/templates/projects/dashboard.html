@@ -574,7 +574,14 @@
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
-            {% if summary %}
+            {% comment %}
+            #214: three states, not two. The label sits outside this chain,
+            so before the empty branch existed a summary that resolved to
+            nothing left the heading standing over nothing at all.
+            {% endcomment %}
+            {% if summary_empty_state %}
+            <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
+            {% elif summary %}
             {% for section in summary %}{% if section.blocks %}
             <h2>{{ section.title }}</h2>
             <ul>

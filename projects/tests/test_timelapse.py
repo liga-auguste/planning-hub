@@ -991,3 +991,53 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
             response,
             ".task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }",
         )
+
+
+class TimelapseEmptySummaryTest(DemoModeTestCase):
+    """#214: "this week" in the empty-summary note has to mean the
+    *simulated* week. The note reads task urgency straight off
+    _annotate_tasks, which every surface already measures against the
+    simulated date (#153, #169), rather than re-deriving it from today."""
+
+    def given_simulated_plan(self):
+        sim = date.today() + timedelta(days=10)
+        self.given_session_plan(
+            event_date=(date.today() + timedelta(days=120)).isoformat(),
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Vor dem Moment",
+                    "date": (date.today() + timedelta(days=5)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Nach dem Moment",
+                    "date": (date.today() + timedelta(days=100)).isoformat(),
+                    "done": False,
+                },
+            ],
+        )
+        self.given_timelapse_moments(sim.isoformat())
+        session = self.client.session
+        session["demo_sim_date"] = sim.isoformat()
+        session.save()
+
+    def _ai_card_html(self, response):
+        content = response.content.decode()
+        start = content.index('<div class="ai-card">')
+        return content[start : content.index('<div class="overview-progress"', start)]
+
+    def test_the_note_measures_against_the_simulated_date(self):
+        self.given_simulated_plan()
+        html = self._ai_card_html(self.client.get(reverse("dashboard")))
+        # The task before the moment is forced done by the simulation, so
+        # it is not the next one — the one after it is.
+        self.assertIn(
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=100), role='note')}.",
+            html,
+        )
+        self.assertNotIn(
+            format_date(date.today() + timedelta(days=5), role="note"), html
+        )

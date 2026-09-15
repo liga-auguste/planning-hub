@@ -503,3 +503,14 @@ def resolve_weekly_summary(
             blocks.append(block)
         sections.append({"title": title, "blocks": blocks})
     return sections
+
+
+def summary_has_content(sections: list) -> bool:
+    """True if any section actually carries a block.
+
+    resolve_weekly_summary returns one entry per SUMMARY_SECTIONS whether or
+    not anything resolved, so its result is never falsy — "a summary exists"
+    and "a summary says something" are two different questions, and the
+    templates were asking the first one while rendering the second (#214).
+    """
+    return any(section["blocks"] for section in sections)

@@ -21,18 +21,18 @@ test was added, renamed or removed.
 | `test_design.py` | 50 | 200 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
 | `test_sidebar.py` | 25 | 101 | Nav, project list, progress rings, behaviour across viewports and views |
 | `test_planner.py` | 33 | 104 | The four-step planner flow and the plan-generating calls behind it |
-| `test_dashboard.py` | 23 | 55 | The dashboard read path: what renders, in which column, from which cache |
+| `test_dashboard.py` | 24 | 59 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 36 | 196 | Toggle and reschedule: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 18 | 90 | Zeitreise: generated moments, the simulated date, the preloader |
-| `test_my_plan.py` | 5 | 8 | `/mein-plan/` |
+| `test_timelapse.py` | 19 | 91 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_my_plan.py` | 6 | 14 | `/mein-plan/` |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
-| `test_summary.py` | 16 | 65 | The AI weekly summary: prompt, parsing, resolution, caches |
+| `test_summary.py` | 17 | 68 | The AI weekly summary: prompt, parsing, resolution, caches |
 | `test_closeout.py` | 10 | 51 | Wochenabschluss: the ritual, its two backends, its summary |
 | `test_notion.py` | 15 | 53 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
-| `test_naming.py` | 13 | 48 | Display names and date formatting — what something is *called* on screen |
-| **total** | **292** | **1159** | |
+| `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
+| **total** | **296** | **1174** | |
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
