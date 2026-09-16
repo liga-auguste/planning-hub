@@ -7,7 +7,10 @@ child cannot wrap onto its neighbour container's line.
 
 Rescheduling is offered where it persists: to Notion in production, to
 session['demo_plan'] for a demo session plan. The demo example projects
-are in no session, so there the date only renders (#10 §5).
+are in no session, so there the date only renders (#10 §5). That condition
+and the markup it gates live in _task_due.html since #195 — this template
+only says which form the date takes here, which is the part that is about
+this surface (#238).
 {% endcomment %}
 <div class="task-row">
     {% include "projects/_task_dot.html" %}
@@ -20,14 +23,7 @@ are in no session, so there the date only renders (#10 §5).
     {% endif %}
     {% endif %}
     <span class="task-right">
-        <span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}"
-              {% if not viewing_demo_data %}
-              data-task-id="{{ task.id }}"
-              data-raw-date="{{ task.due|date:'Y-m-d' }}"
-              title="Datum ändern"
-              {% endif %}>
-            {{ task.due|plan_date:"row" }}
-        </span>
+        {% include "projects/_task_due.html" with due_display=task.due|plan_date:"row" %}
         {% if task.postpone_count and task.postpone_count >= 2 %}
         <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
         {% endif %}
