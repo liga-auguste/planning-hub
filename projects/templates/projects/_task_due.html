@@ -1,0 +1,38 @@
+{% comment %}
+The one place that decides whether a task's date can be changed.
+
+The sibling of _task_dot.html, and it exists for the same reason. The dot
+and the date are the pair a task row always renders together, but only the
+dot's condition has lived in one template since #217 — the date's was
+re-typed on every surface that showed one, and two of them had already
+drifted (#195): the AI summary passes task.urgency straight through where
+the row filters it down to the three stages the CSS actually paints, and
+my_plan.html spells the class .task-date. #195 names the row the reference
+implementation, so its filtering is what this partial does; the surfaces
+that still differ are #186 and #193, and each becomes an include.
+
+A <button> rather than a <span> (#200). Changing a date is one of the two
+things the app is for, and a span takes no focus, announces nothing to a
+screen reader and answers no key. Nothing in the JS had to change for it:
+a button fires click on Enter and Space by itself, and that activation is
+also what lets the date input's showPicker() open.
+
+Only where the change persists, though. The demo example projects are in no
+session (#10 §5), so there the date stays the span it always was, and
+`readonly` does the same for a surface that renders a date it does not yet
+offer to change (the AI summary, until #193). A button that does nothing
+would announce an affordance that is not there — the same reasoning that
+puts a span in _task_dot.html under a Zeitreise moment.
+
+A moment is deliberately *not* a condition here. Rescheduling stays
+available under one while toggling does not: a moment forces done on a deep
+copy, so a toggle would be invisible (#217), but a date change is neither
+invisible nor lost. _task_actions_menu.html gates "Datum ändern" the same
+way, and its own comment says why.
+
+due_display is passed in rather than formatted here. Which form a surface
+spells a date in is a statement about that surface, and #238 settled it per
+surface — the row its short form, the summary the month written out. That
+is also what keeps _task_row.html the only template carrying the "row"
+role, which test_naming asserts over the template directory.
+{% endcomment %}{% if viewing_demo_data or readonly %}<span class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}">{{ due_display }}</span>{% else %}<button type="button" class="task-due {% if task.urgency == 'urgent' %}urgent{% elif task.urgency == 'today' %}today{% elif task.urgency == 'overdue' %}overdue{% endif %}" data-task-id="{{ task.id }}" data-raw-date="{{ task.due|date:'Y-m-d' }}" title="Datum ändern" aria-label="Datum ändern, aktuell {{ due_display }}">{{ due_display }}</button>{% endif %}

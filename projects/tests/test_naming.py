@@ -363,8 +363,13 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         )
 
     def test_the_ai_summary_still_spells_the_month_out(self):
+        # Since #195 the markup comes from _task_due.html and only the form
+        # is stated here, which is the half that is about this surface. What
+        # the assertion protects is unchanged: the summary has the width for
+        # the month and spells it out where the row abbreviates.
         self.assertIn(
-            '<span class="task-due {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>',
+            '{% include "projects/_task_due.html" '
+            'with due_display=task.due|plan_date:"long" readonly=True %}',
             self.read("dashboard.html"),
         )
 
