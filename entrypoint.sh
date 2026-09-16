@@ -30,6 +30,12 @@ echo "Starting gunicorn..."
 # machines do not: the demo VPS has 2 cores, the production Mac Mini 8. The
 # defaults are the old sizing plus threads, so an unset environment behaves
 # like before except for the added concurrency.
+#
+# --timeout is not a request budget under gthread: the worker heartbeats from
+# its own accept loop whether or not its threads are busy, so this only kills
+# a worker that has stopped communicating. The sync worker it replaces went
+# silent inside a long request and got restarted; see README for why losing
+# that backstop is acceptable here and what would replace it.
 exec gunicorn planning_hub.wsgi:application \
     --bind 0.0.0.0:8000 \
     --workers "${GUNICORN_WORKERS:-2}" \
