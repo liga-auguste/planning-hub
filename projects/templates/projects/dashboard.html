@@ -1417,6 +1417,12 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     // applyRescheduleFigures below, takes the long one — one field for both
     // would put the long month back into the row until the next reload.
     dueSpan.textContent = data.due_display_row;
+    // The aria-label carries the date too (_task_due.html), and an aria-label
+    // overrides the element's own text as the accessible name — so writing
+    // only textContent would leave the button reading the new date and
+    // announcing the old one for as long as the page stands. Same field, so
+    // what is seen and what is heard cannot drift apart.
+    dueSpan.setAttribute('aria-label', `Datum ändern, aktuell ${data.due_display_row}`);
     reclassify(dueSpan, data.urgency);
     // The row is handed in rather than walked up to from dueSpan: the date
     // picker swaps the span out of the DOM while it is open, so closest()
@@ -1467,12 +1473,22 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(dueEl => {
         input.type = 'date';
         input.value = dueEl.dataset.rawDate;
         input.className = 'task-due-input';
-        // Only restore focus for a keyboard user: after a mouse click on the
-        // date, focusing the button would leave a focus ring behind that a
+        // Restore focus afterwards unless a pointer is what put it here: the
+        // one case that must not get it back is a mouse click straight on the
+        // button, where focusing it again would leave a ring behind that a
         // pointer never asked for. :focus-visible would hide the ring but not
         // the focus itself, and the element that had it is gone either way.
-        const cameFromKeyboard = dueEl.matches(':focus-visible');
-        const restore = () => { if (cameFromKeyboard) dueEl.focus(); };
+        //
+        // Stated as "focused but not focus-visible" rather than as
+        // "focus-visible", because the button is not always the thing that was
+        // clicked: the actions menu reschedules by calling dueEl.click() on it
+        // (#239), and on that path it holds no focus at all. Asking only for
+        // :focus-visible read that as a mouse click and dropped the keyboard
+        // user on <body> — the one route the menu built. Whether the restored
+        // focus draws a ring is then the browser's own :focus-visible
+        // heuristic to decide, which is the right authority for it.
+        const pointerPutFocusHere = dueEl.matches(':focus:not(:focus-visible)');
+        const restore = () => { if (!pointerPutFocusHere) dueEl.focus(); };
         dueEl.replaceWith(input);
         input.focus();
         input.showPicker();

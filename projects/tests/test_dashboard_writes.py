@@ -1296,10 +1296,40 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # A button answers Enter by itself; what it cannot do by itself is
         # survive being swapped out for the input — focus would be left on a
         # detached element and the next Tab would start from the top.
+        #
+        # The condition is "focused but not focus-visible", i.e. a pointer put
+        # it here, rather than the inverse: the actions menu reschedules by
+        # clicking the button (#239), and on that path it holds no focus at
+        # all. Asking for :focus-visible read that as a mouse click and gave
+        # the keyboard user nothing back.
         html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("const cameFromKeyboard = dueEl.matches(':focus-visible');", html)
         self.assertIn(
-            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", html
+            "const pointerPutFocusHere = dueEl.matches(':focus:not(:focus-visible)');",
+            html,
+        )
+        self.assertIn(
+            "const restore = () => { if (!pointerPutFocusHere) dueEl.focus(); };", html
+        )
+
+    def test_the_menu_route_reaches_the_button_without_focusing_it(self):
+        # What makes the case above real rather than theoretical: the menu
+        # item does not re-implement the picker, it clicks the button — so the
+        # handler runs on an element the user never focused.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.click();", html)
+
+    def test_the_announced_date_is_rewritten_with_the_visible_one(self):
+        # An aria-label overrides the element's own text as the accessible
+        # name, so updating only textContent leaves the button reading the new
+        # date and announcing the old one — on every path that does not reload,
+        # which is any move that keeps the task's stage. Both come from the
+        # same response field so they cannot drift.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.textContent = data.due_display_row;", html)
+        self.assertIn(
+            "dueSpan.setAttribute('aria-label', "
+            "`Datum ändern, aktuell ${data.due_display_row}`);",
+            html,
         )
 
 
