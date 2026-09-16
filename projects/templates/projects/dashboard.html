@@ -1465,6 +1465,28 @@ async function reschedule(taskId, newDate, dueSpan, row) {
 // back: swapping the input out leaves focus on a detached element, so the
 // button takes it again, the way the actions menu restores focus to its
 // trigger (#239).
+// Which device the user is driving with, read off the events themselves
+// rather than off the element afterwards. Two earlier attempts asked the
+// button, and both got it wrong somewhere:
+//
+//   :focus-visible            — false on the actions menu's route, because
+//                               there the button is clicked by script
+//                               (dueEl.click(), #239) and never focused at
+//                               all. The keyboard user landed on <body>.
+//   :focus:not(:focus-visible) — correct in Chrome, wrong in Safari on macOS,
+//                               where clicking a <button> does not focus it.
+//                               The test is then false for a plain mouse
+//                               click too, so the ring came back.
+//
+// Neither is a bug in the browsers: an element simply cannot say how the
+// click that reached it was produced. The events can. capture:true so the
+// modality is current even for a handler that stops propagation, and
+// pointerdown/keydown rather than click/keyup so it is set before the click
+// this listener acts on.
+let lastInputWasKeyboard = false;
+document.addEventListener('keydown', () => { lastInputWasKeyboard = true; }, true);
+document.addEventListener('pointerdown', () => { lastInputWasKeyboard = false; }, true);
+
 document.querySelectorAll('.task-due[data-task-id]').forEach(dueEl => {
     dueEl.addEventListener('click', () => {
         // Read before the swap below detaches the button from its row.
@@ -1473,22 +1495,20 @@ document.querySelectorAll('.task-due[data-task-id]').forEach(dueEl => {
         input.type = 'date';
         input.value = dueEl.dataset.rawDate;
         input.className = 'task-due-input';
-        // Restore focus afterwards unless a pointer is what put it here: the
-        // one case that must not get it back is a mouse click straight on the
-        // button, where focusing it again would leave a ring behind that a
-        // pointer never asked for. :focus-visible would hide the ring but not
-        // the focus itself, and the element that had it is gone either way.
+        // Give focus back to a keyboard user, and to nobody else: swapping the
+        // input out leaves focus on a detached element, so without this the
+        // next Tab starts at the top of the document. A mouse user asked for
+        // none of that — focusing the button again would leave a ring behind
+        // that a pointer never requested, and :focus-visible would hide the
+        // ring but not the focus itself.
         //
-        // Stated as "focused but not focus-visible" rather than as
-        // "focus-visible", because the button is not always the thing that was
-        // clicked: the actions menu reschedules by calling dueEl.click() on it
-        // (#239), and on that path it holds no focus at all. Asking only for
-        // :focus-visible read that as a mouse click and dropped the keyboard
-        // user on <body> — the one route the menu built. Whether the restored
-        // focus draws a ring is then the browser's own :focus-visible
-        // heuristic to decide, which is the right authority for it.
-        const pointerPutFocusHere = dueEl.matches(':focus:not(:focus-visible)');
-        const restore = () => { if (!pointerPutFocusHere) dueEl.focus(); };
+        // Read once, here, rather than again when the input closes: Tab is a
+        // keydown, so a mouse user who opens the picker and then tabs away
+        // would flip the modality and be pulled back to the button by the very
+        // keystroke that meant to leave it. The interaction that opened the
+        // picker is the one that owns where focus goes when it shuts.
+        const cameFromKeyboard = lastInputWasKeyboard;
+        const restore = () => { if (cameFromKeyboard) dueEl.focus(); };
         dueEl.replaceWith(input);
         input.focus();
         input.showPicker();

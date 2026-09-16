@@ -1297,18 +1297,33 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # survive being swapped out for the input — focus would be left on a
         # detached element and the next Tab would start from the top.
         #
-        # The condition is "focused but not focus-visible", i.e. a pointer put
-        # it here, rather than the inverse: the actions menu reschedules by
-        # clicking the button (#239), and on that path it holds no focus at
-        # all. Asking for :focus-visible read that as a mouse click and gave
-        # the keyboard user nothing back.
+        # The device is read off the events, not off the element afterwards.
+        # Asking the button was tried twice and failed twice: :focus-visible is
+        # false on the actions menu's route, where the button is clicked by
+        # script and never focused (#239), and :focus:not(:focus-visible) is
+        # false in Safari on macOS for an ordinary mouse click, because Safari
+        # does not focus a <button> when you click it. An element cannot say
+        # how the click that reached it was produced; the events can.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", html)
+        self.assertIn(
+            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", html
+        )
+
+    def test_the_device_is_tracked_from_the_events_themselves(self):
+        # capture:true so a handler that stops propagation cannot leave the
+        # modality stale, and pointerdown/keydown rather than click/keyup so it
+        # is already current when the click handler above reads it.
         html = self.client.get(reverse("dashboard")).content.decode()
         self.assertIn(
-            "const pointerPutFocusHere = dueEl.matches(':focus:not(:focus-visible)');",
+            "document.addEventListener('keydown', "
+            "() => { lastInputWasKeyboard = true; }, true);",
             html,
         )
         self.assertIn(
-            "const restore = () => { if (!pointerPutFocusHere) dueEl.focus(); };", html
+            "document.addEventListener('pointerdown', "
+            "() => { lastInputWasKeyboard = false; }, true);",
+            html,
         )
 
     def test_the_menu_route_reaches_the_button_without_focusing_it(self):
