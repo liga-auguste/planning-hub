@@ -2190,6 +2190,13 @@ def toggle_session_task(request, task_id):
     )
     if task is None:
         return JsonResponse({"error": "unknown task"}, status=404)
+    today = timezone.localdate()
     task["done"] = done
+    # #246: the same pairing toggle_task_view writes (#19), and the same one
+    # _count_done_in_range's docstring already promises for "any task toggled
+    # through this app". Without it a task cleared here reached
+    # _demo_completed_in_range with no completion date, so the week close-out
+    # placed it by its due date or not at all.
+    task["completed_date"] = today.isoformat() if done else None
     request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})

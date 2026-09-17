@@ -35,8 +35,10 @@ from ..views import (
     UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
+    _build_session_project,
     _bust_dashboard_cache,
     _cache_fresh_read,
+    _demo_completed_in_range,
     _derive_dashboard_figures,
     _remap_summary_refs,
 )
@@ -359,6 +361,47 @@ class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
     def test_no_session_plan_at_all_is_a_404(self):
         response = self.post_toggle("demo-session-0", done=True)
         self.assertEqual(response.status_code, 404)
+
+    def test_a_toggle_records_when_it_happened(self):
+        """#246: _count_done_in_range promises in its own docstring that
+        "any task toggled through this app has `done` and `completed_date`
+        set together". This route wrote only `done`, so the sentence was
+        false for every toggle made on /mein-plan/."""
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"],
+            timezone.localdate().isoformat(),
+        )
+
+    def test_unchecking_clears_the_completion_date(self):
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.post_toggle("demo-session-0", done=False)
+        self.assertIsNone(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"]
+        )
+
+    def test_a_task_cleared_here_counts_in_the_week_closeout(self):
+        """Where the missing field actually cost something.
+        _demo_completed_in_range places a task in a week by its completion
+        date, and falls back to the due date only under a moment. A task due
+        outside this week, cleared on /mein-plan/ today, therefore never
+        appeared in the close-out's "completed this week" at all."""
+        week_start, week_end = iso_week_bounds(timezone.localdate())
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (week_end + timedelta(days=14)).isoformat(),
+                    "done": False,
+                }
+            ]
+        )
+        self.post_toggle("demo-session-0", done=True)
+        tasks = _build_session_project(self.client.session["demo_plan"])["tasks"]
+        self.assertEqual(_demo_completed_in_range(tasks, week_start, week_end, None), 1)
 
 
 class MalformedJsonBodyTest(DemoModeTestCase):
