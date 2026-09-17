@@ -1,5 +1,6 @@
 """Wochenabschluss: the close-out ritual, its backends and its summary."""
 
+import json
 import re
 from datetime import (
     date,
@@ -461,6 +462,69 @@ class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
         self.assertEqual(closeout["completed_count"], 2)
         # The week under the timelapse, not the real calendar week.
         self.assertEqual(closeout["iso_week"], sim.isocalendar()[1])
+
+    def test_a_hand_toggle_does_not_take_a_task_out_of_the_simulated_week(self):
+        """#246: toggle_session_task records the real date, because
+        /mein-plan/ renders the real date and a write there lands where it
+        shows. That date must not displace the moment's own placement: the
+        task is struck through on the dashboard because it is due by `sim`,
+        and it belongs to the simulated week either way. While the due date
+        only answered where no completion date stood, checking a task off by
+        hand *removed* it from this count."""
+        monday = date(2026, 6, 15)
+        sim = monday + timedelta(days=3)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-a",
+                    "name": "Frueh faellig",
+                    "date": (monday + timedelta(days=1)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        self.given_timelapse_moments(sim.isoformat())
+        session = self.client.session
+        session["demo_sim_date"] = sim.isoformat()
+        session.save()
+        # Through the route the visitor actually has, not by seeding the
+        # field: the real date it writes is the whole point (today is months
+        # away from the simulated June week).
+        self.client.post(
+            reverse("toggle_session_task", args=["t-a"]),
+            data=json.dumps({"done": True}),
+            content_type="application/json",
+        )
+        self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.assertEqual(
+            self.client.session["demo_week_closeout"]["completed_count"], 1
+        )
+
+    def test_a_task_completed_both_ways_counts_once(self):
+        """The other half of asking both placements: one task due by `sim`
+        *and* carrying a completion date inside the same week is one task, not
+        two. `any` over the placements rather than a sum."""
+        monday = date(2026, 6, 15)
+        sim = monday + timedelta(days=3)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-a",
+                    "name": "Frueh faellig",
+                    "date": (monday + timedelta(days=1)).isoformat(),
+                    "done": True,
+                    "completed_date": (monday + timedelta(days=2)).isoformat(),
+                },
+            ]
+        )
+        self.given_timelapse_moments(sim.isoformat())
+        session = self.client.session
+        session["demo_sim_date"] = sim.isoformat()
+        session.save()
+        self.client.post(reverse("close_week_confirm"), data={"task_id": []})
+        self.assertEqual(
+            self.client.session["demo_week_closeout"]["completed_count"], 1
+        )
 
     def test_the_review_hides_the_added_tile_in_demo(self):
         """#215: a demo plan is created in one shot, so the count is

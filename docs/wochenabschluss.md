@@ -104,7 +104,13 @@ date is "today" for the triage list, the counts and the review's KW, so the clos
 not talk about a different week than the dashboard is showing. Completions the timelapse
 produced carry no `completed_date` — they are marked done on a deepcopy that is never
 written back — so `_demo_completed_in_range` places them by their due date, which is what
-made them done.
+made them done. Since #246 that placement is asked *alongside* a hand-written completion
+date rather than only where none stands: `toggle_session_task` records the real date,
+because `/mein-plan/` renders the real date and a write there lands where it shows. A task
+the moment had struck through would otherwise leave the simulated week the moment the
+visitor also cleared it by hand — the real date displacing a placement that was carrying
+it. Either date inside the range counts the task, and a task both dates place there is
+still one task.
 
 **Persistence** (`projects/closeout.py`): two backends behind one interface, the same
 shape as `rules.py` — production stores a `WeekCloseout` row (unique on

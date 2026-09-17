@@ -1746,18 +1746,28 @@ def _demo_completed_in_range(tasks, start, end, sim_date):
     no completion date at all. The due date is what made them done, so it is
     the date that places them in a week; without this branch a time-travelled
     demo would report the same 0 this issue exists to remove.
+
+    #246: the two ways are asked together rather than the second answering
+    only where the first is silent. Since toggle_session_task records a
+    completion date of its own, one task can be completed both ways at once —
+    struck through by the moment because it is due by `sim_date`, and checked
+    off by hand on /mein-plan/, which renders the real date and therefore
+    writes the real one. Read as "completed only where the hand-written date
+    is missing", that real date displaced the moment's placement and a visitor
+    who cleared a task lost it from the very week the close-out was counting.
+    So both placements are collected and any one of them inside the range
+    counts the task — `any`, not a sum: a task placed there twice is still one
+    task.
     """
     count = 0
     for task in tasks:
+        placements = []
         completed = task.get("completed_date")
-        if (
-            completed is None
-            and sim_date
-            and task.get("due")
-            and task["due"] <= sim_date
-        ):
-            completed = task["due"]
-        if completed and start <= completed <= end:
+        if completed:
+            placements.append(completed)
+        if sim_date and task.get("due") and task["due"] <= sim_date:
+            placements.append(task["due"])
+        if any(start <= placement <= end for placement in placements):
             count += 1
     return count
 
@@ -2045,6 +2055,16 @@ def my_plan(request):
         return redirect("index")
 
     today = timezone.localdate()
+    # #246: read to be *named*, never to be rendered from. The list, the
+    # counter, the progress bar and the sidebar ring all stay on today — the
+    # boundary from "The Zeitreise stays a dashboard device" is unchanged, it
+    # is only labelled now. Without the label a task the dashboard shows
+    # struck through stands open here with nothing saying why.
+    # _get_sim_date, not session.get: it heals a value written before the
+    # moments were validated, the same way the dashboard is protected.
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
     project = _build_session_project(plan)
     project["display_name"] = _strip_trailing_date(project["name"])
     project["event_date_display"] = format_date(project["event_date"], role="long")
@@ -2090,6 +2110,8 @@ def my_plan(request):
             "total": total,
             "today": today,
             "today_display": format_date(today, role="long"),
+            "sim_date": sim_date,
+            "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
             "summary": summary,
             "summary_empty_state": summary_empty_state,
             "summary_error": summary_error,
@@ -2184,12 +2206,25 @@ def toggle_session_task(request, task_id):
     done = data.get("done")
     if not isinstance(done, bool):
         return JsonResponse({"error": "invalid done"}, status=400)
+    # #246: no sim_date guard here, unlike toggle_task_view. The rule is that
+    # a write is offered where it takes effect, not that a moment locks the
+    # session plan: my_plan() never reads sim_date, renders the real state on
+    # the real date and keeps a live button.dot (_task_dot.html drops one only
+    # on the dashboard, where the render forces done and would swallow the
+    # write). A guard here would refuse a toggle the visitor can see land.
     plan = request.session.get("demo_plan")
     task = (
         next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None
     )
     if task is None:
         return JsonResponse({"error": "unknown task"}, status=404)
+    today = timezone.localdate()
     task["done"] = done
+    # #246: the same pairing toggle_task_view writes (#19), and the same one
+    # _count_done_in_range's docstring already promises for "any task toggled
+    # through this app". Without it a task cleared here reached
+    # _demo_completed_in_range with no completion date, so the week close-out
+    # placed it by its due date or not at all.
+    task["completed_date"] = today.isoformat() if done else None
     request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})
