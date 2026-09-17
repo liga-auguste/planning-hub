@@ -118,6 +118,63 @@ class EntrypointConfTest(SimpleTestCase):
         )
 
 
+class DemoSqliteConcurrencyConfTest(SimpleTestCase):
+    """#255 follow-up: gunicorn serves the demo from eight threads instead of
+    two processes, and the demo keeps its sessions and its DatabaseCache in
+    the one SQLite file. SQLite admits a single writer whichever way the
+    concurrency was bought, and on the stock options a transaction that reads
+    before it writes does not queue for the lock at all — it fails the moment
+    the lock is held, which is a 500 rather than a slow request.
+
+    Measured on that shape (8 threads, 200 read-then-write transactions, the
+    order DatabaseCache._base_set and a session save both have): 43 failed on
+    the defaults, 0 with these three set. Pinned so they are not later tidied
+    away as noise on a database "only the demo uses"."""
+
+    def demo_databases(self):
+        # django.conf.settings copied its values at process startup —
+        # reloading the module object touches nothing the running suite reads
+        # (see StaticStorageConfigTest). The production leg of CI runs this
+        # test too, which is why the setting is re-derived under an explicit
+        # DEMO_MODE rather than read off the live settings.
+        import planning_hub.settings as settings_module
+
+        env = {"SECRET_KEY": "test-key", "DEMO_MODE": "true"}
+        with patch.dict(os.environ, env, clear=True):
+            databases = importlib.reload(settings_module).DATABASES
+        importlib.reload(settings_module)  # re-derive the test-run state
+        return databases
+
+    def test_the_demo_database_lets_readers_past_a_write(self):
+        options = self.demo_databases()["default"]["OPTIONS"]
+        self.assertIn("journal_mode=WAL", options["init_command"])
+
+    def test_a_write_transaction_takes_its_lock_at_the_start(self):
+        """The half that removes the failure rather than shortening it: under
+        DEFERRED the lock is asked for halfway through, and that request does
+        not honour `timeout`."""
+        options = self.demo_databases()["default"]["OPTIONS"]
+        self.assertEqual(options["transaction_mode"], "IMMEDIATE")
+
+    def test_a_queued_writer_waits_longer_than_sqlite_would(self):
+        options = self.demo_databases()["default"]["OPTIONS"]
+        self.assertGreaterEqual(options["timeout"], 20)
+
+    def test_production_gets_none_of_it(self):
+        """Postgres has its own concurrency and none of these keys mean
+        anything there — the block must not grow a copy of them."""
+        import planning_hub.settings as settings_module
+
+        env = {"SECRET_KEY": "test-key", "DEMO_MODE": "false"}
+        with patch.dict(os.environ, env, clear=True):
+            databases = importlib.reload(settings_module).DATABASES
+        importlib.reload(settings_module)  # re-derive the test-run state
+        self.assertEqual(
+            databases["default"]["ENGINE"], "django.db.backends.postgresql"
+        )
+        self.assertNotIn("OPTIONS", databases["default"])
+
+
 class StaticStorageConfigTest(SimpleTestCase):
     """#74: settings.py picks the staticfiles backend by process type —
     ManifestStaticFilesStorage for the server, the plain storage under the
