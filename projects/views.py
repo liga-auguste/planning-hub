@@ -2184,6 +2184,12 @@ def toggle_session_task(request, task_id):
     done = data.get("done")
     if not isinstance(done, bool):
         return JsonResponse({"error": "invalid done"}, status=400)
+    # #246: no sim_date guard here, unlike toggle_task_view. The rule is that
+    # a write is offered where it takes effect, not that a moment locks the
+    # session plan: my_plan() never reads sim_date, renders the real state on
+    # the real date and keeps a live button.dot (_task_dot.html drops one only
+    # on the dashboard, where the render forces done and would swallow the
+    # write). A guard here would refuse a toggle the visitor can see land.
     plan = request.session.get("demo_plan")
     task = (
         next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None

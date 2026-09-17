@@ -301,15 +301,21 @@ counters and the sidebar ring all still read the task as done — and a reload p
 strike-through back. A visitor cannot tell "nothing happened" from "it happened and you
 cannot see it" (#217).
 
-So the toggle is not offered while a moment is on. `_task_dot.html` renders the dot as a
-plain `<span>` instead of the `<form>`/`<button>` — the status colour stays, the
-affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
+So the toggle is not offered while a moment is on *this page*. `_task_dot.html` renders
+the dot as a plain `<span>` instead of the `<form>`/`<button>` — the status colour stays,
+the affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
 projects already get. Rescheduling stays: a new date visibly moves the task in or out of
 the forced-done range, so it is not the same contradiction.
 
+`/mein-plan/` keeps its own toggle (`toggle_session_task`), and that is the same rule
+rather than a gap in it (#246). The rule is "a write is offered where it takes effect", not
+"a moment locks the session plan": `my_plan()` never reads `sim_date`, so it renders the
+real state on the real date and a toggle there is visible exactly where it is made.
+Guarding it would refuse a write the visitor can see land.
+
 Removing the affordance was correct and silent. The moment also takes three ⋮ entries with
 it — "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" — so a visitor had four
-write paths vanish and no word about any of them. Since #244 the page answers the attempt
+write paths vanish and no word about any of them. Since #244 the dashboard answers the attempt
 rather than announcing the rule: a click on a locked dot gets a short self-dismissing
 notice beside that dot with a way back to today, and the ⋮ menu says in one line which
 entries the moment removed. The banner stays what it was, a label naming the simulated

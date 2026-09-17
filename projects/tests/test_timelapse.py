@@ -831,6 +831,62 @@ class NoToggleDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
         self.assertEqual(moved.status_code, 200)
 
 
+class TheSessionToggleStaysLiveDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
+    """#246: the guard #217 put on `task/<id>/toggle/` is deliberately not on
+    `session-task/<id>/toggle/`, and this class is where that is written down.
+
+    Read as a rule about the session plan, the asymmetry looks like an
+    oversight: same plan, same `done` field, one route refuses and the other
+    writes. But the rule is not "a moment makes the session plan read-only" —
+    it is *a write is offered where it takes effect* (#10 §5, #61 and #217 are
+    instances of it, not the rule itself).
+
+    `dashboard()` forces every task due by `sim_date` to done on a deep copy,
+    so a toggle there changes nothing the visitor can see and goes. `my_plan()`
+    renders the real state on the real date and never reads `sim_date` at all,
+    so a toggle there is visible exactly where it is made and stays. Guarding
+    it would refuse a write whose effect is on screen — the opposite failure,
+    reached from the other side.
+
+    What #246 found genuinely missing is the other half: the page dropped out
+    of the moment without a word. That is fixed by the notice, not by a guard.
+    """
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_session_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_the_session_toggle_answers_200_during_a_moment(self):
+        self.given_active_moment()
+        self.assertEqual(self.post_toggle("demo-session-0", done=True).status_code, 200)
+
+    def test_the_write_lands_in_the_session_plan_during_a_moment(self):
+        self.given_active_moment()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_my_plan_still_renders_live_toggle_buttons(self):
+        """The counterpart to _task_dot.html dropping the affordance on the
+        dashboard: here it stays, because here the click has a visible
+        effect."""
+        self.given_active_moment()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'onclick="toggleTask(this)"')
+        self.assertNotContains(response, '<span class="dot')
+
+    def test_my_plan_renders_the_real_state_not_the_forced_one(self):
+        """The task due before the moment is forced done on the dashboard and
+        stands open here. Two surfaces, two answers, both correct for the date
+        they render — which is exactly why the page has to name the moment."""
+        self.given_active_moment()
+        response = self.client.get(reverse("my_plan"))
+        self.assertNotContains(response, 'class="task-row done"')
+        self.assertContains(response, '<span id="done-count">0</span> / 2 erledigt')
+
+
 class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
     """#244: #217 took the write affordances out of a moment and said nothing
     about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor
