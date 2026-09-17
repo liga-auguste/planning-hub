@@ -253,11 +253,12 @@ So both routes are correct and they answer differently because they are asked di
 questions. `TheSessionToggleStaysLiveDuringAMomentTest` (`test_timelapse.py`) pins it, so a
 later consistency fix has to argue with a red test rather than with an absence.
 
-What #246 found genuinely missing is the other half: `/mein-plan/` leaves the moment
-without a word, so the task the dashboard renders forced-done stands open on the list with
-nothing naming why — "a state the visitor can see but not explain or leave", the failure
+What #246 found genuinely missing is the other half: `/mein-plan/` left the moment without
+a word, so the task the dashboard renders forced-done stood open on the list with nothing
+naming why — "a state the visitor can see but not explain or leave", the failure
 `docs/demo-mode.md` already warns about. That is answered by a notice on the page, not by a
-guard on the route.
+guard on the route: see [`docs/demo-mode.md`](demo-mode.md), "The Zeitreise stays a
+dashboard device".
 
 ### What the page says about it
 
@@ -438,7 +439,8 @@ These are decisions, not omissions.
   view of a past date, and a control that is always going to refuse is worse than no
   control. `my_plan` keeps its toggle (`toggle_session_task`) for the opposite half of the
   same reason — it has never read `sim_date`, so it renders the real date and a write there
-  lands where it shows (#246). What it lacked was any mention of the moment at all.
+  lands where it shows (#246). What it lacked was any mention of the moment
+  at all, which is what the notice above `.project-header` now adds.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a

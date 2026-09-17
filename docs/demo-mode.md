@@ -339,9 +339,20 @@ simulated one. This is deliberate, not an oversight to fix later:
 - `close_week_start()`/`week_review()` write state keyed by the real ISO week (`WeekCloseout`,
   `is_week_closed`). A simulated clock there would mean closing out a simulated week, which is a
   product decision about what the close-out *is*, not a display detail.
+- Since #246 `/mein-plan/` **names** the moment it is not showing. It read no `sim_date` at
+  all, so a task the dashboard renders struck through stood open on the list with nothing
+  saying why — the same "state the visitor can see but not explain or leave" this section
+  exists to avoid, reached by leaving a page out rather than by simulating half of it.
+  `my_plan()` now reads `sim_date` for the notice above `.project-header` and for nothing
+  else: the list, the counter, the progress bar and the sidebar ring all stay on
+  `timezone.localdate()`. The notice explains and its "Zum Dashboard →" link leaves —
+  deliberately no reset button, because that would put a second caller of
+  `set_timelapse_date` outside the dashboard, with its own JS and its own chance to
+  reproduce #233's unchecked response.
 
 Each page is internally consistent with its own notion of today; the boundary runs along the
-dashboard, which is the one place the simulation is announced and reversible.
+dashboard, which is the one place the simulation is announced and reversible. It is labelled
+at its edge now, not silent there.
 
 ---
 

@@ -887,6 +887,80 @@ class TheSessionToggleStaysLiveDuringAMomentTest(MomentFixtureMixin, DemoModeTes
         self.assertContains(response, '<span id="done-count">0</span> / 2 erledigt')
 
 
+class MyPlanNamesTheMomentItIsNotShowingTest(MomentFixtureMixin, DemoModeTestCase):
+    """#246: the page renders the real date deliberately (see the class above)
+    and said nothing about the moment running on the dashboard. A task the
+    dashboard shows struck through stood open here, same task, two surfaces,
+    nothing naming why — "a state the visitor can see but not explain or
+    leave", which is the failure docs/demo-mode.md already warns about.
+
+    The notice names the moment and links back. It does not simulate: the list,
+    the counter, the progress bar and the sidebar ring all stay on
+    timezone.localdate(). That boundary is the point of "The Zeitreise stays a
+    dashboard device", not something this fix quietly reverses.
+    """
+
+    def my_plan(self):
+        return self.client.get(reverse("my_plan"))
+
+    def test_my_plan_names_a_running_moment(self):
+        self.given_active_moment()
+        self.assertContains(self.my_plan(), 'class="sim-elsewhere-notice"')
+
+    def test_the_notice_carries_the_simulated_date(self):
+        moment = self.given_active_moment()
+        self.assertContains(self.my_plan(), format_date(moment, role="long"))
+
+    def test_the_notice_says_which_state_this_page_shows(self):
+        """Without the second half the notice raises the question it exists to
+        answer: if a moment is running, what am I looking at?"""
+        self.assertTrue(self.given_active_moment())
+        self.assertContains(self.my_plan(), "Diese Liste zeigt den heutigen Stand.")
+
+    def test_the_notice_offers_the_way_back_to_the_dashboard(self):
+        """Deliberately a link, not an "end the simulation" button: the moment
+        is announced and reversible on the dashboard, and a second caller of
+        set_timelapse_date here would mean new JS and a second place to
+        reproduce #233's unchecked response."""
+        self.given_active_moment()
+        response = self.my_plan()
+        self.assertContains(response, f'href="{reverse("dashboard")}"')
+        self.assertContains(response, "Zum Dashboard →")
+        # The call, not the bare name: the CSS comment above the notice cites
+        # setSimDate as the reason _status_banners.html is not reused here.
+        self.assertNotContains(response, 'onclick="setSimDate')
+
+    def test_no_notice_without_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.my_plan(), 'class="sim-elsewhere-notice"')
+
+    def test_the_simulated_date_is_named_exactly_once(self):
+        """#153's one-date rule, re-asserted against the new copy."""
+        moment = self.given_active_moment()
+        self.assertContains(self.my_plan(), format_date(moment, role="long"), count=1)
+
+    def test_the_page_still_renders_the_real_today(self):
+        """The notice mentions the moment, it does not import it. The counter
+        is the tell: both tasks stand open on the real date, and one of them is
+        forced done on the dashboard."""
+        self.given_active_moment()
+        response = self.my_plan()
+        self.assertContains(response, '<span id="done-count">0</span> / 2 erledigt')
+        self.assertContains(response, 'onclick="toggleTask(this)"')
+
+    def test_a_poisoned_sim_date_renders_no_notice(self):
+        """The view reads _get_sim_date, not session.get — a session written
+        before the moments were validated can hold anything there, and the
+        healing that protects the dashboard protects this page too."""
+        self.given_two_tasks_around_a_moment()
+        session = self.client.session
+        session["demo_sim_date"] = "irgendwann"
+        session.save()
+        response = self.my_plan()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'class="sim-elsewhere-notice"')
+
+
 class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
     """#244: #217 took the write affordances out of a moment and said nothing
     about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor

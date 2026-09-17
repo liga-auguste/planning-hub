@@ -2045,6 +2045,16 @@ def my_plan(request):
         return redirect("index")
 
     today = timezone.localdate()
+    # #246: read to be *named*, never to be rendered from. The list, the
+    # counter, the progress bar and the sidebar ring all stay on today — the
+    # boundary from "The Zeitreise stays a dashboard device" is unchanged, it
+    # is only labelled now. Without the label a task the dashboard shows
+    # struck through stands open here with nothing saying why.
+    # _get_sim_date, not session.get: it heals a value written before the
+    # moments were validated, the same way the dashboard is protected.
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
     project = _build_session_project(plan)
     project["display_name"] = _strip_trailing_date(project["name"])
     project["event_date_display"] = format_date(project["event_date"], role="long")
@@ -2090,6 +2100,8 @@ def my_plan(request):
             "total": total,
             "today": today,
             "today_display": format_date(today, role="long"),
+            "sim_date": sim_date,
+            "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
             "summary": summary,
             "summary_empty_state": summary_empty_state,
             "summary_error": summary_error,
