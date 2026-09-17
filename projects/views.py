@@ -1746,18 +1746,28 @@ def _demo_completed_in_range(tasks, start, end, sim_date):
     no completion date at all. The due date is what made them done, so it is
     the date that places them in a week; without this branch a time-travelled
     demo would report the same 0 this issue exists to remove.
+
+    #246: the two ways are asked together rather than the second answering
+    only where the first is silent. Since toggle_session_task records a
+    completion date of its own, one task can be completed both ways at once —
+    struck through by the moment because it is due by `sim_date`, and checked
+    off by hand on /mein-plan/, which renders the real date and therefore
+    writes the real one. Read as "completed only where the hand-written date
+    is missing", that real date displaced the moment's placement and a visitor
+    who cleared a task lost it from the very week the close-out was counting.
+    So both placements are collected and any one of them inside the range
+    counts the task — `any`, not a sum: a task placed there twice is still one
+    task.
     """
     count = 0
     for task in tasks:
+        placements = []
         completed = task.get("completed_date")
-        if (
-            completed is None
-            and sim_date
-            and task.get("due")
-            and task["due"] <= sim_date
-        ):
-            completed = task["due"]
-        if completed and start <= completed <= end:
+        if completed:
+            placements.append(completed)
+        if sim_date and task.get("due") and task["due"] <= sim_date:
+            placements.append(task["due"])
+        if any(start <= placement <= end for placement in placements):
             count += 1
     return count
 
