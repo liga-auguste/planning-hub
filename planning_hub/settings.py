@@ -94,6 +94,36 @@ if DEMO_MODE:
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "data" / "demo.sqlite3",
+            # #255 follow-up: this one file holds the demo's sessions and its
+            # DatabaseCache, and since gunicorn serves it from eight threads
+            # rather than two processes (entrypoint.sh), eight requests can
+            # want to write to it at once. SQLite admits one writer at a time
+            # whichever way the concurrency was bought, so without these three
+            # the added capacity is a reading one and the extra writers queue
+            # on defaults that were never chosen.
+            #
+            # WAL lets readers through while a write is in flight, which is
+            # most of this traffic — a dashboard render reads the cache and
+            # the session and writes neither. The journal mode is a property
+            # of the file, so the PRAGMA is a no-op after the first
+            # connection; it is issued on every one because Django offers no
+            # once-per-database hook.
+            #
+            # IMMEDIATE takes the write lock when the transaction opens
+            # instead of upgrading to it halfway through: an upgrade that
+            # finds the lock held fails at once and does not wait out `timeout`
+            # at all, which is the "database is locked" most applications
+            # actually meet. `timeout` is the wait itself, raised from
+            # sqlite3's own five seconds — a request here can be sitting in a
+            # Claude call, and queueing a few seconds longer is a better
+            # answer than a 500.
+            #
+            # Production is PostgreSQL and needs none of it.
+            "OPTIONS": {
+                "init_command": "PRAGMA journal_mode=WAL;",
+                "transaction_mode": "IMMEDIATE",
+                "timeout": 20,
+            },
         }
     }
 else:
