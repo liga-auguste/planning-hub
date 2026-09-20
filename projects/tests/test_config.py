@@ -146,8 +146,13 @@ class DemoSqliteConcurrencyConfTest(SimpleTestCase):
         return databases
 
     def test_the_demo_database_lets_readers_past_a_write(self):
+        """Equality rather than a substring, because a *longer* value is the
+        silent failure: SQLite ignores an unrecognised journal mode without
+        error, so `WALL` would leave the file in rollback mode while still
+        containing `WAL`. Nothing downstream would catch it — the test
+        database is in-memory, where the pragma is a documented no-op."""
         options = self.demo_databases()["default"]["OPTIONS"]
-        self.assertIn("journal_mode=WAL", options["init_command"])
+        self.assertEqual(options["init_command"], "PRAGMA journal_mode=WAL;")
 
     def test_a_write_transaction_takes_its_lock_at_the_start(self):
         """The half that removes the failure rather than shortening it: under
