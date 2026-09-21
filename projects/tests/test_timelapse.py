@@ -681,23 +681,22 @@ class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
         self.assertNotContains(response, 'class="timelapse-bar"')
 
 
-class NoToggleDuringAMomentTest(DemoModeTestCase):
-    """#217: dashboard() renders a moment by forcing every task due by
-    sim_date to done on a deep copy — that is what a moment *is*. A toggle
-    therefore persisted into the session and changed nothing the visitor
-    could see: the clicked dot un-struck itself while the Kanban card, the
-    week bar, the day counters and the sidebar ring all still read it as
-    done, and a reload put the strike-through back. A visitor cannot tell
-    "nothing happened" from "it happened and you cannot see it", so the
-    interaction goes while the moment is on — the same rule that keeps
-    rescheduling to where it persists (#10 §5), applied to visibility.
-    """
-
-    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
+class MomentFixtureMixin:
+    """The two-task moment fixture, shared by the classes that need a moment
+    to be active. A mixin rather than a base class, and not named test*, so
+    unittest collects it nowhere — the same reason base.py is not
+    test_base.py."""
 
     def given_two_tasks_around_a_moment(self):
         """A moment with one task due before it (forced done) and one after
-        it (still open) — so the dot's own state is observable either way."""
+        it (still open) — so the dot's own state is observable either way.
+
+        The open task sits ten days past the moment, not three: urgency is
+        calendar-week based (#169), and a three-day gap lands in the moment's
+        own ISO week on four weekdays out of seven, which made the task's
+        stage — and with it `dot ok` — depend on the day the suite ran.
+        Ten days cannot share an ISO week with the moment, on any weekday.
+        """
         moment = date.today() + timedelta(days=10)
         self.given_session_plan(
             tasks=[
@@ -710,7 +709,7 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
                 {
                     "id": "demo-session-1",
                     "name": "Programmhefte drucken",
-                    "date": (moment + timedelta(days=3)).isoformat(),
+                    "date": (moment + timedelta(days=10)).isoformat(),
                     "done": False,
                 },
             ]
@@ -724,6 +723,21 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
         session["demo_sim_date"] = moment.isoformat()
         session.save()
         return moment
+
+
+class NoToggleDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
+    """#217: dashboard() renders a moment by forcing every task due by
+    sim_date to done on a deep copy — that is what a moment *is*. A toggle
+    therefore persisted into the session and changed nothing the visitor
+    could see: the clicked dot un-struck itself while the Kanban card, the
+    week bar, the day counters and the sidebar ring all still read it as
+    done, and a reload put the strike-through back. A visitor cannot tell
+    "nothing happened" from "it happened and you cannot see it", so the
+    interaction goes while the moment is on — the same rule that keeps
+    rescheduling to where it persists (#10 §5), applied to visibility.
+    """
+
+    TOKEN_INPUT = '<input type="hidden" name="csrfmiddlewaretoken"'
 
     def post_toggle(self, task_id, done=True):
         return self.client.post(
@@ -815,3 +829,345 @@ class NoToggleDuringAMomentTest(DemoModeTestCase):
             content_type="application/json",
         )
         self.assertEqual(moved.status_code, 200)
+
+
+class TheSessionToggleStaysLiveDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
+    """#246: the guard #217 put on `task/<id>/toggle/` is deliberately not on
+    `session-task/<id>/toggle/`, and this class is where that is written down.
+
+    Read as a rule about the session plan, the asymmetry looks like an
+    oversight: same plan, same `done` field, one route refuses and the other
+    writes. But the rule is not "a moment makes the session plan read-only" —
+    it is *a write is offered where it takes effect* (#10 §5, #61 and #217 are
+    instances of it, not the rule itself).
+
+    `dashboard()` forces every task due by `sim_date` to done on a deep copy,
+    so a toggle there changes nothing the visitor can see and goes. `my_plan()`
+    renders the real state on the real date and never reads `sim_date` at all,
+    so a toggle there is visible exactly where it is made and stays. Guarding
+    it would refuse a write whose effect is on screen — the opposite failure,
+    reached from the other side.
+
+    What #246 found genuinely missing is the other half: the page dropped out
+    of the moment without a word. That is fixed by the notice, not by a guard.
+    """
+
+    def post_toggle(self, task_id, done=True):
+        return self.client.post(
+            reverse("toggle_session_task", args=[task_id]),
+            data=json.dumps({"done": done}),
+            content_type="application/json",
+        )
+
+    def test_the_session_toggle_answers_200_during_a_moment(self):
+        self.given_active_moment()
+        self.assertEqual(self.post_toggle("demo-session-0", done=True).status_code, 200)
+
+    def test_the_write_lands_in_the_session_plan_during_a_moment(self):
+        self.given_active_moment()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertTrue(self.client.session["demo_plan"]["tasks"][0]["done"])
+
+    def test_my_plan_still_renders_live_toggle_buttons(self):
+        """The counterpart to _task_dot.html dropping the affordance on the
+        dashboard: here it stays, because here the click has a visible
+        effect."""
+        self.given_active_moment()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(response, 'onclick="toggleTask(this)"')
+        self.assertNotContains(response, '<span class="dot')
+
+    def test_my_plan_renders_the_real_state_not_the_forced_one(self):
+        """The task due before the moment is forced done on the dashboard and
+        stands open here. Two surfaces, two answers, both correct for the date
+        they render — which is exactly why the page has to name the moment."""
+        self.given_active_moment()
+        response = self.client.get(reverse("my_plan"))
+        self.assertNotContains(response, 'class="task-row done"')
+        self.assertContains(response, '<span id="done-count">0</span> / 2 erledigt')
+
+
+class MyPlanNamesTheMomentItIsNotShowingTest(MomentFixtureMixin, DemoModeTestCase):
+    """#246: the page renders the real date deliberately (see the class above)
+    and said nothing about the moment running on the dashboard. A task the
+    dashboard shows struck through stood open here, same task, two surfaces,
+    nothing naming why — "a state the visitor can see but not explain or
+    leave", which is the failure docs/demo-mode.md already warns about.
+
+    The notice names the moment and links back. It does not simulate: the list,
+    the counter, the progress bar and the sidebar ring all stay on
+    timezone.localdate(). That boundary is the point of "The Zeitreise stays a
+    dashboard device", not something this fix quietly reverses.
+    """
+
+    def my_plan(self):
+        return self.client.get(reverse("my_plan"))
+
+    def test_my_plan_names_a_running_moment(self):
+        self.given_active_moment()
+        self.assertContains(self.my_plan(), 'class="sim-elsewhere-notice"')
+
+    def test_the_notice_carries_the_simulated_date(self):
+        moment = self.given_active_moment()
+        self.assertContains(self.my_plan(), format_date(moment, role="long"))
+
+    def test_the_notice_says_which_state_this_page_shows(self):
+        """Without the second half the notice raises the question it exists to
+        answer: if a moment is running, what am I looking at?"""
+        self.assertTrue(self.given_active_moment())
+        self.assertContains(self.my_plan(), "Diese Liste zeigt den heutigen Stand.")
+
+    def test_the_notice_offers_the_way_back_to_the_dashboard(self):
+        """Deliberately a link, not an "end the simulation" button: the moment
+        is announced and reversible on the dashboard, and a second caller of
+        set_timelapse_date here would mean new JS and a second place to
+        reproduce #233's unchecked response."""
+        self.given_active_moment()
+        response = self.my_plan()
+        self.assertContains(response, f'href="{reverse("dashboard")}"')
+        self.assertContains(response, "Zum Dashboard →")
+        # The call, not the bare name: the CSS comment above the notice cites
+        # setSimDate as the reason _status_banners.html is not reused here.
+        self.assertNotContains(response, 'onclick="setSimDate')
+
+    def test_no_notice_without_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.my_plan(), 'class="sim-elsewhere-notice"')
+
+    def test_the_simulated_date_is_named_exactly_once(self):
+        """#153's one-date rule, re-asserted against the new copy."""
+        moment = self.given_active_moment()
+        self.assertContains(self.my_plan(), format_date(moment, role="long"), count=1)
+
+    def test_the_page_still_renders_the_real_today(self):
+        """The notice mentions the moment, it does not import it. The counter
+        is the tell: both tasks stand open on the real date, and one of them is
+        forced done on the dashboard."""
+        self.given_active_moment()
+        response = self.my_plan()
+        self.assertContains(response, '<span id="done-count">0</span> / 2 erledigt')
+        self.assertContains(response, 'onclick="toggleTask(this)"')
+
+    def test_a_poisoned_sim_date_renders_no_notice(self):
+        """The view reads _get_sim_date, not session.get — a session written
+        before the moments were validated can hold anything there, and the
+        healing that protects the dashboard protects this page too."""
+        self.given_two_tasks_around_a_moment()
+        session = self.client.session
+        session["demo_sim_date"] = "irgendwann"
+        session.save()
+        response = self.my_plan()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'class="sim-elsewhere-notice"')
+
+
+class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
+    """#244: #217 took the write affordances out of a moment and said nothing
+    about it — the dot is a <span>, three ⋮ entries are omitted, and a visitor
+    who clicks gets no refusal, no hint and no cursor change on the way in. The
+    write protection stays exactly as #217 built it; what is added is the
+    explanation, in the two places a visitor reaches for a write: the dot that
+    was clicked, and the menu that dropped the entries."""
+
+    CONSEQUENCE = "hier lässt sich nichts abhaken"
+
+    def dashboard(self):
+        return self.client.get(reverse("dashboard"))
+
+    def test_the_banner_names_the_state_and_stops_there(self):
+        """The banner carried the consequence for one release and it was one
+        sentence too many: it is on screen the whole time a moment is on, so
+        it announced a refusal to every visitor including the ones who never
+        try to check anything off. The answer belongs where the attempt is
+        made — pinned here so the clause does not drift back in."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, self.CONSEQUENCE)
+
+    def test_the_simulated_date_is_still_named_exactly_once(self):
+        """#153's one-date rule, re-asserted against the new copy. The notice
+        and the menu note spell it inflected and lowercase ("Im simulierten
+        Zeitpunkt"), so neither collides with the banner's own label — a
+        deliberate choice, not luck."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "Simulierter Zeitpunkt", count=1)
+
+    def test_a_locked_dot_has_a_notice_to_answer_with(self):
+        response = self.given_active_moment() and self.dashboard()
+        self.assertContains(response, 'id="sim-lock-notice"')
+        self.assertContains(
+            response, "Im simulierten Zeitpunkt lässt sich nichts abhaken."
+        )
+
+    def test_the_notice_starts_hidden(self):
+        """It answers a click, so it must not be on the page before one."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), 'class="sim-lock-notice" role="status" hidden'
+        )
+
+    def test_no_notice_element_without_a_moment(self):
+        """Which is what lets the delegated handler treat every span.dot on
+        the page as a locked dot: outside a moment there is no element and no
+        listener at all."""
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'id="sim-lock-notice"')
+
+    def test_the_notice_offers_the_way_back_to_today(self):
+        """ "Heute anzeigen", not "Zurück zu heute": the banner's short label
+        is pinned page-wide by a design test, and the Zeitreise tile beside
+        it is already "Heute"."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'onclick="setSimDate(null)">Heute anzeigen<')
+        self.assertNotContains(response, ">Zurück zu heute<")
+
+    def test_the_notice_answers_every_attempt_not_only_the_first(self):
+        """A visitor who tries again two minutes later deserves the same
+        answer, so the timer restarts rather than an "already shown" flag
+        being set."""
+        self.given_active_moment()
+        self.assertContains(self.dashboard(), "clearTimeout(simLockTimer);")
+
+    def test_the_notice_dismisses_itself(self):
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), "setTimeout(hideSimLockNotice, SIM_LOCK_NOTICE_MS)"
+        )
+
+    def test_the_notice_is_placed_against_the_dot_that_was_clicked(self):
+        """Not at the top of the page: it answers where the visitor was
+        looking. All four dot surfaces are covered by one delegated listener."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, "dot.getBoundingClientRect()")
+        self.assertContains(response, "e.target.closest('span.dot')")
+
+    def test_the_notice_leaves_when_the_page_scrolls(self):
+        """Fixed coordinates are written once, on show — the same reason the
+        actions menu closes on scroll rather than following. Capturing,
+        because the day columns and the board scroll inside the page."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(),
+            "window.addEventListener('scroll', hideSimLockNotice, true)",
+        )
+
+    def test_the_notice_never_hides_behind_an_open_menu(self):
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response, ".sim-lock-notice { position: fixed; z-index: 40;"
+        )
+        self.assertContains(
+            response, ".task-menu-items { position: fixed; z-index: 30;"
+        )
+
+    def test_the_notice_obeys_its_hidden_attribute(self):
+        """display: flex otherwise beats the UA rule for [hidden] — the same
+        answer .task-menu-items[hidden] already needed."""
+        self.given_active_moment()
+        self.assertContains(
+            self.dashboard(), ".sim-lock-notice[hidden] { display: none; }"
+        )
+
+    def test_the_notice_inherits_the_banner_tokens(self):
+        """No new tokens: the surface is borrowed from the Zeitreise banner,
+        so the answer and the state it explains read as one thing."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(
+            response,
+            "background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px;",
+        )
+
+    def test_the_dot_gains_no_affordance(self):
+        """The explanation is added, the affordance is not given back (#217).
+        The span is a click target and still not a control: cursor, border
+        and :hover stay on button.dot alone."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="toggle-form"')
+        self.assertNotContains(response, "span.dot { cursor")
+
+    def test_the_menu_names_what_the_moment_took_out(self):
+        """Three ⋮ entries are dropped during a moment and were dropped
+        silently. One line replaces them, so the menu says the same thing the
+        dot does."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertContains(response, 'class="task-menu-note"')
+        self.assertContains(
+            response,
+            "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb.",
+        )
+
+    def test_the_menu_note_is_absent_outside_a_moment(self):
+        self.given_two_tasks_around_a_moment()
+        self.assertNotContains(self.dashboard(), 'class="task-menu-note"')
+
+    def test_the_menu_note_is_not_a_menu_item(self):
+        """Deliberately not .task-menu-item: the keyboard handler collects
+        exactly that class and openTaskMenuFor focuses the first it finds, so
+        a note carrying it would be a focusable menu entry that does nothing.
+        It also needs white-space: normal, because the items beside it are
+        nowrap and the sentence would stretch the menu to its own width."""
+        self.given_active_moment()
+        response = self.dashboard()
+        self.assertNotContains(response, 'class="task-menu-note task-menu-item"')
+        self.assertNotContains(response, 'class="task-menu-item task-menu-note"')
+        self.assertContains(
+            response,
+            ".task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }",
+        )
+
+
+class TimelapseEmptySummaryTest(DemoModeTestCase):
+    """#214: "this week" in the empty-summary note has to mean the
+    *simulated* week. The note reads task urgency straight off
+    _annotate_tasks, which every surface already measures against the
+    simulated date (#153, #169), rather than re-deriving it from today."""
+
+    def given_simulated_plan(self):
+        sim = date.today() + timedelta(days=10)
+        self.given_session_plan(
+            event_date=(date.today() + timedelta(days=120)).isoformat(),
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Vor dem Moment",
+                    "date": (date.today() + timedelta(days=5)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Nach dem Moment",
+                    "date": (date.today() + timedelta(days=100)).isoformat(),
+                    "done": False,
+                },
+            ],
+        )
+        self.given_timelapse_moments(sim.isoformat())
+        session = self.client.session
+        session["demo_sim_date"] = sim.isoformat()
+        session.save()
+
+    def _ai_card_html(self, response):
+        content = response.content.decode()
+        start = content.index('<div class="ai-card">')
+        return content[start : content.index('<div class="overview-progress"', start)]
+
+    def test_the_note_measures_against_the_simulated_date(self):
+        self.given_simulated_plan()
+        html = self._ai_card_html(self.client.get(reverse("dashboard")))
+        # The task before the moment is forced done by the simulation, so
+        # it is not the next one — the one after it is.
+        self.assertIn(
+            f"Die nächste Aufgabe ist am "
+            f"{format_date(date.today() + timedelta(days=100), role='note')}.",
+            html,
+        )
+        self.assertNotIn(
+            format_date(date.today() + timedelta(days=5), role="note"), html
+        )

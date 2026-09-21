@@ -209,7 +209,11 @@ def _existing_plan_name(request):
     if not settings.DEMO_MODE:
         return None
     plan = request.session.get("demo_plan")
-    return _strip_trailing_date(plan["name"]) if plan else None
+    # .get, not ["name"]: the three templates already guard on the falsy
+    # result, so an empty name renders nothing — but a session cookie written
+    # before "name" existed would raise KeyError on a page that has nothing
+    # to say anyway.
+    return _strip_trailing_date(plan["name"]) if plan and plan.get("name") else None
 
 
 def _step2_back_url(request):

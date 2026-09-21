@@ -133,6 +133,12 @@
         .task-due { font-size: 13px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
         /* The affordance follows the behaviour: only a date carrying
            data-task-id is wired up for rescheduling (#10 §5). */
+        /* #200: the reschedulable date is a <button> now, so it takes focus
+           and answers Enter and Space. The reset keeps it looking like the
+           span it replaced — a button brings its own font, background and
+           padding, and inherits none of them. */
+        button.task-due { font: inherit; font-size: 13px; background: none; border: none; padding: 0; text-align: inherit; }
+        button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
         .task-due[data-task-id] { cursor: pointer; }
         .task-due[data-task-id]:hover { text-decoration: underline; }
         .task-due.today { color: var(--color-today); font-weight: 500; }
@@ -170,6 +176,14 @@
            [hidden] { display: none } outright, so the closed menu would
            render open on every row. The state has to be stated here. */
         .task-menu-items[hidden] { display: none; }
+        /* #244: what the moment took out of this menu, said instead of
+           dropped silently. Deliberately not .task-menu-item — the keyboard
+           handler collects exactly that class and openTaskMenuFor focuses
+           the first it finds, so a note carrying it would be a focusable
+           entry that does nothing. white-space: normal is required because
+           the items beside it are nowrap: without it the sentence stretches
+           the menu to its own single-line width. */
+        .task-menu-note { font-size: 11px; color: var(--color-text-quaternary); padding: 6px 10px 8px; border-bottom: 1px solid var(--color-border-primary); margin-bottom: 4px; white-space: normal; max-width: 220px; }
         .task-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: none; border: none; text-align: left; font-size: 12px; color: var(--color-text-primary); padding: 8px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
         /* The same › the AI summary's project links wear — in this codebase
            it already means "this can be activated", not "a submenu follows".
@@ -215,7 +229,7 @@
            silently swallowed the drag. */
         .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; display: flex; flex-direction: column; }
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 6px; font-size: 10px; font-weight: 500; }
+        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; flex: 1; }
         .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 14px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
@@ -286,8 +300,8 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
-        .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: 99px; overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: 99px; background: var(--color-solid-bg); transition: width 0.4s ease; }
+        .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
+        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-solid-bg); transition: width 0.4s ease; }
         /* minmax() floor keeps a column from being forced wider than its
            container by an unshrinkable card (long project name + due date on
            one nowrap line, see .kanban-card-meta below) — plain 1fr's auto
@@ -295,7 +309,7 @@
         .kanban { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-top: 36px; overflow-x: auto; }
         .kanban-col { background: var(--color-bg-secondary); border-radius: 8px; padding: 12px; min-height: 120px; }
         .kanban-col-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: 99px; padding: 1px 7px; font-size: 10px; font-weight: 500; }
+        .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 10px; font-weight: 500; }
         .kanban-col.col-done .kanban-col-header { color: var(--color-text-quaternary); }
         .kanban-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
         .kanban-card:last-child { margin-bottom: 0; }
@@ -320,6 +334,16 @@
         .sim-banner span { flex: 1 1 200px; }
         .sim-banner-reset { margin-left: auto; white-space: nowrap; color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; }
         .sim-banner-reset:hover { opacity: 1; }
+        /* The answer borrows the banner's surface rather than inventing one,
+           so the explanation and the state it explains read as one thing.
+           [hidden] is not decoration: display: flex otherwise beats the UA
+           rule, the same answer .task-menu-items[hidden] already needed.
+           z-index clears the actions menu's 30, so the answer never lands
+           behind an open menu. */
+        .sim-lock-notice { position: fixed; z-index: 40; display: flex; align-items: center; gap: 10px; max-width: 280px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px; font-size: 12px; box-shadow: var(--shadow-medium); }
+        .sim-lock-notice[hidden] { display: none; }
+        .sim-lock-notice-reset { color: var(--color-notice-text); opacity: 0.65; cursor: pointer; font-size: 11px; text-decoration: underline; background: none; border: none; white-space: nowrap; padding: 0; }
+        .sim-lock-notice-reset:hover { opacity: 1; }
         .demo-banner { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px 10px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
         /* Flex-wrap alone breaks the row too early: the line-wrap decision is
            made against the text's full, unbroken single-line width, not the
@@ -513,6 +537,34 @@
     of which forms this render happens to contain.
     {% endcomment %}
     {% csrf_token %}
+    {% comment %}
+    #244: the answer to a click on a locked dot. It lives here rather than in
+    _status_banners.html for the same reason the token above does — that
+    partial is included twice, and an id= placed in it would inherit which
+    include happened to render.
+
+    One element, moved to whichever dot was clicked, the same reason
+    applyTaskDone keeps one selector list rather than four call sites: the
+    dot renders from four surfaces. role="status" makes it a live region, so
+    the answer reaches a screen reader too.
+
+    Keyboard reach is deliberately not solved here: a <span> is not
+    focusable, and making it focusable would hand back the affordance #217
+    removed. What is left for a keyboard visitor is the ⋮ menu's note,
+    reached by tabbing to the trigger — thinner than it looks, since that
+    note is a plain <div> inside role="menu". The banner is not the answer
+    either: it named the consequence for one release and that turned a line
+    which is on screen the whole time into a standing warning. Bounded by
+    the moment itself being demo-only — see docs/dashboard-write-paths.md,
+    which records that as a decision and names the shape of a fix should
+    the Zeitreise ever stop being a showcase.
+    {% endcomment %}
+    {% if sim_date %}
+    <div id="sim-lock-notice" class="sim-lock-notice" role="status" hidden>
+        <span>Im simulierten Zeitpunkt lässt sich nichts abhaken.</span>
+        <button type="button" class="sim-lock-notice-reset" onclick="setSimDate(null)">Heute anzeigen</button>
+    </div>
+    {% endif %}
     <div id="view-overview">
         {% include "projects/_timelapse_bar.html" %}
         {% include "projects/_status_banners.html" %}
@@ -528,7 +580,14 @@
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
-            {% if summary %}
+            {% comment %}
+            #214: three states, not two. The label sits outside this chain,
+            so before the empty branch existed a summary that resolved to
+            nothing left the heading standing over nothing at all.
+            {% endcomment %}
+            {% if summary_empty_state %}
+            <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
+            {% elif summary %}
             {% for section in summary %}{% if section.blocks %}
             <h2>{{ section.title }}</h2>
             <ul>
@@ -546,7 +605,15 @@
                         <li>
                             {% include "projects/_task_dot.html" %}
                             <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-                            {% if task.due %}<span class="task-due {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
+                            {% comment %}
+                            readonly: the summary shows a date it does not
+                            yet offer to change — that is #193, and when it
+                            lands the flag goes and the button arrives with
+                            it. Until then a span, because a button that
+                            does nothing announces an affordance that is not
+                            there (_task_due.html).
+                            {% endcomment %}
+                            {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" readonly=True %}{% endif %}
                         </li>
                         {% endfor %}
                     </ul>
@@ -555,17 +622,27 @@
                 {% endfor %}
             </ul>
             {% endif %}{% endfor %}
+            {% else %}
+            <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
+            {% endif %}
             {% comment %}
             #145: the one thing kontext is for — work that can be batched
             across projects. Below the blocks rather than inside one: the
             blocks are per project, and a statement about two of them would
             be attributed to whichever one happened to hold it. Absent
             whenever Claude found no cluster, which is most weeks.
+
+            Outside the three-state chain, not inside the resolved arm:
+            build_prompt asks for "kontext_hinweis" over every open task
+            with no date horizon, while the blocks are scoped to "this week"
+            and "7-14 days" — so a plan whose first task is months away, the
+            very case the empty branch above exists for, can carry a hint
+            and no blocks at all. A clear week is when batching further-out
+            work is worth naming, so the hint belongs to that state too.
+            The "unavailable" state needs no guard of its own: kontext_hint
+            is resolved from summary_data, which is None exactly then.
             {% endcomment %}
             {% if kontext_hint %}<p class="ai-kontext-hint">{{ kontext_hint }}</p>{% endif %}
-            {% else %}
-            <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
-            {% endif %}
         </div>
 
         <div class="overview-progress" style="margin-top:36px;">
@@ -1024,6 +1101,59 @@ function flashActionFailed(el) {
     el.classList.add('action-failed');
     setTimeout(() => el.classList.remove('action-failed'), 1500);
 }
+
+// #244: the dot stays a <span> and stays without an affordance (#217). What
+// was missing is the answer to the click a visitor makes anyway. One element,
+// moved to whichever dot was clicked — the same reason applyTaskDone keeps one
+// selector list rather than four call sites.
+const SIM_LOCK_NOTICE_MS = 5000;
+const simLockNotice = document.getElementById('sim-lock-notice');
+let simLockTimer = null;
+
+function hideSimLockNotice() {
+    clearTimeout(simLockTimer);
+    simLockTimer = null;
+    if (simLockNotice) simLockNotice.hidden = true;
+}
+
+function armSimLockNotice() {
+    // Every attempt is answered, not only the first per moment: the timer
+    // restarts rather than an "already shown" flag being set.
+    clearTimeout(simLockTimer);
+    simLockTimer = setTimeout(hideSimLockNotice, SIM_LOCK_NOTICE_MS);
+}
+
+function showSimLockNotice(dot) {
+    const rect = dot.getBoundingClientRect();
+    simLockNotice.hidden = false;
+    // Measured after unhiding, like the actions menu: a hidden element's
+    // offsets are 0 and the notice would land at the viewport edge.
+    const fitsBelow = rect.bottom + 6 + simLockNotice.offsetHeight + 8 <= window.innerHeight;
+    simLockNotice.style.top = `${fitsBelow ? rect.bottom + 6 : Math.max(8, rect.top - simLockNotice.offsetHeight - 6)}px`;
+    simLockNotice.style.left = `${Math.min(Math.max(8, rect.left), window.innerWidth - simLockNotice.offsetWidth - 8)}px`;
+    armSimLockNotice();
+}
+
+if (simLockNotice) {
+    // Delegated on document rather than bound per dot: that is what covers all
+    // four dot surfaces without _task_dot.html gaining anything. During a
+    // moment every span.dot on the page is a locked dot, and this element only
+    // exists during one in the first place.
+    document.addEventListener('click', (e) => {
+        const dot = e.target.closest('span.dot');
+        if (dot) showSimLockNotice(dot);
+        else if (!e.target.closest('#sim-lock-notice')) hideSimLockNotice();
+    });
+    // Fixed coordinates are written once, on show — the same reason the actions
+    // menu closes on scroll rather than following. Capturing, because the day
+    // columns and the board scroll inside the page.
+    window.addEventListener('scroll', hideSimLockNotice, true);
+    window.addEventListener('resize', hideSimLockNotice);
+    // A notice that vanishes while the pointer is on its way to "Heute
+    // anzeigen" takes the way back with it.
+    simLockNotice.addEventListener('pointerenter', () => clearTimeout(simLockTimer));
+    simLockNotice.addEventListener('pointerleave', armSimLockNotice);
+}
 </script>
 <script>
 const TODAY = '{{ today_iso }}';
@@ -1287,6 +1417,12 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     // applyRescheduleFigures below, takes the long one — one field for both
     // would put the long month back into the row until the next reload.
     dueSpan.textContent = data.due_display_row;
+    // The aria-label carries the date too (_task_due.html), and an aria-label
+    // overrides the element's own text as the accessible name — so writing
+    // only textContent would leave the button reading the new date and
+    // announcing the old one for as long as the page stands. Same field, so
+    // what is seen and what is heard cannot drift apart.
+    dueSpan.setAttribute('aria-label', `Datum ändern, aktuell ${data.due_display_row}`);
     reclassify(dueSpan, data.urgency);
     // The row is handed in rather than walked up to from dueSpan: the date
     // picker swaps the span out of the DOM while it is open, so closest()
@@ -1322,25 +1458,69 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     return true;
 }
 
-document.querySelectorAll('.task-due[data-task-id]').forEach(span => {
-    span.addEventListener('click', () => {
-        // Read before the swap below detaches the span from its row.
-        const row = span.closest('.task-row');
+// #200: `due` is a <button> since #195 put the markup in _task_due.html, so
+// this listener now serves the keyboard too without a line for it — a button
+// fires click on Enter and Space by itself, and that counts as the user
+// activation showPicker() requires. What the keyboard does need is the way
+// back: swapping the input out leaves focus on a detached element, so the
+// button takes it again, the way the actions menu restores focus to its
+// trigger (#239).
+// Which device the user is driving with, read off the events themselves
+// rather than off the element afterwards. Two earlier attempts asked the
+// button, and both got it wrong somewhere:
+//
+//   :focus-visible            — false on the actions menu's route, because
+//                               there the button is clicked by script
+//                               (dueEl.click(), #239) and never focused at
+//                               all. The keyboard user landed on <body>.
+//   :focus:not(:focus-visible) — correct in Chrome, wrong in Safari on macOS,
+//                               where clicking a <button> does not focus it.
+//                               The test is then false for a plain mouse
+//                               click too, so the ring came back.
+//
+// Neither is a bug in the browsers: an element simply cannot say how the
+// click that reached it was produced. The events can. capture:true so the
+// modality is current even for a handler that stops propagation, and
+// pointerdown/keydown rather than click/keyup so it is set before the click
+// this listener acts on.
+let lastInputWasKeyboard = false;
+document.addEventListener('keydown', () => { lastInputWasKeyboard = true; }, true);
+document.addEventListener('pointerdown', () => { lastInputWasKeyboard = false; }, true);
+
+document.querySelectorAll('.task-due[data-task-id]').forEach(dueEl => {
+    dueEl.addEventListener('click', () => {
+        // Read before the swap below detaches the button from its row.
+        const row = dueEl.closest('.task-row');
         const input = document.createElement('input');
         input.type = 'date';
-        input.value = span.dataset.rawDate;
+        input.value = dueEl.dataset.rawDate;
         input.className = 'task-due-input';
-        span.replaceWith(input);
+        // Give focus back to a keyboard user, and to nobody else: swapping the
+        // input out leaves focus on a detached element, so without this the
+        // next Tab starts at the top of the document. A mouse user asked for
+        // none of that — focusing the button again would leave a ring behind
+        // that a pointer never requested, and :focus-visible would hide the
+        // ring but not the focus itself.
+        //
+        // Read once, here, rather than again when the input closes: Tab is a
+        // keydown, so a mouse user who opens the picker and then tabs away
+        // would flip the modality and be pulled back to the button by the very
+        // keystroke that meant to leave it. The interaction that opened the
+        // picker is the one that owns where focus goes when it shuts.
+        const cameFromKeyboard = lastInputWasKeyboard;
+        const restore = () => { if (cameFromKeyboard) dueEl.focus(); };
+        dueEl.replaceWith(input);
         input.focus();
         input.showPicker();
         input.addEventListener('change', async () => {
-            // reschedule() itself sets span.textContent from the server's
+            // reschedule() itself sets dueEl.textContent from the server's
             // due_display on success and leaves it untouched on failure, so
             // there is nothing left to do here but swap the elements back.
-            await reschedule(span.dataset.taskId, input.value, span, row);
-            input.replaceWith(span);
+            await reschedule(dueEl.dataset.taskId, input.value, dueEl, row);
+            input.replaceWith(dueEl);
+            restore();
         });
-        input.addEventListener('blur', () => input.replaceWith(span));
+        input.addEventListener('blur', () => { input.replaceWith(dueEl); restore(); });
     });
 });
 

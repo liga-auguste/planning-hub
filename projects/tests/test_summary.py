@@ -27,10 +27,12 @@ from ..ai import (
     log_claude_call,
     resolve_kontext_hint,
     resolve_weekly_summary,
+    summary_has_content,
 )
 from ..views import (
     DEMO_MULTI_SUMMARY_KEY,
     SUMMARY_KEY,
+    _summary_empty_state,
 )
 from .base import (
     DemoModeTestCase,
@@ -805,6 +807,103 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         self.assertEqual(block["assessment"], "")
         self.assertEqual(block["tasks"], [])
         self.assertEqual(sections[1]["blocks"], [])
+
+
+class SummaryHasContentTest(SimpleTestCase):
+    """#214: resolve_weekly_summary returns one entry per SUMMARY_SECTIONS
+    whether or not anything resolved, so its result is never falsy. "A
+    summary exists" and "a summary says something" are two different
+    questions, and the templates were asking the first one."""
+
+    def test_sections_without_any_block_say_nothing(self):
+        self.assertFalse(
+            summary_has_content(
+                [
+                    {"title": "Jetzt fällig", "blocks": []},
+                    {"title": "Nächste Woche", "blocks": []},
+                ]
+            )
+        )
+
+    def test_a_block_in_any_section_counts(self):
+        self.assertTrue(
+            summary_has_content(
+                [
+                    {"title": "Jetzt fällig", "blocks": []},
+                    {"title": "Nächste Woche", "blocks": [{"assessment": "Läuft"}]},
+                ]
+            )
+        )
+
+    def test_no_sections_at_all_say_nothing(self):
+        self.assertFalse(summary_has_content([]))
+
+
+class SummaryEmptyStateTest(SimpleTestCase):
+    """#214: the note that replaces a summary which resolved to nothing.
+
+    The keys are cut so that at least one sentence always renders —
+    week_is_clear is false only when some open task is overdue, due today
+    or due this week, and each of those lands in exactly one of the other
+    two keys. A state where all three are empty would put the blank box
+    back, which is the whole bug.
+    """
+
+    EMPTY = [{"title": "Jetzt fällig", "blocks": []}]
+
+    def _state(self, *tasks):
+        return _summary_empty_state(
+            self.EMPTY, [{"id": "p1", "tasks": list(tasks)}], []
+        )
+
+    @staticmethod
+    def _task(urgency, due, done=False):
+        return {
+            "id": "t",
+            "name": "Aufgabe",
+            "due": due,
+            "done": done,
+            "urgency": urgency,
+        }
+
+    def test_an_overdue_date_is_never_called_the_next_one(self):
+        past = date(2026, 8, 16)
+        state = self._state(self._task("overdue", past))
+        self.assertEqual(state["overdue_since"], past)
+        self.assertIsNone(state["next_due"])
+        self.assertFalse(state["week_is_clear"])
+
+    def test_overdue_and_upcoming_are_kept_apart(self):
+        past, future = date(2026, 8, 16), date(2026, 12, 23)
+        state = self._state(self._task("overdue", past), self._task("ok", future))
+        self.assertEqual(state["overdue_since"], past)
+        self.assertEqual(state["next_due"], future)
+
+    def test_a_done_task_feeds_neither_date(self):
+        state = self._state(self._task("done", date(2026, 8, 16), done=True))
+        self.assertIsNone(state["overdue_since"])
+        self.assertIsNone(state["next_due"])
+        self.assertTrue(state["week_is_clear"])
+
+    def test_a_dateless_open_task_feeds_neither_date(self):
+        state = self._state(self._task("undated", None))
+        self.assertIsNone(state["overdue_since"])
+        self.assertIsNone(state["next_due"])
+        self.assertTrue(state["week_is_clear"])
+
+    def test_every_urgency_leaves_at_least_one_sentence(self):
+        # The invariant the split rests on: no combination of live data may
+        # produce a state that renders as an empty box.
+        for urgency in ("overdue", "today", "urgent", "ok", "undated", "done"):
+            with self.subTest(urgency=urgency):
+                due = None if urgency == "undated" else date(2026, 8, 16)
+                state = self._state(self._task(urgency, due, done=urgency == "done"))
+                self.assertTrue(
+                    state["week_is_clear"]
+                    or state["overdue_since"]
+                    or state["next_due"],
+                    f"{urgency} renders an empty box",
+                )
 
 
 class GenerateWeeklySummaryRetryTest(SimpleTestCase):

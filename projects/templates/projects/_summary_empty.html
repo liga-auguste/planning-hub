@@ -1,0 +1,19 @@
+{% load planner_tags %}{% comment %}
+#214: what the KI-Wochenübersicht says when it resolved to nothing. Shared
+by dashboard.html and my_plan.html so the German wording exists once.
+
+All three sentences are optional and independent — the view guards each
+against live data, not against Claude's silence (see _summary_empty_state),
+and its keys are cut so that at least one always renders. The raw date plus
+plan_date, not a string formatted in the view: the same split #190
+established for the summary's own task dates.
+
+"Überfällig seit dem …" rather than folding a past date into "Die nächste
+Aufgabe ist am …": a date already gone is not the next task, and naming it
+as one would be the same failure this note exists to prevent. It cannot
+meet "Diese Woche steht nichts an." — an overdue task is what makes that
+first sentence false.
+{% endcomment %}
+{% if state.week_is_clear %}Diese Woche steht nichts an.{% endif %}
+{% if state.overdue_since %}Überfällig seit dem {{ state.overdue_since|plan_date:"note" }}.{% endif %}
+{% if state.next_due %}Die nächste Aufgabe ist am {{ state.next_due|plan_date:"note" }}.{% endif %}

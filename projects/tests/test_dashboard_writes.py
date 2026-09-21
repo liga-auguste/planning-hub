@@ -7,6 +7,7 @@ from datetime import (
     date,
     timedelta,
 )
+from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
@@ -34,8 +35,10 @@ from ..views import (
     UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
+    _build_session_project,
     _bust_dashboard_cache,
     _cache_fresh_read,
+    _demo_completed_in_range,
     _derive_dashboard_figures,
     _remap_summary_refs,
 )
@@ -359,6 +362,47 @@ class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
         response = self.post_toggle("demo-session-0", done=True)
         self.assertEqual(response.status_code, 404)
 
+    def test_a_toggle_records_when_it_happened(self):
+        """#246: _count_done_in_range promises in its own docstring that
+        "any task toggled through this app has `done` and `completed_date`
+        set together". This route wrote only `done`, so the sentence was
+        false for every toggle made on /mein-plan/."""
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"],
+            timezone.localdate().isoformat(),
+        )
+
+    def test_unchecking_clears_the_completion_date(self):
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.post_toggle("demo-session-0", done=False)
+        self.assertIsNone(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"]
+        )
+
+    def test_a_task_cleared_here_counts_in_the_week_closeout(self):
+        """Where the missing field actually cost something.
+        _demo_completed_in_range places a task in a week by its completion
+        date, and falls back to the due date only under a moment. A task due
+        outside this week, cleared on /mein-plan/ today, therefore never
+        appeared in the close-out's "completed this week" at all."""
+        week_start, week_end = iso_week_bounds(timezone.localdate())
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (week_end + timedelta(days=14)).isoformat(),
+                    "done": False,
+                }
+            ]
+        )
+        self.post_toggle("demo-session-0", done=True)
+        tasks = _build_session_project(self.client.session["demo_plan"])["tasks"]
+        self.assertEqual(_demo_completed_in_range(tasks, week_start, week_end, None), 1)
+
 
 class MalformedJsonBodyTest(DemoModeTestCase):
     """#154: invalid client input is a 400, never a 500. Four endpoints
@@ -646,18 +690,20 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         self.assertIn("if (dot) reclassify(dot, data.urgency);", html)
 
     def test_the_row_is_handed_in_rather_than_walked_up_to(self):
-        # The picker does span.replaceWith(input) while it is open, so the
-        # span has no parent for the duration of the request and closest()
-        # called on it inside reschedule() would find nothing — the dot would
-        # silently keep its pre-move stage. Both call sites therefore read
-        # the row while the span is still attached and pass it in.
+        # The picker does dueEl.replaceWith(input) while it is open, so the
+        # date element has no parent for the duration of the request and
+        # closest() called on it inside reschedule() would find nothing — the
+        # dot would silently keep its pre-move stage. Both call sites
+        # therefore read the row while the element is still attached and pass
+        # it in. (The local name is dueEl rather than span since #200 made it
+        # a button; what this asserts is the reading, not the name.)
         html = self.dashboard_html()
         self.assertIn(
             "async function reschedule(taskId, newDate, dueSpan, row) {", html
         )
-        self.assertIn("const row = span.closest('.task-row');", html)
+        self.assertIn("const row = dueEl.closest('.task-row');", html)
         self.assertIn(
-            "await reschedule(span.dataset.taskId, input.value, span, row);", html
+            "await reschedule(dueEl.dataset.taskId, input.value, dueEl, row);", html
         )
         # #239 moved the second call site into the actions menu, which reads
         # the row off the clicked item rather than off a button in the row.
@@ -1247,6 +1293,104 @@ class TrashHappensBehindASecondClickTest(DemoModeTestCase):
         self.assertIn("window.location.reload();", html)
 
 
+class TheDateIsOneComponentTest(DemoModeTestCase):
+    """#195 and #200: the reschedulable date is defined once, in
+    _task_due.html, and it is a real control rather than a styled span.
+
+    Before this, four surfaces re-typed the contract — a `.task-due` element
+    carrying `data-task-id` and `data-raw-date`, picked up by selector — and
+    two of them had already drifted apart. The point of the partial is that
+    a new surface offering the date (#186, #193) is an include, and that
+    #200's question "what element is this" has exactly one answer."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_only_the_partial_writes_the_date_markup(self):
+        # The assertion that keeps the next surface from re-typing it: any
+        # other template spelling the class itself is the drift coming back.
+        writers = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if 'class="task-due' in path.read_text()
+        )
+        self.assertEqual(writers, ["_task_due.html"])
+
+    def test_the_reschedulable_date_is_a_focusable_button(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn('<button type="button" class="task-due', html)
+        # Named for a screen reader, which reads a bare date as a date and
+        # gives no hint that activating it does anything.
+        self.assertIn('aria-label="Datum ändern, aktuell ', html)
+
+    def test_the_button_carries_the_same_contract_the_selector_binds_to(self):
+        # The JS binds by selector, not by template, so the attributes are
+        # the whole contract — an element with them is reschedulable.
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("document.querySelectorAll('.task-due[data-task-id]')", html)
+        self.assertRegex(
+            html,
+            r'<button type="button" class="task-due[^"]*" data-task-id="[^"]+" '
+            r'data-raw-date="\d{4}-\d{2}-\d{2}"',
+        )
+
+    def test_the_keyboard_gets_its_focus_back_after_the_picker_closes(self):
+        # A button answers Enter by itself; what it cannot do by itself is
+        # survive being swapped out for the input — focus would be left on a
+        # detached element and the next Tab would start from the top.
+        #
+        # The device is read off the events, not off the element afterwards.
+        # Asking the button was tried twice and failed twice: :focus-visible is
+        # false on the actions menu's route, where the button is clicked by
+        # script and never focused (#239), and :focus:not(:focus-visible) is
+        # false in Safari on macOS for an ordinary mouse click, because Safari
+        # does not focus a <button> when you click it. An element cannot say
+        # how the click that reached it was produced; the events can.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", html)
+        self.assertIn(
+            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", html
+        )
+
+    def test_the_device_is_tracked_from_the_events_themselves(self):
+        # capture:true so a handler that stops propagation cannot leave the
+        # modality stale, and pointerdown/keydown rather than click/keyup so it
+        # is already current when the click handler above reads it.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(
+            "document.addEventListener('keydown', "
+            "() => { lastInputWasKeyboard = true; }, true);",
+            html,
+        )
+        self.assertIn(
+            "document.addEventListener('pointerdown', "
+            "() => { lastInputWasKeyboard = false; }, true);",
+            html,
+        )
+
+    def test_the_menu_route_reaches_the_button_without_focusing_it(self):
+        # What makes the case above real rather than theoretical: the menu
+        # item does not re-implement the picker, it clicks the button — so the
+        # handler runs on an element the user never focused.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.click();", html)
+
+    def test_the_announced_date_is_rewritten_with_the_visible_one(self):
+        # An aria-label overrides the element's own text as the accessible
+        # name, so updating only textContent leaves the button reading the new
+        # date and announcing the old one — on every path that does not reload,
+        # which is any move that keeps the task's stage. Both come from the
+        # same response field so they cannot drift.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("dueSpan.textContent = data.due_display_row;", html)
+        self.assertIn(
+            "dueSpan.setAttribute('aria-label', "
+            "`Datum ändern, aktuell ${data.due_display_row}`);",
+            html,
+        )
+
+
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
     """§5 of #10: rescheduling is offered exactly where it persists — via Notion
     in production, via session['demo_plan'] for a demo session plan. The five demo
@@ -1276,6 +1420,15 @@ class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
     def test_the_date_itself_still_renders_when_it_is_not_clickable(self):
         response = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(response, 'class="task-due')
+
+    def test_the_date_that_is_not_clickable_is_not_a_button_either(self):
+        # #200: the element carries the affordance. A <button> that opens no
+        # picker would announce one to a screen reader and take a tab stop
+        # for it, so a date that cannot be changed stays the span it was —
+        # the same split _task_dot.html makes under a Zeitreise moment.
+        html = self.client.get(reverse("dashboard") + "?mode=multi").content.decode()
+        self.assertIn('<span class="task-due', html)
+        self.assertNotIn('<button type="button" class="task-due', html)
 
     @override_settings(DEMO_MODE=False)
     def test_still_offered_in_production(self):

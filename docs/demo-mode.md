@@ -301,11 +301,27 @@ counters and the sidebar ring all still read the task as done — and a reload p
 strike-through back. A visitor cannot tell "nothing happened" from "it happened and you
 cannot see it" (#217).
 
-So the toggle is not offered while a moment is on. `_task_dot.html` renders the dot as a
-plain `<span>` instead of the `<form>`/`<button>` — the status colour stays, the
-affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
+So the toggle is not offered while a moment is on *this page*. `_task_dot.html` renders
+the dot as a plain `<span>` instead of the `<form>`/`<button>` — the status colour stays,
+the affordance goes — and `toggle_task_view` refuses the POST with the same 404 the example
 projects already get. Rescheduling stays: a new date visibly moves the task in or out of
-the forced-done range, so it is not the same contradiction. Full reasoning in
+the forced-done range, so it is not the same contradiction.
+
+`/mein-plan/` keeps its own toggle (`toggle_session_task`), and that is the same rule
+rather than a gap in it (#246). The rule is "a write is offered where it takes effect", not
+"a moment locks the session plan": `my_plan()` never reads `sim_date`, so it renders the
+real state on the real date and a toggle there is visible exactly where it is made.
+Guarding it would refuse a write the visitor can see land.
+
+Removing the affordance was correct and silent. The moment also takes three ⋮ entries with
+it — "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" — so a visitor had four
+write paths vanish and no word about any of them. Since #244 the dashboard answers the attempt
+rather than announcing the rule: a click on a locked dot gets a short self-dismissing
+notice beside that dot with a way back to today, and the ⋮ menu says in one line which
+entries the moment removed. The banner stays what it was, a label naming the simulated
+date — it briefly carried the consequence too and that made a line which is on screen the
+whole time into a standing warning, aimed mostly at visitors who were never going to try.
+The protection itself is unchanged. Full reasoning in
 [`docs/dashboard-write-paths.md`](dashboard-write-paths.md).
 
 ### The Zeitreise stays a dashboard device
@@ -323,9 +339,20 @@ simulated one. This is deliberate, not an oversight to fix later:
 - `close_week_start()`/`week_review()` write state keyed by the real ISO week (`WeekCloseout`,
   `is_week_closed`). A simulated clock there would mean closing out a simulated week, which is a
   product decision about what the close-out *is*, not a display detail.
+- Since #246 `/mein-plan/` **names** the moment it is not showing. It read no `sim_date` at
+  all, so a task the dashboard renders struck through stood open on the list with nothing
+  saying why — the same "state the visitor can see but not explain or leave" this section
+  exists to avoid, reached by leaving a page out rather than by simulating half of it.
+  `my_plan()` now reads `sim_date` for the notice above `.project-header` and for nothing
+  else: the list, the counter, the progress bar and the sidebar ring all stay on
+  `timezone.localdate()`. The notice explains and its "Zum Dashboard →" link leaves —
+  deliberately no reset button, because that would put a second caller of
+  `set_timelapse_date` outside the dashboard, with its own JS and its own chance to
+  reproduce #233's unchecked response.
 
 Each page is internally consistent with its own notion of today; the boundary runs along the
-dashboard, which is the one place the simulation is announced and reversible.
+dashboard, which is the one place the simulation is announced and reversible. It is labelled
+at its edge now, not silent there.
 
 ---
 

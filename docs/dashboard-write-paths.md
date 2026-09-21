@@ -213,9 +213,11 @@ either way, so a click never has to be interpreted.
 | Production, a Notion task | yes | yes |
 | A demo session's own plan | yes | yes |
 | A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) |
-| A demo session under a Zeitreise moment | no — read-only, 404 (#217) | yes |
+| A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes |
+| A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes |
 
-The last row is the one that is not about persistence. `dashboard()` renders a moment by
+The last two rows are the ones that are not about persistence, and they are the same
+rule reaching opposite answers. `dashboard()` renders a moment by
 forcing every task due by `sim_date` to done on a deep copy — that is what a moment *is*,
 a picture of the plan at that date. A toggle under one wrote into the session correctly
 and every derived number correctly ignored it, because the render overrides it anyway. So
@@ -234,6 +236,79 @@ arrives anyway gets the honest miss rather than a silent one.
 
 Rescheduling stays available: a new date visibly moves the task in or out of the
 forced-done range, so it is not the contradiction the toggle is.
+
+### The other toggle route keeps its button, and that is the same rule
+
+`/mein-plan/` drives `session-task/<id>/toggle/` (`toggle_session_task`), and that route
+carries no `sim_date` guard. Read as a rule about the session plan, the asymmetry looks
+like an oversight — the same plan, the same `done` field, one route refusing and the other
+writing (#246). It is not. The rule at the top of this section is about the *surface*, and
+the two surfaces differ in exactly the way the rule cares about: `my_plan()` never reads
+`sim_date`, so its list, its counter and its progress bar all render the real state on the
+real date. A toggle there is visible precisely where it is made, and it stays visible after
+a reload. Guarding it would refuse a write whose effect is on screen — #217's failure with
+the sign flipped.
+
+So both routes are correct and they answer differently because they are asked different
+questions. `TheSessionToggleStaysLiveDuringAMomentTest` (`test_timelapse.py`) pins it, so a
+later consistency fix has to argue with a red test rather than with an absence.
+
+What #246 found genuinely missing is the other half: `/mein-plan/` left the moment without
+a word, so the task the dashboard renders forced-done stood open on the list with nothing
+naming why — "a state the visitor can see but not explain or leave", the failure
+`docs/demo-mode.md` already warns about. That is answered by a notice on the page, not by a
+guard on the route: see [`docs/demo-mode.md`](demo-mode.md), "The Zeitreise stays a
+dashboard device".
+
+### What the page says about it
+
+Refusing correctly is only half of it. Until #244 the moment removed four write paths —
+the dot, and the ⋮ menu's "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" —
+and named none of them, so a visitor who clicked the way they had just learned to got no
+refusal, no hint and no cursor change on the way in. The protection is unchanged; the
+explanation is added where the attempt is made:
+
+| Where | What it says | Reaches |
+|---|---|---|
+| `#sim-lock-notice` (`dashboard.html`) | "Im simulierten Zeitpunkt lässt sich nichts abhaken." plus "Heute anzeigen" | the visitor who actually clicked a locked dot |
+| `.task-menu-note` (`_task_actions_menu.html`) | "Im simulierten Zeitpunkt nicht verfügbar: Abhaken, Umbenennen, Papierkorb." | the visitor who opens the menu instead |
+
+The banner is deliberately not a third row in that table. #244 shipped with one — it
+named the consequence too ("⏱ Simulierter Zeitpunkt: … — hier lässt sich nichts
+abhaken.") on the grounds that it reaches everyone, including a visitor who never
+clicks. That is exactly what was wrong with it: the banner is on screen the whole time a
+moment is on, so the clause announced a refusal continuously, to every visitor, most of
+whom were never going to reach for a write. An answer that arrives before the question
+is noise, and it made the banner a warning rather than a label. The banner names the
+state; the two surfaces above answer the attempt. Both spell the moment inflected and
+lowercase ("Im simulierten Zeitpunkt"), so #153's rule that the simulated date is named
+exactly once still holds against the banner's own label.
+
+The notice is one element, moved to whichever dot was clicked by a listener delegated on
+`document` — the same reason `applyTaskDone` keeps one selector list rather than four call
+sites, and what covers all four dot surfaces without `_task_dot.html` gaining anything.
+During a moment every `span.dot` on the page is a locked dot, and the element only exists
+during a moment at all. It lives in `dashboard.html` beside the page-owned
+`{% csrf_token %}`, not in `_status_banners.html`, because that partial is included twice
+and an `id=` in it would inherit which include happened to render. Every attempt is
+answered, not only the first per moment: the 5s timer restarts rather than an
+"already shown" flag being set.
+
+A `<span>` is not focusable, so a keyboard visitor never triggers the click notice. Making
+it focusable would hand back the affordance #217 removed, so that is not the answer
+either. What is left for them is the menu note, reached by tabbing to the ⋮ trigger — and
+that is thinner than it looks, because `.task-menu-note` is a plain `<div>` inside
+`role="menu"`, which a screen reader in menu mode may skip entirely.
+
+That is a decision, not a loose end. The whole row this section is about — a demo session
+under a Zeitreise moment — exists only in demo mode: `sim_date` is read in one place,
+inside `dashboard()`'s `DEMO_MODE` branch and only for a visitor's own session plan, so
+production never renders a locked dot, a notice or a menu note at all. The gap is
+therefore bounded by a feature that is a showcase of the planner, not a work surface
+anyone depends on. Written down rather than fixed, with the shape a fix would take if the
+Zeitreise ever became something more than that: a role or an `aria-describedby` on
+`.task-menu-items`. Putting the sentence back in the banner is not it — that trade was
+already made and reversed.
 
 ### The page owns its CSRF token
 
@@ -362,8 +437,10 @@ These are decisions, not omissions.
 - **A moment stays read-only rather than explaining itself.** Withholding the button was
   chosen over keeping it and flashing `action-failed`, or writing a notice: a moment is a
   view of a past date, and a control that is always going to refuse is worse than no
-  control. `my_plan` is unaffected — it has never read `sim_date` at all, so its own
-  toggle (`toggle_session_task`) is untouched.
+  control. `my_plan` keeps its toggle (`toggle_session_task`) for the opposite half of the
+  same reason — it has never read `sim_date`, so it renders the real date and a write there
+  lands where it shows (#246). What it lacked was any mention of the moment
+  at all, which is what the notice above `.project-header` now adds.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a
@@ -420,3 +497,13 @@ with its urgency, the unchanged behaviour with no moment active, the reschedule 
 deliberately stays, and the page's own CSRF token — present under a moment, and rendered
 ahead of the toggle forms without one, so it cannot go back to being a side effect of
 whichever form happens to render.
+
+`AMomentSaysWhatItLocksTest`, in the same module, carries what the page *says*: the
+banner naming the state and stopping there — the consequence clause pinned out rather
+than in, so it does not drift back — #153's one-date rule re-asserted against the new
+copy, the notice element (present only in a moment, hidden
+until a click, tokens borrowed from the banner, above the menu's `z-index`, obeying its own
+`[hidden]`, placed against the clicked dot, leaving on scroll, restarting rather than
+flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the
+dot gaining no affordance back, and the menu note — present in a moment, absent outside
+one, and deliberately not a `.task-menu-item` the keyboard handler would focus.

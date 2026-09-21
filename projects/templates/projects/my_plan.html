@@ -12,6 +12,16 @@
     .btn-new:hover { opacity: 0.85; }
     .page-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
     .btn-download { font-size: 13px; color: var(--color-text-quaternary); text-decoration: none; padding: 7px 12px; border: 1px solid var(--color-border-primary); border-radius: 6px; white-space: nowrap; }
+    /* #246: the dashboard's moment, named on the page that does not render
+       it. Same tokens as .sim-banner (dashboard.html) so the two read as one
+       device, repeated here rather than shared for the reason
+       close_week_start.html repeats .stale-notice: _status_banners.html is
+       bound to the dashboard's own flags and to setSimDate, which this page
+       does not have. No padding-right: 44px — .page-actions is the page's
+       first element and already reserves the launcher's band, so this notice
+       is never under it. */
+    .sim-elsewhere-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
+    .sim-elsewhere-notice a { color: inherit; text-decoration: underline; white-space: nowrap; }
     .project-header { margin-bottom: 32px; }
     .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
     .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
@@ -133,6 +143,21 @@ is gone; the sidebar already covers that.
         <a href="{% url 'planner_start' %}" class="btn-new">+ Neu planen</a>
     </div>
 
+    {% comment %}
+    The notice explains, the link leaves — deliberately no "end the
+    simulation" button here. That would be a second caller of
+    set_timelapse_date outside the dashboard, with its own JS and its own
+    chance to reproduce #233's unchecked response; the dashboard is by design
+    the one place the moment is announced *and* reversible, and it is one
+    sidebar click away.
+    {% endcomment %}
+    {% if sim_date %}
+    <div class="sim-elsewhere-notice">
+        <span>Im Dashboard läuft gerade ein simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong>. Diese Liste zeigt den heutigen Stand.</span>
+        <a href="{% url 'dashboard' %}">Zum Dashboard →</a>
+    </div>
+    {% endif %}
+
     <div class="project-header">
         <div class="project-name">{{ project.display_name }}</div>
         <div class="project-meta">
@@ -147,7 +172,10 @@ is gone; the sidebar already covers that.
         {% endif %}
     </div>
 
-    {% if summary %}
+    {% if summary_empty_state %}
+    <div class="summary-label">KI-Wochenübersicht</div>
+    <div class="summary-box ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</div>
+    {% elif summary %}
     <div class="summary-label">KI-Wochenübersicht</div>
     <div class="summary-box">
         {% for section in summary %}{% if section.blocks %}
