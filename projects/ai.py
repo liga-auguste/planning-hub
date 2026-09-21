@@ -2,6 +2,7 @@ import json as _json
 import logging
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date
 
 import anthropic
@@ -17,6 +18,34 @@ class AIUnavailableError(Exception):
     exhausted. Callers show one German "not available right now" state for
     this instead of a stack trace — see the failure table in issue #29.
     """
+
+
+# Set only while collect_call_usage is active — None in normal operation, so
+# the app itself never accumulates per-call records. A ContextVar rather than
+# a module global because the app runs under threaded workers: a plain global
+# set by one request would collect another request's calls too.
+_usage_records: ContextVar[list | None] = ContextVar("_usage_records", default=None)
+
+
+@contextmanager
+def collect_call_usage():
+    """Yields a list that receives one record per successful Claude call made
+    inside the block: {"call", "model", "input_tokens", "output_tokens"}.
+
+    Exists for the language eval, which reports what a touchpoint's prompt
+    actually costs — the one number that says whether a prompt got shorter.
+    log_claude_call already has the usage in hand for its log line; this hands
+    the same figures to a caller that wants them as data rather than as text.
+
+    A failed call records nothing: it has no usage to report, and
+    log_claude_call raises before reaching the success branch.
+    """
+    records = []
+    token = _usage_records.set(records)
+    try:
+        yield records
+    finally:
+        _usage_records.reset(token)
 
 
 @contextmanager
@@ -57,6 +86,16 @@ def log_claude_call(call_name: str):
             usage.input_tokens if usage else "?",
             usage.output_tokens if usage else "?",
         )
+        records = _usage_records.get()
+        if records is not None:
+            records.append(
+                {
+                    "call": call_name,
+                    "model": message.model if message else "?",
+                    "input_tokens": usage.input_tokens if usage else None,
+                    "output_tokens": usage.output_tokens if usage else None,
+                }
+            )
 
 
 KONTEXTE = ["Planung", "Büro", "Graphiker", "Kommunikation", "Unterwegs", "Vor Ort"]

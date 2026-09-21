@@ -21,7 +21,9 @@ from django.urls import reverse
 from ..ai import (
     AIUnavailableError,
     _number_projects_and_tasks,
+    _usage_records,
     build_prompt,
+    collect_call_usage,
     generate_timelapse_moments,
     generate_weekly_summary,
     log_claude_call,
@@ -497,6 +499,63 @@ class LogClaudeCallTest(SimpleTestCase):
         ):
             result["message"] = _fake_response("hi")
         self.assertEqual(len(cm.output), 1)
+
+
+class CollectCallUsageTest(SimpleTestCase):
+    """collect_call_usage hands the figures log_claude_call already has to a
+    caller that wants them as data — the language eval, which reports what a
+    touchpoint's prompt costs."""
+
+    def test_records_one_entry_per_successful_call(self):
+        with collect_call_usage() as calls:
+            with log_claude_call("first") as result:
+                result["message"] = _fake_response(
+                    "hi", model="claude-sonnet-4-6", input_tokens=10, output_tokens=2
+                )
+            with log_claude_call("second") as result:
+                result["message"] = _fake_response(
+                    "hi", model="claude-sonnet-4-6", input_tokens=30, output_tokens=4
+                )
+        self.assertEqual(
+            calls,
+            [
+                {
+                    "call": "first",
+                    "model": "claude-sonnet-4-6",
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                },
+                {
+                    "call": "second",
+                    "model": "claude-sonnet-4-6",
+                    "input_tokens": 30,
+                    "output_tokens": 4,
+                },
+            ],
+        )
+
+    def test_a_failed_call_records_nothing(self):
+        with (
+            collect_call_usage() as calls,
+            self.assertRaises(AIUnavailableError),
+            log_claude_call("some_call"),
+        ):
+            raise _anthropic_timeout_error()
+        self.assertEqual(calls, [])
+
+    def test_collects_nothing_outside_the_block(self):
+        with collect_call_usage() as calls:
+            pass
+        with log_claude_call("after") as result:
+            result["message"] = _fake_response("hi")
+        self.assertEqual(calls, [])
+
+    def test_the_app_itself_accumulates_nothing(self):
+        # The point of the ContextVar: with no collector active, a call must
+        # leave no record anywhere — this runs on every request in production.
+        with log_claude_call("some_call") as result:
+            result["message"] = _fake_response("hi")
+        self.assertIsNone(_usage_records.get())
 
 
 VALID_SUMMARY_JSON = '{"jetzt_faellig": [], "naechste_woche": []}'
