@@ -20,6 +20,8 @@ from ..ai import (
     AIUnavailableError,
     build_prompt,
 )
+from ..dates import is_same_iso_week
+from ..demo_data import get_demo_projects
 from .base import (
     CLOSEOUT_TODAY,
     DemoModeTestCase,
@@ -1491,20 +1493,6 @@ class SignalColorContrastTest(SimpleTestCase):
                         _wcag_contrast(accent, background), self.FLOOR
                     )
 
-    def test_the_accent_stays_off_small_text(self):
-        # WCAG 1.4.3 wants 4.5:1 for 11-13px text and the accent reaches it
-        # nowhere, which is why .ai-project-link keeps --color-text-tertiary
-        # and the three #212 placements are all fills and strokes. Pinned so
-        # a later "make it look interactive" change has to read this first.
-        css = self.base_css()
-        for theme, surface in (
-            ("light", "#fff"),
-            ("dark", "#2c2c2e"),
-        ):
-            with self.subTest(theme=theme):
-                accent = self.declared_value(css, "--color-accent", theme)
-                self.assertLess(_wcag_contrast(accent, surface), 4.5)
-
     def test_the_helper_agrees_with_the_known_extremes(self):
         # Guards the helper itself: without this, a broken formula would
         # make the assertions above pass silently.
@@ -1519,7 +1507,15 @@ class BrandAccentPlacementTest(DemoModeTestCase):
     active sidebar item, both progress bars — and all three are chrome or
     self-reporting, never a task state. That separation is the constraint
     the issue is built on: red, amber and green say what state a task is
-    in, the accent says whose product this is."""
+    in, the accent says whose product this is.
+
+    The fourth candidate, .ai-project-link, was rejected on a measured
+    number: WCAG 1.4.3 wants 4.5:1 for 11-13px text and the accent reaches
+    3.64:1 light / 4.34:1 dark on the page. What gets pinned here is the
+    rule that carries that decision, not the number behind it — asserting
+    that the accent *fails* 4.5:1 would make a later darkening of the brand
+    colour, which is an improvement, fail the suite as if it were a
+    regression."""
 
     TINT_RULE = ".sidebar-item.active { background: var(--color-accent-tint);"
     HOVER_RULE = ".sidebar-item:hover {"
@@ -1533,6 +1529,12 @@ class BrandAccentPlacementTest(DemoModeTestCase):
         r"\.(?:dot|task-due|task-date|kanban-card)\.[\w-]+[^{}]*\{[^{}]*"
         r"var\(--color-accent"
     )
+    LINK_RULE = ".task-project.ai-project-link { color: var(--color-text-tertiary); }"
+    # The same shape as STATUS_SURFACE, for the text side: any rule on a
+    # rendered page that paints the AI summary's project link with the
+    # accent. Prefix-matched for the same reason — -hover and -tint would be
+    # the accent on small text just as much as the base token.
+    LINK_SURFACE = re.compile(r"\.ai-project-link[^{}]*\{[^{}]*var\(--color-accent")
 
     def dashboard_css(self):
         return (
@@ -1584,6 +1586,25 @@ class BrandAccentPlacementTest(DemoModeTestCase):
             self.client.get(reverse("my_plan")),
             ".progress-bar-wrap { margin-top: 16px; height: 4px; "
             "background: var(--color-bg-tertiary);",
+        )
+
+    def test_the_ai_project_link_keeps_its_muted_text_token(self):
+        # The rejected fourth placement, held by the rule rather than by the
+        # measurement. Nothing pinned it before: the accent could have
+        # reached this element without a single test noticing.
+        self.given_session_plan()
+        self.assertContains(self.client.get(reverse("dashboard")), self.LINK_RULE)
+
+    def test_the_accent_never_colors_the_ai_project_link(self):
+        # And the sweep behind the rule, so a second rule further down the
+        # stylesheet cannot quietly override it.
+        self.given_session_plan()
+        match = self.LINK_SURFACE.search(
+            self.client.get(reverse("dashboard")).content.decode()
+        )
+        self.assertIsNone(
+            match,
+            f"the accent is painting small text: {match.group() if match else ''}",
         )
 
     def test_the_accent_never_colors_a_task_status(self):
@@ -2382,6 +2403,67 @@ class RecentCompletionRendersGreenTest(DemoModeTestCase):
         self.assertEqual(len(dots), 2, dots)
         for classes in dots:
             self.assertNotIn("done-this-week", classes)
+
+
+class DemoDataCarriesThisWeeksGreenTest(DemoModeTestCase):
+    """#211 part 2: the example projects have to show the rule they exist to
+    demonstrate, whatever day the demo is opened on.
+
+    The CSS is pinned above and the annotation in test_dashboard.py, but
+    neither says a rendered page ever reaches the green — and every
+    completion in get_demo_projects() was five days old or more, which under
+    the week rule means gray. Nine completed tasks and not one green dot,
+    Monday to Friday: the uniform back catalogue part 2 exists to end,
+    relocated from production to the one dashboard a visitor without a plan
+    is ever shown.
+
+    Every weekday is checked because the failure was weekday-dependent.
+    d(-7) is never in the current ISO week; d(-5) reaches it on a Saturday
+    and a Sunday and on no other day, so a spot check on the wrong day would
+    have passed."""
+
+    START = date(2026, 3, 2)  # a Monday
+
+    def done_tasks_on(self, today):
+        with patch("django.utils.timezone.localdate", return_value=today):
+            projects = get_demo_projects()
+        return [t for p in projects for t in p["tasks"] if t["done"]]
+
+    def green_ids_on(self, today):
+        return {
+            t["id"]
+            for t in self.done_tasks_on(today)
+            if t.get("completed_date") and is_same_iso_week(t["completed_date"], today)
+        }
+
+    def test_a_completion_falls_in_the_current_week_on_every_weekday(self):
+        for offset in range(7):
+            today = self.START + timedelta(days=offset)
+            with self.subTest(isoweekday=today.isoweekday()):
+                self.assertTrue(self.green_ids_on(today), today)
+
+    def test_the_older_completions_stay_out_of_it(self):
+        # The counter-example the rule needs: a demo whose every completed
+        # task is green says as little as one where none is.
+        today = self.START + timedelta(days=3)  # a Thursday
+        greens = self.green_ids_on(today)
+        self.assertTrue(greens)
+        self.assertLess(len(greens), len(self.done_tasks_on(today)))
+
+    def test_the_example_dashboard_renders_a_green_dot_on_every_weekday(self):
+        # The end-to-end form of the first test, and the one that would
+        # actually have caught this: the data can carry a recent completion
+        # and still render gray if the flag stops somewhere on the way.
+        for offset in range(7):
+            today = self.START + timedelta(days=offset)
+            with (
+                self.subTest(isoweekday=today.isoweekday()),
+                patch("django.utils.timezone.localdate", return_value=today),
+            ):
+                html = self.client.get(reverse("dashboard")).content.decode()
+                dots = re.findall(r'class="dot ([^"]*)"', html)
+                green = [c for c in dots if "done-this-week" in c.split()]
+                self.assertTrue(green, f"{today}: {len(dots)} dots, none green")
 
 
 class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):
