@@ -11,7 +11,7 @@ perfectly consistent between two runs — a signal to read, not a hard gate.
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import anthropic
@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from .ai import (
     AIUnavailableError,
+    collect_call_usage,
     generate_closeout_summary,
     generate_timelapse_moments,
     generate_weekly_summary,
@@ -82,6 +83,11 @@ class CaseResult:
     checks: list
     judge: JudgeResult | None
     error: str | None = None
+    # One entry per Claude call the touchpoint itself made — the judge runs
+    # outside the collecting block, so its own cost is never counted as the
+    # touchpoint's. A retried call leaves two entries, which is the honest
+    # picture: that run really did send the prompt twice.
+    calls: list = field(default_factory=list)
 
 
 def check_du_form(texts: list) -> CheckResult:
@@ -358,13 +364,18 @@ def run_eval(only: list | None = None) -> list:
     results = []
     for key in keys:
         title, runner, strict_structure = CASE_RUNNERS[key]
-        try:
-            texts, checks = runner()
-        except AIUnavailableError as exc:
-            results.append(CaseResult(key, title, [], [], None, error=str(exc)))
-            continue
+        with collect_call_usage() as calls:
+            try:
+                texts, checks = runner()
+            except AIUnavailableError as exc:
+                results.append(
+                    CaseResult(
+                        key, title, [], [], None, error=str(exc), calls=list(calls)
+                    )
+                )
+                continue
         judge = _safe_judge(texts, strict_structure)
-        results.append(CaseResult(key, title, texts, checks, judge))
+        results.append(CaseResult(key, title, texts, checks, judge, calls=list(calls)))
     return results
 
 
@@ -372,6 +383,55 @@ def _yn(value):
     if value is None:
         return "n/a"
     return "yes" if value else "no"
+
+
+def _format_texts(texts: list) -> list:
+    """The generated text itself, which is what a run is read for — the
+    checks only say whether a red flag was found, and the judge quotes at
+    most a fragment. Numbered because a touchpoint returns several pieces
+    (one assessment per block, one label per moment) and "the third one is
+    the weak one" needs something to point at.
+    """
+    lines = [f"--- Output ({len(texts)}) ---"]
+    if not texts:
+        lines.append("(no text)")
+        return lines
+    for number, text in enumerate(texts, start=1):
+        first, *rest = str(text).splitlines() or [""]
+        lines.append(f"[{number}] {first}")
+        # A touchpoint that answers in prose (the clarifying questions) comes
+        # back multi-line; indenting the rest keeps one text visibly one text.
+        lines += [f"    {line}" for line in rest]
+    return lines
+
+
+def _format_calls(calls: list) -> list:
+    """What the touchpoint's prompt actually cost in tokens.
+
+    The number to compare between two runs when a prompt is being shortened:
+    input_tokens is the prompt, output_tokens the answer. Reported per call,
+    so a retry shows up as the second send it really was instead of hiding
+    inside an average.
+    """
+    lines = ["--- Cost ---"]
+    if not calls:
+        lines.append("(no completed call)")
+        return lines
+    for call in calls:
+        lines.append(
+            f"{call['call']}: {call['input_tokens']} in / "
+            f"{call['output_tokens']} out ({call['model']})"
+        )
+    if len(calls) > 1:
+        lines.append(
+            f"case total: {_sum_tokens(calls, 'input_tokens')} in / "
+            f"{_sum_tokens(calls, 'output_tokens')} out over {len(calls)} calls"
+        )
+    return lines
+
+
+def _sum_tokens(calls: list, key: str) -> int:
+    return sum(call[key] or 0 for call in calls)
 
 
 def format_report(results: list) -> str:
@@ -382,6 +442,9 @@ def format_report(results: list) -> str:
             lines.append(f"[ERROR] API call failed: {result.error}")
             lines.append("")
             continue
+        lines += _format_texts(result.texts)
+        lines += _format_calls(result.calls)
+        lines.append("--- Checks ---")
         for check in result.checks:
             status = "PASS" if check.passed else "FAIL"
             detail = f" — {check.detail}" if check.detail else ""
@@ -401,4 +464,21 @@ def format_report(results: list) -> str:
                 )
             lines.append(f'Reasoning: "{result.judge.reasoning}"')
         lines.append("")
+    lines += _format_totals(results)
     return "\n".join(lines)
+
+
+def _format_totals(results: list) -> list:
+    """One line to compare whole runs against each other. The judge's own
+    calls are deliberately not in it — they measure the eval, not the app,
+    and counting them would make a prompt look more expensive the more
+    thoroughly it was reviewed.
+    """
+    calls = [call for result in results for call in result.calls]
+    return [
+        "=== Totals (touchpoint calls only, judge excluded) ===",
+        (
+            f"{_sum_tokens(calls, 'input_tokens')} in / "
+            f"{_sum_tokens(calls, 'output_tokens')} out over {len(calls)} calls"
+        ),
+    ]
