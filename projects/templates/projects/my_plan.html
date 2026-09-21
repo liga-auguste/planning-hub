@@ -25,8 +25,16 @@
     .project-header { margin-bottom: 32px; }
     .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
     .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
-    .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-border-primary); border-radius: 4px; overflow: hidden; }
-    .progress-bar-fill { height: 100%; background: var(--color-solid-bg); border-radius: 4px; transition: width 0.3s; }
+    /* #212: the track moved off --color-border-primary, against which the
+       accent fill below reaches only 2.95:1 in dark mode — under the 3:1
+       floor for non-text UI. On --color-bg-tertiary, the token the
+       dashboard's own track already used, both bars sit at 3.46:1 light
+       and 3.14:1 dark. */
+    .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-bg-tertiary); border-radius: 4px; overflow: hidden; }
+    /* Same element as dashboard.html's .progress-fill under a second class
+       name — colouring one and leaving the other in ink is the split the
+       drift guards exist to catch, so the two move together. */
+    .progress-bar-fill { height: 100%; background: var(--color-accent); border-radius: 4px; transition: width 0.3s; }
     /* #96 de-boxed the dashboard's .ai-card and .project-section and left
        this page out; that exception ends here. A list of tasks is one
        surface with a hairline between the rows, not a card — the border and
@@ -41,7 +49,17 @@
        the done class — the later rule has to win on a checked-off task. */
     .dot.overdue { background: var(--color-overdue); }
     .dot.today { background: var(--color-today); }
-    .dot.done { background: var(--color-done); }
+    /* #211 part 2: green means "cleared this week", so the base done
+       rule is the neutral grey and the week carries the override. A
+       completed task keeps its strike-through and its dimming for good
+       — only the dot goes quiet once the week turns, which is what
+       keeps the green dots and the "Diese Woche" bar above them saying
+       one thing rather than two. The override is (0,3,0) and wins on
+       specificity, so its position here is for reading, not cascade.
+       The uneven dwell is the accepted price: checked off on Monday is
+       seven days green, on Sunday one. */
+    .dot.done { background: var(--color-text-quaternary); }
+    .dot.done.done-this-week { background: var(--color-done); }
     .dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
     .task-name { font-size: 14px; flex: 1; line-height: 1.4; }
     .task-date { font-size: 13px; color: var(--color-text-quaternary); white-space: nowrap; }
@@ -189,7 +207,7 @@ is gone; the sidebar already covers that.
                 <ul>
                     {% for task in block.tasks %}
                     <li>
-                        <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
+                        <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}{% if task.done_this_week %} done-this-week{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
                         <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
                         {% if task.due %}<span class="task-date {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
                     </li>
@@ -217,7 +235,7 @@ is gone; the sidebar already covers that.
         {% for task in project.tasks %}
         <div class="task-row {% if task.done %}done{% endif %}" id="row-{{ task.id }}">
             <button
-                class="dot {{ task.urgency }}"
+                class="dot {{ task.urgency }}{% if task.done_this_week %} done-this-week{% endif %}"
                 data-task-id="{{ task.id }}"
                 data-done="{% if task.done %}true{% else %}false{% endif %}"
                 onclick="toggleTask(this)"
@@ -262,10 +280,18 @@ const total = {{ total }};
 
 // The same task renders in the task list and in the AI summary box (#122) —
 // apply the state to every copy sharing the id, not just the clicked one.
-function applyDone(taskId, done) {
+//
+// `thisWeek` carries #211 part 2's green. It defaults to `done` because a
+// task checked off right now was completed today, and today is in the
+// current week by definition — a tautology, not a second implementation of
+// is_same_iso_week (#194 forbids that). The caller passes it explicitly
+// only to undo an optimistic update, where the truth is whatever was on
+// screen before the click rather than what the click implied.
+function applyDone(taskId, done, thisWeek = done) {
     document.querySelectorAll(`.dot[data-task-id="${taskId}"]`).forEach(el => {
         el.dataset.done = done ? 'true' : 'false';
         el.classList.toggle('done', done);
+        el.classList.toggle('done-this-week', done && thisWeek);
         el.closest('.task-row')?.classList.toggle('done', done);
         const name = el.closest('li')?.querySelector('.task-name');
         if (name) name.classList.toggle('done', done);
@@ -275,6 +301,10 @@ function applyDone(taskId, done) {
 async function toggleTask(btn) {
     const taskId = btn.dataset.taskId;
     const currentDone = btn.dataset.done === 'true';
+    // Read before the optimistic update overwrites it: un-checking a task
+    // completed weeks ago and then failing must put back a grey dot, not a
+    // green one.
+    const wasThisWeek = btn.classList.contains('done-this-week');
     const newDone = !currentDone;
     applyDone(taskId, newDone);
     updateProgress();
@@ -294,7 +324,7 @@ async function toggleTask(btn) {
         // The session didn't have this task (stale tab, expired session) or
         // the request never arrived — undo the optimistic update rather
         // than show a state that isn't saved.
-        applyDone(taskId, currentDone);
+        applyDone(taskId, currentDone, wasThisWeek);
         updateProgress();
         flashActionFailed(btn);
     }

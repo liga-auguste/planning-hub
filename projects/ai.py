@@ -531,6 +531,11 @@ def resolve_weekly_summary(
                     "name": task["name"],
                     "done": task["done"],
                     "urgency": task.get("urgency", "ok"),
+                    # #211: the summary's dot renders from this dict, not
+                    # from the annotated task, so a field the dot reads has
+                    # to be copied across or the same task renders one
+                    # colour in the summary and another in the list below.
+                    "done_this_week": task.get("done_this_week", False),
                     # #190: the raw date, not a formatted string — both
                     # summary templates run it through plan_date, so they
                     # share one format with the task rows (#189).

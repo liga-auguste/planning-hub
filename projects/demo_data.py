@@ -63,7 +63,19 @@ def get_demo_projects():
                     "name": "Facebook-Veranstaltung anlegen",
                     "due": d(-5),
                     "done": True,
-                    "completed_date": d(-5),
+                    # #211 part 2: anchored to today rather than to its own
+                    # due date, so the example dashboard carries at least one
+                    # dot in this week's green on every weekday. The other
+                    # completions here are all old enough to render gray,
+                    # which is the counter-example the rule needs — but with
+                    # no recent one at all the demo showed the feature as a
+                    # uniformly gray back catalogue, which is the failure
+                    # part 2 exists to end. Offsets that look recent are not
+                    # enough: d(-7) is never in the current ISO week and
+                    # d(-5) only reaches it on a weekend, which is how nine
+                    # completed tasks rendered zero green from Monday to
+                    # Friday. Pinned by DemoDataCarriesThisWeeksGreenTest.
+                    "completed_date": d(0),
                     "kontext": [],
                 },
                 {
@@ -110,7 +122,12 @@ def get_demo_projects():
                     "name": "Programm abstimmen",
                     "due": d(-7),
                     "done": True,
-                    "completed_date": d(-7),
+                    # The second recent one, a day back: green six days in
+                    # seven and gray on a Monday, where it is the more
+                    # telling of the two — a completion whose green expired
+                    # the moment the week turned, next to one from today
+                    # that still carries it.
+                    "completed_date": d(-1),
                     "kontext": [],
                 },
                 {

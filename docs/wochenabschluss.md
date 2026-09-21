@@ -102,9 +102,10 @@ name and date and takes the first result.
 **Demo mode follows the timelapse** (`_closeout_dates`): with a simulated date set, that
 date is "today" for the triage list, the counts and the review's KW, so the close-out does
 not talk about a different week than the dashboard is showing. Completions the timelapse
-produced carry no `completed_date` — they are marked done on a deepcopy that is never
-written back — so `_demo_completed_in_range` places them by their due date, which is what
-made them done. Since #246 that placement is asked *alongside* a hand-written completion
+produced reach this flow with no `completed_date` — a moment forces them done on a
+deepcopy (`_simulated_project`) that is never written back, and the close-out reads the
+session plan itself rather than that copy — so `_demo_completed_in_range` places them by
+their due date, which is what made them done. Since #246 that placement is asked *alongside* a hand-written completion
 date rather than only where none stands: `toggle_session_task` records the real date,
 because `/mein-plan/` renders the real date and a write there lands where it shows. A task
 the moment had struck through would otherwise leave the simulated week the moment the

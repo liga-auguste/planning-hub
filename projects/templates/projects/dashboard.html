@@ -16,7 +16,17 @@
            task. */
         .dot.overdue { background: var(--color-overdue); }
         .dot.today { background: var(--color-today); }
-        .dot.done { background: var(--color-done); }
+        /* #211 part 2: green means "cleared this week", so the base done
+           rule is the neutral grey and the week carries the override. A
+           completed task keeps its strike-through and its dimming for good
+           — only the dot goes quiet once the week turns, which is what
+           keeps the green dots and the "Diese Woche" bar above them saying
+           one thing rather than two. The override is (0,3,0) and wins on
+           specificity, so its position here is for reading, not cascade.
+           The uneven dwell is the accepted price: checked off on Monday is
+           seven days green, on Sunday one. */
+        .dot.done { background: var(--color-text-quaternary); }
+        .dot.done.done-this-week { background: var(--color-done); }
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
         /* The heading row, shared by the overview and the Heute view
@@ -301,7 +311,14 @@
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
         .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-solid-bg); transition: width 0.4s ease; }
+        /* #212: the accent, not ink — a progress bar is the app reporting
+           on itself, not a task state, so it takes the brand colour rather
+           than the solid-CTA look. Quieter on purpose: ink reached 12.88:1
+           against the track and the accent reaches 3.46:1 light / 3.14:1
+           dark, above the 3:1 non-text floor and well below ink. The same
+           value has to stay on my_plan's .progress-bar-fill, which is this
+           element under a second class name. */
+        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-accent); transition: width 0.4s ease; }
         /* minmax() floor keeps a column from being forced wider than its
            container by an unshrinkable card (long project name + due date on
            one nowrap line, see .kanban-card-meta below) — plain 1fr's auto
@@ -959,7 +976,15 @@ document.querySelectorAll('.toggle-form').forEach(form => {
 function applyTaskDone(taskId, done) {
     document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`).forEach(f => {
         f.dataset.done = done ? 'true' : 'false';
-        f.querySelector('button').classList.toggle('done', done);
+        const button = f.querySelector('button');
+        button.classList.toggle('done', done);
+        // #211 part 2: one more line, not a second traversal — the shape
+        // #210 left this function in. No is_same_iso_week in JavaScript
+        // (#194): a task checked off right now was completed today, and
+        // today is in the current week by definition, so `done` already
+        // answers the question. This runs only after the server confirmed
+        // the write, so there is no optimistic state to put back.
+        button.classList.toggle('done-this-week', done);
         const card = f.closest('.task-row, li, .day-task-card');
         if (!card) return;
         const nameSpan = card.querySelector('.task-name, .day-task-name');

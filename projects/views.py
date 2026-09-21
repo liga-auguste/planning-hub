@@ -61,7 +61,9 @@ logger = logging.getLogger(__name__)
 # due_display, see below; #210: v9 — task dicts carry a new kanban_column,
 # and a pre-deploy entry would render an empty Kanban board) — otherwise a
 # pre-deploy entry in the old shape would crash or misrender under the new
-# resolver.
+# resolver; #211: v11 — task dicts carry a new done_this_week, and a
+# pre-deploy entry would render every completed dot gray for up to eight
+# hours, or forever from the stale copy.
 #
 # #189 is the one bump that is not correctness-critical: a pre-deploy entry
 # still renders right, because the leftover due_display is simply no longer
@@ -77,12 +79,12 @@ logger = logging.getLogger(__name__)
 # it by the #19 lockstep even though its own shape is unchanged — the two
 # are counted across each other everywhere, and a half-refreshed pair is the
 # state _patch_cached_tasks refuses to work with anyway.
-CACHE_KEY = "dashboard_data_v10"
+CACHE_KEY = "dashboard_data_v11"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v10"
+STALE_CACHE_KEY = "dashboard_data_stale_v11"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -92,9 +94,10 @@ STALE_CACHE_KEY = "dashboard_data_stale_v10"
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
 # #210: v4 — and they gained kanban_column, bumped in the same lockstep.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v5"
+# #211: v6 — and done_this_week, bumped in the same lockstep again.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v6"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v5"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v6"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -380,14 +383,14 @@ def _patch_stale_copies(task_id, mutate, today, in_project):
 
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
-SUMMARY_KEY = "demo_plan_summary_v6"
+SUMMARY_KEY = "demo_plan_summary_v7"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v3"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v4"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the
@@ -455,6 +458,34 @@ def _classify_due_urgency(due, today):
     return "ok"
 
 
+def _simulated_project(session_plan, sim_date):
+    """The session plan as one project, rendered at `sim_date`.
+
+    A Zeitreise moment is a rendering of a date, so everything due by that
+    date counts as cleared. The deepcopy is what keeps that forcing off the
+    session itself — the moment is a view, not a write (#217).
+
+    Each forced task is given its own due date as its completion date. Not
+    decoration: since #211 part 2 the dot's green reads completed_date, and
+    a forced task carrying none would render the whole moment gray — the
+    Zeitreise's own point is watching tasks clear. The due date is the
+    honest answer here, because "would have been done by then" is exactly
+    what the forcing above asserts, and it makes the moment's green obey the
+    same week rule the real dashboard does rather than an exception to it.
+
+    Three call sites had this mutation copied out — dashboard(), the
+    single-project summary and the reschedule figures — which is two chances
+    to add a field here and forget it there.
+    """
+    project = copy.deepcopy(_build_session_project(session_plan))
+    if sim_date:
+        for task in project["tasks"]:
+            if task.get("due") and task["due"] <= sim_date:
+                task["done"] = True
+                task["completed_date"] = task["due"]
+    return project
+
+
 def _annotate_tasks(projects, today):
     for project in projects:
         # Chronological order for every task-list view, dateless tasks last
@@ -470,6 +501,22 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "done"
             else:
                 task["urgency"] = _classify_due_urgency(task["due"], today)
+            # #211 part 2: green says "cleared this week", not "cleared at
+            # some point" — the same ISO week the progress bar above the
+            # dots counts, so the green dots are exactly the tasks filling
+            # it. A done task with no completed_date stays out on purpose:
+            # those are the ones checked off before "Erledigt am" existed in
+            # the Notion schema, or checked off in Notion's own UI, and
+            # without this clause the whole back catalogue would be
+            # permanently green (_count_done_in_range documents the same
+            # case for the same reason). Computed here rather than in the
+            # template because `today` is a request-level fact, and it
+            # reuses is_same_iso_week (#169) rather than restating what a
+            # week is.
+            completed = task.get("completed_date")
+            task["done_this_week"] = bool(
+                task["done"] and completed and is_same_iso_week(completed, today)
+            )
             task["kanban_column"] = _kanban_column(task["urgency"])
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
@@ -983,12 +1030,9 @@ def dashboard(request):
             # and narrate the example projects too (#50).
             sim_date, sim_date_str = _get_sim_date(request)
             effective_today = sim_date or today
-            project = copy.deepcopy(_build_session_project(session_plan))
-            if sim_date:
-                for task in project["tasks"]:
-                    if task.get("due") and task["due"] <= sim_date:
-                        task["done"] = True
-            projects = _annotate_tasks([project], effective_today)
+            projects = _annotate_tasks(
+                [_simulated_project(session_plan, sim_date)], effective_today
+            )
             # #53: the planner always ties every task it generates to the one
             # project it just created — a session plan never has a
             # project-less task to show under "Ohne Projekt".
@@ -1271,12 +1315,9 @@ def preload_timelapse_summary(request):
     if not session_plan:
         return JsonResponse({"ok": False})
 
-    project = copy.deepcopy(_build_session_project(session_plan))
-    if sim_date:
-        for task in project["tasks"]:
-            if task.get("due") and task["due"] <= sim_date:
-                task["done"] = True
-    projects = _annotate_tasks([project], effective_today)
+    projects = _annotate_tasks(
+        [_simulated_project(session_plan, sim_date)], effective_today
+    )
     try:
         summary_data = generate_weekly_summary(
             projects, effective_today, single_project_demo=True
@@ -1627,15 +1668,10 @@ def reschedule_task_view(request, task_id):
             elif key.startswith("demo_plan_summary"):
                 del request.session[key]
         postpone_count = task["postpone_count"]
-        # The same deepcopy mutation toggle_task_view applies, so the figures
-        # match what a reload of the dashboard would render.
-        project = copy.deepcopy(_build_session_project(plan))
-        if sim_date:
-            for plan_task in project["tasks"]:
-                if plan_task.get("due") and plan_task["due"] <= sim_date:
-                    plan_task["done"] = True
+        # The same moment dashboard() renders, so the figures match what a
+        # reload would show.
         _, figures = _surface_figures(
-            _annotate_tasks([project], effective_today),
+            _annotate_tasks([_simulated_project(plan, sim_date)], effective_today),
             [],
             task_id,
             effective_today,
@@ -1740,12 +1776,14 @@ def _demo_completed_in_range(tasks, start, end, sim_date):
 
     A task toggled by hand carries `completed_date`, written by
     toggle_task_view exactly the way toggle_task writes "Erledigt am" in
-    production. The timelapse completes tasks a second way — dashboard()
-    marks everything due on or before the simulated date as done — and it
-    does that on a deepcopy that is never written back, so those tasks carry
-    no completion date at all. The due date is what made them done, so it is
-    the date that places them in a week; without this branch a time-travelled
-    demo would report the same 0 this issue exists to remove.
+    production. The timelapse completes tasks a second way — a moment marks
+    everything due on or before the simulated date as done — and it does
+    that on a deepcopy (_simulated_project) that is never written back,
+    while this flow reads the session plan itself. So a task the moment
+    cleared arrives here with no completion date whatever that copy carries
+    of its own. The due date is what made it done, so it is the date that
+    places it in a week; without this branch a time-travelled demo would
+    report the same 0 this issue exists to remove.
 
     #246: the two ways are asked together rather than the second answering
     only where the first is silent. Since toggle_session_task records a
