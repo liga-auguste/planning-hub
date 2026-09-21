@@ -2333,20 +2333,55 @@ class RecentCompletionRendersGreenTest(DemoModeTestCase):
         )
         self.assertIn("applyDone(taskId, currentDone, wasThisWeek);", template)
 
-    def test_a_task_completed_now_renders_green_on_the_dashboard(self):
-        # End to end through the demo session toggle: no reload, and the
-        # next render agrees with what the JS did optimistically.
-        self.given_session_plan()
-        plan = self.client.session["demo_plan"]
-        task_id = plan["tasks"][0]["id"]
-        response = self.client.post(
-            f"/session-task/{task_id}/toggle/",
-            data='{"done": true}',
-            content_type="application/json",
+    def given_plan_with_one_completion(self, completed_date):
+        """A session plan whose only task is done, plus a summary that
+        points at it — so the same task renders on both surfaces."""
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": date.today().isoformat(),
+                    "done": True,
+                    "completed_date": completed_date.isoformat(),
+                }
+            ]
         )
-        self.assertEqual(response.status_code, 200)
-        html = self.client.get(reverse("my_plan")).content.decode()
-        self.assertIn("done-this-week", html)
+        # A done task still occupies a reference number
+        # (_number_projects_and_tasks), which is what lets a summary written
+        # while the task was open go on naming it after the toggle — the
+        # real case, since the summary is cached and the toggle is not.
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {
+                    "heading": "Heute",
+                    "assessment": "steht an",
+                    "task_refs": [1],
+                }
+            ],
+            "naechste_woche": [],
+        }
+        return re.findall(
+            r'class="dot ([^"]*)"',
+            self.client.get(reverse("my_plan")).content.decode(),
+        )
+
+    def test_every_copy_of_one_task_renders_the_same_green(self):
+        # Per surface, not per page. The summary's dot renders from ai.py's
+        # own task dict (id/name/done/urgency/due) rather than from the
+        # annotated task, so a page-wide assertIn is satisfied by the list
+        # alone while the summary above it stays gray. That is exactly what
+        # shipped before this test existed.
+        dots = self.given_plan_with_one_completion(date.today())
+        green = [classes for classes in dots if "done-this-week" in classes]
+        self.assertEqual(len(green), len(dots), dots)
+        self.assertEqual(len(dots), 2, dots)  # the summary and the list
+
+    def test_a_completion_from_an_earlier_week_renders_gray_everywhere(self):
+        dots = self.given_plan_with_one_completion(date.today() - timedelta(days=7))
+        self.assertEqual(len(dots), 2, dots)
+        for classes in dots:
+            self.assertNotIn("done-this-week", classes)
 
 
 class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):

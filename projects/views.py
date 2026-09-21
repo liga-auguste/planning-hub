@@ -383,14 +383,14 @@ def _patch_stale_copies(task_id, mutate, today, in_project):
 
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
-SUMMARY_KEY = "demo_plan_summary_v6"
+SUMMARY_KEY = "demo_plan_summary_v7"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v3"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v4"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the
