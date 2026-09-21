@@ -2198,7 +2198,11 @@ class SignalDotColorTest(DemoModeTestCase):
 
     OVERDUE_RULE = ".dot.overdue { background: var(--color-overdue); }"
     TODAY_RULE = ".dot.today { background: var(--color-today); }"
-    DONE_RULE = ".dot.done { background: var(--color-done); }"
+    # #211 part 2: green is the recent rule, not the done rule. A completed
+    # task keeps its strike-through and its dimming forever; only the dot
+    # goes quiet once the week turns.
+    DONE_RULE = ".dot.done { background: var(--color-text-quaternary); }"
+    RECENT_RULE = ".dot.done.done-this-week { background: var(--color-done); }"
 
     def pages(self):
         self.given_session_plan()
@@ -2218,13 +2222,32 @@ class SignalDotColorTest(DemoModeTestCase):
             with self.subTest(page=name):
                 self.assertContains(response, self.TODAY_RULE)
 
-    def test_the_done_dot_carries_the_completion_green(self):
+    def test_a_done_dot_goes_neutral_once_the_week_has_turned(self):
         # Not on index: the landing mockup renders no done rows, so it
         # serves no done rule to drift.
         pages = self.pages()
         for name in ("dashboard", "my_plan"):
             with self.subTest(page=name):
                 self.assertContains(pages[name], self.DONE_RULE)
+
+    def test_a_task_completed_this_week_carries_the_completion_green(self):
+        pages = self.pages()
+        for name in ("dashboard", "my_plan"):
+            with self.subTest(page=name):
+                self.assertContains(pages[name], self.RECENT_RULE)
+
+    def test_the_recent_rule_stays_after_the_done_rule(self):
+        # (0,3,0) beats (0,2,0), so this one does not actually depend on
+        # source order — pinned anyway because the pair reads as a
+        # base-plus-override and a reader who reorders them should find out
+        # here rather than by shipping the reordering.
+        pages = self.pages()
+        for name in ("dashboard", "my_plan"):
+            with self.subTest(page=name):
+                html = pages[name].content.decode()
+                self.assertLess(
+                    html.index(self.DONE_RULE), html.index(self.RECENT_RULE)
+                )
 
     def test_the_done_rule_stays_after_the_today_rule(self):
         # applyDone() toggles the done class on without stripping the
@@ -2254,6 +2277,76 @@ class SignalDotColorTest(DemoModeTestCase):
                 self.assertContains(
                     pages[name], ".task-date.today { color: var(--color-today); }"
                 )
+
+
+class RecentCompletionRendersGreenTest(DemoModeTestCase):
+    """#211 part 2: the markup and the JS side of the week rule.
+
+    Both toggle paths have to set the class without a reload — the failure
+    #210 exists to fix, reintroduced one issue later if only the dot's
+    `done` class moved. Neither needs is_same_iso_week in JavaScript (#194
+    forbids a second implementation) and neither gets one: a task checked
+    off right now was completed today, and today is in the current week by
+    definition. That is a tautology, not a copy of the rule."""
+
+    def dot_partial(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/templates/projects/_task_dot.html"
+        ).read_text()
+
+    def my_plan_template(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/templates/projects/my_plan.html"
+        ).read_text()
+
+    def dashboard_template(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/templates/projects/dashboard.html"
+        ).read_text()
+
+    def test_the_shared_dot_partial_renders_the_flag(self):
+        # One partial serves four dashboard surfaces — the AI summary item,
+        # the project row, the Heute list and the day card — so the class
+        # lands in one place rather than four.
+        partial = self.dot_partial()
+        self.assertEqual(partial.count("task.done_this_week"), 2)  # span and button
+
+    def test_both_my_plan_dots_render_the_flag(self):
+        # The summary box and the full task list. my_plan's list dot takes
+        # its `done` class from {{ task.urgency }} rather than from a
+        # separate {% if %}, which is why this is checked by count.
+        self.assertEqual(self.my_plan_template().count("task.done_this_week"), 2)
+
+    def test_the_dashboard_toggle_sets_the_class(self):
+        self.assertIn(
+            "button.classList.toggle('done-this-week', done);",
+            self.dashboard_template(),
+        )
+
+    def test_my_plan_restores_the_flag_when_a_toggle_fails(self):
+        # my_plan updates optimistically and reverts on failure, so the
+        # revert has to put back what was there — a task completed weeks ago
+        # and un-checked on a dead connection must not come back green.
+        template = self.my_plan_template()
+        self.assertIn(
+            "const wasThisWeek = btn.classList.contains('done-this-week');", template
+        )
+        self.assertIn("applyDone(taskId, currentDone, wasThisWeek);", template)
+
+    def test_a_task_completed_now_renders_green_on_the_dashboard(self):
+        # End to end through the demo session toggle: no reload, and the
+        # next render agrees with what the JS did optimistically.
+        self.given_session_plan()
+        plan = self.client.session["demo_plan"]
+        task_id = plan["tasks"][0]["id"]
+        response = self.client.post(
+            f"/session-task/{task_id}/toggle/",
+            data='{"done": true}',
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertIn("done-this-week", html)
 
 
 class TemplateCommentsNeverReachThePageTest(DemoModeTestCase):

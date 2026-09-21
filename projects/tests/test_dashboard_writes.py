@@ -272,8 +272,10 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, self.GUARD)
-        # The revert path survives behind the widened guard.
-        self.assertContains(response, "applyDone(taskId, currentDone);")
+        # The revert path survives behind the widened guard. #211 part 2
+        # added its second argument: the revert restores the green the dot
+        # had before the click, not the green the click would have implied.
+        self.assertContains(response, "applyDone(taskId, currentDone, wasThisWeek);")
         self.assertContains(response, "flashActionFailed(btn);")
 
     def test_dashboard_toggle_and_reschedule_catch(self):

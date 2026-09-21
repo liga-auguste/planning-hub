@@ -839,6 +839,100 @@ class KanbanCardMarkupTest(TestCase):
         )
 
 
+class DoneThisWeekAnnotationTest(SimpleTestCase):
+    """#211 part 2: green stops at the week boundary. Part 1 gave the
+    completed dot its green and left it green forever; a dashboard whose
+    back catalogue is all green says no more than one whose dots are all
+    gray.
+
+    "This week" rather than a rolling seven days, because the progress bar
+    above the dots already reads "Diese Woche - 23 / 23 erledigt": if green
+    means completed in this ISO week, the green dots are exactly the tasks
+    filling that bar, and two displays make one statement. A rolling window
+    would be even in dwell time but would decouple the two and reintroduce
+    a number needing defence. The accepted price is uneven dwell: checked
+    off on Monday means seven days green, on Sunday one.
+
+    The decision lives in _annotate_tasks rather than in the template
+    because `today` is a request-level fact the template has no honest
+    access to, and it reuses is_same_iso_week (#169) — the same function
+    that decides what "this week" means for `urgent` and for the bar."""
+
+    TODAY = date(2026, 9, 16)  # a Wednesday
+
+    def annotate(self, tasks):
+        return _annotate_tasks([{"id": "p1", "tasks": tasks}], self.TODAY)[0]["tasks"]
+
+    def task(self, **kwargs):
+        return {"id": "t", "due": self.TODAY, "done": False, **kwargs}
+
+    def test_a_task_completed_this_week_carries_the_flag(self):
+        tasks = self.annotate(
+            [self.task(done=True, completed_date=self.TODAY - timedelta(days=2))]
+        )
+        self.assertTrue(tasks[0]["done_this_week"])
+
+    def test_a_task_completed_last_week_does_not(self):
+        tasks = self.annotate(
+            [self.task(done=True, completed_date=self.TODAY - timedelta(days=7))]
+        )
+        self.assertFalse(tasks[0]["done_this_week"])
+
+    def test_a_done_task_without_a_completion_date_does_not(self):
+        # These exist: checked off before "Erledigt am" was added to the
+        # Notion schema, or checked off in Notion's own UI rather than
+        # through this app. _count_done_in_range documents the same case.
+        # Without this rule the entire back catalogue would be permanently
+        # green, which is the failure part 2 exists to end.
+        tasks = self.annotate([self.task(done=True, completed_date=None)])
+        self.assertFalse(tasks[0]["done_this_week"])
+        tasks = self.annotate([self.task(done=True)])
+        self.assertFalse(tasks[0]["done_this_week"])
+
+    def test_an_open_task_never_carries_it(self):
+        # Even one holding a stale completion date from an earlier toggle.
+        tasks = self.annotate([self.task(done=False, completed_date=self.TODAY)])
+        self.assertFalse(tasks[0]["done_this_week"])
+
+    def test_the_week_is_the_iso_week_not_the_last_seven_days(self):
+        # The Monday of this week is in; the Sunday before it is not,
+        # though both are within seven days of a Wednesday. This is the
+        # whole difference between the rule chosen and the one rejected.
+        monday = self.TODAY - timedelta(days=2)
+        sunday = self.TODAY - timedelta(days=3)
+        tasks = self.annotate(
+            [
+                self.task(id="mon", done=True, completed_date=monday),
+                self.task(id="sun", done=True, completed_date=sunday),
+            ]
+        )
+        by_id = {t["id"]: t["done_this_week"] for t in tasks}
+        self.assertTrue(by_id["mon"])
+        self.assertFalse(by_id["sun"])
+
+    def test_it_crosses_a_year_boundary_with_the_iso_year(self):
+        # 2026-12-31 is a Thursday in ISO week 53 of 2026; 2027-01-01 is the
+        # Friday after it, in the same ISO week. A bare week-number compare
+        # would call these different weeks.
+        tasks = _annotate_tasks(
+            [
+                {
+                    "id": "p1",
+                    "tasks": [
+                        {
+                            "id": "t",
+                            "due": date(2026, 12, 31),
+                            "done": True,
+                            "completed_date": date(2026, 12, 31),
+                        }
+                    ],
+                }
+            ],
+            date(2027, 1, 1),
+        )[0]["tasks"]
+        self.assertTrue(tasks[0]["done_this_week"])
+
+
 class DashboardCacheVersionTest(SimpleTestCase):
     """#210 adds kanban_column to every cached task dict. The cache stores
     already-annotated projects and does not re-annotate on a hit, so a
@@ -849,13 +943,19 @@ class DashboardCacheVersionTest(SimpleTestCase):
     describes: the cached summary_data gained an optional kontext_hinweis,
     and an older entry renders correctly without it. Bumped so the
     never-expiring copy cannot hold the new field back indefinitely, and so
-    the first summary after the deploy can carry one."""
+    the first summary after the deploy can carry one.
+
+    #211 part 2 (v11) is the hard kind again: every cached task dict gained
+    done_this_week, and on a cache hit the dashboard renders the annotation
+    it stored rather than recomputing it. A pre-deploy entry would carry no
+    flag at all, so every completed dot would render gray until the entry
+    expired — and never, from STALE_CACHE_KEY."""
 
     def test_both_key_pairs_are_bumped_together(self):
-        self.assertEqual(CACHE_KEY, "dashboard_data_v10")
-        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v10")
-        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v5")
-        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v5")
+        self.assertEqual(CACHE_KEY, "dashboard_data_v11")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v11")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v6")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v6")
 
 
 @override_settings(DEMO_MODE=False)
