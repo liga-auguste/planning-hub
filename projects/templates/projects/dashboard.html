@@ -301,7 +301,14 @@
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
         .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-solid-bg); transition: width 0.4s ease; }
+        /* #212: the accent, not ink — a progress bar is the app reporting
+           on itself, not a task state, so it takes the brand colour rather
+           than the solid-CTA look. Quieter on purpose: ink reached 12.88:1
+           against the track and the accent reaches 3.46:1 light / 3.14:1
+           dark, above the 3:1 non-text floor and well below ink. The same
+           value has to stay on my_plan's .progress-bar-fill, which is this
+           element under a second class name. */
+        .progress-fill { height: 100%; border-radius: var(--radius-pill); background: var(--color-accent); transition: width 0.4s ease; }
         /* minmax() floor keeps a column from being forced wider than its
            container by an unshrinkable card (long project name + due date on
            one nowrap line, see .kanban-card-meta below) — plain 1fr's auto

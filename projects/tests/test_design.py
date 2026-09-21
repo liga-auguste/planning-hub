@@ -1281,6 +1281,7 @@ class DesignTokenTest(DemoModeTestCase):
     TOKENS = (
         "--color-bg-primary",
         "--color-accent",
+        "--color-accent-tint",
         "--color-overdue",
         "--color-today",
         "--radius-pill",
@@ -1416,6 +1417,18 @@ class SignalColorContrastTest(SimpleTestCase):
     against the card alone."""
 
     FLOOR = 3.0
+    # #212: the brand accent is not a signal color and never says what
+    # state a task is in — but it now paints the sidebar rings and both
+    # progress fills, which are non-text UI on the same two surfaces, so it
+    # answers to the same floor and is measured by the same helper. Its
+    # surfaces differ: a ring sits on the sidebar card
+    # (--color-bg-primary), a bar fill on its track
+    # (--color-bg-tertiary), which is why it is kept out of SIGNALS rather
+    # than added to it.
+    ACCENT_SURFACES = {
+        "light": {"--color-bg-primary": "#fff", "--color-bg-tertiary": "#f4f2f4"},
+        "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-tertiary": "#363638"},
+    }
     SIGNALS = {
         "--color-overdue": ("#ef4444", "#f87171"),
         "--color-today": ("#b88402", "#f4b00c"),
@@ -1463,11 +1476,131 @@ class SignalColorContrastTest(SimpleTestCase):
                             _wcag_contrast(signal, background), self.FLOOR
                         )
 
+    def test_the_accent_clears_the_non_text_floor_on_its_own_surfaces(self):
+        # #212: the ring stroke against the sidebar card, the bar fill
+        # against its track. The second is why my_plan's track moved off
+        # --color-border-primary, where the dark accent reached 2.95:1.
+        css = self.base_css()
+        accent = self.declared_value(css, "--color-accent", "light")
+        self.assertEqual(accent.lower(), "#7070ff")
+        for theme, surfaces in self.ACCENT_SURFACES.items():
+            accent = self.declared_value(css, "--color-accent", theme)
+            for surface, background in surfaces.items():
+                with self.subTest(theme=theme, surface=surface):
+                    self.assertGreaterEqual(
+                        _wcag_contrast(accent, background), self.FLOOR
+                    )
+
+    def test_the_accent_stays_off_small_text(self):
+        # WCAG 1.4.3 wants 4.5:1 for 11-13px text and the accent reaches it
+        # nowhere, which is why .ai-project-link keeps --color-text-tertiary
+        # and the three #212 placements are all fills and strokes. Pinned so
+        # a later "make it look interactive" change has to read this first.
+        css = self.base_css()
+        for theme, surface in (
+            ("light", "#fff"),
+            ("dark", "#2c2c2e"),
+        ):
+            with self.subTest(theme=theme):
+                accent = self.declared_value(css, "--color-accent", theme)
+                self.assertLess(_wcag_contrast(accent, surface), 4.5)
+
     def test_the_helper_agrees_with_the_known_extremes(self):
         # Guards the helper itself: without this, a broken formula would
         # make the assertions above pass silently.
         self.assertAlmostEqual(_wcag_contrast("#000", "#fff"), 21.0, places=2)
         self.assertAlmostEqual(_wcag_contrast("#fff", "#fff"), 1.0, places=2)
+
+
+class BrandAccentPlacementTest(DemoModeTestCase):
+    """#212: the brand accent carried the landing page and appeared inside
+    the product only on hover, while --color-accent-tint was declared and
+    used nowhere at all. Three placements fix that — the sidebar rings, the
+    active sidebar item, both progress bars — and all three are chrome or
+    self-reporting, never a task state. That separation is the constraint
+    the issue is built on: red, amber and green say what state a task is
+    in, the accent says whose product this is."""
+
+    TINT_RULE = ".sidebar-item.active { background: var(--color-accent-tint);"
+    HOVER_RULE = ".sidebar-item:hover {"
+    # A rule anywhere on a rendered page that paints one of the task-state
+    # surfaces with the accent. `[^{}]*` keeps the match inside a single
+    # declaration block, so an unrelated later rule cannot satisfy it, and
+    # the token is matched by prefix so the -hover and -tint variants count
+    # as the same violation — a tinted status dot is still the accent
+    # saying what state a task is in.
+    STATUS_SURFACE = re.compile(
+        r"\.(?:dot|task-due|task-date|kanban-card)\.[\w-]+[^{}]*\{[^{}]*"
+        r"var\(--color-accent"
+    )
+
+    def dashboard_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_active_sidebar_item_wears_the_accent_tint(self):
+        self.assertIn(self.TINT_RULE, self.dashboard_css())
+
+    def test_the_active_rule_stays_after_the_hover_rule(self):
+        # Both selectors are (0,2,0), so source order alone decides which
+        # wins on a hovered selected item. While both set the same gray the
+        # ordering is invisible; once active carries a tint, a swap would
+        # gray out the selected item the moment the pointer touched it.
+        css = self.dashboard_css()
+        self.assertLess(css.index(self.HOVER_RULE), css.index(self.TINT_RULE))
+
+    def test_the_accent_tint_reaches_a_stylesheet(self):
+        # The issue's "either used or removed" criterion, made checkable:
+        # the token has to appear somewhere other than its own declaration
+        # in base.css, which is where it sat unused.
+        self.assertIn("var(--color-accent-tint)", self.dashboard_css())
+
+    def test_both_progress_bars_fill_with_the_accent(self):
+        # .progress-fill (dashboard) and .progress-bar-fill (my_plan) are
+        # the same element under two class names. Coloring one and leaving
+        # the other in ink is exactly the split these guards exist to catch.
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            "border-radius: var(--radius-pill); background: var(--color-accent);",
+        )
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".progress-bar-fill { height: 100%; background: var(--color-accent);",
+        )
+
+    def test_both_progress_tracks_share_one_token(self):
+        # my_plan's track was --color-border-primary, against which the
+        # accent reaches only 2.95:1 in dark mode — under the 3:1 floor for
+        # non-text UI. Both tracks now read the token the dashboard already
+        # used, which puts the fill at 3.46:1 light and 3.14:1 dark.
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".progress-track { height: 4px; background: var(--color-bg-tertiary);",
+        )
+        self.assertContains(
+            self.client.get(reverse("my_plan")),
+            ".progress-bar-wrap { margin-top: 16px; height: 4px; "
+            "background: var(--color-bg-tertiary);",
+        )
+
+    def test_the_accent_never_colors_a_task_status(self):
+        # The central constraint of #212, pinned by nothing before this.
+        self.given_session_plan()
+        pages = {
+            "dashboard": self.client.get(reverse("dashboard")),
+            "my_plan": self.client.get(reverse("my_plan")),
+            "index": self.client.get(reverse("index")),
+        }
+        for name, response in pages.items():
+            with self.subTest(page=name):
+                match = self.STATUS_SURFACE.search(response.content.decode())
+                self.assertIsNone(
+                    match,
+                    f"the accent is painting a task status: {match.group() if match else ''}",
+                )
 
 
 class PostponeBadgeRenderingTest(DemoModeTestCase):

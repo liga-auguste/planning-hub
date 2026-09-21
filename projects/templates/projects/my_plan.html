@@ -25,8 +25,16 @@
     .project-header { margin-bottom: 32px; }
     .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
     .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
-    .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-border-primary); border-radius: 4px; overflow: hidden; }
-    .progress-bar-fill { height: 100%; background: var(--color-solid-bg); border-radius: 4px; transition: width 0.3s; }
+    /* #212: the track moved off --color-border-primary, against which the
+       accent fill below reaches only 2.95:1 in dark mode — under the 3:1
+       floor for non-text UI. On --color-bg-tertiary, the token the
+       dashboard's own track already used, both bars sit at 3.46:1 light
+       and 3.14:1 dark. */
+    .progress-bar-wrap { margin-top: 16px; height: 4px; background: var(--color-bg-tertiary); border-radius: 4px; overflow: hidden; }
+    /* Same element as dashboard.html's .progress-fill under a second class
+       name — colouring one and leaving the other in ink is the split the
+       drift guards exist to catch, so the two move together. */
+    .progress-bar-fill { height: 100%; background: var(--color-accent); border-radius: 4px; transition: width 0.3s; }
     /* #96 de-boxed the dashboard's .ai-card and .project-section and left
        this page out; that exception ends here. A list of tasks is one
        surface with a hairline between the rows, not a card — the border and

@@ -22,6 +22,9 @@
     --color-text-quaternary: #86848d;
     --color-accent: #7070ff;
     --color-accent-hover: #8989f0;
+    /* #212: the quiet coloured surface behind the active sidebar item.
+       Declared since #11 and used nowhere until then — a hue cue on top of
+       the weight that already carried the state, not a contrast signal. */
     --color-accent-tint: #f1f1ff;
     --color-overdue: #ef4444;
     /* #211: the warm stage #173 reserved, reintroduced for `today` alone.
@@ -47,8 +50,10 @@
     --color-overdue-tint: #fef2f2;
     --shadow-low: 0px 1px 4px -1px #00000017;
     --shadow-medium: 0px 3px 12px #00000017;
-    /* Solid CTA fills (buttons, active states, progress fills) that reuse
-       the "ink" look rather than the accent colour. Deliberately its own
+    /* Solid CTA fills (buttons, the Zeitreise moment buttons, the download
+       FAB) that reuse the "ink" look rather than the accent colour. Not
+       the progress fills any more: #212 gave both bars the brand accent,
+       on the grounds that a bar is the app reporting on itself. Deliberately its own
        token instead of --color-text-primary: that one has to invert to a
        near-white value for body-text readability in dark mode, which reads
        as glaring when reused as a large fill rather than as text — this

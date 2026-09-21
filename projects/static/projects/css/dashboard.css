@@ -66,7 +66,18 @@
 .sidebar-title { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); padding: 0 16px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
 .sidebar-item { display: flex; align-items: center; padding: 5px 16px; color: var(--color-text-primary); text-decoration: none; border-radius: 6px; margin: 1px 8px; font-size: 13px; }
 .sidebar-item:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
-.sidebar-item.active { background: var(--color-bg-tertiary); color: var(--color-text-primary); font-weight: 500; }
+/* #212: the accent-tint's own purpose — a quiet coloured surface — on the
+   single most persistent element on screen. Deliberately not a contrast
+   gain: the tint measures 1.12:1 against the sidebar card where the grey
+   it replaces measured 1.11:1, so font-weight: 500 still carries the
+   state and the tint only adds the hue cue on top of it. Dark mode's
+   #18182f is darker than the card rather than lighter, so the selected
+   item reads as recessed there instead of raised — a normal pattern,
+   accepted rather than worked around. Has to stay below the :hover rule
+   above: both selectors are (0,2,0), so source order alone decides, and
+   a swap would grey the selected item out the moment the pointer
+   touched it. */
+.sidebar-item.active { background: var(--color-accent-tint); color: var(--color-text-primary); font-weight: 500; }
 .sidebar-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; margin-right: 8px; }
 /* A dedicated class, not dashboard.html's task-toggle .dot — my_plan.html
    defines its own same-named .dot at a different size for its task list,
@@ -81,10 +92,18 @@
 .progress-ring { flex-shrink: 0; }
 .progress-ring-track, .progress-ring-fill { fill: none; }
 .progress-ring-track { stroke: var(--color-border-primary); }
-/* #173: neutral by default — overdue red is the only override left; the
-   today/urgent/ok ring classes stay in the markup as classification and all
-   render this neutral stroke. */
-.progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
+/* #212: the brand accent is the base stroke and overdue red is still the
+   only override — six identical grey rings become the app's own colour
+   without any of them becoming a status stage. That an accent ring reads
+   as "progress" rather than as "on track" rests on the accent being the
+   *absence* of the override: the today/urgent/ok ring classes stay in the
+   markup as classification (#173) and none of them gets a rule, so there
+   is no stage for the accent to name. Separation is not the risk here —
+   accent to red is ΔE2000 41.9 light / 39.2 dark, and accent to the grey
+   it replaces 25.9 / 22.3, so the change is plainly visible rather than a
+   repaint nobody notices. The stroke clears the 3:1 non-text floor on the
+   sidebar card at 3.85:1 light and 3.63:1 dark. */
+.progress-ring-fill { stroke: var(--color-accent); stroke-linecap: round; }
 .progress-ring-fill.overdue { stroke: var(--color-overdue); }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */
