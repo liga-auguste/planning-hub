@@ -32,6 +32,13 @@
     .move-btn { font-size: 12px; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
     .move-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
     .empty-state { color: var(--color-text-quaternary); font-size: 13px; padding: 24px 0; }
+    /* #263: the week navigation, directly under the subtitle that names the
+       browsed week. Plain text links rather than the dashboard's boxed
+       ←/→ buttons — there are two of them at most and they carry words, so
+       a row of chrome would outweigh what it offers. */
+    .week-nav-row { display: flex; gap: 16px; margin: -16px 0 24px; }
+    .week-nav-link { font-size: 13px; color: var(--color-text-tertiary); text-decoration: none; }
+    .week-nav-link:hover { color: var(--color-accent); }
     /* Same notice the dashboard uses for an unreachable Notion
        (_status_banners.html), repeated here rather than shared: that
        partial is bound to the dashboard's own stale/data_unavailable
@@ -76,13 +83,31 @@ app. See docs/wochenabschluss.md.
     <div class="stale-notice">Der Wochenabschluss konnte nicht gespeichert werden — Notion war gerade nicht erreichbar. Deine Aufgaben sind unverändert, versuch es in Kürze noch einmal.</div>
     {% endif %}
     {% if already_closed and not tasks %}
-    <div class="page-subtitle">{{ today_display }} — bereits abgeschlossen</div>
+    <div class="page-subtitle">{{ week_display }} — bereits abgeschlossen</div>
     {% else %}
-    <div class="page-subtitle">{{ today_display }} — noch offene Aufgaben dieser Woche</div>
+    <div class="page-subtitle">{{ week_display }} — noch offene Aufgaben dieser Woche</div>
     {% endif %}
+
+    {% comment %}
+    #263: the week is a parameter now, so it can be browsed — and the review
+    that actually happens on a Monday morning is about the week that just
+    ended. Only backwards: closing a week that has not happened yet is not a
+    thing the ritual means, and the way back is the link beside it.
+    {% endcomment %}
+    <div class="week-nav-row">
+        <a class="week-nav-link" href="?week={{ prev_week_param }}">← Vorwoche</a>
+        {% if not is_current_week %}<a class="week-nav-link" href="{% url 'close_week_start' %}">Diese Woche</a>{% endif %}
+    </div>
 
     <form method="post" action="{% url 'close_week_confirm' %}" id="closeout-form">
         {% csrf_token %}
+        {% comment %}
+        #263: which week this close-out is for. The view re-derived it from
+        the request's own day, so a form left open past Sunday midnight
+        closed the following week and counted every task on the list as
+        rescheduled — they were no longer in "this" week.
+        {% endcomment %}
+        <input type="hidden" name="week" value="{{ week_param }}">
         {% if tasks %}
         <div class="triage-list">
             {% for task in tasks %}
@@ -115,7 +140,8 @@ app. See docs/wochenabschluss.md.
         <div class="closeout-actions">
             <button type="submit" class="btn-confirm">{% if already_closed and not tasks %}Rückblick aktualisieren{% else %}Woche abschließen{% endif %}</button>
             {% if already_closed %}
-            <a href="{% url 'week_review' %}" class="btn-secondary">→ Rückblick ansehen</a>
+            {# #263: this week's review, not whichever one was closed last. #}
+            <a href="{% url 'week_review' %}?week={{ week_param }}" class="btn-secondary">→ Rückblick ansehen</a>
             {% endif %}
         </div>
     </form>

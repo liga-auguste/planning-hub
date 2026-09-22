@@ -24,7 +24,12 @@ from .ai import (
     resolve_weekly_summary,
     summary_has_content,
 )
-from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .closeout import (
+    get_closeout,
+    get_latest_closeout,
+    is_week_closed,
+    save_closeout,
+)
 from .date_format import (
     MONTHS_DE,
     WEEKDAYS_SHORT,
@@ -660,13 +665,19 @@ def _usable_week_start(monday, default_monday):
 _WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
 
 
-def _parse_week_param(request, default_monday):
-    """#180: ?week=2026-W37 navigates the day columns to that week. Anything
-    unparseable — absent, malformed, a week number ISO doesn't have, or one
-    too close to date.min/date.max to render (#216) — falls back to
-    default_monday rather than erroring the whole page over a query param a
-    visitor is free to hand-edit."""
-    raw = request.GET.get("week")
+def _week_monday(raw, default_monday):
+    """`2026-W37` -> that week's Monday, whatever carried the value.
+
+    Anything unusable — absent, malformed, a week number ISO doesn't have,
+    or one too close to date.min/date.max to render (#216) — falls back to
+    default_monday rather than erroring a whole page over a value a visitor
+    is free to hand-edit.
+
+    #263: source-agnostic because the close-out now carries a week too, in a
+    hidden form field rather than a query param. One wire format app-wide,
+    one guard, one fallback rule — the alternative was a second week format
+    that would have had to be kept in step with this one.
+    """
     if not raw:
         return default_monday
     match = _WEEK_PARAM_RE.fullmatch(raw)
@@ -677,6 +688,18 @@ def _parse_week_param(request, default_monday):
     except ValueError:
         return default_monday
     return _usable_week_start(monday, default_monday)
+
+
+def _parse_week_param(request, default_monday):
+    """#180: ?week=2026-W37 navigates the day columns to that week."""
+    return _week_monday(request.GET.get("week"), default_monday)
+
+
+def _week_param(monday):
+    """A week in the wire format _week_monday reads back — the one form
+    ?week= links and the close-out's hidden field both carry."""
+    iso_year, iso_week, _ = monday.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
 
 
 def _bucket_by_day(projects, unassigned_tasks, week_start):
@@ -1270,8 +1293,8 @@ def dashboard(request):
             "day_columns": day_columns,
             "week_range_label": format_week_range(browsed_monday, browsed_sunday),
             "is_current_week": is_current_week,
-            "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
-            "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
+            "prev_week_param": _week_param(prev_monday),
+            "next_week_param": _week_param(next_monday),
         },
     )
 
@@ -1764,6 +1787,27 @@ def _closeout_dates(request):
     return sim_date or timezone.localdate(), sim_date
 
 
+def _closeout_week_monday(raw, current_monday):
+    """The week the close-out flow acts on — _week_monday's answer, never a
+    later one than the week the request itself falls in.
+
+    #263 made the week a parameter so the review that actually happens on a
+    Monday morning can reach the week that just ended. Forward is the
+    direction the ritual has no meaning in, which is why the triage page
+    offers no link for it — but the value is hand-editable all the same, and
+    a close-out stored under a future week outranks every real one in
+    get_latest_closeout's ordering, so /wochenrueckblick/ with no parameter
+    would answer with it for as long as that week stays in the future.
+    Clamped rather than rejected: it is the same "not a week this page can
+    act on, show the current one" the parser already applies to everything
+    else it cannot use.
+
+    The dashboard's own ?week= (#180) is deliberately *not* clamped —
+    browsing ahead is exactly what its next-week link is for.
+    """
+    return min(_week_monday(raw, current_monday), current_monday)
+
+
 # #215: the session half of the failure notice's claim ticket. The other
 # half rides the redirect URL, so the notice reaches the tab that actually
 # failed — see _closeout_read_failed.
@@ -1837,24 +1881,35 @@ def close_week_start(request):
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
-    # Overdue tasks stay out — they already have their own signal, and the
-    # point of this list is the tasks that are still a conscious choice to
-    # move, not the ones already late.
+    # #263: the week being triaged, which is not always the week the request
+    # falls in. A weekly review happens on Monday morning as readily as on
+    # Friday evening, and ?week= is what lets it reach the week it means.
+    current_monday = iso_week_bounds(today)[0]
+    browsed_monday = _closeout_week_monday(request.GET.get("week"), current_monday)
+    browsed_sunday = browsed_monday + timedelta(days=6)
+    is_current_week = browsed_monday == current_monday
+    # #263: the rule is the ISO week, whether or not the day has passed —
+    # is_same_iso_week keeps genuinely older tasks out, and those are the
+    # ones that already have their own signal. A task due Tuesday and still
+    # open on Friday belongs to the week being closed, and this page is the
+    # one surface whose whole job is deciding what happens to it; the old
+    # `>= today` bound cut exactly those out of it.
     open_this_week = [
         t
         for t in tasks
-        if not t["done"]
-        and t["due"]
-        and t["due"] >= today
-        and is_same_iso_week(t["due"], today)
+        if not t["done"] and t["due"] and is_same_iso_week(t["due"], browsed_monday)
     ]
     for task in open_this_week:
         # The move button's own label — otherwise "→ nächste Woche" doesn't
-        # say which date that actually is.
+        # say which date that actually is. #263: still due + 7 for a task
+        # whose date has passed, which can offer a day that is itself in the
+        # past. Deliberate: it is a real date the visitor reads before
+        # clicking and can correct afterwards, and the alternative — a second
+        # group with its own move semantics — buys less than it costs.
         task["next_week_display"] = format_date(
             task["due"] + timedelta(days=7), role="long"
         )
-    iso_year, iso_week, _ = today.isocalendar()
+    iso_year, iso_week, _ = browsed_monday.isocalendar()
     # #215: this no longer gates the submit button, it only changes what the
     # page says and offers. Re-closing a week is the supported way to bring
     # a review up to date — both week-scoped counts are read from the week
@@ -1890,9 +1945,16 @@ def close_week_start(request):
             "tasks": open_this_week,
             "already_closed": already_closed,
             "read_failed": read_failed,
-            "today_display": format_date(today, role="long"),
-            # A weekend-specific empty state reads oddly on a Tuesday.
-            "is_weekend": today.weekday() >= 5,
+            # #263: the page names the week it is triaging, not the day it
+            # was opened on — the two are no longer the same question.
+            "week_display": f"KW {iso_week}, {format_week_range(browsed_monday, browsed_sunday)}",
+            "week_param": _week_param(browsed_monday),
+            "prev_week_param": _week_param(browsed_monday - timedelta(days=7)),
+            "is_current_week": is_current_week,
+            # A weekend-specific empty state reads oddly on a Tuesday — and
+            # on a Saturday spent looking back at a week that is already
+            # over, which is why it asks the browsed week too.
+            "is_weekend": is_current_week and today.weekday() >= 5,
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html, so this view owes it the same three flags
             # (see the contract note in that partial). In DEMO_MODE a session
@@ -1909,7 +1971,7 @@ def close_week_start(request):
     )
 
 
-def _closeout_read_failed(request):
+def _closeout_read_failed(request, week_start):
     """#215: back to the triage page, but saying why.
 
     Persisting a close-out whose numbers came from a failed read would store
@@ -1923,10 +1985,19 @@ def _closeout_read_failed(request):
     request arrived first, which in a second open tab is a notice about a
     failure that tab never had. Requiring both halves addresses the notice to
     the one response that follows this redirect.
+
+    #263: and back to the *same* week. This is the only path that returns a
+    visitor to the triage page, so dropping the parameter here would land a
+    KW 38 review on the KW 39 list, under a notice whose whole message is
+    "try again" — and the next press of the button would close the wrong
+    week with a triage selection nobody made.
     """
     ticket = secrets.token_urlsafe(8)
     request.session[CLOSEOUT_FAILED_KEY] = ticket
-    return redirect(f"{reverse('close_week_start')}?{CLOSEOUT_NOTICE_PARAM}={ticket}")
+    return redirect(
+        f"{reverse('close_week_start')}?week={_week_param(week_start)}"
+        f"&{CLOSEOUT_NOTICE_PARAM}={ticket}"
+    )
 
 
 def close_week_confirm(request):
@@ -1937,14 +2008,24 @@ def close_week_confirm(request):
     if request.method != "POST":
         return redirect("close_week_start")
     today, sim_date = _closeout_dates(request)
-    iso_year, iso_week, _ = today.isocalendar()
-    week_start, week_end = iso_week_bounds(today)
+    # #263: the week the page was showing wins, and every number below is
+    # measured against it. The form carries it, so a review begun on Friday
+    # and submitted on Monday still closes the week it was triaging instead
+    # of the one that started a few hours ago — and browsing to a past week
+    # is a choice rather than a mismatch to report back. A missing or
+    # hand-edited value falls back to the request's own week, the behaviour
+    # this flow had when the week was never carried at all.
+    week_start = _closeout_week_monday(
+        request.POST.get("week"), iso_week_bounds(today)[0]
+    )
+    week_end = week_start + timedelta(days=6)
+    iso_year, iso_week, _ = week_start.isocalendar()
     task_ids = request.POST.getlist("task_id")
 
     try:
         projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
-        return _closeout_read_failed(request)
+        return _closeout_read_failed(request, week_start)
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
@@ -1963,7 +2044,7 @@ def close_week_confirm(request):
         if task is None:
             continue
         if not task["done"] and (
-            task["due"] is None or not is_same_iso_week(task["due"], today)
+            task["due"] is None or not is_same_iso_week(task["due"], week_start)
         ):
             rescheduled_count += 1
 
@@ -1991,7 +2072,7 @@ def close_week_confirm(request):
             )
             added_count = len(get_tasks_created_in_range(week_start, week_end))
         except NotionUnavailableError:
-            return _closeout_read_failed(request)
+            return _closeout_read_failed(request, week_start)
 
     stats_dict = {
         "completed_count": completed_count,
@@ -2004,13 +2085,25 @@ def close_week_confirm(request):
         summary_text = ""
 
     save_closeout(request, iso_year, iso_week, stats_dict, summary_text)
-    return redirect("week_review")
+    # #263: the review is asked for the week that was just closed. Without
+    # the parameter it renders the *latest* close-out, so closing KW 25
+    # while KW 26 is already closed would answer with KW 26's numbers.
+    return redirect(f"{reverse('week_review')}?week={_week_param(week_start)}")
 
 
 def week_review(request):
     if settings.DEMO_MODE and not request.session.get("demo_plan"):
         return redirect("index")
-    closeout = get_latest_closeout(request)
+    # #263: ?week= names one close-out; without it — or with a week that was
+    # never closed — the latest one is still what this page shows, which is
+    # every route into it that existed before a past week could be closed.
+    browsed_monday = _week_monday(request.GET.get("week"), None)
+    closeout = None
+    if browsed_monday is not None:
+        iso_year, iso_week, _ = browsed_monday.isocalendar()
+        closeout = get_closeout(request, iso_year, iso_week)
+    if closeout is None:
+        closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
     # Same date as close_week_start/close_week_confirm (#215), so the sidebar
