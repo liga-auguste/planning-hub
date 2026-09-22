@@ -26,6 +26,7 @@ from ..ai import (
     generate_closeout_summary,
 )
 from ..closeout import (
+    get_closeout,
     get_latest_closeout,
     is_week_closed,
     save_closeout,
@@ -186,11 +187,49 @@ class CloseoutBackendTest(TestCase):
     def test_production_no_closeout_yet_is_none(self):
         self.assertIsNone(get_latest_closeout(self.request()))
 
+    @override_settings(DEMO_MODE=False)
+    def test_production_get_closeout_answers_the_named_week(self):
+        """#263: the named week, not the latest one. Once a past week can be
+        closed, closing KW 25 while KW 26 is already closed would otherwise
+        show the visitor KW 26's numbers as the result of their own action."""
+        request = self.request()
+        save_closeout(request, 2026, 25, _closeout_stats(), "Fünfundzwanzig.")
+        save_closeout(request, 2026, 26, _closeout_stats(), "Sechsundzwanzig.")
+        self.assertEqual(
+            get_closeout(request, 2026, 25)["summary_text"], "Fünfundzwanzig."
+        )
+        self.assertEqual(
+            get_latest_closeout(request)["summary_text"], "Sechsundzwanzig."
+        )
+
+    @override_settings(DEMO_MODE=True)
+    def test_demo_get_closeout_answers_the_named_week(self):
+        """The session holds exactly one close-out, which is why this defect
+        never showed in demo mode — asserted so the two backends keep
+        answering the same question."""
+        request = self.request()
+        save_closeout(request, 2026, 25, _closeout_stats(), "Text.")
+        self.assertEqual(get_closeout(request, 2026, 25)["summary_text"], "Text.")
+        self.assertIsNone(get_closeout(request, 2026, 26))
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_get_closeout_misses_a_week_never_closed(self):
+        self.assertIsNone(get_closeout(self.request(), 2026, 25))
+
+    @override_settings(DEMO_MODE=True)
+    def test_demo_get_closeout_misses_a_week_never_closed(self):
+        self.assertIsNone(get_closeout(self.request(), 2026, 25))
+
 
 class CloseWeekStartDemoModeTest(DemoModeTestCase):
-    """#169: the triage list is only open tasks due in the current ISO
-    week — overdue tasks stay out (their own signal already), and so do
-    tasks already done or due a different week."""
+    """#169: the triage list is only open tasks due in the ISO week being
+    closed — tasks already done or due a different week stay out.
+
+    #263: "a different week" is the whole rule. It used to be "a different
+    week, or a day that has already passed", which cut half the week's own
+    open tasks out of the one page whose job is deciding what happens to
+    them. A task from a *past* week still stays out — that one does already
+    have its own overdue signal."""
 
     @patch("django.utils.timezone.localdate")
     def test_lists_only_open_tasks_due_this_week(self, mock_localdate):
@@ -199,8 +238,36 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, "Diese Woche")
         self.assertNotContains(response, "Nächste Woche")
+        # CLOSEOUT_TODAY is a Monday, so "Überfällig" (-1 day) sits in the
+        # previous ISO week — still out, and for the reason that survives
+        # #263.
         self.assertNotContains(response, "Überfällig")
         self.assertNotContains(response, "Schon erledigt")
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_task_due_earlier_the_same_week_is_still_triageable(self, mock_localdate):
+        """#263: due Tuesday, still open on Thursday. The old `>= today`
+        bound left it out of the list, so it could not be moved from the one
+        surface that moves tasks, and it rolled into the next week
+        untouched."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=3)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-passed",
+                    "name": "Dienstag faellig",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(reverse("close_week_start"))
+        self.assertContains(response, "Dienstag faellig")
+        # Still due + 7 rather than a date measured from today — the move
+        # button means the same thing for every row on the list.
+        self.assertContains(
+            response, f"→ {format_date(CLOSEOUT_TODAY + timedelta(days=8))}"
+        )
 
     def test_no_session_plan_redirects_to_index(self):
         response = self.client.get(reverse("close_week_start"))
@@ -348,6 +415,141 @@ class CloseWeekStartProductionTest(TestCase):
         self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 
+class CloseWeekBrowsedWeekTest(DemoModeTestCase):
+    """#263: the triage page names the week it is showing and ?week= points
+    it at a past one — the Monday-morning review is about the week that just
+    ended, and before this there was no way to reach it. Same wire format as
+    the dashboard's own ?week= (#180), same fallback on anything unusable."""
+
+    def _plan(self):
+        """One task in the current ISO week (W25) and one in the week before
+        it (W24) — CLOSEOUT_TODAY is the Monday of W25."""
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-this-week",
+                    "name": "Diese Woche",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=2)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-last-week",
+                    "name": "Vorwoche",
+                    "date": (CLOSEOUT_TODAY - timedelta(days=3)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_past_week_lists_the_tasks_due_in_it(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        response = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertContains(response, 'class="triage-task-name">Vorwoche<')
+        self.assertNotContains(response, 'class="triage-task-name">Diese Woche<')
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_page_names_the_week_it_is_triaging(self, mock_localdate):
+        """The subtitle used to carry today's date, which said nothing about
+        which week the list below it belongs to once the two can differ."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        response = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertContains(response, "KW 24, 8.–14. Juni")
+        current = self.client.get(reverse("close_week_start"))
+        self.assertContains(current, "KW 25, 15.–21. Juni")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_form_carries_the_browsed_week(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        response = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertContains(
+            response, '<input type="hidden" name="week" value="2026-W24">', html=False
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_an_unusable_week_falls_back_to_the_current_one(self, mock_localdate):
+        """Malformed, or a week number ISO does not have — the same tolerance
+        _week_monday applies everywhere, because the value is one a visitor
+        is free to hand-edit."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        for raw in ("nonsense", "2026-W99", "9999-W52"):
+            with self.subTest(week=raw):
+                response = self.client.get(f"{reverse('close_week_start')}?week={raw}")
+                self.assertContains(response, "KW 25, 15.–21. Juni")
+                self.assertContains(response, 'value="2026-W25"')
+
+    @patch("django.utils.timezone.localdate")
+    def test_already_closed_asks_about_the_browsed_week(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self.given_session_plan(tasks=[])
+        session = self.client.session
+        session["demo_week_closeout"] = {
+            "iso_year": 2026,
+            "iso_week": 24,
+            "completed_count": 3,
+            "rescheduled_count": 1,
+            "added_count": 0,
+            "summary_text": "Text.",
+            "closed_at": "2026-06-14T12:00:00",
+        }
+        session.save()
+        browsed = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertContains(browsed, "Diese Woche hast du schon abgeschlossen.")
+        current = self.client.get(reverse("close_week_start"))
+        self.assertNotContains(current, "Diese Woche hast du schon abgeschlossen.")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_weekend_empty_state_only_greets_the_current_week(self, mock_localdate):
+        """The weekend greeting is about the week that is ending now. On a
+        Saturday spent looking back at a week that is already over it is the
+        wrong sentence, so the flag asks the browsed week too."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=5)  # Saturday
+        self.given_session_plan(tasks=[])
+        browsed = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertNotContains(browsed, "Genieße dein Wochenende")
+        self.assertContains(browsed, "Für diese Woche ist alles erledigt")
+        current = self.client.get(reverse("close_week_start"))
+        self.assertContains(current, "Genieße dein Wochenende")
+
+    @patch("django.utils.timezone.localdate")
+    def test_browsing_offers_the_previous_week_and_the_way_back(self, mock_localdate):
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        current = self.client.get(reverse("close_week_start"))
+        self.assertContains(current, 'href="?week=2026-W24"')
+        self.assertNotContains(current, ">Diese Woche</a>")
+        browsed = self.client.get(f"{reverse('close_week_start')}?week=2026-W24")
+        self.assertContains(browsed, 'href="?week=2026-W23"')
+        self.assertContains(browsed, ">Diese Woche</a>")
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_move_button_can_offer_a_date_that_has_passed(self, mock_localdate):
+        """The accepted consequence of one list with one move semantics
+        (#263): browsing two weeks back, "due + 7" lands in a week that is
+        itself over. It is a real date the visitor reads before clicking and
+        can correct afterwards — the rejected alternative was a second group
+        with its own meaning of "→ nächste Woche"."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        due = CLOSEOUT_TODAY - timedelta(days=10)  # Friday of KW 23
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-old",
+                    "name": "Lange offen",
+                    "date": due.isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+        response = self.client.get(f"{reverse('close_week_start')}?week=2026-W23")
+        self.assertContains(response, "Lange offen")
+        self.assertContains(response, f"→ {format_date(due + timedelta(days=7))}")
+
+
 class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
     """#215: "Erledigt" counts the ISO week from the session tasks' own
     completion dates, never the posted task_id list — that list can only
@@ -395,7 +597,9 @@ class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
             # anything already done, so the real page can never post it.
             data={"task_id": ["t-moved", "t-stayed"]},
         )
-        self.assertRedirects(response, reverse("week_review"))
+        # #263: the review is asked for the week that was just closed, not
+        # for whichever one happens to be the latest.
+        self.assertRedirects(response, f"{reverse('week_review')}?week=2026-W25")
         closeout = self.client.session["demo_week_closeout"]
         self.assertEqual(closeout["completed_count"], 1)
         self.assertEqual(closeout["rescheduled_count"], 1)
@@ -555,8 +759,103 @@ class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
             "projects.views.generate_closeout_summary"
         ].side_effect = AIUnavailableError("boom")
         response = self.client.post(reverse("close_week_confirm"), data={"task_id": []})
-        self.assertRedirects(response, reverse("week_review"))
+        self.assertRedirects(response, f"{reverse('week_review')}?week=2026-W25")
         self.assertEqual(self.client.session["demo_week_closeout"]["summary_text"], "")
+
+
+class CloseWeekConfirmCarriesItsWeekDemoModeTest(DemoModeTestCase):
+    """#263: the close-out closes the week its form was showing, not the week
+    the POST happens to land in. The form is filled on Friday evening and
+    submitted on Monday often enough that this is the intended use of the
+    page, and the week turning underneath it used to rewrite every number."""
+
+    def _plan(self):
+        """Two tasks in KW 25: one still due there, one moved into KW 26 —
+        the second is the only reschedule this close-out made."""
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-stayed",
+                    "name": "Geblieben",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=2)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "t-moved",
+                    "name": "Verschoben",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=9)).isoformat(),
+                    "done": False,
+                },
+            ]
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_posted_week_is_the_one_that_gets_closed(self, mock_localdate):
+        # The request falls in KW 26; the page was showing KW 25.
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=7)
+        self._plan()
+        response = self.client.post(
+            reverse("close_week_confirm"),
+            data={"week": "2026-W25", "task_id": ["t-stayed", "t-moved"]},
+        )
+        closeout = self.client.session["demo_week_closeout"]
+        self.assertEqual((closeout["iso_year"], closeout["iso_week"]), (2026, 25))
+        self.assertRedirects(response, f"{reverse('week_review')}?week=2026-W25")
+
+    @patch("django.utils.timezone.localdate")
+    def test_rescheduled_is_measured_against_the_posted_week(self, mock_localdate):
+        """The count asks "is this task still due the week I am closing?".
+        Asked against the request's own week instead, every task on the list
+        answered no the moment the week turned, and the review claimed a
+        move for each of them."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=7)
+        self._plan()
+        self.client.post(
+            reverse("close_week_confirm"),
+            data={"week": "2026-W25", "task_id": ["t-stayed", "t-moved"]},
+        )
+        self.assertEqual(
+            self.client.session["demo_week_closeout"]["rescheduled_count"], 1
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_counts_follow_the_posted_week(self, mock_localdate):
+        """Completed is read from the week being closed. A task finished in
+        KW 25 must still count when the form is submitted in KW 26."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=7)
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "t-done",
+                    "name": "Erledigt",
+                    "date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                    "done": True,
+                    "completed_date": (CLOSEOUT_TODAY + timedelta(days=1)).isoformat(),
+                },
+            ]
+        )
+        self.client.post(
+            reverse("close_week_confirm"), data={"week": "2026-W25", "task_id": []}
+        )
+        self.assertEqual(
+            self.client.session["demo_week_closeout"]["completed_count"], 1
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_missing_or_unusable_week_falls_back_to_the_request(self, mock_localdate):
+        """The behaviour this flow had while the week was never carried at
+        all — a hand-edited hidden field is not worth an error page."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        for data in ({}, {"week": ""}, {"week": "nonsense"}, {"week": "2026-W99"}):
+            with self.subTest(data=data):
+                self.given_session_plan(tasks=[])
+                self.client.post(
+                    reverse("close_week_confirm"), data={**data, "task_id": []}
+                )
+                closeout = self.client.session["demo_week_closeout"]
+                self.assertEqual(
+                    (closeout["iso_year"], closeout["iso_week"]), (2026, 25)
+                )
 
 
 @override_settings(DEMO_MODE=False)
@@ -628,7 +927,9 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         # project list (#185) and would fetch Notion on the follow-up GET,
         # outside the patch above. What it renders has its own test.
         self.assertRedirects(
-            response, reverse("week_review"), fetch_redirect_response=False
+            response,
+            f"{reverse('week_review')}?week=2026-W25",
+            fetch_redirect_response=False,
         )
         closeout = WeekCloseout.objects.get()
         # Neither number had a posted id behind it, and the triage list was
@@ -675,6 +976,60 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         monday, sunday = iso_week_bounds(CLOSEOUT_TODAY)
         completed_mock.assert_called_once_with(monday, sunday)
         created_mock.assert_called_once_with(monday, sunday)
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_week_reads_follow_the_posted_week(self, mock_localdate):
+        """#263: KW 25's Monday and Sunday, from a request that falls in KW
+        26. Both counts describe the week being closed, so both reads have to
+        be pointed at it rather than at the calendar."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=7)
+        completed_read, created_read = self._week_reads()
+        with (
+            patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            completed_read as completed_mock,
+            created_read as created_mock,
+        ):
+            self.client.post(
+                reverse("close_week_confirm"),
+                data={"week": "2026-W25", "task_id": []},
+            )
+        monday, sunday = iso_week_bounds(CLOSEOUT_TODAY)
+        completed_mock.assert_called_once_with(monday, sunday)
+        created_mock.assert_called_once_with(monday, sunday)
+        closeout = WeekCloseout.objects.get()
+        self.assertEqual((closeout.iso_year, closeout.iso_week), (2026, 25))
+
+    @patch("django.utils.timezone.localdate")
+    def test_closing_a_past_week_lands_on_that_weeks_review(self, mock_localdate):
+        """#263: week_review renders the *latest* close-out when no week is
+        named, so closing KW 25 while KW 26 is already closed used to answer
+        with KW 26's numbers — someone else's week as the result of this
+        visitor's own action."""
+        mock_localdate.return_value = CLOSEOUT_TODAY + timedelta(days=7)
+        WeekCloseout.objects.create(
+            iso_year=2026, iso_week=26, summary_text="Die spätere Woche."
+        )
+        completed_read, created_read = self._week_reads()
+        with (
+            patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            completed_read,
+            created_read,
+            patch(
+                "projects.views.generate_closeout_summary", return_value="KW 25 also."
+            ),
+        ):
+            response = self.client.post(
+                reverse("close_week_confirm"),
+                data={"week": "2026-W25", "task_id": []},
+            )
+            review = self.client.get(response["Location"])
+        self.assertContains(review, "KW 25/2026")
+        self.assertContains(review, "KW 25 also.")
+        self.assertNotContains(review, "Die spätere Woche.")
 
     @patch("django.utils.timezone.localdate")
     def test_a_failing_week_read_does_not_persist_a_zeroed_closeout(
@@ -997,6 +1352,33 @@ class WeekReviewProductionTest(TestCase):
             response = self.client.get(reverse("week_review"))
         self.assertContains(response, "Gute Woche.")
         self.assertContains(response, "KW 25/2026")
+
+    def test_a_named_week_is_shown_instead_of_the_latest(self):
+        """#263: ?week= addresses one close-out. Nothing about the no-param
+        route changes — that is still the latest one, which is every way into
+        this page that existed before a past week could be closed."""
+        WeekCloseout.objects.create(
+            iso_year=2026, iso_week=24, summary_text="Die frühere Woche."
+        )
+        WeekCloseout.objects.create(
+            iso_year=2026, iso_week=25, summary_text="Die spätere Woche."
+        )
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            named = self.client.get(f"{reverse('week_review')}?week=2026-W24")
+            latest = self.client.get(reverse("week_review"))
+        self.assertContains(named, "Die frühere Woche.")
+        self.assertContains(named, "KW 24/2026")
+        self.assertContains(latest, "Die spätere Woche.")
+
+    def test_an_unknown_or_unusable_week_falls_back_to_the_latest(self):
+        WeekCloseout.objects.create(
+            iso_year=2026, iso_week=25, summary_text="Die einzige Woche."
+        )
+        with patch("projects.views.get_upcoming_projects", return_value=[]):
+            for raw in ("2026-W24", "nonsense", "2026-W99"):
+                with self.subTest(week=raw):
+                    response = self.client.get(f"{reverse('week_review')}?week={raw}")
+                    self.assertContains(response, "Die einzige Woche.")
 
 
 class WeekReviewDemoModeTest(DemoModeTestCase):
