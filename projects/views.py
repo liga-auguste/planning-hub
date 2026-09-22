@@ -1787,6 +1787,27 @@ def _closeout_dates(request):
     return sim_date or timezone.localdate(), sim_date
 
 
+def _closeout_week_monday(raw, current_monday):
+    """The week the close-out flow acts on — _week_monday's answer, never a
+    later one than the week the request itself falls in.
+
+    #263 made the week a parameter so the review that actually happens on a
+    Monday morning can reach the week that just ended. Forward is the
+    direction the ritual has no meaning in, which is why the triage page
+    offers no link for it — but the value is hand-editable all the same, and
+    a close-out stored under a future week outranks every real one in
+    get_latest_closeout's ordering, so /wochenrueckblick/ with no parameter
+    would answer with it for as long as that week stays in the future.
+    Clamped rather than rejected: it is the same "not a week this page can
+    act on, show the current one" the parser already applies to everything
+    else it cannot use.
+
+    The dashboard's own ?week= (#180) is deliberately *not* clamped —
+    browsing ahead is exactly what its next-week link is for.
+    """
+    return min(_week_monday(raw, current_monday), current_monday)
+
+
 # #215: the session half of the failure notice's claim ticket. The other
 # half rides the redirect URL, so the notice reaches the tab that actually
 # failed — see _closeout_read_failed.
@@ -1864,7 +1885,7 @@ def close_week_start(request):
     # falls in. A weekly review happens on Monday morning as readily as on
     # Friday evening, and ?week= is what lets it reach the week it means.
     current_monday = iso_week_bounds(today)[0]
-    browsed_monday = _parse_week_param(request, current_monday)
+    browsed_monday = _closeout_week_monday(request.GET.get("week"), current_monday)
     browsed_sunday = browsed_monday + timedelta(days=6)
     is_current_week = browsed_monday == current_monday
     # #263: the rule is the ISO week, whether or not the day has passed —
@@ -1950,7 +1971,7 @@ def close_week_start(request):
     )
 
 
-def _closeout_read_failed(request):
+def _closeout_read_failed(request, week_start):
     """#215: back to the triage page, but saying why.
 
     Persisting a close-out whose numbers came from a failed read would store
@@ -1964,10 +1985,19 @@ def _closeout_read_failed(request):
     request arrived first, which in a second open tab is a notice about a
     failure that tab never had. Requiring both halves addresses the notice to
     the one response that follows this redirect.
+
+    #263: and back to the *same* week. This is the only path that returns a
+    visitor to the triage page, so dropping the parameter here would land a
+    KW 38 review on the KW 39 list, under a notice whose whole message is
+    "try again" — and the next press of the button would close the wrong
+    week with a triage selection nobody made.
     """
     ticket = secrets.token_urlsafe(8)
     request.session[CLOSEOUT_FAILED_KEY] = ticket
-    return redirect(f"{reverse('close_week_start')}?{CLOSEOUT_NOTICE_PARAM}={ticket}")
+    return redirect(
+        f"{reverse('close_week_start')}?week={_week_param(week_start)}"
+        f"&{CLOSEOUT_NOTICE_PARAM}={ticket}"
+    )
 
 
 def close_week_confirm(request):
@@ -1985,7 +2015,9 @@ def close_week_confirm(request):
     # is a choice rather than a mismatch to report back. A missing or
     # hand-edited value falls back to the request's own week, the behaviour
     # this flow had when the week was never carried at all.
-    week_start = _week_monday(request.POST.get("week"), iso_week_bounds(today)[0])
+    week_start = _closeout_week_monday(
+        request.POST.get("week"), iso_week_bounds(today)[0]
+    )
     week_end = week_start + timedelta(days=6)
     iso_year, iso_week, _ = week_start.isocalendar()
     task_ids = request.POST.getlist("task_id")
@@ -1993,7 +2025,7 @@ def close_week_confirm(request):
     try:
         projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
-        return _closeout_read_failed(request)
+        return _closeout_read_failed(request, week_start)
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
@@ -2040,7 +2072,7 @@ def close_week_confirm(request):
             )
             added_count = len(get_tasks_created_in_range(week_start, week_end))
         except NotionUnavailableError:
-            return _closeout_read_failed(request)
+            return _closeout_read_failed(request, week_start)
 
     stats_dict = {
         "completed_count": completed_count,

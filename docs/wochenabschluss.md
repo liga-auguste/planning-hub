@@ -88,6 +88,17 @@ what the ritual means. `already_closed`, the subtitle and the weekend empty stat
 follow the browsed week — "Genieße dein Wochenende" is about the week that is ending now,
 not about a Saturday spent looking back at one that is over.
 
+**Backwards only, and the bound is in the parser.** `_closeout_week_monday(raw,
+current_monday)` is `_week_monday` plus `min(…, current_monday)`, and both close-out views
+read their week through it — the missing forward link is a decision about the UI, not an
+enforcement, and `?week=` is hand-editable. It matters because of the ordering:
+`get_latest_closeout` sorts by `-iso_year, -iso_week`, so one close-out stored under
+`2099-W01` would outrank every real one and `/wochenrueckblick/` with no parameter would
+answer with it until that week arrived. A future week is clamped rather than rejected —
+the same "not a week this page can act on, show the current one" the parser already
+applies to a malformed value. The dashboard's own `?week=` (#180) is deliberately *not*
+clamped: browsing ahead is what its next-week link is for.
+
 **The review is addressable.** `week_review` renders `get_latest_closeout` when no week is
 named, which is every route into the page that existed before. `close_week_confirm` now
 names the week it just closed: with KW 26 already closed, closing KW 25 would otherwise
@@ -202,6 +213,12 @@ that earned it would then get nothing. Requiring both halves addresses the notic
 one response that follows the redirect, and consuming the ticket means a reload of that
 same URL stops warning about a failure that is over. No JavaScript involved.
 
+Since #263 the redirect carries `?week=` beside the ticket. This is the only path back to
+the triage page, so leaving the week off it landed a KW 24 review on the KW 25 list under
+a notice whose whole message is "try again" — and the retry then closed the week the
+visitor never triaged. The notice and the week travel together: the page that carries the
+retry button is the page the retry acts on.
+
 **Out of scope:** no browsable *list* of past close-outs. Since #263 a specific one is
 addressable (`/wochenrueckblick/?week=2026-W25`) and a past week can be closed, but there
 is still no page that enumerates them and no navigation between them — `week_review` shows
@@ -265,7 +282,7 @@ Manual click-through, production:
    previous week in the browser's dev tools (this stands in for leaving the tab open past
    Sunday midnight), submit — the close-out is stored under that week, and a task still
    due in it is not counted as rescheduled.
-4. Reschedule the same task three times — the fourth view of the dashboard should show
+6. Reschedule the same task three times — the fourth view of the dashboard should show
    "3× verschoben" (not before the second move).
 
 `DEMO_MODE=true` — the same click-through with a generated session plan; the multi-project

@@ -483,6 +483,20 @@ class CloseWeekBrowsedWeekTest(DemoModeTestCase):
                 self.assertContains(response, 'value="2026-W25"')
 
     @patch("django.utils.timezone.localdate")
+    def test_a_future_week_is_clamped_to_the_current_one(self, mock_localdate):
+        """The nav offers no way forward on purpose — the ritual has no
+        meaning for a week that has not happened. ?week= is hand-editable all
+        the same, so the bound lives in the parser rather than in the
+        template, and it snaps back the way every other unusable value does
+        instead of erroring the page."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        self._plan()
+        response = self.client.get(f"{reverse('close_week_start')}?week=2026-W26")
+        self.assertContains(response, "KW 25, 15.–21. Juni")
+        self.assertContains(response, 'value="2026-W25"')
+        self.assertNotContains(response, ">Diese Woche</a>")
+
+    @patch("django.utils.timezone.localdate")
     def test_already_closed_asks_about_the_browsed_week(self, mock_localdate):
         mock_localdate.return_value = CLOSEOUT_TODAY
         self.given_session_plan(tasks=[])
@@ -1053,7 +1067,9 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         )
         self.assertEqual(WeekCloseout.objects.count(), 0)
 
-    def _failing_close_out(self, failing_read="get_tasks_completed_in_range"):
+    def _failing_close_out(
+        self, failing_read="get_tasks_completed_in_range", data=None
+    ):
         """POSTs a close-out whose Notion read dies, and returns the redirect
         target — ticket and all, which is what a browser would follow."""
         stubs = {
@@ -1077,7 +1093,7 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
             stubs["get_tasks_created_in_range"],
         ):
             response = self.client.post(
-                reverse("close_week_confirm"), data={"task_id": []}
+                reverse("close_week_confirm"), data={"task_id": [], **(data or {})}
             )
         return response["Location"]
 
@@ -1147,6 +1163,63 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
             landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
         self.assertEqual(WeekCloseout.objects.count(), 0)
+
+    @patch("django.utils.timezone.localdate")
+    def test_the_failure_lands_back_on_the_week_it_was_closing(self, mock_localdate):
+        """#263: the failure redirect is the only path back to the triage
+        page, and it used to drop the week. A KW 24 review whose Notion read
+        died landed on the KW 25 list under a notice saying "try again" — so
+        the retry closed the week the visitor never triaged."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        landing = self._failing_close_out(data={"week": "2026-W24"})
+        self.assertIn("week=2026-W24", landing)
+        with patch(
+            "projects.views.get_upcoming_projects", return_value=self._project([])
+        ):
+            landed = self.client.get(landing)
+        self.assertContains(landed, "Notion war gerade nicht erreichbar")
+        # The notice and the week travel together: the page that carries the
+        # retry button is the one the retry should act on.
+        self.assertContains(landed, "KW 24, 8.–14. Juni")
+        self.assertContains(
+            landed, '<input type="hidden" name="week" value="2026-W24">'
+        )
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_failure_on_the_current_week_names_it_too(self, mock_localdate):
+        """No special case for "the week is today's" — one rule, so the
+        landing page is addressed the same way whichever week failed."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        landing = self._failing_close_out()
+        self.assertIn("week=2026-W25", landing)
+
+    @patch("django.utils.timezone.localdate")
+    def test_a_future_week_cannot_be_closed(self, mock_localdate):
+        """#263 opened the week to a parameter in order to reach *back*. A
+        close-out stored under a week that has not happened outranks every
+        real one in get_latest_closeout's ordering, so /wochenrueckblick/
+        without a parameter would answer with it until that week arrives —
+        the value is clamped to the current week rather than trusted."""
+        mock_localdate.return_value = CLOSEOUT_TODAY
+        completed_read, created_read = self._week_reads()
+        with (
+            patch(
+                "projects.views.get_upcoming_projects", return_value=self._project([])
+            ),
+            completed_read,
+            created_read,
+        ):
+            response = self.client.post(
+                reverse("close_week_confirm"),
+                data={"week": "2099-W01", "task_id": []},
+            )
+        closeout = WeekCloseout.objects.get()
+        self.assertEqual((closeout.iso_year, closeout.iso_week), (2026, 25))
+        self.assertRedirects(
+            response,
+            f"{reverse('week_review')}?week=2026-W25",
+            fetch_redirect_response=False,
+        )
 
     @patch("django.utils.timezone.localdate")
     def test_reclosing_the_same_week_updates_not_duplicates(self, mock_localdate):
