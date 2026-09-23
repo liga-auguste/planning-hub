@@ -1498,6 +1498,54 @@ class ThePickerIsOneModuleTest(DemoModeTestCase):
         return self.client.get(reverse("dashboard")).content.decode()
 
 
+class TheDateAlwaysComesBackTest(DemoModeTestCase):
+    """The one promise the shared module makes to all four surfaces: a click
+    on a date can cost the picker, never the date. Swapping in an
+    <input type="date"> puts the row in a state only this module knows how to
+    leave, and a surface's onPick cannot be trusted to unwind it — each one is
+    a different page's code, and the module exists so none of them has to know.
+
+    Two paths used to skip the way back. An onPick that *threw* rather than
+    answering falsy — response.json() on a 200 that is not JSON, or any of the
+    dashboard's own patching helpers — never reached the swap; and showPicker()
+    throwing ran before the listeners existed at all. Either left a bare date
+    input standing where the date was until the next page load."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+
+    def source(self):
+        return self.PICKER.read_text()
+
+    def test_a_throwing_callback_still_gets_the_date_put_back(self):
+        # try/finally rather than a plain await: resolved, falsy and thrown
+        # all have to end in the same swap.
+        source = self.source()
+        self.assertIn("} finally {\n                    swapBack();", source)
+        # Asserted before the index() below, so a module without the try at all
+        # fails with the reason rather than with a ValueError.
+        self.assertIn("try {", source)
+        self.assertLess(source.index("try {"), source.index("await onPick("))
+
+    def test_both_listeners_exist_before_the_picker_is_opened(self):
+        # showPicker() is the line that can throw, so it is the line nothing
+        # this handler still owes may sit behind. Registered first, a throw
+        # costs the picker and nothing else: blur still brings the date back.
+        source = self.source()
+        opened = source.index("input.showPicker();")
+        self.assertLess(source.index("input.addEventListener('change'"), opened)
+        self.assertLess(source.index("input.addEventListener('blur'"), opened)
+
+    def test_one_place_puts_it_back_and_it_runs_once(self):
+        # A pick followed by a click elsewhere fires change and blur both, so
+        # the way back needs a guard — replaceWith() on a detached input is
+        # already a no-op, but a second restore() would drag a keyboard user's
+        # focus off whatever they had just moved to. One call site, one guard.
+        source = self.source()
+        self.assertEqual(source.count("input.replaceWith(dueEl);"), 1)
+        self.assertIn("if (swappedBack) return;", source)
+        self.assertIn("input.addEventListener('blur', swapBack);", source)
+
+
 class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
     """#193: the summary rendered a date it did not offer to change. It
     reloads rather than patching — its prose makes claims about urgency that

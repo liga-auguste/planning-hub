@@ -11,8 +11,10 @@
  *     bindTaskDatePickers(onPick, options)
  *     onPick(taskId, isoDate, dueEl, row) -> Promise<boolean>
  *
- * A falsy answer means the move did not happen — the display element is put
- * back either way, so onPick owns the failure feedback, not this file.
+ * A falsy answer means the move did not happen. The display element goes back
+ * either way — on a resolved answer, a falsy one and a thrown one alike — so
+ * onPick owns the failure feedback and this file owns the promise that no
+ * surface can leave a bare date input standing where the date was.
  *
  * Do not move a surface's reschedule() in here. It is the consequence, and
  * every surface's is different; the dashboard's alone depends on six of its
@@ -77,21 +79,49 @@ function bindTaskDatePickers(onPick, {rowSelector = '.task-row', within = null, 
             // focus goes when it shuts.
             const cameFromKeyboard = lastInputWasKeyboard;
             const restore = () => { if (cameFromKeyboard) dueEl.focus(); };
+            // The way back, once — whichever of change and blur reaches it
+            // first. Both fire for a pick that is followed by a click
+            // elsewhere, and a second call would re-run restore() and drag a
+            // keyboard user's focus back off whatever they had just moved to.
+            // replaceWith() on a detached input is already a no-op; the focus
+            // is the half that needs the guard.
+            let swappedBack = false;
+            const swapBack = () => {
+                if (swappedBack) return;
+                swappedBack = true;
+                input.replaceWith(dueEl);
+                restore();
+            };
             dueEl.replaceWith(input);
+            // Both listeners before the input is focused and opened, because
+            // the two lines below are the ones that can throw: showPicker()
+            // rejects a call it does not consider user-activated, and an
+            // input with no way back would then sit in the row in place of
+            // the date until the next page load. Registered first, a throw
+            // costs the picker and nothing else — the user clicks away, blur
+            // fires, the date returns.
+            input.addEventListener('change', async () => {
+                // onPick owns what the new date means, this owns putting the
+                // display element back. try/finally rather than a plain
+                // await: a callback that *throws* rather than answering falsy
+                // would otherwise skip the swap back and leave the picker
+                // wedged in the row. Every surface's onPick has a path there
+                // — response.json() on a 200 that is not JSON, or any of the
+                // dashboard's own patching helpers — and the point of this
+                // module is that no surface has to know that.
+                try {
+                    await onPick(dueEl.dataset.taskId, input.value, dueEl, row);
+                } finally {
+                    swapBack();
+                }
+            });
+            input.addEventListener('blur', swapBack);
             input.focus();
             // Needs transient user activation, which the click that got us
             // here supplies — a <button> gives the keyboard the same thing
             // on Enter and Space without a line of code for it (#195, #200).
+            // Last, so nothing this handler still owes is behind it.
             input.showPicker();
-            input.addEventListener('change', async () => {
-                // onPick owns what the new date means, this owns putting the
-                // display element back — on success and on failure alike, so
-                // no surface can leave the picker wedged in a row.
-                await onPick(dueEl.dataset.taskId, input.value, dueEl, row);
-                input.replaceWith(dueEl);
-                restore();
-            });
-            input.addEventListener('blur', () => { input.replaceWith(dueEl); restore(); });
         });
     });
 }
