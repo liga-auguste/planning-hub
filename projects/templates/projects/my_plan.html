@@ -62,9 +62,11 @@
     .dot.done.done-this-week { background: var(--color-done); }
     .dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
     .task-name { font-size: 14px; flex: 1; line-height: 1.4; }
-    .task-date { font-size: 13px; color: var(--color-text-quaternary); white-space: nowrap; }
-    .task-date.today { color: var(--color-today); }
-    .task-date.overdue { color: var(--color-overdue); }
+    /* #266: .task-date is gone — this page renders _task_due.html now, so
+       the size, the colours and the button reset all come from dashboard.css
+       and the shared picker binds to the date without a second selector to
+       teach it. .task-row .task-due there drops the margin for the list
+       below; the summary's own override is further down. */
     .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
     /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
     .postpone-badge { margin-left: 6px; }
@@ -111,7 +113,7 @@
     /* The gap on the row above carries the separation now, on both
        surfaces — this used to add its own 8px because the summary line was
        inline. */
-    .summary-box .task-date { margin-left: 0; }
+    .summary-box .task-due { margin-left: 0; }
     .summary-box .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
     .summary-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin-bottom: 10px; }
     /* The second use of the label, over the full list. It needs a gap above
@@ -209,7 +211,7 @@ is gone; the sidebar already covers that.
                     <li>
                         <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}{% if task.done_this_week %} done-this-week{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
                         <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-                        {% if task.due %}<span class="task-date {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>{% endif %}
+                        {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}{% endif %}
                     </li>
                     {% endfor %}
                 </ul>
@@ -242,8 +244,13 @@ is gone; the sidebar already covers that.
                 title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}">
             </button>
             <span class="task-name">{{ task.name }}</span>
+            {% comment %}
+            #186: the date was a span here, and this page had no way to
+            change one at all. The same include the dashboard and the
+            close-out list use, so all three bind one picker (#266).
+            {% endcomment %}
             {% if task.due %}
-            <span class="task-date {{ task.urgency }}">{{ task.due|plan_date:"long" }}</span>
+            {% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}
             {% endif %}
             {% if task.postpone_count and task.postpone_count >= 2 %}
             <span class="badge-neutral postpone-badge">{{ task.postpone_count }}× verschoben</span>
@@ -334,6 +341,38 @@ function flashActionFailed(el) {
     el.classList.add('action-failed');
     setTimeout(() => el.classList.remove('action-failed'), 1500);
 }
+
+// #186 / #266: the shared picker (static/projects/js/task_date_picker.js).
+// One binding for both runs of tasks on this page, because both answer a
+// successful move the same way: by reloading.
+//
+// A reload rather than a patch, unlike the dashboard. The list is
+// chronological (#140) and nothing here re-sorts it, the postpone badge and
+// the progress figures are server-rendered, and the summary above makes
+// claims about urgency that a new date invalidates — so every piece this
+// page would have to patch by hand is one the server re-renders correctly
+// for free. The session-cached summary is remapped rather than regenerated
+// on a reschedule (views.py), so the reload costs no Claude call.
+bindTaskDatePickers(async (taskId, iso, dueEl) => {
+    let response;
+    try {
+        response = await fetch(`/task/${taskId}/reschedule/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+            body: JSON.stringify({date: iso}),
+        });
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — treat it exactly like an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        flashActionFailed(dueEl);
+        return false;
+    }
+    window.location.reload();
+    return true;
+});
 
 function updateProgress() {
     const doneCount = document.querySelectorAll('.task-row.done').length;

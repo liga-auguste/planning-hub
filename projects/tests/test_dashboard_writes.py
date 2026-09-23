@@ -211,6 +211,11 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
                 "postpone_count": 4,
                 "due_display": format_date(self.NEW_DATE),
                 "due_display_row": format_date(self.NEW_DATE, role="row"),
+                # #266: the close-out triage list's move button is relabelled
+                # from this, so the German date stays server-side.
+                "next_week_display": format_date(
+                    self.NEW_DATE + timedelta(days=7), role="long"
+                ),
                 "urgency": "ok",
             },
         )
@@ -699,16 +704,27 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         # therefore read the row while the element is still attached and pass
         # it in. (The local name is dueEl rather than span since #200 made it
         # a button; what this asserts is the reading, not the name.)
-        html = self.dashboard_html()
+        #
+        # #266: the reading moved into the shared module with the picker, and
+        # it is what the row selector is a parameter for — the triage list's
+        # row is not a .task-row, and the summary has none at all.
         self.assertIn(
-            "async function reschedule(taskId, newDate, dueSpan, row) {", html
+            "async function reschedule(taskId, newDate, dueSpan, row) {",
+            self.dashboard_html(),
         )
-        self.assertIn("const row = dueEl.closest('.task-row');", html)
+        picker = (
+            Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+        ).read_text()
+        self.assertIn("const row = dueEl.closest(rowSelector);", picker)
+        self.assertIn("rowSelector = '.task-row'", picker)
+        # The module hands both to the callback, which is what makes the
+        # reading survive the swap regardless of which surface reacts to it.
         self.assertIn(
-            "await reschedule(dueEl.dataset.taskId, input.value, dueEl, row);", html
+            "await onPick(dueEl.dataset.taskId, input.value, dueEl, row);", picker
         )
         # #239 moved the second call site into the actions menu, which reads
         # the row off the clicked item rather than off a button in the row.
+        html = self.dashboard_html()
         self.assertIn(
             "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);", html
         )
@@ -823,9 +839,11 @@ class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
         self.assertNotIn("/delete/", html)
 
     def test_the_date_click_survives_as_a_desktop_shortcut(self):
-        # The one-click reschedule used daily is not lost to the menu.
+        # The one-click reschedule used daily is not lost to the menu. #266
+        # moved the listener into the shared module, so the page's half of
+        # that is the binding call.
         self.assertIn(
-            "document.querySelectorAll('.task-due[data-task-id]')",
+            "bindTaskDatePickers(reschedule, {exclude: '.ai-card'});",
             self.dashboard_html(),
         )
 
@@ -1303,9 +1321,17 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
     carrying `data-task-id` and `data-raw-date`, picked up by selector — and
     two of them had already drifted apart. The point of the partial is that
     a new surface offering the date (#186, #193) is an include, and that
-    #200's question "what element is this" has exactly one answer."""
+    #200's question "what element is this" has exactly one answer.
+
+    #266 moved the behaviour after the markup: the picker is one module, so
+    the assertions about how the date is asked for read that file rather
+    than whichever template used to hold the block."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+
+    def picker_source(self):
+        return self.PICKER.read_text()
 
     def test_only_the_partial_writes_the_date_markup(self):
         # The assertion that keeps the next surface from re-typing it: any
@@ -1330,7 +1356,10 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # the whole contract — an element with them is reschedulable.
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("document.querySelectorAll('.task-due[data-task-id]')", html)
+        self.assertIn(
+            "document.querySelectorAll('.task-due[data-task-id]')",
+            self.picker_source(),
+        )
         self.assertRegex(
             html,
             r'<button type="button" class="task-due[^"]*" data-task-id="[^"]+" '
@@ -1349,26 +1378,26 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # false in Safari on macOS for an ordinary mouse click, because Safari
         # does not focus a <button> when you click it. An element cannot say
         # how the click that reached it was produced; the events can.
-        html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", html)
+        source = self.picker_source()
+        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", source)
         self.assertIn(
-            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", html
+            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", source
         )
 
     def test_the_device_is_tracked_from_the_events_themselves(self):
         # capture:true so a handler that stops propagation cannot leave the
         # modality stale, and pointerdown/keydown rather than click/keyup so it
         # is already current when the click handler above reads it.
-        html = self.client.get(reverse("dashboard")).content.decode()
+        source = self.picker_source()
         self.assertIn(
             "document.addEventListener('keydown', "
             "() => { lastInputWasKeyboard = true; }, true);",
-            html,
+            source,
         )
         self.assertIn(
             "document.addEventListener('pointerdown', "
             "() => { lastInputWasKeyboard = false; }, true);",
-            html,
+            source,
         )
 
     def test_the_menu_route_reaches_the_button_without_focusing_it(self):
@@ -1391,6 +1420,172 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
             "`Datum ändern, aktuell ${data.due_display_row}`);",
             html,
         )
+
+
+class ThePickerIsOneModuleTest(DemoModeTestCase):
+    """#266: the behaviour half of #195. The markup was already one partial;
+    the handler that turns it into a control was still a block inside
+    dashboard.html, bound by selector — which only ever reached markup
+    rendered by that one template. Any further surface had to copy it, and
+    the block carries #200's modality reasoning, which is the part most
+    likely to be re-derived wrongly.
+
+    What moved is the *asking*: swap the button for an input, open it, track
+    the device, swap back. What stayed per surface is the consequence — each
+    passes its own callback."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_the_module_holds_the_picker(self):
+        source = self.PICKER.read_text()
+        self.assertIn("function bindTaskDatePickers(onPick", source)
+        self.assertIn("input.showPicker();", source)
+
+    def test_no_template_holds_a_copy_of_it(self):
+        # The uniqueness criterion as a test rather than as a review note:
+        # showPicker() is the one call a second copy could not do without.
+        # The call, not the word — _task_due.html names it in prose, which
+        # is the pointer working rather than a copy.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "input.showPicker()" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        # In base_dashboard.html, so the dashboard, /mein-plan/, the triage
+        # list and any further surface get it without a script tag of their
+        # own — and cannot get a different one.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/task_date_picker.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Not `defer`: every surface calls bindTaskDatePickers() from an
+        # inline script in extra_js, and an inline script runs while the
+        # document is still parsing — a deferred module would not be defined
+        # yet. Order is what makes the plain tag correct, so it is asserted.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("task_date_picker.js' %}\" defer", base)
+        self.assertLess(
+            base.index("task_date_picker.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_the_consequence_did_not_move_with_it(self):
+        # The wrong reading of "extract the handler" is to share
+        # reschedule(): the dashboard's depends on browsedWeekStart(),
+        # reclassify(), applyRescheduleFigures() and sortRows(), none of
+        # which mean anything on the triage list.
+        source = self.PICKER.read_text()
+        for helper in ("sortRows", "reclassify", "applyRescheduleFigures"):
+            with self.subTest(helper=helper):
+                self.assertNotIn(helper, source)
+
+    def test_the_two_dashboard_behaviours_are_bound_by_region(self):
+        # Read at bind time, not at pick time: the picker detaches the
+        # button while the request runs, so closest() inside the callback
+        # would find nothing to decide with.
+        html = self.dashboard_html()
+        self.assertIn("bindTaskDatePickers(reschedule, {exclude: '.ai-card'});", html)
+        self.assertIn("}, {within: '.ai-card'});", html)
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+
+class TheDateAlwaysComesBackTest(DemoModeTestCase):
+    """The one promise the shared module makes to all four surfaces: a click
+    on a date can cost the picker, never the date. Swapping in an
+    <input type="date"> puts the row in a state only this module knows how to
+    leave, and a surface's onPick cannot be trusted to unwind it — each one is
+    a different page's code, and the module exists so none of them has to know.
+
+    Two paths used to skip the way back. An onPick that *threw* rather than
+    answering falsy — response.json() on a 200 that is not JSON, or any of the
+    dashboard's own patching helpers — never reached the swap; and showPicker()
+    throwing ran before the listeners existed at all. Either left a bare date
+    input standing where the date was until the next page load."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+
+    def source(self):
+        return self.PICKER.read_text()
+
+    def test_a_throwing_callback_still_gets_the_date_put_back(self):
+        # try/finally rather than a plain await: resolved, falsy and thrown
+        # all have to end in the same swap.
+        source = self.source()
+        self.assertIn("} finally {\n                    swapBack();", source)
+        # Asserted before the index() below, so a module without the try at all
+        # fails with the reason rather than with a ValueError.
+        self.assertIn("try {", source)
+        self.assertLess(source.index("try {"), source.index("await onPick("))
+
+    def test_both_listeners_exist_before_the_picker_is_opened(self):
+        # showPicker() is the line that can throw, so it is the line nothing
+        # this handler still owes may sit behind. Registered first, a throw
+        # costs the picker and nothing else: blur still brings the date back.
+        source = self.source()
+        opened = source.index("input.showPicker();")
+        self.assertLess(source.index("input.addEventListener('change'"), opened)
+        self.assertLess(source.index("input.addEventListener('blur'"), opened)
+
+    def test_one_place_puts_it_back_and_it_runs_once(self):
+        # A pick followed by a click elsewhere fires change and blur both, so
+        # the way back needs a guard — replaceWith() on a detached input is
+        # already a no-op, but a second restore() would drag a keyboard user's
+        # focus off whatever they had just moved to. One call site, one guard.
+        source = self.source()
+        self.assertEqual(source.count("input.replaceWith(dueEl);"), 1)
+        self.assertIn("if (swappedBack) return;", source)
+        self.assertIn("input.addEventListener('blur', swapBack);", source)
+
+
+class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
+    """#193: the summary rendered a date it did not offer to change. It
+    reloads rather than patching — its prose makes claims about urgency that
+    a new date invalidates, and its task_refs are positions in a
+    chronological order the move has just changed."""
+
+    def summary_html(self):
+        self.given_session_plan()
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("dashboard")).content.decode()
+        return html[html.index('class="ai-card"') : html.index('<div class="kanban">')]
+
+    def test_the_summary_date_is_a_button_for_a_session_plan(self):
+        self.assertIn('<button type="button" class="task-due', self.summary_html())
+
+    def test_it_stays_a_span_for_the_demo_example_projects(self):
+        # The gate #193 asks for, and it needed no flag of its own: those
+        # projects are in no session, so reschedule_task_view answers 404 by
+        # design (#10 §5) — which is exactly what viewing_demo_data means.
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('<button type="button" class="task-due', html)
+        self.assertIn('<span class="task-due', html)
+
+    def test_a_successful_move_from_the_summary_reloads(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        binding = html[html.index("bindTaskDatePickers(async") :]
+        self.assertIn("const ok = await reschedulePersist(taskId, newDate);", binding)
+        self.assertIn("window.location.reload();", binding)
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
@@ -2679,9 +2874,11 @@ class RescheduleResortsTheRowTest(DemoModeTestCase):
         return self.client.get(reverse("dashboard")).content.decode()
 
     def reschedule_block(self, html):
+        # #266: the block ends where the shared picker is bound to it — the
+        # listener that used to close it off lives in its own file now.
         return html[
             html.index("async function reschedule(") : html.index(
-                "document.querySelectorAll('.task-due[data-task-id]')"
+                "bindTaskDatePickers(reschedule,"
             )
         ]
 
@@ -2748,6 +2945,23 @@ class RescheduleAnswersBothDateFormsTest(DemoModeTestCase):
         answer = response.json()
         self.assertEqual(answer["due_display"], format_date(new_date, role="long"))
         self.assertEqual(answer["due_display_row"], format_date(new_date, role="row"))
+
+    def test_the_answer_also_carries_the_next_week_label(self):
+        # #266: the close-out triage list's move button offers due + 7 and
+        # has to follow a hand-picked date. Derived here, so format_date
+        # stays the one place that knows German date formatting (#189/#192)
+        # and the client never grows a second copy of the month names.
+        self.given_session_plan()
+        new_date = date.today() + timedelta(days=14)
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": new_date.isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(
+            response.json()["next_week_display"],
+            format_date(new_date + timedelta(days=7), role="long"),
+        )
 
     def test_the_row_takes_the_short_form_and_the_board_the_long_one(self):
         self.given_session_plan()

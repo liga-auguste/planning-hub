@@ -339,6 +339,84 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 
+class TriageListPicksAnyDateTest(DemoModeTestCase):
+    """#266: the date was dead text, and the only movement on offer was
+    due + 7 for every row. The one surface whose whole job is deciding what
+    happens to a task offered the least control over the only thing it can
+    decide — and since #263 the rows most in need of a real decision are
+    exactly the ones the button serves worst.
+
+    CLOSEOUT_TODAY is Monday 2026-06-15, so the week being closed runs to
+    Sunday 2026-06-21."""
+
+    def triage_page(self):
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+            return self.client.get(reverse("close_week_start"))
+
+    def test_the_date_is_the_shared_control_rather_than_a_span(self):
+        html = self.triage_page().content.decode()
+        self.assertIn('<button type="button" class="task-due', html)
+        self.assertIn('aria-label="Datum ändern, aktuell ', html)
+        # The markup contract the shared picker binds to (#195).
+        self.assertRegex(
+            html,
+            r'<button type="button" class="task-due[^"]*" data-task-id="[^"]+" '
+            r'data-raw-date="\d{4}-\d{2}-\d{2}"',
+        )
+
+    def test_the_page_binds_the_shared_picker_to_its_own_row(self):
+        # The whole of what this surface has to say about how a date is
+        # asked for: its row is a .triage-row, not the dashboard's .task-row.
+        self.assertContains(self.triage_page(), "}, {rowSelector: '.triage-row'});")
+
+    def test_the_seven_day_button_stays(self):
+        # Moving to next week is the common case in a weekly review and
+        # stays one click; picking a date is the exception that becomes
+        # possible. #263: due + 7 even for a day that has passed.
+        response = self.triage_page()
+        self.assertContains(response, 'class="move-btn"')
+        self.assertContains(response, "→ Mi, 24. Juni")
+
+    def test_the_move_button_is_relabelled_from_the_servers_own_answer(self):
+        # Not recomputed in JavaScript: format_date stays the one place that
+        # knows German date formatting (#189/#192).
+        html = self.triage_page().content.decode()
+        self.assertIn("btn.textContent = `→ ${data.next_week_display}`;", html)
+
+    def test_the_form_carries_the_week_being_closed(self):
+        response = self.triage_page()
+        self.assertContains(response, 'data-week-start="2026-06-15"')
+        self.assertContains(response, 'data-week-end="2026-06-21"')
+
+    def test_the_badge_follows_the_week_rather_than_the_act_of_editing(self):
+        # A date inside the week being closed changes the date and leaves the
+        # row alone; only leaving the week is what the close-out reports. The
+        # comparison is the string form of the is_same_iso_week() rule
+        # close_week_confirm counts rescheduled_count with, so the row is a
+        # preview of that number rather than a second opinion.
+        html = self.triage_page().content.decode()
+        self.assertIn("const leftTheWeek = iso < WEEK_START || iso > WEEK_END;", html)
+        self.assertIn("row.classList.toggle('moved', leftTheWeek);", html)
+
+    def test_the_badge_is_rendered_hidden_rather_than_created(self):
+        # A second pick can bring a row back into the week, and a button
+        # that was replaced away cannot be taken back.
+        response = self.triage_page()
+        self.assertContains(response, '<span class="badge-neutral moved-badge" hidden>')
+        self.assertNotContains(response, "btn.replaceWith(tag)")
+
+    def test_a_move_never_reloads_this_page(self):
+        # A reload is actively wrong here: a task moved out of the week drops
+        # out of open_this_week, so its row — and the hidden task_id input in
+        # it — would be gone, and close_week_confirm counts by walking the
+        # posted ids. The move would go uncounted by the very close-out it
+        # was made for.
+        html = self.triage_page().content.decode()
+        self.assertNotIn("window.location.reload()", html)
+        self.assertIn('<input type="hidden" name="task_id"', html)
+
+
 @override_settings(DEMO_MODE=False)
 class CloseWeekStartProductionTest(TestCase):
     def _project(self, tasks):

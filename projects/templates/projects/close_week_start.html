@@ -24,10 +24,16 @@
        (#215: the only thing that list still feeds), this is display only. */
     .triage-row.moved { opacity: 0.55; }
     .triage-task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
-    /* nowrap, and a sibling of the name rather than a span inside it: nested
+    /* #266: the date is _task_due.html now, so its size, its nowrap (nested
        in the name's own inline flow, "So, 29. November" broke after "29."
-       and left the month alone on the next line. */
-    .triage-task-due { font-size: 13px; color: var(--color-text-quaternary); white-space: nowrap; }
+       and left the month alone on the next line) and its button reset all
+       come from dashboard.css. Two things are this surface's own: the row's
+       gap replaces the margin, and the urgency colours are dropped.
+       Since #263 the list holds every still-open task of the week, days
+       already past included, so nearly every row would paint red — a signal
+       that means something on the dashboard and nothing on a page where
+       being overdue is the entry condition. */
+    .triage-row .task-due { margin-left: 0; color: var(--color-text-quaternary); font-weight: 400; }
     .badge-neutral { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
     .move-btn { font-size: 12px; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
     .move-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
@@ -53,9 +59,9 @@
         /* The move button carries a whole date ("→ So, 6. Dezember") and
            cannot shrink, so on a phone it and the due date leave the name
            nothing. The name takes the first line and the two of them share
-           the second, the button against the right edge. It swaps itself
-           for a "verschoben" badge once the move lands, so the badge has to
-           sit where the button did. */
+           the second, the button against the right edge. It gives way to a
+           "verschoben" badge once the move lands, so the badge has to sit
+           where the button did. */
         .page-title { padding-right: 44px; }
         .triage-task-name { flex-basis: 100%; }
         .triage-row .move-btn, .triage-row .badge-neutral { margin-left: auto; }
@@ -99,7 +105,14 @@ app. See docs/wochenabschluss.md.
         {% if not is_current_week %}<a class="week-nav-link" href="{% url 'close_week_start' %}">Diese Woche</a>{% endif %}
     </div>
 
-    <form method="post" action="{% url 'close_week_confirm' %}" id="closeout-form">
+    {% comment %}
+    #266: the week being closed, as the client reads it. The badge rule below
+    compares a newly picked date against these two bounds, which is the string
+    form of the is_same_iso_week() close_week_confirm counts with — so a row
+    greying out is a preview of rescheduled_count, not a second opinion.
+    {% endcomment %}
+    <form method="post" action="{% url 'close_week_confirm' %}" id="closeout-form"
+          data-week-start="{{ week_start_iso }}" data-week-end="{{ week_end_iso }}">
         {% csrf_token %}
         {% comment %}
         #263: which week this close-out is for. The view re-derived it from
@@ -111,11 +124,20 @@ app. See docs/wochenabschluss.md.
         {% if tasks %}
         <div class="triage-list">
             {% for task in tasks %}
-            <div class="triage-row" id="triage-row-{{ task.id }}" data-raw-date="{{ task.due|date:'Y-m-d' }}">
+            <div class="triage-row" data-raw-date="{{ task.due|date:'Y-m-d' }}">
                 <input type="hidden" name="task_id" value="{{ task.id }}">
                 <span class="triage-task-name">{{ task.name }}</span>
-                <span class="triage-task-due">{{ task.due|plan_date:"long" }}</span>
+                {% comment %}
+                #266: the date was dead text here — the one surface whose
+                whole job is deciding what happens to a task offered the
+                least control over the only thing it can decide. The same
+                include the dashboard uses, so the shared picker binds to it
+                without this page knowing how the picker works.
+                {% endcomment %}
+                {% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}
                 <button type="button" class="move-btn" data-task-id="{{ task.id }}">→ {{ task.next_week_display }}</button>
+                {# Rendered hidden rather than created on the fly: a second pick can bring a row back into the week, and a badge that was replaced away cannot be taken back. #}
+                <span class="badge-neutral moved-badge" hidden>verschoben</span>
             </div>
             {% endfor %}
         </div>
@@ -151,6 +173,9 @@ app. See docs/wochenabschluss.md.
 {% block extra_js %}
 <script>
 const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+const closeoutForm = document.getElementById('closeout-form');
+const WEEK_START = closeoutForm.dataset.weekStart;
+const WEEK_END = closeoutForm.dataset.weekEnd;
 
 async function reschedule(taskId, newDate) {
     let response;
@@ -165,29 +190,72 @@ async function reschedule(taskId, newDate) {
         // .ok check — treat it exactly like an error response.
         response = null;
     }
-    return !!response && response.ok;
+    // #266: the answer, not just whether it arrived — the two display forms
+    // in it are what relabel the date and the move button, so neither has to
+    // spell a German date in JavaScript (#189/#192).
+    if (!response || !response.ok) return null;
+    return response.json();
+}
+
+// The one rule for what a move looks like here, shared by the +7 button and
+// by a hand-picked date.
+//
+// The row stays in the form either way — deliberately. close_week_confirm
+// counts rescheduled_count by walking the posted task_id list (views.py) and
+// diffing it against live state, so a row that disappeared would take its
+// hidden input with it and the move would go uncounted. That is also why
+// this surface patches in place where the AI summary reloads: a reload drops
+// every moved task out of open_this_week.
+//
+// dueEl is passed in rather than looked up: while the picker is open the
+// date button is out of the DOM, so the row cannot find it.
+function applyMove(row, iso, data, dueEl) {
+    dueEl = dueEl || row.querySelector('.task-due');
+    row.dataset.rawDate = iso;
+    if (dueEl) {
+        dueEl.dataset.rawDate = iso;
+        dueEl.textContent = data.due_display;
+        // The aria-label carries the date too (_task_due.html) and overrides
+        // the element's own text as the accessible name, so writing only
+        // textContent would leave the button reading the new date and
+        // announcing the old one.
+        dueEl.setAttribute('aria-label', `Datum ändern, aktuell ${data.due_display}`);
+    }
+    const btn = row.querySelector('.move-btn');
+    // The move button is still due + 7, and its label has to follow the new
+    // date rather than keep offering seven days past the one it replaced.
+    if (btn) btn.textContent = `→ ${data.next_week_display}`;
+    // #266: the badge follows the week being closed, not the act of editing.
+    // Moving a task from Monday to Wednesday inside this week changes a date
+    // and nothing else; moving it out is what the close-out will report.
+    const leftTheWeek = iso < WEEK_START || iso > WEEK_END;
+    row.classList.toggle('moved', leftTheWeek);
+    if (btn) btn.hidden = leftTheWeek;
+    const badge = row.querySelector('.moved-badge');
+    if (badge) badge.hidden = !leftTheWeek;
 }
 
 document.querySelectorAll('.move-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-        const taskId = btn.dataset.taskId;
-        const row = document.getElementById(`triage-row-${taskId}`);
+        const row = btn.closest('.triage-row');
         const newDate = new Date(row.dataset.rawDate + 'T12:00:00');
         newDate.setDate(newDate.getDate() + 7);
         const iso = newDate.toISOString().slice(0, 10);
         btn.disabled = true;
-        const ok = await reschedule(taskId, iso);
-        if (ok) {
-            row.classList.add('moved');
-            row.dataset.rawDate = iso;
-            const tag = document.createElement('span');
-            tag.className = 'badge-neutral';
-            tag.textContent = 'verschoben';
-            btn.replaceWith(tag);
-        } else {
-            btn.disabled = false;
-        }
+        const data = await reschedule(btn.dataset.taskId, iso);
+        btn.disabled = false;
+        if (data) applyMove(row, iso, data);
     });
 });
+
+// #266: the shared picker (static/projects/js/task_date_picker.js). The row
+// is a .triage-row here, not the .task-row the dashboard binds — which is
+// the whole of what this surface has to say about how the date is asked for.
+bindTaskDatePickers(async (taskId, iso, dueEl, row) => {
+    const data = await reschedule(taskId, iso);
+    if (!data) return false;
+    applyMove(row, iso, data, dueEl);
+    return true;
+}, {rowSelector: '.triage-row'});
 </script>
 {% endblock %}
