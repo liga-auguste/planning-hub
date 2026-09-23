@@ -124,9 +124,11 @@
         /* The gap is the row's only horizontal spacing now, so the elements'
            own margins have to give way to it. Scoped rather than removed:
            .dot and .task-due both also render inside the AI summary, which
-           lays its items out inline and still needs them. */
+           lays its items out inline and still needs them. #266 moved the
+           .task-row .task-due half of this pair to dashboard.css, beside the
+           rule it overrides — /mein-plan/ spells .task-row too and needs the
+           same override. */
         .task-row .dot { margin-right: 0; }
-        .task-row .task-due { margin-left: 0; }
         .task-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
         /* #238: the one item in the row that gives way. Without a flex of
            its own it shrank to min-content — the longest single word — which
@@ -140,21 +142,11 @@
            is the part that identifies the task. */
         .task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
         .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
-        .task-due { font-size: 13px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
-        /* The affordance follows the behaviour: only a date carrying
-           data-task-id is wired up for rescheduling (#10 §5). */
-        /* #200: the reschedulable date is a <button> now, so it takes focus
-           and answers Enter and Space. The reset keeps it looking like the
-           span it replaced — a button brings its own font, background and
-           padding, and inherits none of them. */
-        button.task-due { font: inherit; font-size: 13px; background: none; border: none; padding: 0; text-align: inherit; }
-        button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
-        .task-due[data-task-id] { cursor: pointer; }
-        .task-due[data-task-id]:hover { text-decoration: underline; }
-        .task-due.today { color: var(--color-today); font-weight: 500; }
-        .task-due.overdue { color: var(--color-overdue); font-weight: 500; }
-        .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
-        /* #239: same swap-in-place shape as the date input above, sized to
+        /* #266: the date's own rules — .task-due, its urgency colours, the
+           button reset and .task-due-input — moved to dashboard.css, where
+           the three other surfaces rendering the same partial can reach
+           them. Only this page's layout overrides stay here. */
+        /* #239: same swap-in-place shape as the date input, sized to
            take the name's place in the row rather than its own width. */
         .task-name-input { font-size: 13px; flex: 1 1 auto; min-width: 0; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 2px 6px; background: var(--color-bg-primary); color: var(--color-text-primary); }
         /* Toggle/reschedule failed on the Notion side — the click had no effect. */
@@ -623,14 +615,16 @@
                             {% include "projects/_task_dot.html" %}
                             <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
                             {% comment %}
-                            readonly: the summary shows a date it does not
-                            yet offer to change — that is #193, and when it
-                            lands the flag goes and the button arrives with
-                            it. Until then a span, because a button that
-                            does nothing announces an affordance that is not
-                            there (_task_due.html).
+                            #193: the readonly flag is gone — the summary
+                            offers the date like every other surface now.
+                            No gate of its own: _task_due.html already
+                            renders a span under viewing_demo_data, which is
+                            exactly the case that could not persist (the
+                            example projects are in no session, #10 §5).
+                            The move reloads here rather than patching; the
+                            binding in extra_js says why.
                             {% endcomment %}
-                            {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" readonly=True %}{% endif %}
+                            {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}{% endif %}
                         </li>
                         {% endfor %}
                     </ul>
@@ -1416,7 +1410,10 @@ function sortRows(row, movedDate) {
     group.forEach(el => parent.insertBefore(el, anchor));
 }
 
-async function reschedule(taskId, newDate, dueSpan, row) {
+// #266: the write on its own, so the summary's callback can persist a move
+// without inheriting the row patching below — it reloads instead. Answers
+// the parsed response or null; every caller reads null as "nothing moved".
+async function reschedulePersist(taskId, newDate) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
@@ -1428,15 +1425,20 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     } catch {
         // A rejected fetch (offline, server unreachable) would otherwise
         // throw into the input's change handler and leave the date picker
-        // wedged in the row — return false like any failure so the caller
+        // wedged in the row — answer null like any failure so the caller
         // swaps the display span back in (#159).
         response = null;
     }
-    if (!response || !response.ok) {
+    if (!response || !response.ok) return null;
+    return response.json();
+}
+
+async function reschedule(taskId, newDate, dueSpan, row) {
+    const data = await reschedulePersist(taskId, newDate);
+    if (!data) {
         flashActionFailed(dueSpan);
         return false;
     }
-    const data = await response.json();
     dueSpan.dataset.rawDate = newDate;
     // #238: the row's own short form. The Kanban card, written in
     // applyRescheduleFigures below, takes the long one — one field for both
@@ -1483,71 +1485,35 @@ async function reschedule(taskId, newDate, dueSpan, row) {
     return true;
 }
 
-// #200: `due` is a <button> since #195 put the markup in _task_due.html, so
-// this listener now serves the keyboard too without a line for it — a button
-// fires click on Enter and Space by itself, and that counts as the user
-// activation showPicker() requires. What the keyboard does need is the way
-// back: swapping the input out leaves focus on a detached element, so the
-// button takes it again, the way the actions menu restores focus to its
-// trigger (#239).
-// Which device the user is driving with, read off the events themselves
-// rather than off the element afterwards. Two earlier attempts asked the
-// button, and both got it wrong somewhere:
+// #266: the picker itself lives in static/projects/js/task_date_picker.js
+// now — the asking is identical on all four surfaces, the consequence is
+// not. This page has two consequences and therefore two bindings.
 //
-//   :focus-visible            — false on the actions menu's route, because
-//                               there the button is clicked by script
-//                               (dueEl.click(), #239) and never focused at
-//                               all. The keyboard user landed on <body>.
-//   :focus:not(:focus-visible) — correct in Chrome, wrong in Safari on macOS,
-//                               where clicking a <button> does not focus it.
-//                               The test is then false for a plain mouse
-//                               click too, so the ring came back.
-//
-// Neither is a bug in the browsers: an element simply cannot say how the
-// click that reached it was produced. The events can. capture:true so the
-// modality is current even for a handler that stops propagation, and
-// pointerdown/keydown rather than click/keyup so it is set before the click
-// this listener acts on.
-let lastInputWasKeyboard = false;
-document.addEventListener('keydown', () => { lastInputWasKeyboard = true; }, true);
-document.addEventListener('pointerdown', () => { lastInputWasKeyboard = false; }, true);
+// `exclude`/`within` rather than one call and a branch inside reschedule():
+// the region a date sits in has to be read before the picker swaps the
+// button out of the DOM, so it is decided at bind time, once, instead of on
+// every pick against a detached element.
+bindTaskDatePickers(reschedule, {exclude: '.ai-card'});
 
-document.querySelectorAll('.task-due[data-task-id]').forEach(dueEl => {
-    dueEl.addEventListener('click', () => {
-        // Read before the swap below detaches the button from its row.
-        const row = dueEl.closest('.task-row');
-        const input = document.createElement('input');
-        input.type = 'date';
-        input.value = dueEl.dataset.rawDate;
-        input.className = 'task-due-input';
-        // Give focus back to a keyboard user, and to nobody else: swapping the
-        // input out leaves focus on a detached element, so without this the
-        // next Tab starts at the top of the document. A mouse user asked for
-        // none of that — focusing the button again would leave a ring behind
-        // that a pointer never requested, and :focus-visible would hide the
-        // ring but not the focus itself.
-        //
-        // Read once, here, rather than again when the input closes: Tab is a
-        // keydown, so a mouse user who opens the picker and then tabs away
-        // would flip the modality and be pulled back to the button by the very
-        // keystroke that meant to leave it. The interaction that opened the
-        // picker is the one that owns where focus goes when it shuts.
-        const cameFromKeyboard = lastInputWasKeyboard;
-        const restore = () => { if (cameFromKeyboard) dueEl.focus(); };
-        dueEl.replaceWith(input);
-        input.focus();
-        input.showPicker();
-        input.addEventListener('change', async () => {
-            // reschedule() itself sets dueEl.textContent from the server's
-            // due_display on success and leaves it untouched on failure, so
-            // there is nothing left to do here but swap the elements back.
-            await reschedule(dueEl.dataset.taskId, input.value, dueEl, row);
-            input.replaceWith(dueEl);
-            restore();
-        });
-        input.addEventListener('blur', () => { input.replaceWith(dueEl); restore(); });
-    });
-});
+// #193: the summary offers the date too, and it reloads rather than
+// patching. Its prose makes claims about urgency ("noch diese Woche
+// fällig") that a new date invalidates, and its task_refs are positions in
+// a chronological order the move has just changed — so there is nothing
+// here that could be patched into agreement with the server.
+//
+// No gate of its own: _task_due.html renders a span whenever
+// viewing_demo_data is set, which is exactly the case #193 named — the demo
+// example projects are in no session, so reschedule_task_view answers 404
+// for them by design (#10 §5).
+bindTaskDatePickers(async (taskId, newDate, dueEl) => {
+    const ok = await reschedulePersist(taskId, newDate);
+    if (!ok) {
+        flashActionFailed(dueEl);
+        return false;
+    }
+    window.location.reload();
+    return true;
+}, {within: '.ai-card'});
 
 // #239: the row's actions menu. It adds no endpoint of its own — every
 // item drives a control the row already had, so there is exactly one

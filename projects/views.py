@@ -1636,6 +1636,12 @@ def reschedule_task_view(request, task_id):
     # field for both would have put the long form back into every rescheduled
     # row until the next reload.
     due_display_row = format_date(parsed_date, role="row")
+    # #266: the close-out triage list's move button carries the date it would
+    # move to ("→ Mi, 24. Juni"), so a manual pick has to relabel it. Derived
+    # here rather than in the client for the reason #189/#192 drew the line:
+    # format_date is the one place that knows German date formatting, and the
+    # alternative is a second copy of the month names in JavaScript.
+    next_week_display = format_date(parsed_date + timedelta(days=7), role="long")
 
     # Read before the branches: both of them derive the figures below
     # against it. A demo visitor's time travel has to count here the way it
@@ -1766,6 +1772,7 @@ def reschedule_task_view(request, task_id):
             "postpone_count": postpone_count,
             "due_display": due_display,
             "due_display_row": due_display_row,
+            "next_week_display": next_week_display,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
             **figures,
         }
@@ -1949,6 +1956,15 @@ def close_week_start(request):
             # was opened on — the two are no longer the same question.
             "week_display": f"KW {iso_week}, {format_week_range(browsed_monday, browsed_sunday)}",
             "week_param": _week_param(browsed_monday),
+            # #266: the week's own bounds, so a date picked on this page can
+            # be judged against the week being closed without the client
+            # deriving a second answer to "which week is this". The form
+            # renders them; the comparison is the string form of the
+            # is_same_iso_week() close_week_confirm counts with, so what the
+            # row shows is a preview of rescheduled_count rather than a
+            # second rule that can disagree with it.
+            "week_start_iso": browsed_monday.isoformat(),
+            "week_end_iso": browsed_sunday.isoformat(),
             "prev_week_param": _week_param(browsed_monday - timedelta(days=7)),
             "is_current_week": is_current_week,
             # A weekend-specific empty state reads oddly on a Tuesday — and

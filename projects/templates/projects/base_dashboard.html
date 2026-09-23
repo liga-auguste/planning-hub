@@ -117,6 +117,13 @@ function onMouseUp() {
     document.removeEventListener('mouseup', onMouseUp);
 }
 </script>
+{% comment %}
+#266: the date picker, shared by every surface that renders a task date.
+Plain rather than `defer`: each surface calls bindTaskDatePickers() from an
+inline script in the block below, and an inline script runs while the
+document is still parsing — a deferred module would not be defined yet.
+{% endcomment %}
+<script src="{% static 'projects/js/task_date_picker.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -404,6 +404,44 @@ does not reload. The counts now come from `_surface_figures` like every other nu
 only the two cards that render the date move by hand: the day card, whose column *is* its
 date, and the Kanban card, which spells the date out.
 
+## One picker, four consequences
+
+`_task_due.html` shared the date's *markup* (#195); `projects/static/projects/js/task_date_picker.js`
+shares its *behaviour* (#266). The cut between them is what keeps the second from
+collapsing into a fourth copy of the first.
+
+What is shared is the **asking**: swap the button for an `<input type="date">`, call
+`showPicker()`, track whether the pointer or the keyboard opened it (#200), swap back, and
+hand focus back to a keyboard user only. That is identical wherever a date is rendered,
+and it carries the Safari/Chrome focus-modality reasoning that should be derived once.
+
+What is **not** shared is the consequence. The obvious reading of "extract the handler" is
+to share `reschedule()`, and it is wrong: the dashboard's depends on `browsedWeekStart()`,
+`reclassify()`, `URGENCY_CLASSES`, `applyRescheduleFigures()` and `sortRows()`, none of
+which mean anything on a triage list that does `fetch` and reads `ok`. So the module takes
+a callback and each surface keeps its own:
+
+```js
+bindTaskDatePickers(onPick, {rowSelector, within, exclude});
+onPick(taskId, isoDate, dueEl, row) -> Promise<boolean>
+```
+
+| Surface | After a successful move |
+|---|---|
+| Dashboard rows | patches in place, re-sorts, repaints the dot, writes the figures |
+| Dashboard AI summary | reloads — the prose makes urgency claims a new date invalidates, and `task_refs` are positions in an order the move just changed |
+| `/mein-plan/` | reloads — nothing there re-sorts the list, and badge, progress and summary are all server-rendered |
+| Close-out triage list | patches in place; a reload would drop the moved row and its `task_id` input out of the form that counts it |
+
+`row` is read at click time and handed in, and `within`/`exclude` are read at bind time,
+for the same reason: the picker detaches the button while the request runs, so `closest()`
+called inside a callback finds nothing. The dashboard's two behaviours name the region
+each owns (`{exclude: '.ai-card'}` and `{within: '.ai-card'}`) rather than depending on
+which binding runs first.
+
+Adding a surface is therefore an include plus one call. Copying `reschedule()` into it is
+the thing this split exists to prevent.
+
 ## Deliberate gaps
 
 These are decisions, not omissions.

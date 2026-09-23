@@ -212,3 +212,48 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
         self.assertContains(response, "Programm ist der Engpass")
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
+
+
+class MyPlanOffersTheDatePickerTest(DemoModeTestCase):
+    """#186: this page listed dates and offered no way to change one. Both
+    runs of tasks on it — the summary and "Alle Aufgaben" — render the
+    shared partial now and bind the shared picker (#266)."""
+
+    def test_both_runs_of_tasks_render_the_shared_control(self):
+        self.given_session_plan()
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("my_plan")).content.decode()
+        split = html.index('<div class="task-list">')
+        summary = html[html.index('<div class="summary-box">') : split]
+        self.assertIn('<button type="button" class="task-due', summary)
+        self.assertIn('<button type="button" class="task-due', html[split:])
+
+    def test_the_local_task_date_class_is_gone(self):
+        # It was the drift #195 named by name: this page spelled the date
+        # .task-date where every other surface spelled it .task-due, which is
+        # also what kept the shared selector from ever reaching it.
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertNotContains(response, 'class="task-date')
+
+    def test_a_successful_move_reloads_rather_than_patching(self):
+        # Unlike the dashboard: the list is chronological (#140) and nothing
+        # here re-sorts it, and the postpone badge, the progress bar and the
+        # summary's prose are all server-rendered. The session-cached summary
+        # is remapped rather than regenerated on a reschedule, so the reload
+        # costs no Claude call.
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        binding = html[html.index("bindTaskDatePickers(") :]
+        self.assertIn("`/task/${taskId}/reschedule/`", binding)
+        self.assertIn("window.location.reload();", binding)
+
+    def test_a_failed_move_is_flashed_rather_than_swallowed(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertIn("flashActionFailed(dueEl);", html)

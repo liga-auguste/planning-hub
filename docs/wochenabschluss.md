@@ -125,6 +125,31 @@ real date the visitor reads before clicking and can correct afterwards. Splittin
 into two groups with two different move semantics was judged to cost more than that is
 worth.
 
+**The date itself can be given any value** (#266). It was dead text until then, which left
+the one surface whose whole job is deciding what happens to a task with the least control
+over the only thing it can decide — and since #263 widened the list, the rows most in need
+of a real decision were exactly the ones `due + 7` served worst. The date is the app's
+shared control now (`_task_due.html` plus
+`projects/static/projects/js/task_date_picker.js`), the same one the dashboard, the AI
+summary and "Plan als Liste" render; the button stays beside it, because moving to next
+week is the common case in a weekly review and picking a date is the exception. After a
+manual pick the button relabels itself from the server's own `next_week_display`, so it
+keeps offering seven days past the date now on the row.
+
+Two things about this surface are its own:
+
+- **The "verschoben" badge follows the week being closed, not the act of editing.** A row
+  greys out when its new date leaves the ISO week the page is closing — the string form of
+  the same `is_same_iso_week` comparison `close_week_confirm` counts `rescheduled_count`
+  with, so what the row shows is a preview of that number rather than a second rule that
+  can disagree with it. Moving a task from Monday to Wednesday inside the week changes a
+  date and leaves the row alone. The form carries the week's Monday and Sunday as data
+  attributes so the client needs no second answer to "which week is this".
+- **A move never reloads this page**, unlike the AI summary's. A task moved out of the week
+  drops out of `open_this_week`, so a reload would remove its row — and with it the
+  `<input type="hidden" name="task_id">` that `close_week_confirm` counts by walking. The
+  move would go uncounted by the very close-out it was made for.
+
 **The triage list's "→ nächste Woche" button posts to the existing**
 `/task/<id>/reschedule/` **endpoint** — the same one the dashboard's inline date edit and
 "→ heute" button already use, just with a client-computed `due + 7 days` instead of
@@ -272,9 +297,12 @@ Manual click-through, production:
 2. `/woche-abschliessen/` — every still-open task due this calendar week appears,
    including one whose day has already passed; tasks from an earlier week and done tasks
    don't.
-3. Move one task with "→ nächste Woche", leave another as is, tick a third done directly
-   on the dashboard in a second tab, then "Woche abschließen" — the review page's
-   rescheduled/completed counts should match.
+3. Move one task with "→ nächste Woche", click another task's date and pick a day still
+   inside the week (its row must stay plain, and the move button must relabel itself),
+   click a third and pick a day in the next week (that row greys out and takes the
+   "verschoben" badge), leave a fourth as is, tick a fifth done directly on the dashboard
+   in a second tab, then "Woche abschließen" — the review page's rescheduled count covers
+   the two that left the week and not the one moved within it.
 4. "← Vorwoche" — the subtitle names the previous KW, the list holds that week's open
    tasks, and closing it lands on *that* week's review even when the current week is
    already closed. "Diese Woche" returns.

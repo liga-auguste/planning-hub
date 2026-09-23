@@ -416,7 +416,7 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
         # color rule is gone.
         self.given_mixed_plan()
         response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "task-date today")
+        self.assertContains(response, "task-due today")
 
 
 @override_settings(DEMO_MODE=False)

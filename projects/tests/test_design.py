@@ -170,6 +170,49 @@ class MeinPlanActionsClearTheLauncherTest(DemoModeTestCase):
         self.assertContains(response, "+ Neu planen")
 
 
+class TheDateStylingLivesWithTheDateTest(DemoModeTestCase):
+    """#266: the date is one partial and one module, so its styling is one
+    stylesheet. While the rules sat in dashboard.html's extra_css, a surface
+    that included the partial and bound the picker still rendered an
+    unstyled control with no focus ring — the drift #195 set out to end,
+    surviving in the third of the three places a date is defined."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    RULES = (
+        "button.task-due {",
+        "button.task-due:focus-visible {",
+        ".task-due[data-task-id] {",
+        ".task-due[data-task-id]:hover {",
+        ".task-due-input {",
+    )
+
+    def dashboard_css(self):
+        return (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_stylesheet_carries_them(self):
+        css = self.dashboard_css()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, css)
+
+    def test_no_template_carries_them(self):
+        for rule in self.RULES:
+            holders = sorted(
+                path.name
+                for path in self.TEMPLATES.glob("*.html")
+                if rule in path.read_text()
+            )
+            with self.subTest(rule=rule):
+                self.assertEqual(holders, [])
+
+    def test_the_rows_margin_override_travelled_with_the_rule_it_overrides(self):
+        # .task-row is spelled by dashboard.html and my_plan.html both, so
+        # the override belongs to the date rather than to either page.
+        self.assertIn(".task-row .task-due { margin-left: 0; }", self.dashboard_css())
+
+
 class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
     """Four surfaces render a dot, a task name and a date — the dashboard's
     task rows and its summary, /mein-plan/'s list and its summary — and each
@@ -183,10 +226,20 @@ class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
     NAME = "font-size: 14px"
     DATE = "font-size: 13px"
 
+    def dashboard_css(self):
+        return (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_date_is_one_rule_for_every_surface(self):
+        # #266: all four surfaces render _task_due.html now, so the scale is
+        # not four rules that happen to agree — it is one, in the stylesheet
+        # all four templates load.
+        self.assertIn(f".task-due {{ {self.DATE};", self.dashboard_css())
+
     def test_the_dashboard_row(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, f".task-name {{ {self.NAME};")
-        self.assertContains(response, f".task-due {{ {self.DATE};")
 
     def test_the_dashboard_summary(self):
         self.assertContains(
@@ -199,14 +252,18 @@ class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, f".task-name {{ {self.NAME};")
-        self.assertContains(response, f".task-date {{ {self.DATE};")
+        # #266: .task-date is gone from this page — the date is the shared
+        # partial, sized by the shared rule asserted above.
+        self.assertNotContains(response, ".task-date {")
 
     def test_the_close_out_triage_row(self):
         self.given_session_plan()
         with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, f".triage-task-name {{ {self.NAME};")
-        self.assertContains(response, f".triage-task-due {{ {self.DATE};")
+        # #266: same — .triage-task-due was the third copy of the date's
+        # scale and is the one the include replaced.
+        self.assertNotContains(response, ".triage-task-due {")
 
     def test_one_dot_size_on_both_pages(self):
         dashboard = self.client.get(reverse("dashboard"))
@@ -480,10 +537,13 @@ class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
             '<span class="triage-task-name">Noten kopieren</span>',
             html=False,
         )
+        # #266: nowrap now comes from .task-due in dashboard.css, and what
+        # this page still says about the date is its own: no margin (the
+        # row's gap carries it) and no urgency colour.
         self.assertContains(
             response,
-            ".triage-task-due { font-size: 13px; "
-            "color: var(--color-text-quaternary); white-space: nowrap; }",
+            ".triage-row .task-due { margin-left: 0; "
+            "color: var(--color-text-quaternary); font-weight: 400; }",
         )
 
     def test_the_name_is_the_item_that_gives_way(self):
@@ -684,7 +744,7 @@ class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
             response,
             ".summary-box ul ul li { display: flex; align-items: center; gap: 12px; }",
         )
-        self.assertContains(response, ".summary-box .task-date { margin-left: 0; }")
+        self.assertContains(response, ".summary-box .task-due { margin-left: 0; }")
         # The same rule on the dashboard's own summary, which is the other
         # place a run of task dots renders — and the same flex row, so the
         # date sits at the edge there too.
@@ -2288,16 +2348,18 @@ class SignalDotColorTest(DemoModeTestCase):
                 self.assertNotContains(response, ".dot.urgent { background")
 
     def test_every_surface_serves_the_amber_today_date_label(self):
-        pages = self.pages()
-        self.assertContains(
-            pages["dashboard"],
-            ".task-due.today { color: var(--color-today); font-weight: 500; }",
+        # #266: the dashboard and /mein-plan/ share one rule now, in the
+        # stylesheet both of them load. The landing page keeps its own — its
+        # task list is a static mock-up, not a rendering of real tasks.
+        css = (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(
+            ".task-due.today { color: var(--color-today); font-weight: 500; }", css
         )
-        for name in ("my_plan", "index"):
-            with self.subTest(page=name):
-                self.assertContains(
-                    pages[name], ".task-date.today { color: var(--color-today); }"
-                )
+        self.assertContains(
+            self.pages()["index"], ".task-date.today { color: var(--color-today); }"
+        )
 
 
 class RecentCompletionRendersGreenTest(DemoModeTestCase):
