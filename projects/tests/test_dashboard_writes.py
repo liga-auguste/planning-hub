@@ -286,11 +286,12 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All five handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler and #239's rename and trash — carry the
-        # widened guard; their error paths (flash / return false / revert
-        # the drag) stay.
-        self.assertContains(response, self.GUARD, count=5)
+        # All six handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler, #239's rename and trash and #233's
+        # setSimDate — carry the widened guard; their error paths (flash /
+        # return false / revert the drag / take the Zeitreise paint back)
+        # stay.
+        self.assertContains(response, self.GUARD, count=6)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
@@ -1498,6 +1499,124 @@ class ThePickerIsOneModuleTest(DemoModeTestCase):
         return self.client.get(reverse("dashboard")).content.decode()
 
 
+class TheFailureFlashIsOneModuleTest(DemoModeTestCase):
+    """#233: the second half of #266's cut, one level up. The *asking* for a
+    date was shared; the *reporting* of a write that did not land still lived
+    in two copies of the same four lines plus two copies of the same CSS —
+    and in neither of the surfaces #266 added. The close-out triage list was
+    the proof: it had the handler's shape and none of the animation, so it
+    could not have reported a failure even if it had wanted to, and both of
+    its paths returned silently.
+
+    Both halves move together, into base_dashboard.html's script tag and into
+    dashboard.css, which that base already loads. A surface inherits the whole
+    feedback or none of it — it cannot inherit half."""
+
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/action_feedback.js"
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_the_module_holds_the_flash(self):
+        source = self.MODULE.read_text()
+        self.assertIn("function flashActionFailed(el)", source)
+        self.assertIn("el.classList.add('action-failed');", source)
+        self.assertIn(
+            "setTimeout(() => el.classList.remove('action-failed'), 1500);", source
+        )
+
+    def test_no_template_holds_a_copy_of_it(self):
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "function flashActionFailed" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/action_feedback.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Same reason as the picker's tag: every caller is an inline script in
+        # extra_js, which runs while the document is still parsing, so a
+        # deferred module would not be defined yet.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("action_feedback.js' %}\" defer", base)
+        self.assertLess(
+            base.index("action_feedback.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_the_animation_lives_once_in_the_shared_sheet(self):
+        css = self.CSS.read_text()
+        self.assertEqual(css.count(".action-failed { animation:"), 1)
+        self.assertEqual(css.count("@keyframes flash-failed"), 1)
+
+    def test_no_surface_carries_its_own_copy_of_the_animation(self):
+        # The CSS is the half that decided this: a template keeping its own
+        # keyframes would go on working while the triage list still could not
+        # flash, which is exactly the state this replaces.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "@keyframes flash-failed" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_the_guard_is_only_for_the_caller_that_needs_it(self):
+        # setSimDate's clicked control is an optional argument, so its failure
+        # branch flashes unconditionally rather than repeating the check its
+        # optimistic paint already makes.
+        self.assertIn("if (!el) return;", self.MODULE.read_text())
+
+
+class ThePickerSaysItIsSavingTest(DemoModeTestCase):
+    """#198: the row sat unchanged while a reschedule ran, and a reschedule is
+    two Notion round trips — update_task_date plus increment_postpone_count,
+    which is read-then-write because Notion has no atomic increment. Nothing
+    on screen said the pick had been taken.
+
+    The literal optimistic write the issue asks for is declined deliberately
+    (see the comment on #198): it means a second copy of German date
+    formatting and of #169's calendar-week urgency rule in JavaScript, both
+    settled the other way. What is shared instead is the *wait*, because every
+    surface's wait is the same one."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+
+    def test_the_input_is_marked_while_the_write_runs(self):
+        source = self.PICKER.read_text()
+        self.assertIn("input.classList.add('pending');", source)
+        self.assertIn("input.setAttribute('aria-busy', 'true');", source)
+        self.assertLess(
+            source.index("input.classList.add('pending');"),
+            source.index("await onPick("),
+        )
+
+    def test_the_mark_is_cleared_in_the_finally_that_swaps_the_date_back(self):
+        # The same finally, not a second one: a callback that throws rather
+        # than answering falsy would otherwise leave the input marked, and
+        # the module exists so no surface has to know that.
+        self.assertIn(
+            "} finally {\n"
+            "                    input.classList.remove('pending');\n"
+            "                    input.removeAttribute('aria-busy');\n"
+            "                    swapBack();",
+            self.PICKER.read_text(),
+        )
+
+    def test_it_marks_rather_than_disables(self):
+        # Disabling blurs the input, and blur is what swaps the display
+        # element back — mid-request.
+        self.assertNotIn("input.disabled", self.PICKER.read_text())
+
+    def test_the_mark_has_a_rule_in_the_shared_sheet(self):
+        self.assertIn(".task-due-input.pending", self.CSS.read_text())
+
+
 class TheDateAlwaysComesBackTest(DemoModeTestCase):
     """The one promise the shared module makes to all four surfaces: a click
     on a date can cost the picker, never the date. Swapping in an
@@ -1520,7 +1639,13 @@ class TheDateAlwaysComesBackTest(DemoModeTestCase):
         # try/finally rather than a plain await: resolved, falsy and thrown
         # all have to end in the same swap.
         source = self.source()
-        self.assertIn("} finally {\n                    swapBack();", source)
+        self.assertIn(
+            "} finally {\n"
+            "                    input.classList.remove('pending');\n"
+            "                    input.removeAttribute('aria-busy');\n"
+            "                    swapBack();",
+            source,
+        )
         # Asserted before the index() below, so a module without the try at all
         # fails with the reason rather than with a ValueError.
         self.assertIn("try {", source)
@@ -2368,7 +2493,7 @@ class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
         html = self.dashboard_html()
         toggle_block = html[
             html.index("function applyToggleFigures") : html.index(
-                "function flashActionFailed"
+                "function applyRescheduleFigures"
             )
         ]
         self.assertNotIn(".length", toggle_block)
@@ -2983,7 +3108,7 @@ class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):
     def figures_block(self, html):
         return html[
             html.index("function applyRescheduleFigures") : html.index(
-                "function flashActionFailed"
+                "const SIM_LOCK_NOTICE_MS"
             )
         ]
 

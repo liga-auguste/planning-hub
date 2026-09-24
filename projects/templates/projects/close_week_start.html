@@ -244,7 +244,17 @@ document.querySelectorAll('.move-btn').forEach(btn => {
         btn.disabled = true;
         const data = await reschedule(btn.dataset.taskId, iso);
         btn.disabled = false;
-        if (data) applyMove(row, iso, data);
+        // #233: both paths on this surface used to return silently — the one
+        // place a failed move said nothing at all, on the page where a
+        // missed move is counted as a task left open. flashActionFailed and
+        // its animation are both inherited from base_dashboard.html now
+        // (action_feedback.js, dashboard.css), so reporting it costs a line
+        // rather than a third copy of the pair.
+        if (!data) {
+            flashActionFailed(btn);
+            return;
+        }
+        applyMove(row, iso, data);
     });
 });
 
@@ -253,7 +263,10 @@ document.querySelectorAll('.move-btn').forEach(btn => {
 // the whole of what this surface has to say about how the date is asked for.
 bindTaskDatePickers(async (taskId, iso, dueEl, row) => {
     const data = await reschedule(taskId, iso);
-    if (!data) return false;
+    if (!data) {
+        flashActionFailed(dueEl);
+        return false;
+    }
     applyMove(row, iso, data, dueEl);
     return true;
 }, {rowSelector: '.triage-row'});

@@ -314,3 +314,19 @@ button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-
 .task-due[data-task-id] { cursor: pointer; }
 .task-due[data-task-id]:hover { text-decoration: underline; }
 .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
+/* #198: the picker while its write runs. The row already shows the newly
+   picked date in the input; this is what says it is being saved rather than
+   already saved. Not `disabled` — disabling blurs the input, and blur is
+   what swaps the display element back (task_date_picker.js). */
+.task-due-input.pending { opacity: 0.6; }
+/* #233: a write that did not land, reported on the control that was clicked.
+   Here rather than once per surface's own extra_css block, so everything
+   extending base_dashboard.html can report a failure — the close-out triage
+   list had the handler's shape and none of this, which is why it reported
+   nothing at all.
+
+   outline, not color: .dot buttons carry no text and fill entirely via
+   background, so a color animation is invisible on them (#83 review) —
+   outline reads on the dot and on the text targets alike. */
+.action-failed { animation: flash-failed 0.4s ease-in-out 2; }
+@keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }

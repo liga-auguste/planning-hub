@@ -149,12 +149,9 @@
         /* #239: same swap-in-place shape as the date input, sized to
            take the name's place in the row rather than its own width. */
         .task-name-input { font-size: 13px; flex: 1 1 auto; min-width: 0; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 2px 6px; background: var(--color-bg-primary); color: var(--color-text-primary); }
-        /* Toggle/reschedule failed on the Notion side — the click had no effect. */
-        .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
-        /* outline, not color: .dot buttons carry no text and fill entirely
-           via background, so a color animation is invisible on them (#83
-           review) — outline reads on both the dot and text targets. */
-        @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+        /* #233: .action-failed and its keyframes moved to dashboard.css, beside
+           the date's own rules and for the reason #266 moved those — the
+           surfaces that share a write share how it reports a failure. */
         /* #239: the row's actions. The trigger is typographic like the ⠿
            drag handle and the × delete, so it follows `color` in both
            themes. Its touch target grows through padding rather than glyph
@@ -571,7 +568,7 @@
     {% if sim_date %}
     <div id="sim-lock-notice" class="sim-lock-notice" role="status" hidden>
         <span>Im simulierten Zeitpunkt lässt sich nichts abhaken.</span>
-        <button type="button" class="sim-lock-notice-reset" onclick="setSimDate(null)">Heute anzeigen</button>
+        <button type="button" class="sim-lock-notice-reset" onclick="setSimDate(null, this)">Heute anzeigen</button>
     </div>
     {% endif %}
     <div id="view-overview">
@@ -1116,11 +1113,6 @@ function applyRescheduleFigures(taskId, newDate, data) {
     return true;
 }
 
-function flashActionFailed(el) {
-    el.classList.add('action-failed');
-    setTimeout(() => el.classList.remove('action-failed'), 1500);
-}
-
 // #244: the dot stays a <span> and stays without an affordance (#217). What
 // was missing is the answer to the click a visitor makes anyway. One element,
 // moved to whichever dot was clicked — the same reason applyTaskDone keeps one
@@ -1265,18 +1257,63 @@ async function setSimDate(dateStr, clickedBtn) {
     // reflow on every click. One shared spinner next to the "Zeitreise"
     // label avoids that — the tiles below it now only ever change color.
     document.querySelectorAll('.timelapse-bar').forEach(bar => bar.classList.add('loading'));
+    // Read before the paint below, not derived from it afterwards: setSimDate
+    // never clears `active` off the tile that had it, so undoing the paint
+    // means restoring what this control carried rather than removing the
+    // class outright — otherwise a failed click on the active moment would
+    // leave the bar claiming no moment at all.
+    const wasActive = clickedBtn ? clickedBtn.classList.contains('active') : false;
+    const clickedTitle = clickedBtn ? clickedBtn.querySelector('.moment-title') : null;
     if (clickedBtn) {
         clickedBtn.classList.add('active', 'loading');
-        clickedBtn.querySelector('.moment-title') && (clickedBtn.querySelector('.moment-title').style.opacity = '0.7');
+        if (clickedTitle) clickedTitle.style.opacity = '0.7';
     }
     if (dateStr) {
-        await preloadOne(dateStr, {priority: true});
+        // A failed preload is not a failed click — the moment can still be
+        // entered, it only costs a Claude call on the other side of the
+        // reload. Without the catch a rejected preload (offline, server
+        // unreachable) throws out of this handler before the POST is even
+        // attempted: #233's silence one step earlier than #233 found it.
+        await preloadOne(dateStr, {priority: true}).catch(() => {});
     }
-    await withSessionLock(() => fetch('/timelapse/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
-        body: JSON.stringify({date: dateStr})
-    }), {priority: true});
+    // #233: the answer is checked, like every other write on this page. It
+    // was not, and the reload below fired regardless — so a rejected POST
+    // (the 403 #232 fixed, an expired session, an offline browser) reloaded
+    // into exactly the state the click had meant to leave, and the tiles and
+    // "Zurück" read as dead buttons with no way out of the moment.
+    let response;
+    try {
+        response = await withSessionLock(() => fetch('/timelapse/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+            body: JSON.stringify({date: dateStr})
+        }), {priority: true});
+    } catch {
+        // A rejected fetch never reaches the .ok check — treat it exactly
+        // like an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        // No fade and no reload: a reload into the unchanged state is what
+        // made this failure invisible. Take the optimistic paint back
+        // instead, and report it on the control that was clicked — the same
+        // flash every other write path uses, rather than a second shape.
+        document.querySelectorAll('.timelapse-bar').forEach(bar => bar.classList.remove('loading'));
+        if (clickedBtn) {
+            clickedBtn.classList.remove('loading');
+            clickedBtn.classList.toggle('active', wasActive);
+            if (clickedTitle) clickedTitle.style.opacity = '';
+        }
+        flashActionFailed(clickedBtn);
+        // Re-arm the preloads this click threw out of the queue. They only
+        // ever came back because the reload restarted preloadAll() 800 ms
+        // later; without one, the other moments' green dots would stay off
+        // for the rest of the session. preloadOne is idempotent — the
+        // `preloaded` set here, `precached_moments` server-side — so this
+        // costs no extra Claude call for anything already generated.
+        preloadAll().catch(() => {});
+        return;
+    }
     // The reload now usually lands on an already-cached summary (#93), so it
     // happens fast enough that the browser's blank-frame swap between the
     // old and new document reads as a flicker instead of a load. Chrome

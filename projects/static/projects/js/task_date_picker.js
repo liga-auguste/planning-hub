@@ -16,6 +16,10 @@
  * onPick owns the failure feedback and this file owns the promise that no
  * surface can leave a bare date input standing where the date was.
  *
+ * While onPick runs, the input is marked `pending` (#198). That half is shared
+ * because the wait is: every surface's move is the same two Notion round trips.
+ * What the wait ends in is not, which is why the flash stays with onPick.
+ *
  * Do not move a surface's reschedule() in here. It is the consequence, and
  * every surface's is different; the dashboard's alone depends on six of its
  * own helpers.
@@ -109,9 +113,23 @@ function bindTaskDatePickers(onPick, {rowSelector = '.task-row', within = null, 
                 // — response.json() on a 200 that is not JSON, or any of the
                 // dashboard's own patching helpers — and the point of this
                 // module is that no surface has to know that.
+                //
+                // #198: the write is visible while it runs. A reschedule is
+                // two Notion round trips (increment_postpone_count is
+                // read-then-write, notion.py), so the row sat there holding
+                // the newly picked date with nothing saying it was being
+                // saved. Marked rather than `disabled`: disabling blurs the
+                // input, and blur is the very thing that swaps the display
+                // element back — mid-request. Cleared in the same `finally`
+                // for the same reason it exists, so a thrown callback cannot
+                // leave the input marked either.
+                input.classList.add('pending');
+                input.setAttribute('aria-busy', 'true');
                 try {
                     await onPick(dueEl.dataset.taskId, input.value, dueEl, row);
                 } finally {
+                    input.classList.remove('pending');
+                    input.removeAttribute('aria-busy');
                     swapBack();
                 }
             });
