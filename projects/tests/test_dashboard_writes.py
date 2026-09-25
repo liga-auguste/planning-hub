@@ -295,6 +295,26 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
+    PARSE_GUARD = "    try {\n        return await response.json();\n    } catch {"
+
+    def test_a_body_that_is_not_json_is_a_failed_write_too(self):
+        """Found reviewing #233: the guard above covers a rejected fetch and
+        an error response, and then both reschedule helpers handed
+        `response.json()` on as a promise. A 200 whose body is not JSON makes
+        it reject one step later, and two callers await it with no catch of
+        their own — #239's "Heute" menu item on the dashboard and the +7
+        button in the triage list. The rejection threw out of the handler:
+        nothing flashed, and the triage button kept the `disabled` it had set
+        itself."""
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(self.PARSE_GUARD, html)
+        # The bare form is what threw. Asserted as its own line, so a helper
+        # that goes back to returning the promise fails here. The triage
+        # list's own copy is checked where its fixtures live
+        # (TheTriageListReportsAFailedMoveTest, test_closeout.py).
+        self.assertNotIn("\n    return response.json();\n", html)
+
 
 class ToggleTaskDemoModeTest(DemoModeTestCase):
     """#61: toggle_task_view's demo branch fell out of its lookup loop

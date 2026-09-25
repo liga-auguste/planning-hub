@@ -194,7 +194,17 @@ async function reschedule(taskId, newDate) {
     // in it are what relabel the date and the move button, so neither has to
     // spell a German date in JavaScript (#189/#192).
     if (!response || !response.ok) return null;
-    return response.json();
+    // Awaited rather than handed on as a promise: a 200 whose body is not
+    // JSON makes .json() reject, and the +7 button is the one caller here
+    // that does not run through the picker module's finally — the rejection
+    // threw out of its handler, so the button kept `disabled` and reported
+    // nothing at all. #159's rule one step later: an answer that never
+    // reaches the .ok check is a failed write like any other (#233).
+    try {
+        return await response.json();
+    } catch {
+        return null;
+    }
 }
 
 // The one rule for what a move looks like here, shared by the +7 button and

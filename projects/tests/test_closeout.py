@@ -456,6 +456,19 @@ class TheTriageListReportsAFailedMoveTest(DemoModeTestCase):
         self.assertNotIn("@keyframes flash-failed", html)
         self.assertIn("/static/projects/js/action_feedback.js", html)
 
+    def test_a_body_that_is_not_json_flashes_too(self):
+        # Found reviewing #233: reschedule() handed response.json() on as a
+        # promise, so a 200 whose body is not JSON rejected one step past the
+        # guard. The +7 button is the one caller on this page that does not
+        # run through the picker module's finally — the rejection threw out of
+        # its handler, leaving the button with the `disabled` it had set
+        # itself and nothing said. #159's rule, one step later.
+        html = self.triage_page().content.decode()
+        self.assertIn(
+            "    try {\n        return await response.json();\n    } catch {", html
+        )
+        self.assertNotIn("\n    return response.json();\n", html)
+
 
 @override_settings(DEMO_MODE=False)
 class CloseWeekStartProductionTest(TestCase):

@@ -1384,7 +1384,11 @@ if (TIMELAPSE_MOMENTS.length > 0) {
             todayBtn.addEventListener('click', () => setSimDate(null, todayBtn));
         }
     });
-    setTimeout(preloadAll, 800);
+    // The same catch setSimDate's two calls carry: a rejected preload
+    // (offline, server unreachable) is nothing a visitor can act on, and
+    // unhandled it lands in the console as an unhandled rejection — noise in
+    // exactly the place #233 went looking for the failure it could not see.
+    setTimeout(() => preloadAll().catch(() => {}), 800);
 }
 
 // Every stage _annotate_tasks (views.py) can put on a task, minus `done`,
@@ -1467,7 +1471,16 @@ async function reschedulePersist(taskId, newDate) {
         response = null;
     }
     if (!response || !response.ok) return null;
-    return response.json();
+    // Awaited, not handed on: a 200 whose body is not JSON makes .json()
+    // reject, and #239's "Heute" menu item awaits this with no catch of its
+    // own. The picker's finally does put the date back, but nothing
+    // flashed. Same shape as the fetch rejection above, so it gets the same
+    // answer (#233).
+    try {
+        return await response.json();
+    } catch {
+        return null;
+    }
 }
 
 async function reschedule(taskId, newDate, dueSpan, row) {

@@ -662,6 +662,19 @@ class TimelapseClickPriorityTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, "AbortController")
 
+    def test_every_preload_call_site_swallows_its_own_rejection(self):
+        """Found reviewing #233: that issue gave the catch to setSimDate's two
+        calls and left the original one on the 800 ms timer bare, so an
+        offline load produced an unhandled rejection in the console — noise in
+        the one place a silent failure gets hunted. Whether a dropped preload
+        is worth reporting is already settled (it is not, it costs a green
+        dot), so all three call sites answer it the same way."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "setTimeout(() => preloadAll().catch(() => {}), 800);"
+        )
+        self.assertNotContains(response, "setTimeout(preloadAll, 800);")
+
 
 class TheZeitreiseChecksItsAnswerTest(DemoModeTestCase):
     """#233: setSimDate POSTed to /timelapse/ and reloaded unconditionally —

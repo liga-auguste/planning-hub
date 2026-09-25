@@ -431,6 +431,19 @@ requests arriving and being refused.
 | `setSimDate` (`dashboard.html`) | same guard, same `catch` | no reload, paint undone, flashes the trigger (#233) |
 | `preloadOne` (`dashboard.html`) | `!response.ok` → return | silent **by design** — a dropped preload costs a green dot |
 
+**The guard is two checks, not one.** Reviewing the above turned up the same helper
+written the same wrong way twice: `reschedulePersist` (`dashboard.html`) and `reschedule`
+(`close_week_start.html`) cleared the `!response.ok` check and then handed
+`response.json()` on as a promise. A 200 whose body is not JSON makes it reject one step
+past the guard, and two callers await it with nothing of their own around it — #239's
+"Heute" menu item and the triage list's `+7` button. The rejection threw out of the
+handler: nothing flashed, and the triage button kept the `disabled` it had set itself, so
+the one path that was supposed to gain a failure report ended up worse than silent. Both
+helpers now `await response.json()` inside a `try` and answer `null`, which is #159's own
+rule applied one step later — an answer that never reaches the `.ok` check is a failed
+write like any other. The picker's `finally` was already putting the date back on both
+surfaces; what it could not do is flash, because the callback never returned.
+
 Three things had to move for the last two rows to be one line each rather than a third
 and fourth copy of the same block.
 
@@ -458,7 +471,10 @@ out of the queue on the way in and only the reload ever brought them back, so wi
 `preloadAll()` here the other moments' green dots would stay off for the rest of the
 session. `preloadOne` is idempotent on both sides (`preloaded` client-side,
 `precached_moments` server-side), so re-arming costs no Claude call for anything already
-generated.
+generated. All three preload call sites swallow their own rejection — the two here and the
+original `setTimeout(preloadAll, 800)`, which the review found bare: whether a dropped
+preload is worth reporting is settled once (it is not), and left unhandled it arrives in
+the console as an unhandled rejection, noise in the one place a silent failure gets hunted.
 
 **"Zurück zu heute" gets no separate treatment.** Failing to *leave* a moment strands a
 visitor in a way failing to *enter* one does not, which is a real asymmetry — but the
