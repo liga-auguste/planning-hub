@@ -1,6 +1,7 @@
 """Zeitreise: generated moments, the simulated date and the preloader."""
 
 import json
+import re
 from datetime import (
     UTC,
     date,
@@ -9,6 +10,7 @@ from datetime import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import (
     SimpleTestCase,
     override_settings,
@@ -504,9 +506,13 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
 
     def test_sim_date_awaits_preload_before_reloading(self):
         response = self.client.get(reverse("dashboard"))
+        # #233 put a .catch on it: a rejected preload is not a failed click —
+        # the moment can still be entered, it only costs a Claude call on the
+        # other side of the reload. Without the catch the rejection threw out
+        # of setSimDate before the POST was attempted at all.
         self.assertContains(
             response,
-            "if (dateStr) {\n        await preloadOne(dateStr, {priority: true});\n    }",
+            "await preloadOne(dateStr, {priority: true}).catch(() => {});",
         )
 
     def test_preload_one_dedupes_concurrent_calls_for_the_same_date(self):
@@ -615,7 +621,9 @@ class TimelapseClickPriorityTest(DemoModeTestCase):
         the date. The POST is trivial — it writes one session key — but it
         used to wait behind every remaining Claude call all the same."""
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "await preloadOne(dateStr, {priority: true});")
+        self.assertContains(
+            response, "await preloadOne(dateStr, {priority: true}).catch(() => {});"
+        )
         self.assertContains(response, "}), {priority: true});")
 
     def test_a_click_drops_the_preloads_that_have_not_started(self):
@@ -653,6 +661,155 @@ class TimelapseClickPriorityTest(DemoModeTestCase):
         write still in flight."""
         response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, "AbortController")
+
+    def test_every_preload_call_site_swallows_its_own_rejection(self):
+        """Found reviewing #233: that issue gave the catch to setSimDate's two
+        calls and left the original one on the 800 ms timer bare, so an
+        offline load produced an unhandled rejection in the console — noise in
+        the one place a silent failure gets hunted. Whether a dropped preload
+        is worth reporting is already settled (it is not, it costs a green
+        dot), so all three call sites answer it the same way."""
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, "setTimeout(() => preloadAll().catch(() => {}), 800);"
+        )
+        self.assertNotContains(response, "setTimeout(preloadAll, 800);")
+
+
+class TheZeitreiseChecksItsAnswerTest(DemoModeTestCase):
+    """#233: setSimDate POSTed to /timelapse/ and reloaded unconditionally —
+    the one write path on the page that never looked at its response. A
+    rejected POST reloaded into exactly the state the click had meant to
+    leave, so the moment tiles and "Zurück" read as dead buttons and a
+    visitor had no way out of an active moment. Found on a live demo session
+    while verifying #217, where #232's missing CSRF token made every
+    Zeitreise POST a 403 for as long as a moment was on.
+
+    Markup contract only, the same boundary TimelapsePreloadMarkupTest and
+    TimelapseClickPriorityTest document: the behaviour itself gets a browser
+    pass with the network offline."""
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def failure_branch(self, html):
+        start = html.index("    if (!response || !response.ok) {\n        // No fade")
+        return html[start : html.index("    // The reload now usually lands", start)]
+
+    def test_it_carries_the_same_guard_as_every_other_write(self):
+        """Not a shape of its own: the guard and the catch the four other
+        handlers on this page already use (#159)."""
+        html = self.dashboard_html()
+        self.assertIn("        }), {priority: true});\n    } catch {", html)
+        self.assertIn("        response = null;\n    }\n    if (!response", html)
+
+    def test_a_failed_post_does_not_reload(self):
+        """The heart of it. A reload into the unchanged state is what made
+        the failure invisible in the first place."""
+        branch = self.failure_branch(self.dashboard_html())
+        self.assertNotIn("window.location.reload()", branch)
+        self.assertNotIn("document.body.style.opacity", branch)
+
+    def test_a_failed_post_takes_the_optimistic_paint_back(self):
+        """Left in place, the bar claims a moment that was never set."""
+        branch = self.failure_branch(self.dashboard_html())
+        self.assertIn(
+            "document.querySelectorAll('.timelapse-bar').forEach(bar => bar.classList.remove('loading'));",
+            branch,
+        )
+        self.assertIn("clickedBtn.classList.remove('loading');", branch)
+        self.assertIn("if (clickedTitle) clickedTitle.style.opacity = '';", branch)
+
+    def test_the_active_class_is_restored_rather_than_removed(self):
+        """setSimDate never clears `active` off the tile that had it, so a
+        failed click on the already-active moment would otherwise leave the
+        bar showing no moment at all while one is still on."""
+        html = self.dashboard_html()
+        self.assertIn(
+            "const wasActive = clickedBtn ? clickedBtn.classList.contains('active') : false;",
+            html,
+        )
+        self.assertLess(
+            html.index("const wasActive ="), html.index("clickedBtn.classList.add(")
+        )
+        self.assertIn(
+            "clickedBtn.classList.toggle('active', wasActive);",
+            self.failure_branch(html),
+        )
+
+    def test_it_reports_the_failure_where_the_click_was(self):
+        """The shared flash, not a second feedback shape — and it is the
+        reason every caller now hands its own control in."""
+        self.assertIn(
+            "flashActionFailed(clickedBtn);", self.failure_branch(self.dashboard_html())
+        )
+
+    def test_the_dropped_preloads_are_re_armed(self):
+        """dropPendingPreloads() threw the other moments out of the queue on
+        the way in, and only the reload ever brought them back. Without one
+        their green dots would stay off for the rest of the session.
+        preloadOne is idempotent — the `preloaded` set client-side,
+        precached_moments server-side — so this costs no extra Claude call."""
+        self.assertIn(
+            "preloadAll().catch(() => {});", self.failure_branch(self.dashboard_html())
+        )
+
+    def test_the_way_back_to_today_gets_no_separate_treatment(self):
+        """#233 asks the question and answers it: inventing a second shape
+        for the return path is what this should not do. The flash lands on
+        the control that was clicked, and the banner naming the simulated
+        date stays on screen, so the visitor is no longer facing a silent
+        dead button either way."""
+        html = self.dashboard_html()
+        self.assertEqual(html.count("flashActionFailed(clickedBtn);"), 1)
+        self.assertNotIn("if (dateStr === null)", html)
+
+
+class TheHeuteTileIsBoundOnceTest(DemoModeTestCase):
+    """Found while implementing #233, recorded by neither issue: the "Heute"
+    tile carried an onclick *and* a listener for the same click, so one press
+    fired setSimDate twice — two POSTs to /timelapse/ and two reload paths.
+    Harmless while nothing was checked; with a failure flash it would flash
+    twice.
+
+    The listener is the one that stays: it passes the button, which is what
+    the flash needs as a target. The two inline callers that remain pass
+    `this` for the same reason."""
+
+    def test_the_bar_binds_the_tile_by_listener_rather_than_by_attribute(self):
+        partial = (
+            settings.BASE_DIR / "projects/templates/projects/_timelapse_bar.html"
+        ).read_text()
+        # The attribute, not the word — the partial names it in prose,
+        # which is the decision being recorded rather than undone.
+        self.assertNotIn("onclick=", partial)
+        self.assertIn('<button class="moment-btn-today">Heute</button>', partial)
+        dashboard = (
+            settings.BASE_DIR / "projects/templates/projects/dashboard.html"
+        ).read_text()
+        self.assertIn(
+            "todayBtn.addEventListener('click', () => setSimDate(null, todayBtn));",
+            dashboard,
+        )
+
+    def test_every_remaining_inline_caller_hands_its_own_control_in(self):
+        # The sim banner's "Zurück" and #244's locked-dot notice. Both are
+        # outside the bar's own binding, so both keep their attribute — and
+        # both need a target for the flash.
+        templates = settings.BASE_DIR / "projects/templates/projects"
+        callers = {}
+        for path in sorted(templates.glob("*.html")):
+            hits = re.findall(r'onclick="setSimDate\([^"]*\)"', path.read_text())
+            if hits:
+                callers[path.name] = hits
+        self.assertEqual(
+            callers,
+            {
+                "_status_banners.html": ['onclick="setSimDate(null, this)"'],
+                "dashboard.html": ['onclick="setSimDate(null, this)"'],
+            },
+        )
 
 
 class TimelapseBarRendersOncePerPageTest(DemoModeTestCase):
@@ -1020,7 +1177,10 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
         it is already "Heute"."""
         self.given_active_moment()
         response = self.dashboard()
-        self.assertContains(response, 'onclick="setSimDate(null)">Heute anzeigen<')
+        # `this`, so the flash #233 added has the clicked control to land on.
+        self.assertContains(
+            response, 'onclick="setSimDate(null, this)">Heute anzeigen<'
+        )
         self.assertNotContains(response, ">Zurück zu heute<")
 
     def test_the_notice_answers_every_attempt_not_only_the_first(self):

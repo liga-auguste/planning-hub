@@ -2,8 +2,11 @@
 
 Implements [Issue #210](https://github.com/liga-auguste/planning-hub/issues/210),
 [Issue #199](https://github.com/liga-auguste/planning-hub/issues/199),
-[Issue #217](https://github.com/liga-auguste/planning-hub/issues/217) and the client
-half of [Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
+[Issue #217](https://github.com/liga-auguste/planning-hub/issues/217),
+[Issue #233](https://github.com/liga-auguste/planning-hub/issues/233),
+the pending half of [Issue #198](https://github.com/liga-auguste/planning-hub/issues/198)
+and the client half of
+[Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
 
 ## Context
 
@@ -391,6 +394,8 @@ re-triggers `preloadAll()` against the fresh `precached_moments`.
 | Reschedule, cold cache | no figures | reloads |
 | Reschedule from the day-column drag | same | reloads — the column change is definitional |
 | Reschedule fails in Notion | 502 | undoes the drag / restores the date |
+| Zeitreise moment set | `{"ok": true}` | fades out and reloads — the whole page is a different date |
+| Zeitreise POST refused or never lands | 403 / 502 / nothing | **no reload** — takes the paint back, flashes the trigger, re-arms the preloads |
 
 The stage is what decides which *list* a task belongs to: the Heute lists and the Kanban
 column. When it changes, the task has to change list, not position within one — worth a
@@ -404,6 +409,123 @@ does not reload. The counts now come from `_surface_figures` like every other nu
 only the two cards that render the date move by hand: the day card, whose column *is* its
 date, and the Kanban card, which spells the date out.
 
+## Every write reports its own failure
+
+The convention was already here and already written down in its own comments; what
+#233 found is that one path did not follow it. `setSimDate` POSTed to `/timelapse/`,
+never looked at the answer, and faded out and reloaded either way — into exactly the
+state the click had meant to leave. Found live on 2026-09-08, where #232's missing CSRF
+token turned every Zeitreise POST into a 403 for as long as a moment was active: the
+tiles and "Zurück" read as dead buttons, and a visitor had no way out of the moment.
+Several minutes went into hunting for a stuck lock before the server log showed the
+requests arriving and being refused.
+
+| Call site | Checks | On failure |
+|---|---|---|
+| Toggle (`dashboard.html`) | `!response \|\| !response.ok`, with `catch` | flashes the button (#159) |
+| `reschedule()` (`dashboard.html`) | same | flashes, restores the date |
+| Day-column drag (`dashboard.html`) | same | undoes the drag |
+| Rename, trash (`dashboard.html`) | same | flashes the name / the trigger |
+| `my_plan.html` | same | reverts the optimistic toggle, flashes |
+| Triage `+7` and picker (`close_week_start.html`) | `reschedule()` answers `null` | flashes the button / the date (#233) |
+| `setSimDate` (`dashboard.html`) | same guard, same `catch` | no reload, paint undone, flashes the trigger (#233) |
+| `preloadOne` (`dashboard.html`) | `!response.ok` → return | silent **by design** — a dropped preload costs a green dot |
+
+**The guard is two checks, not one.** Reviewing the above turned up the same helper
+written the same wrong way twice: `reschedulePersist` (`dashboard.html`) and `reschedule`
+(`close_week_start.html`) cleared the `!response.ok` check and then handed
+`response.json()` on as a promise. A 200 whose body is not JSON makes it reject one step
+past the guard, and two callers await it with nothing of their own around it — #239's
+"Heute" menu item and the triage list's `+7` button. The rejection threw out of the
+handler: nothing flashed, and the triage button kept the `disabled` it had set itself, so
+the one path that was supposed to gain a failure report ended up worse than silent. Both
+helpers now `await response.json()` inside a `try` and answer `null`, which is #159's own
+rule applied one step later — an answer that never reaches the `.ok` check is a failed
+write like any other. The picker's `finally` was already putting the date back on both
+surfaces; what it could not do is flash, because the callback never returned.
+
+Three things had to move for the last two rows to be one line each rather than a third
+and fourth copy of the same block.
+
+**`flashActionFailed` is a module** (`static/projects/js/action_feedback.js`), loaded
+from `base_dashboard.html` beside the date picker and for the same reason: every caller
+is an inline script in `extra_js`, which runs while the document is still parsing, so a
+`defer`red module would not be defined yet.
+
+**`.action-failed` and `@keyframes flash-failed` are in `dashboard.css`**, which that
+same base already loads. This is the half that actually decided it. The triage list had
+the handler's shape and none of the animation — it could not have reported a failure
+even if it had wanted to, which is why both of its paths returned silently. A surface
+now inherits the whole feedback or none of it; it cannot inherit half. The bound is that
+all four surfaces extend `base_dashboard.html`; one outside that base would lose the
+animation again.
+
+**The failure branch does not reload, and takes its own paint back.** `setSimDate`
+paints optimistically before the request — `active` and `loading` on the clicked tile,
+`loading` on the bars, a reduced opacity on the moment title. Left standing after a
+refusal, the bar claims a moment that was never set. `active` is *restored* rather than
+removed: `setSimDate` never clears it off the tile that had it, so a failed click on the
+already-active moment would otherwise leave the bar showing no moment at all while one
+is still on. The dropped preloads are re-armed too — `dropPendingPreloads()` threw them
+out of the queue on the way in and only the reload ever brought them back, so without
+`preloadAll()` here the other moments' green dots would stay off for the rest of the
+session. `preloadOne` is idempotent on both sides (`preloaded` client-side,
+`precached_moments` server-side), so re-arming costs no Claude call for anything already
+generated. All three preload call sites swallow their own rejection — the two here and the
+original `setTimeout(preloadAll, 800)`, which the review found bare: whether a dropped
+preload is worth reporting is settled once (it is not), and left unhandled it arrives in
+the console as an unhandled rejection, noise in the one place a silent failure gets hunted.
+
+**"Zurück zu heute" gets no separate treatment.** Failing to *leave* a moment strands a
+visitor in a way failing to *enter* one does not, which is a real asymmetry — but the
+answer to it is not a second feedback shape. The flash lands on the control that was
+clicked, which for the return path is the button inside the banner, and the banner
+naming the simulated date stays on screen. The visitor is no longer facing a silent dead
+button either way.
+
+**The "Heute" tile was bound twice**, recorded by neither issue. `_timelapse_bar.html`
+carried an `onclick` and `dashboard.html` added a listener to the same button, so one
+press fired `setSimDate` twice: two POSTs and two reload paths. Harmless while nothing
+was checked, two flashes once something was. The attribute goes and the listener stays —
+it is the one that passes the button, which is what the flash needs as a target. The two
+inline callers that remain (the sim banner's "Zurück", #244's locked-dot notice) pass
+`this` for the same reason.
+
+**A rejected preload is not a failed click.** `setSimDate` awaits the clicked moment's
+preload before the POST, and that await had no catch either: offline, the rejection threw
+out of the handler before the POST was attempted at all — #233's silence one step earlier
+than #233 found it. The moment can still be entered without its preload; it only costs a
+Claude call on the other side of the reload.
+
+## A write that is running says so
+
+#198 asked for the reschedule to be optimistic the way the toggle is: write the new date
+into the DOM immediately, correct it when the server answers. That half is **declined**,
+deliberately, and the reasons are the project's own existing decisions rather than new
+ones:
+
+- Writing the date client-side means a second copy of German date formatting in
+  JavaScript. `reschedule_task_view` says so where it derives `next_week_display`, and
+  #192 will change what a role produces — a JS mirror would drift the day it lands.
+  `Intl.DateTimeFormat('de-DE', …)` does not avoid it: the roles produce `Mo, 15. Jun`
+  with no trailing period, which no option set reproduces, so the optimistic guess would
+  visibly differ from the string replacing it a moment later.
+- Painting the new stage means implementing #169's calendar-week urgency rule a second
+  time — and in a demo session it is measured against the simulated date.
+  `URGENCY_CLASSES`' own comment already settles this the other way.
+
+What is left of the intent — the interaction stops looking stuck — is met by the picker
+marking its input while `onPick` runs (`pending` + `aria-busy`, cleared in the same
+`finally` that swaps the display element back, so a thrown callback cannot leave it
+marked). The row shows the `<input type="date">` holding the newly picked date, marked as
+saving, rather than sitting unchanged with no sign that anything is happening. The wait
+is shared because every surface's wait is the same two Notion round trips
+(`increment_postpone_count` is read-then-write, `notion.py`); what the wait *ends* in is
+not, which is why the flash stays with each surface's `onPick`.
+
+Marked, not `disabled`: disabling blurs the input, and `blur` is what swaps the display
+element back — mid-request.
+
 ## One picker, four consequences
 
 `_task_due.html` shared the date's *markup* (#195); `projects/static/projects/js/task_date_picker.js`
@@ -413,7 +535,10 @@ collapsing into a fourth copy of the first.
 What is shared is the **asking**: swap the button for an `<input type="date">`, call
 `showPicker()`, track whether the pointer or the keyboard opened it (#200), swap back, and
 hand focus back to a keyboard user only. That is identical wherever a date is rendered,
-and it carries the Safari/Chrome focus-modality reasoning that should be derived once.
+and it carries the Safari/Chrome focus-modality reasoning that should be derived once. Since
+#198 it also carries the `pending` mark on the input while `onPick` runs, for the same
+reason: the wait is the same two Notion round trips on every surface (see the section
+above).
 
 What is **not** shared is the consequence. The obvious reading of "extract the handler" is
 to share `reschedule()`, and it is wrong: the dashboard's depends on `browsedWeekStart()`,
@@ -505,7 +630,7 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests/test_dashboard_writes.py` covers this in eleven classes:
+`projects/tests/test_dashboard_writes.py` covers this in thirteen classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
@@ -527,6 +652,12 @@ change, and the bump is mandatory rather than cosmetic.
 - `RegeneratingASummaryDoesNotUndoAConcurrentWriteTest` — the second request runs
   inside the stubbed Claude call, which is exactly where it would land; a toggle
   survives, a reschedule takes the summary with it, a bust is not resurrected
+- `TheFailureFlashIsOneModuleTest` — the module holds the flash, no template does, the
+  base loads it un-`defer`red and ahead of `extra_js`, and the animation lives exactly
+  once in `dashboard.css` and in no surface's own block
+- `ThePickerSaysItIsSavingTest` — the input is marked before the `await` and unmarked in
+  the same `finally` that swaps the date back, marked rather than disabled, with a rule
+  in the shared sheet
 
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
@@ -535,6 +666,19 @@ with its urgency, the unchanged behaviour with no moment active, the reschedule 
 deliberately stays, and the page's own CSRF token — present under a moment, and rendered
 ahead of the toggle forms without one, so it cannot go back to being a side effect of
 whichever form happens to render.
+
+`TheZeitreiseChecksItsAnswerTest` and `TheHeuteTileIsBoundOnceTest`, also in that
+module, carry #233: the guard and the `catch`, a failure branch holding neither a reload
+nor the fade, the paint taken back with `active` *restored* rather than removed, the
+flash, the re-armed preloads, the return path deliberately sharing all of it, the bar's
+tile bound by listener alone, and both remaining inline callers handing their own control
+in. Markup contract only — the behaviour gets a browser pass with the network offline,
+the same boundary `TimelapsePreloadMarkupTest` and `TimelapseClickPriorityTest` already
+document.
+
+`projects/tests/test_closeout.py` carries the third write path in
+`TheTriageListReportsAFailedMoveTest`: both paths flashing, the guard unchanged, and the
+surface carrying no copy of either half of the feedback it now inherits.
 
 `AMomentSaysWhatItLocksTest`, in the same module, carries what the page *says*: the
 banner naming the state and stopping there — the consequence clause pinned out rather

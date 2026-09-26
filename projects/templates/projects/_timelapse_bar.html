@@ -2,7 +2,13 @@
 <div class="timelapse-bar" style="display:none;">
     <div class="timelapse-label">Zeitreise<span class="timelapse-spinner"></span></div>
     <div class="timelapse-moments">
-        <button class="moment-btn-today" onclick="setSimDate(null)">Heute</button>
+        {% comment %}
+        #233: no onclick. dashboard.html binds this button by class and passes
+        it to setSimDate, which is what the failure flash needs as a target —
+        an inline attribute beside that listener fired the whole handler a
+        second time, two POSTs and two reload paths for one click.
+        {% endcomment %}
+        <button class="moment-btn-today">Heute</button>
     </div>
 </div>
 {% endif %}

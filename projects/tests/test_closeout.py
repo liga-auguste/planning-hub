@@ -417,6 +417,59 @@ class TriageListPicksAnyDateTest(DemoModeTestCase):
         self.assertIn('<input type="hidden" name="task_id"', html)
 
 
+class TheTriageListReportsAFailedMoveTest(DemoModeTestCase):
+    """#233: this surface was the only one where a failed move said nothing
+    at all — both the +7 button and the picker callback returned silently.
+    #267 named that and declined to write a third copy of the flash; with
+    flashActionFailed and its animation inherited from base_dashboard.html
+    it costs one line per path.
+
+    The page where a missed move matters most: close_week_confirm counts
+    rescheduled_count by walking the posted task_id list, so a move that
+    silently did not happen is counted as a task left open."""
+
+    def triage_page(self):
+        with patch("django.utils.timezone.localdate", return_value=CLOSEOUT_TODAY):
+            self.given_session_plan(tasks=_closeout_tasks(CLOSEOUT_TODAY))
+            return self.client.get(reverse("close_week_start"))
+
+    def test_the_seven_day_button_flashes_instead_of_returning_silently(self):
+        html = self.triage_page().content.decode()
+        self.assertIn("flashActionFailed(btn);", html)
+
+    def test_the_picked_date_flashes_on_the_date_itself(self):
+        html = self.triage_page().content.decode()
+        self.assertIn("flashActionFailed(dueEl);", html)
+
+    def test_neither_path_applies_a_move_that_did_not_happen(self):
+        # reschedule() already answered null on failure; what was missing was
+        # only the report. The guard stays where it was.
+        html = self.triage_page().content.decode()
+        self.assertIn("if (!response || !response.ok) return null;", html)
+        self.assertNotIn("if (data) applyMove(row, iso, data);", html)
+
+    def test_it_carries_no_copy_of_the_flash_or_its_animation(self):
+        # The whole reason this surface had nothing to report with: it was
+        # never given the CSS. Inherited now, not copied.
+        html = self.triage_page().content.decode()
+        self.assertNotIn("function flashActionFailed", html)
+        self.assertNotIn("@keyframes flash-failed", html)
+        self.assertIn("/static/projects/js/action_feedback.js", html)
+
+    def test_a_body_that_is_not_json_flashes_too(self):
+        # Found reviewing #233: reschedule() handed response.json() on as a
+        # promise, so a 200 whose body is not JSON rejected one step past the
+        # guard. The +7 button is the one caller on this page that does not
+        # run through the picker module's finally — the rejection threw out of
+        # its handler, leaving the button with the `disabled` it had set
+        # itself and nothing said. #159's rule, one step later.
+        html = self.triage_page().content.decode()
+        self.assertIn(
+            "    try {\n        return await response.json();\n    } catch {", html
+        )
+        self.assertNotIn("\n    return response.json();\n", html)
+
+
 @override_settings(DEMO_MODE=False)
 class CloseWeekStartProductionTest(TestCase):
     def _project(self, tasks):
