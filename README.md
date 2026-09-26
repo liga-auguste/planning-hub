@@ -344,6 +344,15 @@ from (re)starting, even though the app itself is otherwise fine — this bit an
 already-deployed demo host whose `.env` predated the healthcheck and had
 `ALLOWED_HOSTS` set to only its public hostname.
 
+The same healthcheck is why `/health/` is in `SECURE_REDIRECT_EXEMPT`: it
+reaches gunicorn directly, so it carries no `X-Forwarded-Proto` and the HTTPS
+redirect below would answer it with a 301 to `https://localhost:8000/health/`.
+`urlopen` follows that, gunicorn speaks plain HTTP, and the check fails on
+`SSL: WRONG_VERSION_NUMBER` — the same `unhealthy` / blocked-nginx outcome as
+above, on the demo stack, which runs with `HTTPS_ONLY` at its default. nginx
+redirects every outside request to 443 before Django sees it, so the exemption
+only ever applies inside the compose network.
+
 **`HTTPS_ONLY=false` belongs in this stack's `.env`, and only this one.**
 `manage.py check --deploy` asks for secure cookies, HSTS and an HTTPS redirect,
 and `settings.py` turns all three on whenever `DEBUG` is false — so a fresh

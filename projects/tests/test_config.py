@@ -14,6 +14,7 @@ from datetime import (
 )
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -867,3 +868,42 @@ class HttpsOnlySettingsConfTest(SimpleTestCase):
         # deploy reads, not only from the issue.
         self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / ".env.example").read_text())
         self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / "README.md").read_text())
+
+
+class HealthcheckRedirectExemptionTest(SimpleTestCase):
+    """The container healthcheck talks to gunicorn directly, with no
+    X-Forwarded-Proto, so SECURE_SSL_REDIRECT would answer it with a 301 to
+    https://localhost:8000/health/. urlopen follows that, gunicorn speaks
+    plain HTTP, and the check dies on `SSL: WRONG_VERSION_NUMBER` — after
+    three retries the container is unhealthy and nginx, which waits on
+    `service_healthy`, never starts. The demo runs with HTTPS_ONLY at its
+    default, so this would have taken the public stack down on the #157
+    deploy."""
+
+    HEALTHCHECK_URL_PATTERN = re.compile(r"urlopen\('(http://[^']+)'")
+
+    @override_settings(SECURE_SSL_REDIRECT=True, DEMO_MODE=True)
+    def test_the_healthcheck_path_survives_the_ssl_redirect(self):
+        self.assertEqual(self.client.get("/health/").status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_every_other_path_is_still_redirected(self):
+        # The exemption is one path, not a hole in the redirect.
+        response = self.client.get("/dashboard/")
+        self.assertEqual(response.status_code, 301)
+        self.assertTrue(response["Location"].startswith("https://"))
+
+    def test_both_compose_healthchecks_use_a_path_the_exemption_covers(self):
+        # The exempt regex and the URL the healthcheck asks for are one
+        # decision in two files. Pinned as a pair so renaming the endpoint in
+        # a compose file cannot silently reintroduce the 301.
+        for name in ("docker-compose.yml", "docker-compose.demo.yml"):
+            with self.subTest(compose=name):
+                conf = (settings.BASE_DIR / name).read_text()
+                url = self.HEALTHCHECK_URL_PATTERN.search(conf)
+                self.assertIsNotNone(url, "no healthcheck urlopen found")
+                path = urlparse(url.group(1)).path.lstrip("/")
+                self.assertTrue(
+                    any(re.search(p, path) for p in settings.SECURE_REDIRECT_EXEMPT),
+                    f"{path} is not exempt from the SSL redirect",
+                )

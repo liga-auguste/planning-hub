@@ -94,6 +94,19 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if HTTPS_ONLY else
 # answer 301 before reaching a view.
 SECURE_SSL_REDIRECT = HTTPS_ONLY and not _TESTING
 
+# The container healthcheck reaches gunicorn directly on localhost:8000, so it
+# carries no X-Forwarded-Proto and the redirect above would answer it with a
+# 301 to https://localhost:8000/health/. urlopen follows that, gunicorn speaks
+# plain HTTP, and the check dies on `SSL: WRONG_VERSION_NUMBER`; three retries
+# later the container is unhealthy and nginx, which waits on
+# `service_healthy`, never starts at all — the whole stack down for a redirect
+# that was only ever a fallback.
+#
+# Exempting the one path it uses costs nothing: nginx's port-80 block already
+# redirects every outside request to 443 before Django sees it, so this only
+# ever applies to the check talking to gunicorn inside the network.
+SECURE_REDIRECT_EXEMPT = [r"^health/$"]
+
 # Turning HSTS on raises two new warnings, so silencing them is what keeps
 # this from trading four warnings for two:
 #
