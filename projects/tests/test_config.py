@@ -14,6 +14,7 @@ from datetime import (
 )
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -698,3 +699,211 @@ class DotenvCredentialRuleTest(TestCase):
             source.index("load_dotenv()"),
             source.index("apply_credentials(os.environ, dotenv_values())"),
         )
+
+
+class HttpsOnlySettingsConfTest(SimpleTestCase):
+    """#157: `check --deploy` reported four warnings — W012 and W016 (the
+    session and CSRF cookies may travel over plain HTTP), W004 (no HSTS) and
+    W008 (no SSL redirect). Four settings lines, on a public portfolio repo
+    whose code otherwise shows deliberate care.
+
+    Gating them on plain `not DEBUG`, as the issue suggested, would break
+    production: `nginx.conf` listens on port 80 only, there is no TLS on the
+    Mac Mini, and access is `http://192.168.178.121` over VPN. A browser
+    discards a `Secure`-flagged cookie on such a connection, so sessions and
+    every CSRF-protected POST would die. Hence one env switch, `HTTPS_ONLY`
+    (default true, the same shape as DEBUG and DEMO_MODE), which production
+    sets to false in its own `.env`. `check --deploy` keeps warning *there*,
+    which is simply the truth about that deployment.
+
+    Reloading the module object touches nothing the running suite reads —
+    django.conf.settings copied its values at startup (see
+    StaticStorageConfigTest)."""
+
+    SERVER_ARGV = ["gunicorn", "planning_hub.wsgi"]
+
+    def reload_with(self, env, argv=None):
+        """The settings module re-derived under a given environment. SECRET_KEY
+        is always supplied because a missing one fails closed (#47)."""
+        import planning_hub.settings as settings_module
+
+        with (
+            patch.dict(os.environ, {"SECRET_KEY": "test-key", **env}, clear=True),
+            patch.object(sys, "argv", argv or sys.argv),
+        ):
+            reloaded = importlib.reload(settings_module)
+            values = {
+                name: getattr(reloaded, name, None)
+                for name in (
+                    "HTTPS_ONLY",
+                    "SESSION_COOKIE_SECURE",
+                    "CSRF_COOKIE_SECURE",
+                    "SECURE_HSTS_SECONDS",
+                    "SECURE_PROXY_SSL_HEADER",
+                    "SECURE_SSL_REDIRECT",
+                    "SECURE_HSTS_INCLUDE_SUBDOMAINS",
+                )
+            }
+        importlib.reload(settings_module)  # re-derive the test-run state
+        return values
+
+    def test_a_fresh_checkout_with_debug_off_turns_everything_on(self):
+        """Acceptance 1: no HTTPS_ONLY in the environment means the secure
+        defaults apply, so `check --deploy` finds silence rather than the four
+        warnings."""
+        values = self.reload_with({"DEBUG": "false"}, argv=self.SERVER_ARGV)
+        self.assertTrue(values["HTTPS_ONLY"])
+        self.assertTrue(values["SESSION_COOKIE_SECURE"])
+        self.assertTrue(values["CSRF_COOKIE_SECURE"])
+        self.assertTrue(values["SECURE_SSL_REDIRECT"])
+        self.assertGreater(values["SECURE_HSTS_SECONDS"], 0)
+        self.assertEqual(
+            values["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https")
+        )
+
+    def test_local_runserver_over_plain_http_keeps_working(self):
+        """Acceptance 2: with DEBUG on, every flag is off — runserver speaks
+        http:// and a Secure cookie would never come back."""
+        values = self.reload_with({"DEBUG": "true"}, argv=self.SERVER_ARGV)
+        self.assertFalse(values["HTTPS_ONLY"])
+        self.assertFalse(values["SESSION_COOKIE_SECURE"])
+        self.assertFalse(values["CSRF_COOKIE_SECURE"])
+        self.assertFalse(values["SECURE_SSL_REDIRECT"])
+        self.assertEqual(values["SECURE_HSTS_SECONDS"], 0)
+        self.assertIsNone(values["SECURE_PROXY_SSL_HEADER"])
+
+    def test_debug_wins_even_if_https_only_is_asked_for(self):
+        # HTTPS_ONLY is an opt-*out* for a TLS-less deployment, never an
+        # opt-in that overrides DEBUG: a local runserver must not start
+        # handing out Secure cookies because a stale .env says true.
+        values = self.reload_with(
+            {"DEBUG": "true", "HTTPS_ONLY": "true"}, argv=self.SERVER_ARGV
+        )
+        # assertIs, not assertFalse: a setting that does not exist at all
+        # reads as None, which is falsy — the weaker assertion would pass
+        # before the block is written.
+        self.assertIs(values["HTTPS_ONLY"], False)
+
+    def test_production_opts_out_and_keeps_working(self):
+        """Acceptance 3: the Mac Mini has no TLS. HTTPS_ONLY=false in its
+        .env keeps sessions and CSRF-protected POSTs alive."""
+        values = self.reload_with(
+            {"DEBUG": "false", "HTTPS_ONLY": "false"}, argv=self.SERVER_ARGV
+        )
+        self.assertFalse(values["HTTPS_ONLY"])
+        self.assertFalse(values["SESSION_COOKIE_SECURE"])
+        self.assertFalse(values["CSRF_COOKIE_SECURE"])
+        self.assertFalse(values["SECURE_SSL_REDIRECT"])
+        self.assertEqual(values["SECURE_HSTS_SECONDS"], 0)
+        self.assertIsNone(values["SECURE_PROXY_SSL_HEADER"])
+
+    def test_the_suite_never_redirects_itself_to_https(self):
+        """The test client speaks http://, and CI runs without a .env so DEBUG
+        defaults to false — without the _TESTING guard every request in the
+        suite would answer 301 instead of reaching a view."""
+        self.assertFalse(settings.SECURE_SSL_REDIRECT)
+        values = self.reload_with({"DEBUG": "false"})  # test-runner argv
+        self.assertTrue(values["HTTPS_ONLY"], "the other flags still apply")
+        self.assertFalse(values["SECURE_SSL_REDIRECT"])
+
+    def test_hsts_starts_short_and_says_when_to_raise_it(self):
+        """Acceptance 4. HSTS is remembered by browsers for its whole max-age,
+        so a misconfiguration cannot be taken back by fixing the server — an
+        hour is the recoverable starting point, and the raise-later plan
+        belongs where the number is."""
+        values = self.reload_with({"DEBUG": "false"}, argv=self.SERVER_ARGV)
+        self.assertEqual(values["SECURE_HSTS_SECONDS"], 3600)
+        # The plan belongs in the comment the number carries, not three
+        # screens away — asserted against the block that precedes the
+        # assignment, so moving the number without its reasoning fails here.
+        source = (settings.BASE_DIR / "planning_hub/settings.py").read_text()
+        block = source[: source.index("SECURE_HSTS_SECONDS = ")]
+        block = block[block.rindex("\n\n") :]
+        self.assertRegex(block, r"(?i)rais\w+ it")
+        self.assertRegex(block, r"(?i)year")
+        self.assertIn("#157", source)
+
+    def test_subdomains_are_not_this_apps_to_promise_for(self):
+        # ligaauguste.de carries more than this app — the demo, and whatever
+        # else the domain serves — so an includeSubDomains would commit every
+        # one of them to HTTPS on the strength of this deployment alone.
+        #
+        # Django's own default is already False, so asserting the value proves
+        # nothing. What is worth pinning is that settings.py never turns it
+        # on, and that the reason is written down beside the silenced check.
+        source = (settings.BASE_DIR / "planning_hub/settings.py").read_text()
+        self.assertNotIn("SECURE_HSTS_INCLUDE_SUBDOMAINS = True", source)
+        self.assertIs(settings.SECURE_HSTS_INCLUDE_SUBDOMAINS, False)
+        block = source[source.index("SILENCED_SYSTEM_CHECKS") - 900 :]
+        self.assertRegex(block, r"(?i)subdomain")
+
+    def test_the_two_warnings_hsts_itself_raises_are_silenced_with_a_reason(self):
+        # Enabling HSTS trades four warnings for two: W005 wants
+        # includeSubDomains, W021 wants preload. Both are deliberate
+        # non-choices, so they are silenced rather than left to erode the
+        # point of the issue.
+        self.assertEqual(
+            sorted(settings.SILENCED_SYSTEM_CHECKS), ["security.W005", "security.W021"]
+        )
+        source = (settings.BASE_DIR / "planning_hub/settings.py").read_text()
+        block = source[source.index("SILENCED_SYSTEM_CHECKS") - 900 :]
+        self.assertIn("W005", block)
+        self.assertIn("W021", block)
+
+    def test_the_trusted_header_is_the_one_the_demo_nginx_actually_sets(self):
+        # SECURE_PROXY_SSL_HEADER is a promise about the proxy in front: if
+        # nginx did not overwrite the header, a client could forge it and
+        # Django would believe the request arrived over TLS. Pinned as a pair
+        # so neither half can drift alone.
+        conf = (settings.BASE_DIR / "nginx-demo.conf").read_text()
+        self.assertIn("proxy_set_header X-Forwarded-Proto https;", conf)
+        values = self.reload_with({"DEBUG": "false"}, argv=self.SERVER_ARGV)
+        self.assertEqual(
+            values["SECURE_PROXY_SSL_HEADER"], ("HTTP_X_FORWARDED_PROTO", "https")
+        )
+
+    def test_the_switch_is_documented_for_the_deployment_that_needs_it(self):
+        # The rollout order matters on the Mac Mini (HTTPS_ONLY=false before
+        # the pull), so the switch has to be discoverable from the files a
+        # deploy reads, not only from the issue.
+        self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / ".env.example").read_text())
+        self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / "README.md").read_text())
+
+
+class HealthcheckRedirectExemptionTest(SimpleTestCase):
+    """The container healthcheck talks to gunicorn directly, with no
+    X-Forwarded-Proto, so SECURE_SSL_REDIRECT would answer it with a 301 to
+    https://localhost:8000/health/. urlopen follows that, gunicorn speaks
+    plain HTTP, and the check dies on `SSL: WRONG_VERSION_NUMBER` — after
+    three retries the container is unhealthy and nginx, which waits on
+    `service_healthy`, never starts. The demo runs with HTTPS_ONLY at its
+    default, so this would have taken the public stack down on the #157
+    deploy."""
+
+    HEALTHCHECK_URL_PATTERN = re.compile(r"urlopen\('(http://[^']+)'")
+
+    @override_settings(SECURE_SSL_REDIRECT=True, DEMO_MODE=True)
+    def test_the_healthcheck_path_survives_the_ssl_redirect(self):
+        self.assertEqual(self.client.get("/health/").status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_every_other_path_is_still_redirected(self):
+        # The exemption is one path, not a hole in the redirect.
+        response = self.client.get("/dashboard/")
+        self.assertEqual(response.status_code, 301)
+        self.assertTrue(response["Location"].startswith("https://"))
+
+    def test_both_compose_healthchecks_use_a_path_the_exemption_covers(self):
+        # The exempt regex and the URL the healthcheck asks for are one
+        # decision in two files. Pinned as a pair so renaming the endpoint in
+        # a compose file cannot silently reintroduce the 301.
+        for name in ("docker-compose.yml", "docker-compose.demo.yml"):
+            with self.subTest(compose=name):
+                conf = (settings.BASE_DIR / name).read_text()
+                url = self.HEALTHCHECK_URL_PATTERN.search(conf)
+                self.assertIsNotNone(url, "no healthcheck urlopen found")
+                path = urlparse(url.group(1)).path.lstrip("/")
+                self.assertTrue(
+                    any(re.search(p, path) for p in settings.SECURE_REDIRECT_EXEMPT),
+                    f"{path} is not exempt from the SSL redirect",
+                )

@@ -1,0 +1,16 @@
+# Gitignored files that every worktree needs, copied in on creation.
+# Same syntax as .gitignore. Only files that match AND are gitignored are copied.
+
+# API keys and Django settings. Without this a worktree cannot boot the app.
+.env
+
+# Real SSH targets for the deploy skill.
+.claude/skills/deploy/hosts.md
+
+# Demo database (the path settings.py uses in DEMO_MODE), so a worktree
+# runs the demo without a reseed.
+data/demo.sqlite3
+
+# .venv is deliberately NOT listed: a copied virtualenv keeps absolute paths
+# into the original checkout and breaks. Link it in the worktree instead:
+#   ln -s ../../../.venv .venv      (run from .claude/worktrees/<name>/)
