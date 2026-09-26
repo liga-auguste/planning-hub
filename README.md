@@ -344,6 +344,30 @@ from (re)starting, even though the app itself is otherwise fine — this bit an
 already-deployed demo host whose `.env` predated the healthcheck and had
 `ALLOWED_HOSTS` set to only its public hostname.
 
+**`HTTPS_ONLY=false` belongs in this stack's `.env`, and only this one.**
+`manage.py check --deploy` asks for secure cookies, HSTS and an HTTPS redirect,
+and `settings.py` turns all three on whenever `DEBUG` is false — so a fresh
+deployment is secure without naming the switch at all (#157). This stack is the
+exception: `nginx.conf` listens on port 80, access is over VPN, and there is no
+TLS. A browser discards a `Secure`-flagged cookie on such a connection, which
+would take sessions and every CSRF-protected POST with it, so `check --deploy`
+keeps reporting those warnings here. That is a true statement about this
+deployment rather than a gap — the demo, which does terminate TLS, reports
+none.
+
+When switching an existing host, **write the line before pulling and
+rebuilding.** In the other order the container comes up with secure cookies
+against a plain-HTTP nginx and the stack is unusable until the `.env` catches
+up.
+
+HSTS starts at one hour (`SECURE_HSTS_SECONDS = 3600`), deliberately short: a
+browser remembers it for the whole max-age and refuses plain HTTP for the
+domain until it expires, so a mistake cannot be fixed on the server, only
+waited out. Raise it to a year once HTTPS is confirmed clean on every host
+serving this domain. `SECURE_HSTS_INCLUDE_SUBDOMAINS` stays off — the other
+subdomains are not this app's to commit — which is why `security.W005` and
+`security.W021` are in `SILENCED_SYSTEM_CHECKS` with their reasoning.
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 

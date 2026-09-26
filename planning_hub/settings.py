@@ -43,6 +43,67 @@ ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost 127.0.0.1").split()
 
 CSRF_TRUSTED_ORIGINS = os.environ.get("CSRF_TRUSTED_ORIGINS", "").split()
 
+# Which process this is. Used by the HTTPS block below and by STORAGES further
+# down, both of which have to behave differently under the test runner than in
+# a server process.
+_TESTING = sys.argv[1:2] == ["test"]
+
+# #157: the four settings `manage.py check --deploy` asks for — secure cookies
+# (W012, W016), HSTS (W004) and the HTTPS redirect (W008).
+#
+# Gating them on plain `not DEBUG` would break the production deployment.
+# nginx.conf listens on port 80 only: there is no TLS on the Mac Mini and
+# access is over VPN, so a browser would discard a `Secure`-flagged cookie and
+# take sessions and every CSRF-protected POST with it. Hence a switch of its
+# own, defaulting the safe way round: a fresh checkout with DEBUG=false gets
+# the whole set, and the one deployment that cannot have it opts out in its own
+# .env with HTTPS_ONLY=false. `check --deploy` keeps warning there, which is
+# simply the truth about that deployment.
+#
+# DEBUG wins either way — this is an opt-*out* for a TLS-less deployment, never
+# an opt-in that could make a local runserver hand out Secure cookies.
+HTTPS_ONLY = not DEBUG and os.environ.get("HTTPS_ONLY", "true").lower() == "true"
+
+SESSION_COOKIE_SECURE = HTTPS_ONLY
+CSRF_COOKIE_SECURE = HTTPS_ONLY
+
+# One hour, deliberately short. A browser remembers HSTS for the whole max-age
+# and refuses plain HTTP for the domain until it expires, so a mistake here
+# cannot be taken back by fixing the server — only waited out. Raise it to a
+# year once HTTPS has been confirmed clean on every host that serves this
+# domain; an hour is the value that stays recoverable while that is still
+# being established.
+#
+# SECURE_HSTS_INCLUDE_SUBDOMAINS stays off (Django's default): ligaauguste.de
+# carries more than this app, and those are not this deployment's to promise
+# for. See SILENCED_SYSTEM_CHECKS below for the two checks that asks for.
+SECURE_HSTS_SECONDS = 3600 if HTTPS_ONLY else 0
+
+# nginx terminates TLS, so Django only ever sees an HTTP request and would
+# never emit the HSTS header without being told. Trusting a client-settable
+# header is only safe because the demo's nginx overwrites it rather than
+# passing it through (`proxy_set_header X-Forwarded-Proto https`,
+# nginx-demo.conf) — the two are pinned together in HttpsOnlySettingsConfTest.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if HTTPS_ONLY else None
+
+# nginx owns the real redirect (its 80 block sends everything to 443); this is
+# the fallback that makes W008 true rather than merely handled elsewhere.
+#
+# `not _TESTING` is not optional: the test client speaks http://, and CI runs
+# without a .env so DEBUG defaults to false — every request in the suite would
+# answer 301 before reaching a view.
+SECURE_SSL_REDIRECT = HTTPS_ONLY and not _TESTING
+
+# Turning HSTS on raises two new warnings, so silencing them is what keeps
+# this from trading four warnings for two:
+#
+#   W005 — wants SECURE_HSTS_INCLUDE_SUBDOMAINS. Declined above: the other
+#          subdomains of this domain are not this app's to commit.
+#   W021 — wants the HSTS preload flag, which requires includeSubDomains plus
+#          a max-age of at least a year, and submits the domain to a list
+#          browsers ship. Both are the opposite of the cautious start above.
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
+
 
 # Application definition
 
@@ -193,7 +254,6 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 #
 # Overriding STORAGES replaces Django's whole default dict, so the "default"
 # file storage has to be restated even though it just repeats the default.
-_TESTING = sys.argv[1:2] == ["test"]
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
