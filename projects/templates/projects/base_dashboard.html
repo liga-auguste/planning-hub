@@ -131,6 +131,13 @@ not be defined yet.
 <script src="{% static 'projects/js/action_feedback.js' %}"></script>
 <script src="{% static 'projects/js/task_date_picker.js' %}"></script>
 <script src="{% static 'projects/js/task_add_row.js' %}"></script>
+{% comment %}
+#200: the About overlay, after task_date_picker.js because it reads that
+file's lastInputWasKeyboard. Plain rather than `defer` for the same reason
+as the three above, and last because it binds on load rather than defining
+anything the blocks below call.
+{% endcomment %}
+<script src="{% static 'projects/js/about_overlay.js' %}"></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>
