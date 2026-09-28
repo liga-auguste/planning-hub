@@ -596,6 +596,54 @@ which binding runs first.
 Adding a surface is therefore an include plus one call. Copying `reschedule()` into it is
 the thing this split exists to prevent.
 
+### One add, one consequence — so that module keeps it
+
+`task_add_row.js` (#148) makes the opposite cut on purpose, and the two together are the
+rule rather than an inconsistency: **what is shared is whatever means the same thing
+everywhere.** For the picker that is the asking and not the consequence, because each
+surface's *reschedule* is genuinely its own — the table above is four different answers.
+For the add it is both. `add_task_view` busts every cache rather than patching one, so its
+answer carries no figures at all, and there is nothing left for a surface to do with a
+confirmed write but reload. The module therefore holds the whole write, and a surface is an
+include plus `bindTaskAddRows(csrfToken)`.
+
+The token is the argument because it is the one thing the two surfaces really do get
+differently — the dashboard from the hidden input the page owns (see "The page owns its
+CSRF token" above), `/mein-plan/` from the template variable. Two identical `fetch` calls in
+two templates would be exactly the duplication #233 and #266 were about.
+
+A callback earns itself the moment a surface has a consequence of its own — the
+cross-project work list (#53's follow-up) is the candidate. Not before: a split invented
+for a second caller that does not exist yet is a shape nobody can check.
+
+## A date is stored as the day it names, not as the string that arrived
+
+Both date-taking writes — `reschedule_task_view` and `add_task_view` via
+`_parse_posted_task_date` — validate with `date.fromisoformat` and then store
+`parsed.isoformat()`, never the string from the body.
+
+The distinction is not pedantry. Since Python 3.11 `date.fromisoformat` accepts every ISO
+8601 date form, so `"20260905"` and `"2026-W36-5"` pass the same check `"2026-09-05"` does
+— and the string that passed is what both worlds then persist: `task["date"]` in a demo
+session, `{"date": {"start": …}}` in Notion. Two consumers compare that string rather than
+a date:
+
+- `download_plan` sorts by it (`key=lambda t: (not t.get("date"), t.get("date") or "")`),
+  and `"-" < "0"`, so a compact form sorts after *every* hyphenated date — while the
+  rendered lists, which sort on a real `date` object via `_annotate_tasks`, put it in the
+  right place. The page and the export would disagree about the one thing the export's sort
+  exists to get right.
+- Notion is handed it verbatim as a date property's `start`. Whether the API accepts
+  `"20260905"` there is not something this repo knows: the Notion path is mocked in every
+  test (#215), so the only honest statement is that a spelling nobody has tested against the
+  live API would be reaching it. Normalising first removes the question instead of answering
+  it.
+
+Neither is reachable from the app itself: an `<input type="date">` only ever submits
+`YYYY-MM-DD`. That is the reason to fix it in the parser rather than in the client —
+validating a date and normalising it are two different things, and only the second one
+makes the stored string safe to compare.
+
 ## Deliberate gaps
 
 These are decisions, not omissions.
@@ -633,6 +681,14 @@ These are decisions, not omissions.
   same reason — it has never read `sim_date`, so it renders the real date and a write there
   lands where it shows (#246). What it lacked was any mention of the moment
   at all, which is what the notice above `.project-header` now adds.
+- **The add row disappears under a moment without saying so.** #244's answer to a silently
+  removed affordance is a notice where the attempt is made — beside the dot, and inside the
+  ⋮ menu that names the three entries the moment took. Both are *row*-scoped, and the add
+  row is not a row action but the last line of the list, so neither place can carry it. A
+  page-level notice is the obvious third answer and is exactly what #244 rejected for the
+  banner: a line on screen the whole time, aimed mostly at visitors who were never going to
+  try. Recorded rather than bolted on, and smaller than the toggle's case was — the row
+  never appears under a moment, so nothing about it changes under the visitor's hands.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a
@@ -659,11 +715,14 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests/test_dashboard_writes.py` covers this in thirteen classes:
+`projects/tests/test_dashboard_writes.py` covers this in seventeen classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
-- `KanbanColumnTest` — the mapping, including a completeness check against `_URGENCY_RANK`
+- `KanbanColumnTest` — the mapping, including a completeness check against `_URGENCY_RANK`.
+  The one class here that lives in `test_dashboard.py` instead: the column a task lands in
+  is read-path behaviour, and the write only has to agree with it (see
+  [`test-suite-layout.md`](test-suite-layout.md) — a test goes where its subject is)
 - `ToggleKeepsTheDashboardCacheWarmTest` — patched not deleted, stale copies included,
   derived fields re-derived, and the fallback to a full bust
 - `ToggleAnswersTheRecomputedFiguresTest` — the response shape, the denominator effect,
@@ -687,6 +746,25 @@ change, and the bump is mandatory rather than cosmetic.
 - `ThePickerSaysItIsSavingTest` — the input is marked before the `await` and unmarked in
   the same `finally` that swaps the date back, marked rather than disabled, with a rule
   in the shared sheet
+- `AddTaskDemoModeTest` — the demo half (#148): where the task lands, that it survives the
+  next request, the key shape every consumer of `demo_plan["tasks"]` reads, an id that does
+  not reuse a trashed one, the summary sweep, and each refusal on its own — 405, a malformed
+  body, an empty name, a date that is not one, a missing date, a project that is not the
+  session plan, and a moment
+- `AddTaskProductionTest` — the Notion half: the arguments `create_task` is called with, the
+  full cache bust, the 502 that leaves the cache alone, the task on the next render, and
+  every 400 asserted to land *before* any write. Both halves also pin the canonical date:
+  `"20260905"` passes `date.fromisoformat` and is stored, and handed to Notion, as
+  `"2026-09-05"`
+- `AddRowIsOfferedOnlyWhereItPersistsTest` — the two refusals in the *markup*, one case per
+  test, ending with `/mein-plan/` losing the row under a moment. That is the one place the
+  add and the toggle part company, so it is pinned rather than left to be rediscovered as a
+  bug — `test_my_plan_loses_it_under_a_moment_too`, named for what it asserts
+- `TheAddRowIsOneComponentTest` — the module holds the write and no template holds a copy
+  of `/task/add/`, the base loads it un-`defer`red and ahead of `extra_js`, both surfaces
+  bind it with their own token, a confirmed write reloads, a rejected `fetch` counts as a
+  failure, what was typed survives one, and the `pending` guard that keeps a second click
+  from writing a second Notion page
 
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
@@ -718,3 +796,11 @@ until a click, tokens borrowed from the banner, above the menu's `z-index`, obey
 flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the
 dot gaining no affordance back, and the menu note — present in a moment, absent outside
 one, and deliberately not a `.task-menu-item` the keyboard handler would focus.
+
+`projects/tests/test_my_plan.py` carries what the add exposed downstream, in
+`ExportListsEveryTaskInDateOrderTest`: the Markdown export iterated `plan["tasks"]` in
+session order, which was only chronological because `planner_review` sorted it once. A
+reschedule already broke that and an appended task would have landed after the event. The
+class pins an added task being listed, being listed in the right *place*, a rescheduled task
+moving there too, a dateless task sorting last rather than crashing the sort, and — since the
+sort compares the stored string — a non-canonical spelling still sorting by the day it names.

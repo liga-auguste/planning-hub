@@ -391,9 +391,13 @@ projects/
   notion.py          # Notion API read/write
   demo_data.py       # Fixture data for DEMO_MODE
   rules.py           # Planning rules: database in production, session in demo mode
-  views.py           # Dashboard, task toggle, time-lapse, stats, health check
+  closeout.py        # Wochenabschluss storage: table in production, session in demo mode
+  dates.py           # ISO calendar-week comparisons, shared by views.py and ai.py
+  date_format.py     # German date display, shared by views.py and the planner_tags filter
+  language_eval.py   # Language eval for Claude's German prose — real API calls, so not a test
+  views.py           # Dashboard, the task writes, time-lapse, stats, health check
   planner_views.py   # 4-step planner flow
-  models.py          # PlannerRule, DemoEvent
+  models.py          # DemoEvent, WeekCloseout, PlannerRule, RulesSeeded
   startup.py         # Fail-fast API-key checks at server start
   tests/             # Test suite, fully offline (Claude stubbed), split by subject:
     base.py            #   shared fixtures — imported, never collected
@@ -406,11 +410,13 @@ projects/
     test_week_view.py  #   Heute / Diese Woche, day columns, week helpers
     test_timelapse.py  #   Zeitreise: moments, simulated date, preloader
     test_my_plan.py    #   /mein-plan/
+    test_landing.py    #   the landing page: what it renders, where it sends a visitor
     test_summary.py    #   the AI weekly summary, end to end
     test_closeout.py   #   Wochenabschluss
     test_notion.py     #   notion.py against a mocked API
     test_rules.py      #   planning rules, both backends, seeding, migrations
     test_naming.py     #   display names and date formatting
+    test_language_eval.py  # the eval's own checks — the eval itself is not run here
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 34 templates: the pages plus the partials they share
@@ -418,14 +424,20 @@ projects/
     action_feedback.js          #   how a failed write reports itself
     task_date_picker.js         #   asking for a date; each surface owns the consequence
     task_add_row.js             #   adding a task; one consequence, so the module owns it
+  templatetags/planner_tags.py  # The one filter: plan_date, so a template can format at render time
   templates/404.html, 500.html  # Custom error pages (top level, not projects/)
-  management/commands/seed_rules.py  # Seed initial planner rules
+  management/commands/
+    seed_rules.py               # Seed initial planner rules
+    eval_language.py            # Run the language eval — real Claude calls, run by hand
 docs/
-  template-refactoring.md      # Base-template inheritance layout, as carried out
+  dashboard-write-paths.md      # Which write touches which cache, and which is offered where
+  template-refactoring.md       # Base-template inheritance layout, as carried out
   demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
   planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
   production-readiness.md       # Favicon, social tags, error pages, robots.txt, health check
+  design-tokens.md              # The token set, the palette, and what each token is for
   test-suite-layout.md          # Which subject lives in which test module, and why
+  wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
   screenshots/                  # README images
 ```
 
