@@ -3,6 +3,7 @@ migrations that backfill them."""
 
 import importlib
 import json
+from io import StringIO
 
 from django.contrib.sessions.models import Session
 from django.core.management import call_command
@@ -482,8 +483,20 @@ class PlannerRulesDatabaseModeTest(TestCase):
 
 @override_settings(DEMO_MODE=False)
 class SeedRulesCommandTest(TestCase):
+    """The command's own stdout goes into a buffer rather than into the test
+    run's output, the way test_config.py already hands collectstatic a
+    verbosity of 0. Six calls printed six developer-facing lines between the
+    dots on every run, which is noise where a reader is looking for failures.
+    Captured rather than silenced: the message is what the command tells the
+    maintainer on a deploy, so a test may as well read it."""
+
+    def seed(self):
+        out = StringIO()
+        call_command("seed_rules", stdout=out)
+        return out.getvalue()
+
     def test_seeds_all_initial_rules_with_their_project_types(self):
-        call_command("seed_rules")
+        self.seed()
         self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
         for i, rule in enumerate(INITIAL_RULES):
             stored = PlannerRule.objects.get(text=rule["text"])
@@ -492,12 +505,12 @@ class SeedRulesCommandTest(TestCase):
             self.assertTrue(stored.active)
 
     def test_marks_itself_seeded(self):
-        call_command("seed_rules")
+        self.seed()
         self.assertTrue(RulesSeeded.objects.exists())
 
     def test_is_a_no_op_on_a_second_run(self):
-        call_command("seed_rules")
-        call_command("seed_rules")
+        self.assertIn("Created 5 rules.", self.seed())
+        self.assertIn("Rules already seeded, skipped.", self.seed())
         self.assertEqual(PlannerRule.objects.count(), len(INITIAL_RULES))
 
     def test_does_not_reseed_after_every_rule_is_deleted(self):
@@ -507,9 +520,9 @@ class SeedRulesCommandTest(TestCase):
         idempotency check based on PlannerRule's row count would silently
         resurrect the deleted defaults on the next deploy. Tracking "already
         seeded" via RulesSeeded instead avoids that."""
-        call_command("seed_rules")
+        self.seed()
         PlannerRule.objects.all().delete()
-        call_command("seed_rules")
+        self.seed()
         self.assertEqual(PlannerRule.objects.count(), 0)
 
 
