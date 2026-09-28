@@ -1,5 +1,6 @@
 """/mein-plan/ — the single-project view of a session plan."""
 
+import json
 from datetime import (
     date,
     timedelta,
@@ -257,3 +258,64 @@ class MyPlanOffersTheDatePickerTest(DemoModeTestCase):
         self.given_session_plan()
         html = self.client.get(reverse("my_plan")).content.decode()
         self.assertIn("flashActionFailed(dueEl);", html)
+
+
+class ExportListsEveryTaskInDateOrderTest(DemoModeTestCase):
+    """#148 acceptance 4. The export iterated plan["tasks"] in session
+    order, which only happened to be chronological because planner_review
+    sorted it once — a reschedule already broke it (reschedule_task_view
+    rewrites task["date"] in place and never re-sorts) and an appended task
+    would land after the event. Sorted here, by the same key _annotate_tasks
+    uses, so both cases come out right."""
+
+    def add(self, name, iso_date):
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps(
+                {"project_id": "session-plan", "name": name, "date": iso_date}
+            ),
+            content_type="application/json",
+        )
+
+    def export(self):
+        return self.client.get(reverse("download_plan")).content.decode()
+
+    def test_a_task_added_after_plan_creation_is_listed(self):
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        self.assertIn("Programmheft prüfen", self.export())
+
+    def test_an_added_task_is_listed_in_its_chronological_position(self):
+        # given_session_plan's own task is 7 days out; this one is 3.
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        body = self.export()
+        self.assertLess(
+            body.index("Programmheft prüfen"), body.index("Programm festlegen")
+        )
+
+    def test_a_rescheduled_task_moves_in_the_export_too(self):
+        # The regression the sort repairs in passing.
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": (date.today() + timedelta(days=1)).isoformat()}),
+            content_type="application/json",
+        )
+        body = self.export()
+        self.assertLess(
+            body.index("Programm festlegen"), body.index("Programmheft prüfen")
+        )
+
+    def test_a_dateless_task_is_listed_last_rather_than_crashing_the_sort(self):
+        # A session written before a date was mandatory can still carry one.
+        plan = self.given_session_plan()
+        plan["tasks"].append(
+            {"id": "demo-session-1", "name": "Ohne Datum", "date": "", "done": False}
+        )
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        body = self.export()
+        self.assertLess(body.index("Programm festlegen"), body.index("Ohne Datum"))

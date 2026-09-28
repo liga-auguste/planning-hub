@@ -830,6 +830,13 @@
             {% for task in project.tasks %}{% include "projects/_task_row.html" %}{% endfor %}
         </div>
         {% endif %}
+        {% comment %}
+        #148: under the list rather than beside the heading, because that is
+        where the next task would appear. The partial carries both conditions
+        that decide whether it renders at all, so this include is only about
+        which project the row belongs to.
+        {% endcomment %}
+        {% include "projects/_task_add_row.html" with project_id=project.id %}
     </div>
     {% endfor %}
     {% endfor %}
@@ -1564,6 +1571,17 @@ bindTaskDatePickers(async (taskId, newDate, dueEl) => {
     window.location.reload();
     return true;
 }, {within: '.ai-card'});
+
+// #148: the add row, one per project section. The module owns the whole
+// write, not just the asking — an add has one consequence everywhere, and
+// it is a reload for the reason the endpoint gives (add_task_view): the
+// cache is busted rather than patched, so the answer carries no figures and
+// every count, bar and badge is re-rendered by the server (#210).
+//
+// No gate of its own: _task_add_row.html renders nothing under
+// viewing_demo_data or under a moment, which are exactly the two cases
+// add_task_view answers 404 for.
+bindTaskAddRows(CSRF);
 
 // #239: the row's actions menu. It adds no endpoint of its own — every
 // item drives a control the row already had, so there is exactly one

@@ -9,6 +9,9 @@ urlpatterns = [
     path("stats/", views.stats, name="stats"),
     path("mein-plan/download/", views.download_plan, name="download_plan"),
     path("refresh/", views.refresh, name="refresh"),
+    # A create has no task id to name itself with, so the project comes in
+    # the body instead of the path (#148, add_task_view).
+    path("task/add/", views.add_task_view, name="add_task"),
     path("task/<str:task_id>/toggle/", views.toggle_task_view, name="toggle_task"),
     path("task/<str:task_id>/rename/", views.rename_task_view, name="rename_task"),
     path("task/<str:task_id>/trash/", views.trash_task_view, name="trash_task"),

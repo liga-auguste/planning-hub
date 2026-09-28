@@ -330,3 +330,25 @@ button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-
    outline reads on the dot and on the text targets alike. */
 .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
 @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+
+/* The add-task row (#148). Here rather than in either surface's own
+   extra_css for the same reason the date's styling moved here in #266: the
+   markup is one partial (_task_add_row.html) and the behaviour is one module
+   (js/task_add_row.js), so a surface that includes the one and calls the
+   other must not have to re-type the third. Both templates already load this
+   file.
+
+   Aligned with the task rows above it rather than boxed: the row is the last
+   line of a list, not a form that happens to sit under one. */
+.task-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; flex-wrap: wrap; }
+.task-add-name { flex: 1 1 180px; min-width: 0; font-size: 13px; padding: 5px 8px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-primary); }
+.task-add-name::placeholder { color: var(--color-text-quaternary); }
+.task-add-date { font-size: 12px; padding: 4px 6px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-tertiary); }
+.task-add-submit { font-size: 13px; padding: 5px 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
+.task-add-submit:hover { background: var(--color-bg-secondary); }
+.task-add-submit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* #198, the same promise the date picker makes: the write is visible while
+   it runs. Not `hidden` or removed — the row keeps what was typed, so a
+   failure can be retried rather than retyped. */
+.task-add-row.pending { opacity: 0.6; }
+.task-add-submit:disabled { cursor: default; }

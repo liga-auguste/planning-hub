@@ -60,11 +60,22 @@ read falls back to.
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
 | Move a task to the trash | full bust | full bust | — |
+| Add a task to a plan | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
 A rename ([#239](https://github.com/liga-auguste/planning-hub/issues/239)) sits with the
 toggle: `_annotate_tasks` sorts by due date, so a new name moves nothing and the summary's
 `task_refs` still point where they did.
+
+An add ([#148](https://github.com/liga-auguste/planning-hub/issues/148)) sits with the
+removal below, and in production it has even less choice: the new Notion page id does not
+exist until the write returns, so there is nothing for `_patch_cached_tasks` to find even
+if it had an insertion path. A demo session *could* do better — `_remap_summary_refs` maps
+by task identity, so an insertion is losslessly remappable and every existing `task_ref`
+would survive — and deliberately does not. A rescheduled task is one the summary already
+knew about; an added task is content the summary should have mentioned and now cannot, and
+having the two worlds answer the same write differently costs more in reasoning than the
+Claude call it would save.
 
 A removal is the one write with no patch path, and that is a decision rather than an
 omission. `_patch_cached_tasks` mutates in place and has no way to drop a task, and a
@@ -211,13 +222,29 @@ the others.
 A write is offered where it takes effect, and refused where it would not — the same rule
 either way, so a click never has to be interpreted.
 
-| Situation | Toggle | Reschedule |
-|---|---|---|
-| Production, a Notion task | yes | yes |
-| A demo session's own plan | yes | yes |
-| A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) |
-| A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes |
-| A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes |
+| Situation | Toggle | Reschedule | Add |
+|---|---|---|---|
+| Production, a Notion task | yes | yes | yes |
+| A demo session's own plan | yes | yes | yes |
+| A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) | no — in no session, 404 (#10 §5) |
+| A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes | no — read-only, 404 (#217) |
+| A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes | no — the moment is in the same session, and the endpoint reads it (#217) |
+
+The add column follows the toggle rather than the reschedule, and for the toggle's own
+reason. A new date visibly moves a task, so a reschedule under a moment is neither
+invisible nor lost; an added task dated before the moment would be forced `done` by the
+simulated render the instant it appeared, which is exactly the invisible write #217
+refused. `_task_add_row.html` is the single place that decides it, the way
+`_task_dot.html` decides the dot — the row is not rendered under `viewing_demo_data` or
+under `sim_date`, which are exactly the two cases `add_task_view` answers 404 for.
+
+`/mein-plan/` is the one row where the add and the toggle part company, and that is the
+endpoint being honest rather than an inconsistency. The page renders the real date, so its
+*toggle* has its own route (`session-task/<id>/toggle/`) that never asks about the moment.
+The add has one route for both worlds — a create has no task id to name itself with, so
+the project travels in the body — and that route reads the session's `demo_sim_date` like
+every other write. Rather than let a row promise something the endpoint would refuse, the
+row is hidden here too.
 
 The last two rows are the ones that are not about persistence, and they are the same
 rule reaching opposite answers. `dashboard()` renders a moment by
@@ -394,6 +421,8 @@ re-triggers `preloadAll()` against the fresh `precached_moments`.
 | Reschedule, cold cache | no figures | reloads |
 | Reschedule from the day-column drag | same | reloads — the column change is definitional |
 | Reschedule fails in Notion | 502 | undoes the drag / restores the date |
+| Add, either world | bare `{"ok": true}` | reloads — the cache was busted, so there are no figures to write |
+| Add fails in Notion | 502 | keeps what was typed, flashes the button |
 | Zeitreise moment set | `{"ok": true}` | fades out and reloads — the whole page is a different date |
 | Zeitreise POST refused or never lands | 403 / 502 / nothing | **no reload** — takes the paint back, flashes the trigger, re-arms the preloads |
 

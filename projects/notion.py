@@ -496,6 +496,38 @@ def create_project(name: str, event_date: date, date_uncertain: bool = False) ->
         return response["id"]
 
 
+def create_task(project_id: str, name: str, task_date: str) -> None:
+    """#148: one task added to a plan that already exists, as opposed to
+    create_tasks' whole plan.
+
+    Deliberately not create_tasks with a one-element list. That function
+    reads the project's existing tasks and skips any (name, date) it already
+    finds, which is what makes a retried plan save idempotent after a
+    partial failure — and exactly wrong here: a second "Programmheft prüfen"
+    on the same day is a legitimate add, and the visitor would be told `ok`
+    for a page that was never written. So this writes without reading, and
+    the double-submit case stays the client's (task_add_row.js marks the row
+    pending while the write runs).
+
+    No Kontext property. It is production-only and comes from the planner's
+    Claude call (#18/#145); this row does not ask for one, and an empty
+    multi_select would be a write claiming "no kontext" rather than leaving
+    whatever Notion's own UI put there alone. The accepted consequence is
+    that a task added this way is invisible to the cross-project batching
+    hint the summary prompt derives from kontext.
+    """
+    with translate_notion_errors():
+        _client().pages.create(
+            parent={"database_id": TASKS_DB},
+            properties={
+                "Aufgabe": {"title": [{"text": {"content": name}}]},
+                "Wann?": {"date": {"start": task_date}},
+                "Done": {"checkbox": False},
+                "Related to Projekte": {"relation": [{"id": project_id}]},
+            },
+        )
+
+
 def create_tasks(project_id: str, tasks: list) -> None:
     client = _client()
     with translate_notion_errors():
