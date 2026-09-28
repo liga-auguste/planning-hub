@@ -307,11 +307,24 @@ the affordance goes — and `toggle_task_view` refuses the POST with the same 40
 projects already get. Rescheduling stays: a new date visibly moves the task in or out of
 the forced-done range, so it is not the same contradiction.
 
+Adding a task follows the toggle, for the toggle's own reason (#148). A task dated before
+the moment would be forced `done` by the simulated render the instant it appeared, which is
+this section's contradiction reached by a different route, so `_task_add_row.html` renders
+nothing under `sim_date` and `add_task_view` answers the same 404.
+
 `/mein-plan/` keeps its own toggle (`toggle_session_task`), and that is the same rule
 rather than a gap in it (#246). The rule is "a write is offered where it takes effect", not
 "a moment locks the session plan": `my_plan()` never reads `sim_date`, so it renders the
 real state on the real date and a toggle there is visible exactly where it is made.
 Guarding it would refuse a write the visitor can see land.
+
+The add is the one write where `/mein-plan/` does *not* keep its affordance, and that is
+the same rule again rather than an exception to it. The toggle has a route of its own
+(`session-task/<id>/toggle/`) that never asks about the moment, because a task id is enough
+to name what it writes. A create has no task id, so it has one route for both surfaces —
+the project travels in the body — and that route reads the session's `demo_sim_date` like
+every other write. The row is hidden here too rather than promising something the endpoint
+would refuse.
 
 Removing the affordance was correct and silent. The moment also takes three ⋮ entries with
 it — "Als erledigt markieren", "Umbenennen" and "In den Papierkorb" — so a visitor had four
@@ -323,6 +336,14 @@ date — it briefly carried the consequence too and that made a line which is on
 whole time into a standing warning, aimed mostly at visitors who were never going to try.
 The protection itself is unchanged. Full reasoning in
 [`docs/dashboard-write-paths.md`](dashboard-write-paths.md).
+
+The add row is the one removal that #244's answer does not reach, and knowingly so: both
+notices are *row*-scoped — beside a dot, inside a ⋮ menu — and the add row is the last line
+of the list rather than an action on a row. A page-level line is the third option and is the
+one #244 rejected for the banner. Recorded as a gap in
+[`docs/dashboard-write-paths.md`](dashboard-write-paths.md#deliberate-gaps) rather than
+bolted on, and it is the milder case: the row never appears under a moment, so nothing about
+it changes under the visitor's hands.
 
 ### The Zeitreise stays a dashboard device
 

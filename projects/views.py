@@ -41,6 +41,7 @@ from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
+    create_task,
     get_tasks_completed_in_range,
     get_tasks_created_in_range,
     get_unassigned_tasks,
@@ -1501,14 +1502,17 @@ def toggle_task_view(request, task_id):
     return JsonResponse({"ok": True, **figures})
 
 
-def _parse_posted_name(request):
-    """Returns (name, error_response). #154/#61's shape: a malformed body is
-    a 400, never a 500, and a name is only a name once it has something in
-    it — an empty rename would leave a row nothing identifies it by."""
-    data, error = _parse_json_dict_body(request)
-    if error:
-        return None, error
-    name = data.get("name")
+def _parse_posted_name(request_data):
+    """Returns (name, error_response) from an already-parsed body. #154/#61's
+    shape: a name is only a name once it has something in it — an empty
+    rename would leave a row nothing identifies it by, and an added task
+    nothing to call it.
+
+    Takes the dict rather than the request, the way reschedule_task_view
+    already reads its own date: #148 needs the project id out of the same
+    body, and parsing it twice to get two fields out of it is one parse too
+    many."""
+    name = request_data.get("name")
     if not isinstance(name, str) or not name.strip():
         return None, JsonResponse({"error": "invalid name"}, status=400)
     return name.strip(), None
@@ -1523,7 +1527,10 @@ def rename_task_view(request, task_id):
     position. It is the one write that moves nothing."""
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    name, error = _parse_posted_name(request)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    name, error = _parse_posted_name(data)
     if error:
         return error
     if settings.DEMO_MODE:
@@ -1618,17 +1625,150 @@ def trash_task_view(request, task_id):
     return JsonResponse({"ok": True})
 
 
+def _parse_posted_task_date(request_data):
+    """Returns (iso_string, error_response). A date is mandatory, unlike the
+    timelapse's — an absent one there clears the simulated moment, while a
+    dateless task would drop out of every list this app sorts and buckets by
+    date (_annotate_tasks, _bucket_by_day, the export).
+
+    Parsed to prove it is a date, and handed on as what that date spells
+    rather than as what arrived. date.fromisoformat has accepted every ISO
+    8601 date form since 3.11, so "20260905" and "2026-W36-5" get through it
+    too — and the string is what both worlds then store and compare. The
+    export sorts on it (download_plan) where "-" < "0", so a compact form
+    would sort after every hyphenated date while the rendered list, which
+    sorts on a real date object, put it in the right place. One canonical
+    spelling in, one order out."""
+    raw = request_data.get("date")
+    try:
+        parsed = date.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None, JsonResponse({"error": "invalid date"}, status=400)
+    return parsed.isoformat(), None
+
+
+def _next_demo_task_id(tasks):
+    """The id for a task appended to a demo session plan.
+
+    Not len(tasks): planner_create numbers by enumerate, so after a trash an
+    id derived from the length re-uses one that is still live — and every
+    write addresses a task by id. Highest existing suffix + 1 instead,
+    stepping over any id that does not parse (a session written by an older
+    format, or one this function itself never produced)."""
+    prefix = "demo-session-"
+    highest = -1
+    for task in tasks:
+        task_id = str(task.get("id", ""))
+        # An explicit prefix test rather than rpartition: with the separator
+        # absent rpartition hands the whole string back as the suffix, so an
+        # id of "7" would be read as this scheme's number 7 instead of being
+        # stepped over.
+        if not task_id.startswith(prefix):
+            continue
+        suffix = task_id.removeprefix(prefix)
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return f"{prefix}{highest + 1}"
+
+
+def add_task_view(request):
+    """#148: a task added to a plan that already exists.
+
+    The project is in the body rather than in the path, unlike every other
+    write here. A create has no task id to name itself with, and when this
+    row later surfaces on the cross-project work list (#53's follow-up) the
+    project simply becomes nullable there rather than the route becoming a
+    second route.
+
+    The cache is busted rather than patched, in both worlds. In production
+    it has no choice: _patch_cached_tasks mutates a task found by id and has
+    no insertion path, and the new Notion page id does not exist until the
+    write returns. Demo *could* do better — _remap_summary_refs maps by task
+    identity, so an insertion is losslessly remappable — and deliberately
+    does not: a rescheduled task is one the summary already knew about,
+    while an added task is content the summary should have mentioned and
+    now cannot. Having the two worlds answer the same write differently
+    costs more in reasoning than the Claude call it would save.
+
+    So the answer carries no figures, and the client reloads. Same shape as
+    trash_task_view, and the same #210 argument: every count, progress bar
+    and board badge is re-rendered by the server rather than reconciled by
+    hand.
+
+    Refused under a Zeitreise moment (#217), the way toggling is and
+    rescheduling is not. A task dated before the moment would be forced
+    `done` by the simulated render the instant it appeared — exactly the
+    invisible write #217 refused. The row is not offered there either.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    project_id = data.get("project_id")
+    if not isinstance(project_id, str) or not project_id.strip():
+        return JsonResponse({"error": "invalid project"}, status=400)
+    project_id = project_id.strip()
+    name, error = _parse_posted_name(data)
+    if error:
+        return error
+    task_date, error = _parse_posted_task_date(data)
+    if error:
+        return error
+
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        # The demo example projects come from get_demo_projects() and are in
+        # no session, so nothing there can be written to (#10 §5) — a 404
+        # rather than a cheerful ok for something that was never saved.
+        if not plan or project_id != "session-plan":
+            return JsonResponse({"error": "unknown project"}, status=404)
+        plan["tasks"].append(
+            {
+                "id": _next_demo_task_id(plan["tasks"]),
+                "name": name,
+                "date": task_date,
+                "done": False,
+            }
+        )
+        request.session["demo_plan"] = plan
+        # Swept rather than remapped — see the docstring. The unversioned
+        # prefix covers every summary version a long-lived session may still
+        # carry (SUMMARY_KEY above).
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
+    else:
+        try:
+            create_task(project_id, name, task_date)
+        except NotionUnavailableError:
+            # Including an unknown project_id, which production cannot tell
+            # apart from an outage without an extra read it does not need to
+            # pay for.
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
+
+
 def reschedule_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
     data, error = _parse_json_dict_body(request)
     if error:
         return error
-    raw_date = data.get("date")
     try:
-        parsed_date = date.fromisoformat(raw_date)
+        parsed_date = date.fromisoformat(data.get("date"))
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
+    # Canonical rather than as it arrived, for _parse_posted_task_date's
+    # reason: fromisoformat takes every ISO 8601 date form, and this string
+    # is what the session stores and the export sorts on. Hence iso_date and
+    # not raw_date — what reaches Notion and the session is the date's own
+    # spelling, not the request's.
+    iso_date = parsed_date.isoformat()
     due_display = format_date(parsed_date, role="long")
     # #238: two formats, because the client writes this answer into two
     # elements. The Kanban card spells the month out; the task row was
@@ -1671,7 +1811,7 @@ def reschedule_task_view(request, task_id):
         # reads before its own: the summaries below are numbered against
         # this order.
         numbered_before = _session_task_order(plan, effective_today)
-        task["date"] = raw_date
+        task["date"] = iso_date
         # #171: awareness, not punishment — starts counting from the second
         # move, but the counter itself increments on every reschedule from
         # the first one (the badge threshold is a display concern, applied
@@ -1710,7 +1850,7 @@ def reschedule_task_view(request, task_id):
         )
     else:
         try:
-            update_task_date(task_id, raw_date)
+            update_task_date(task_id, iso_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
         # Applied right away, before the counter call: the date change is
@@ -2297,7 +2437,14 @@ def download_plan(request):
         "",
     ]
 
-    for t in plan["tasks"]:
+    # Sorted rather than iterated in session order (#148). That order only
+    # ever happened to be chronological because planner_review sorted it
+    # once: reschedule_task_view rewrites task["date"] in place and never
+    # re-sorts, and an added task is appended. Same key _annotate_tasks
+    # sorts the rendered lists by, so the export and the page agree.
+    for t in sorted(
+        plan["tasks"], key=lambda t: (not t.get("date"), t.get("date") or "")
+    ):
         checkbox = "[x]" if t["done"] else "[ ]"
         due = date.fromisoformat(t["date"]) if t.get("date") else None
         due_str = f" — {format_date(due, role='long')}" if due else ""

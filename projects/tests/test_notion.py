@@ -19,6 +19,7 @@ from ..notion import (
     _get_tasks,
     _query_all_pages,
     create_project,
+    create_task,
     create_tasks,
     find_project,
     get_historical_projects,
@@ -86,6 +87,12 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 create_project("Test", date.today())
+
+    def test_create_task_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                create_task("project-id", "Programmheft prüfen", "2026-09-05")
 
     def test_create_tasks_translates_a_failure(self):
         with patch("projects.notion.Client") as MockClient:
@@ -517,6 +524,67 @@ def _fake_project_page(page_id, name, iso_date):
             "Status/Aufgaben": {"status": {"name": "geplant", "color": "blue"}},
         },
     }
+
+
+class CreateTaskWritesOnePageTest(SimpleTestCase):
+    """#148: a single interactive add, as opposed to create_tasks' whole
+    plan. The two differ in exactly one thing that matters here — create_tasks
+    deduplicates by (name, date) so a retried plan save is idempotent, and
+    that would silently swallow a legitimate second "Programmheft prüfen" on
+    the same day. So this writes without reading first, and the tests pin
+    both halves: what the page carries, and the read that must not happen."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def create(self, name="Programmheft prüfen", iso_date="2026-09-05"):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            create_task("project-id", name, iso_date)
+        return instance
+
+    def test_it_writes_one_page_into_the_tasks_database(self):
+        instance = self.create()
+        instance.pages.create.assert_called_once()
+        self.assertEqual(
+            instance.pages.create.call_args.kwargs["parent"],
+            {"database_id": TASKS_DB},
+        )
+
+    def test_the_page_carries_name_date_done_and_the_project_relation(self):
+        properties = self.create().pages.create.call_args.kwargs["properties"]
+        self.assertEqual(
+            properties["Aufgabe"]["title"][0]["text"]["content"], "Programmheft prüfen"
+        )
+        self.assertEqual(properties["Wann?"], {"date": {"start": "2026-09-05"}})
+        self.assertEqual(properties["Done"], {"checkbox": False})
+        self.assertEqual(
+            properties["Related to Projekte"], {"relation": [{"id": "project-id"}]}
+        )
+
+    def test_it_writes_no_kontext(self):
+        # #18/#145: kontext is production-only and comes from the planner's
+        # Claude call. This row does not ask for one, and sending an empty
+        # multi_select would be a write claiming "no kontext" rather than
+        # leaving the property alone.
+        properties = self.create().pages.create.call_args.kwargs["properties"]
+        self.assertNotIn("Kontext", properties)
+
+    def test_it_does_not_read_the_projects_existing_tasks_first(self):
+        # The dedup create_tasks does, which this must not inherit: a second
+        # task with the same name on the same day is a legitimate add, not a
+        # retry of a partially written plan.
+        instance = self.create()
+        instance.databases.query.assert_not_called()
+
+    def test_the_same_name_and_date_can_be_written_twice(self):
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            create_task("project-id", "Programmheft prüfen", "2026-09-05")
+            create_task("project-id", "Programmheft prüfen", "2026-09-05")
+        self.assertEqual(instance.pages.create.call_count, 2)
 
 
 class HistoricalProjectsCapTest(SimpleTestCase):

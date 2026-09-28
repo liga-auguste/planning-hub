@@ -50,6 +50,10 @@ from .base import (
 )
 
 
+def _iso_in(days):
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
 @override_settings(DEMO_MODE=False)
 class ToggleTaskNotionFailureTest(TestCase):
     """toggle_task_view always returned {"ok": True} regardless of what
@@ -134,6 +138,20 @@ class RescheduleTaskNotionFailureTest(TestCase):
             )
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json(), {"error": "notion unavailable"})
+
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD, and "20260905" passes
+        # date.fromisoformat — so validating is not the same as normalising.
+        with (
+            patch("projects.views.update_task_date") as mock_update,
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "20260905"}',
+                content_type="application/json",
+            )
+        mock_update.assert_called_once_with("task-1", "2026-09-05")
 
     def test_success_still_reports_ok(self):
         with (
@@ -518,6 +536,14 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
+
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # The same rule the add path follows (_parse_posted_task_date): a
+        # date that passes date.fromisoformat is not yet a YYYY-MM-DD string,
+        # and the stored one is what download_plan sorts on.
+        self.given_session_plan()
+        self.post_date("demo-session-0", '{"date": "20260905"}')
+        self.assertEqual(self.stored_dates(), ["2026-09-05"])
 
     def test_a_missing_date_is_rejected(self):
         plan = self.given_session_plan()
@@ -1291,6 +1317,430 @@ class TrashTaskProductionTest(TestCase):
             project["tasks"] = []
             response = self.client.get(reverse("dashboard"))
         self.assertNotContains(response, "Programm festlegen")
+
+
+class AddTaskDemoModeTest(DemoModeTestCase):
+    """#148 in a demo session: the task lands in session['demo_plan'], the
+    same place every other demo write does."""
+
+    def post_add(self, project_id="session-plan", **body):
+        payload = {"name": "Programmheft prüfen", "date": _iso_in(3)}
+        payload.update(body)
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps({"project_id": project_id, **payload}),
+            content_type="application/json",
+        )
+
+    def test_the_task_lands_in_the_session_plan(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add().json(), {"ok": True})
+        names = [t["name"] for t in self.client.session["demo_plan"]["tasks"]]
+        self.assertIn("Programmheft prüfen", names)
+
+    def test_it_survives_the_next_request(self):
+        self.given_session_plan()
+        self.post_add()
+        self.assertContains(self.client.get(reverse("my_plan")), "Programmheft prüfen")
+
+    def test_it_is_stored_the_way_planner_create_stores_one(self):
+        # Every consumer of demo_plan["tasks"] reads these keys —
+        # _build_session_project the first three, the toggle "done".
+        self.given_session_plan()
+        self.post_add(date="2026-09-05")
+        added = self.client.session["demo_plan"]["tasks"][-1]
+        self.assertEqual(added["name"], "Programmheft prüfen")
+        self.assertEqual(added["date"], "2026-09-05")
+        self.assertIs(added["done"], False)
+        self.assertTrue(added["id"])
+
+    def test_the_new_id_does_not_reuse_a_trashed_one(self):
+        # planner_create numbers by enumerate, so an id derived from
+        # len(tasks) would collide with a live task after a trash — and
+        # every write addresses a task by id.
+        plan = self.given_session_plan()
+        plan["tasks"].append(
+            {
+                "id": "demo-session-1",
+                "name": "Plakate",
+                "date": _iso_in(5),
+                "done": False,
+            }
+        )
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        self.client.post(
+            reverse("trash_task", args=["demo-session-0"]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.post_add()
+        ids = [t["id"] for t in self.client.session["demo_plan"]["tasks"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn("demo-session-1", ids[1:])
+
+    def test_the_cached_summaries_are_swept(self):
+        # An added task is content the summary should have mentioned and
+        # could not — unlike a reschedule, which only moves a task the
+        # summary already knew about and is therefore remappable.
+        self.given_session_plan()
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = _summary_data()
+        session["demo_plan_summary_v1_today"] = _summary_data()
+        session.save()
+        self.post_add()
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+        self.assertNotIn("demo_plan_summary_v1_today", self.client.session)
+
+    def test_a_project_that_is_not_the_session_plan_is_a_404(self):
+        # The demo example projects are in no session, so nothing there can
+        # be written to (#10 §5).
+        self.given_session_plan()
+        self.assertEqual(self.post_add(project_id="demo-1").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_add_during_a_moment_is_refused(self):
+        # #217: a task dated before the moment would be forced done by the
+        # simulated render the instant it appeared.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertEqual(self.post_add().status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        self.assertEqual(self.client.get(reverse("add_task")).status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("add_task"), data="not json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_empty_name_is_a_400(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add(name="   ").status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_unparseable_date_is_a_400(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date="übermorgen").status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_missing_date_is_a_400(self):
+        # Unlike the timelapse date, an absent one here clears nothing — a
+        # dateless task would drop out of every list this app sorts by date.
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date=None).status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_the_name_is_stripped(self):
+        self.given_session_plan()
+        self.post_add(name="  Programmheft prüfen  ")
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["name"], "Programmheft prüfen"
+        )
+
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # date.fromisoformat takes every ISO 8601 date form since 3.11, so
+        # validating with it is not the same as having YYYY-MM-DD. The stored
+        # string is what download_plan sorts on, and "-" < "0", so "20260905"
+        # kept as it arrived would sort after every hyphenated date.
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date="20260905").json(), {"ok": True})
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-05"
+        )
+
+    def test_an_iso_week_date_is_stored_as_the_day_it_names(self):
+        self.given_session_plan()
+        self.post_add(date="2026-W36-5")
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-04"
+        )
+
+    def test_an_id_outside_the_scheme_does_not_raise_the_counter(self):
+        # _next_demo_task_id reads the number off "demo-session-N". An id that
+        # never carried that prefix carries no number of this scheme either —
+        # rpartition used to hand the whole string back as the suffix, so a
+        # bare "7" was read as number 7 and the next add jumped to 8.
+        plan = self.given_session_plan()
+        plan["tasks"].append({"id": "7", "name": "Alt", "date": "", "done": False})
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        self.post_add()
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["id"], "demo-session-1"
+        )
+
+
+@override_settings(DEMO_MODE=False)
+class AddTaskProductionTest(TestCase):
+    """The production half. The cache is busted rather than patched, for the
+    reason trash_task_view already wrote down and one more: the new Notion
+    page id does not exist until the write returns, and _patch_cached_tasks
+    has no insertion path at all."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_add(self, **body):
+        payload = {
+            "project_id": "p1",
+            "name": "Programmheft prüfen",
+            "date": _iso_in(3),
+        }
+        payload.update(body)
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def warm_the_cache(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        return project
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(date="2026-09-05")
+        mock_create.assert_called_once_with("p1", "Programmheft prüfen", "2026-09-05")
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_a_confirmed_write_busts_every_cached_copy(self):
+        self.warm_the_cache()
+        with patch("projects.views.create_task"):
+            self.post_add()
+        for key in (
+            CACHE_KEY,
+            STALE_CACHE_KEY,
+            UNASSIGNED_CACHE_KEY,
+            STALE_UNASSIGNED_CACHE_KEY,
+            CACHE_DEADLINE_KEY,
+            UNASSIGNED_CACHE_DEADLINE_KEY,
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(cache.get(key))
+
+    def test_a_notion_failure_is_a_502_and_leaves_the_cache_alone(self):
+        self.warm_the_cache()
+        with patch(
+            "projects.views.create_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_add().status_code, 502)
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+
+    def test_the_task_is_on_the_next_render(self):
+        project = self.warm_the_cache()
+        with patch("projects.views.create_task"):
+            self.post_add()
+        project["tasks"].append(
+            {
+                "id": "task-2",
+                "name": "Programmheft prüfen",
+                "due": date.today() + timedelta(days=3),
+                "done": False,
+                "kontext": [],
+            }
+        )
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Programmheft prüfen")
+
+    def test_a_get_is_a_405(self):
+        self.assertEqual(self.client.get(reverse("add_task")).status_code, 405)
+
+    def test_a_malformed_body_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.client.post(
+                reverse("add_task"), data="not json", content_type="application/json"
+            )
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_a_missing_project_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(project_id="")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_an_empty_name_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(name="   ")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_an_unparseable_date_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(date="übermorgen")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD; "20260905" passes
+        # date.fromisoformat and would have been forwarded as it arrived.
+        with patch("projects.views.create_task") as mock_create:
+            self.post_add(date="20260905")
+        mock_create.assert_called_once_with("p1", "Programmheft prüfen", "2026-09-05")
+
+
+class AddRowIsOfferedOnlyWhereItPersistsTest(DemoModeTestCase):
+    """#148's two refusals, in the markup rather than only in the endpoint.
+    A row that answers 404 on every submit is an affordance that is not
+    there — the same reasoning _task_due.html and _task_dot.html carry."""
+
+    def dashboard_html(self, **params):
+        return self.client.get(reverse("dashboard"), params).content.decode()
+
+    def test_a_session_plan_gets_the_row_on_the_dashboard(self):
+        self.given_session_plan()
+        self.assertIn('class="task-add-row"', self.dashboard_html())
+
+    def test_a_session_plan_gets_the_row_on_my_plan(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertIn('class="task-add-row"', html)
+
+    def test_the_demo_example_projects_do_not_get_it(self):
+        # viewing_demo_data: those projects are in no session (#10 §5).
+        self.assertNotIn('class="task-add-row"', self.dashboard_html())
+
+    def test_a_moment_takes_it_away(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertNotIn('class="task-add-row"', self.dashboard_html())
+
+    def test_my_plan_loses_it_under_a_moment_too(self):
+        # #246: /mein-plan/ renders the real date, so the write the
+        # dashboard refuses is not the one this page would make. The
+        # endpoint decides per world, and this page is not the simulated
+        # one — but the moment lives in the same session, so the refusal
+        # would reach it. Pinned so the pair cannot drift apart silently.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertNotIn('class="task-add-row"', html)
+
+
+class TheAddRowIsOneComponentTest(DemoModeTestCase):
+    """#148 follows #266's and #233's cut, one write further on: the markup
+    is one partial and the write is one module, so a surface is an include
+    plus one call.
+
+    The whole write, not only the asking — which is where this differs from
+    the date picker deliberately. Each surface's *reschedule* means something
+    different; an add means the same thing everywhere, because the endpoint
+    busts the caches and answers no figures. Two identical fetches in two
+    templates would be the duplication those two issues were about."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_module_holds_the_write(self):
+        source = self.MODULE.read_text()
+        self.assertIn("function bindTaskAddRows(csrfToken)", source)
+        self.assertIn("fetch('/task/add/'", source)
+
+    def test_no_template_holds_a_copy_of_it(self):
+        # The uniqueness criterion as a test rather than as a review note:
+        # the endpoint is the one thing a second copy could not do without.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "/task/add/" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/task_add_row.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Not `defer`, for task_date_picker.js's reason: both surfaces call
+        # bindTaskAddRows() from an inline script in extra_js, and an inline
+        # script runs while the document is still parsing.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("task_add_row.js' %}\" defer", base)
+        self.assertLess(
+            base.index("task_add_row.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_both_surfaces_bind_it_with_their_own_token(self):
+        # The token is the one thing the two get differently — the dashboard
+        # from the hidden input the page owns, /mein-plan/ from the template
+        # variable — which is why it is the argument.
+        self.assertIn("bindTaskAddRows(CSRF);", self.dashboard_html())
+        self.assertIn(
+            "bindTaskAddRows(CSRF);",
+            self.client.get(reverse("my_plan")).content.decode(),
+        )
+
+    def test_a_successful_add_reloads(self):
+        # The answer carries no figures — the cache was busted, so there is
+        # nothing warm left to derive them from, and the server re-renders
+        # every count, bar and badge instead (#210).
+        self.assertIn("window.location.reload();", self.MODULE.read_text())
+
+    def test_a_rejected_fetch_is_a_failed_add_too(self):
+        # #159: a transport failure never reaches the .ok check.
+        source = self.MODULE.read_text()
+        self.assertIn("if (!response || !response.ok)", source)
+        self.assertIn("flashActionFailed(submitEl);", source)
+
+    def test_what_was_typed_survives_a_failure(self):
+        # Cleared by the reload on success and by nothing else, so a failed
+        # add is retried rather than retyped.
+        source = self.MODULE.read_text()
+        self.assertNotIn("nameEl.value = ''", source)
+
+    def test_the_write_is_visible_while_it_runs(self):
+        # #198, the same promise the date picker makes — and the guard that
+        # keeps a second click from writing a second Notion page, which
+        # create_task deliberately does not deduplicate.
+        source = self.MODULE.read_text()
+        self.assertIn("row.classList.add('pending');", source)
+        self.assertIn("if (row.classList.contains('pending')) return;", source)
 
 
 class TrashHappensBehindASecondClickTest(DemoModeTestCase):
