@@ -1934,6 +1934,37 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
                     self.client.get(reverse("dashboard") + query).content.decode(),
                 )
 
+    def test_the_opened_section_takes_focus_from_the_hidden_row(self):
+        # Activating the label hides the row it sits in, so focus would fall
+        # to <body> and the next Tab would start at the top of the document.
+        # The header of the section that just opened takes it instead —
+        # tabindex="-1" makes it focusable without adding it to the tab
+        # order, the same trick the picker's restore() has no need of
+        # because its button stays in the page.
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn('<div class="project-header" tabindex="-1">', html)
+        self.assertIn(
+            "if (lastInputWasKeyboard) section.querySelector('.project-header')?.focus();",
+            html,
+        )
+
+    def test_the_move_is_gated_on_the_same_modality_flag(self):
+        # Read off the events rather than off the element, which is the
+        # answer #257 settled on because it is the browser-independent one.
+        # It also keeps the initial deep-link sync out: no keystroke has
+        # happened yet at load, so a ?project= URL leaves focus where the
+        # page put it.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("lastInputWasKeyboard", html)
+        self.assertIn(
+            "let lastInputWasKeyboard = false;",
+            (
+                Path(settings.BASE_DIR)
+                / "projects/static/projects/js/task_date_picker.js"
+            ).read_text(),
+        )
+
     def test_one_listener_covers_both_sites(self):
         # .task-project.ai-project-link is a subset of this selector, so the
         # row and the summary need one binding between them.

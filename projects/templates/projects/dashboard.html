@@ -102,6 +102,10 @@
         .project-section { margin-bottom: 8px; padding: 0; }
         .project-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-primary); }
         .project-name { font-size: 14px; font-weight: 600; }
+        /* #200: the header is not a control, so it carries no ring of its
+           own until showProject() hands it focus — and then it needs one,
+           or a keyboard user is told nothing about where focus went. */
+        .project-header:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; border-radius: 4px; }
         .project-date { font-size: 12px; color: var(--color-text-quaternary); }
         .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
         /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
@@ -812,7 +816,8 @@
     <div class="project-section" id="project-{{ project.id }}" style="display: none;"
          data-name="{{ project.display_name }}"
          data-event-date="{{ project.event_date_display }}">
-        <div class="project-header">
+        {# #200: focusable without joining the tab order — showProject() moves focus here when the keyboard opened the section, because the row that was activated is hidden by then. #}
+        <div class="project-header" tabindex="-1">
             <span class="project-name">{{ project.display_name }}</span>
             {% comment %}
             Production project names carry the event date already (own Notion
@@ -900,9 +905,22 @@ the wording either way.
         document.getElementById('view-overview').style.display = 'none';
         if (todayView) todayView.style.display = 'none';
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
-        document.getElementById('project-' + id).style.display = 'block';
+        const section = document.getElementById('project-' + id);
+        section.style.display = 'block';
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-' + id).classList.add('active');
+        // #200: opening a project from a task row hides the row the button
+        // was in, so focus would be left on a hidden element and the next
+        // Tab would start at the top of the document. The header of the
+        // section that just opened takes it instead. The same holds for the
+        // actions menu's "Projekt öffnen", which hands focus back to its
+        // trigger in the row on the way here.
+        //
+        // Gated on the modality task_date_picker.js reads off the events
+        // (#257): a mouse user asked for no scroll and no ring, and at load
+        // no keystroke has happened yet, so a ?project= deep link leaves
+        // focus where the page put it.
+        if (lastInputWasKeyboard) section.querySelector('.project-header')?.focus();
         if (!syncingHistory) history.pushState({project: id}, '', '?project=' + id);
     }
 
