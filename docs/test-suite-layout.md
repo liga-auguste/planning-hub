@@ -18,13 +18,13 @@ test was added, renamed or removed.
 |---|---:|---:|---|
 | `base.py` | 3 | 0 | Shared fixtures. Not collected — see below |
 | `test_config.py` | 25 | 69 | Deployment, settings, environment, error pages, health check |
-| `test_design.py` | 54 | 224 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
-| `test_sidebar.py` | 25 | 101 | Nav, project list, progress rings, behaviour across viewports and views |
+| `test_design.py` | 55 | 228 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
+| `test_sidebar.py` | 27 | 113 | Nav, project list, progress rings, behaviour across viewports and views |
 | `test_planner.py` | 33 | 104 | The four-step planner flow and the plan-generating calls behind it |
 | `test_dashboard.py` | 25 | 70 | The dashboard read path: what renders, in which column, from which cache |
-| `test_dashboard_writes.py` | 46 | 274 | Add, toggle, rename, reschedule, trash: what they persist, answer and leave in the cache |
+| `test_dashboard_writes.py` | 47 | 281 | Add, toggle, rename, reschedule, trash: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 22 | 113 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_timelapse.py` | 23 | 113 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 8 | 24 | `/mein-plan/`, including the Markdown export |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
 | `test_summary.py` | 19 | 77 | The AI weekly summary: prompt, parsing, resolution, caches |
@@ -33,17 +33,17 @@ test was added, renamed or removed.
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 10 | 28 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
-| **total** | **336** | **1419** | |
+| **total** | **341** | **1442** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
-goes. The two number columns are a count, taken on 2026-09-28 — they move with every
-branch, and a stale number here is a stale number, not a wrong rule. `test_language_eval.py`
+goes. The two number columns are a count, retaken on 2026-09-28 with #200's second half —
+they move with every branch, and a stale number here is a stale number, not a wrong rule. `test_language_eval.py`
 joined the list after the split (#248); the sixteen modules above are all of them.
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
 page a footer, sidebar or design test renders. And demo mode is a *mode*, not a subject —
-195 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
+198 classes inherit `DemoModeTestCase`, so it cuts across every module rather than
 forming one. Four subjects the list did not name got their own module instead
 (`test_config`, `test_design`, `test_summary`, `test_naming`); folding them into the
 nearest neighbour would have made `test_dashboard.py` the new dumping ground.
