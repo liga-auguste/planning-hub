@@ -19,7 +19,7 @@ test was added, renamed or removed.
 | `base.py` | 3 | 0 | Shared fixtures. Not collected — see below |
 | `test_config.py` | 25 | 69 | Deployment, settings, environment, error pages, health check |
 | `test_design.py` | 55 | 228 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
-| `test_sidebar.py` | 27 | 113 | Nav, project list, progress rings, behaviour across viewports and views |
+| `test_sidebar.py` | 27 | 114 | Nav, project list, progress rings, behaviour across viewports and views |
 | `test_planner.py` | 33 | 104 | The four-step planner flow and the plan-generating calls behind it |
 | `test_dashboard.py` | 25 | 70 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 47 | 281 | Add, toggle, rename, reschedule, trash: what they persist, answer and leave in the cache |
@@ -33,7 +33,7 @@ test was added, renamed or removed.
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 10 | 28 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
-| **total** | **341** | **1442** | |
+| **total** | **341** | **1443** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-09-28 with #200's second half —

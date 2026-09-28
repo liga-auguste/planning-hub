@@ -323,6 +323,12 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    them. */
 button.task-due { font: inherit; font-size: 13px; background: none; border: none; padding: 0; text-align: inherit; }
 button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+/* #200: the About overlay's × was always a <button>, but until the opener
+   became one there was no keyboard path that reached it. Now that there is,
+   it gets the same ring as everything else the change made reachable rather
+   than the browser's own. Here and not in the overlay's own inline styles,
+   because the partial renders on all four pages that load this sheet. */
+#about-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
 /* #200: opening a project is a <button> too, on both surfaces that offer
    it — the task row's label and the AI summary's heading. Same reset as the
    date above, minus the font-size: the two surfaces render the label at

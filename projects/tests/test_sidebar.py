@@ -781,6 +781,16 @@ class AboutOverlayIsKeyboardOperableTest(DemoModeTestCase):
             with self.subTest(binding=binding):
                 self.assertIn(binding, source)
 
+    def test_the_close_control_wears_the_same_ring(self):
+        # It was always a <button>, but until the opener became one no
+        # keyboard path reached it, so it never needed a ring of its own.
+        self.assertIn(
+            "#about-close:focus-visible { outline: 2px solid var(--color-accent);",
+            (
+                Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+            ).read_text(),
+        )
+
     def test_closing_hands_focus_back_to_the_opener(self):
         # Hiding the overlay leaves focus on a hidden element, so without
         # this the next Tab starts at the top of the document — the same gap
