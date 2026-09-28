@@ -29,3 +29,8 @@ projects/static/projects/css/bootstrap.css
 projects/static/projects/css/bootstrap.rtl*
 projects/static/projects/js/bootstrap*
 ANALYSEN.md
+
+# Git worktrees created by `claude --worktree`. Each one is a full checkout of
+# the repo: it belongs on the maintainer's machine, never in the repo.
+.claude/worktrees/
+.claude/settings.local.json

@@ -1,5 +1,6 @@
 """/mein-plan/ — the single-project view of a session plan."""
 
+import json
 from datetime import (
     date,
     timedelta,
@@ -212,3 +213,124 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
         self.assertContains(response, "Programm ist der Engpass")
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
+
+
+class MyPlanOffersTheDatePickerTest(DemoModeTestCase):
+    """#186: this page listed dates and offered no way to change one. Both
+    runs of tasks on it — the summary and "Alle Aufgaben" — render the
+    shared partial now and bind the shared picker (#266)."""
+
+    def test_both_runs_of_tasks_render_the_shared_control(self):
+        self.given_session_plan()
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("my_plan")).content.decode()
+        split = html.index('<div class="task-list">')
+        summary = html[html.index('<div class="summary-box">') : split]
+        self.assertIn('<button type="button" class="task-due', summary)
+        self.assertIn('<button type="button" class="task-due', html[split:])
+
+    def test_the_local_task_date_class_is_gone(self):
+        # It was the drift #195 named by name: this page spelled the date
+        # .task-date where every other surface spelled it .task-due, which is
+        # also what kept the shared selector from ever reaching it.
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertNotContains(response, 'class="task-date')
+
+    def test_a_successful_move_reloads_rather_than_patching(self):
+        # Unlike the dashboard: the list is chronological (#140) and nothing
+        # here re-sorts it, and the postpone badge, the progress bar and the
+        # summary's prose are all server-rendered. The session-cached summary
+        # is remapped rather than regenerated on a reschedule, so the reload
+        # costs no Claude call.
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        binding = html[html.index("bindTaskDatePickers(") :]
+        self.assertIn("`/task/${taskId}/reschedule/`", binding)
+        self.assertIn("window.location.reload();", binding)
+
+    def test_a_failed_move_is_flashed_rather_than_swallowed(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertIn("flashActionFailed(dueEl);", html)
+
+
+class ExportListsEveryTaskInDateOrderTest(DemoModeTestCase):
+    """#148 acceptance 4. The export iterated plan["tasks"] in session
+    order, which only happened to be chronological because planner_review
+    sorted it once — a reschedule already broke it (reschedule_task_view
+    rewrites task["date"] in place and never re-sorts) and an appended task
+    would land after the event. Sorted here, by the same key _annotate_tasks
+    uses, so both cases come out right."""
+
+    def add(self, name, iso_date):
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps(
+                {"project_id": "session-plan", "name": name, "date": iso_date}
+            ),
+            content_type="application/json",
+        )
+
+    def export(self):
+        return self.client.get(reverse("download_plan")).content.decode()
+
+    def test_a_task_added_after_plan_creation_is_listed(self):
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        self.assertIn("Programmheft prüfen", self.export())
+
+    def test_an_added_task_is_listed_in_its_chronological_position(self):
+        # given_session_plan's own task is 7 days out; this one is 3.
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        body = self.export()
+        self.assertLess(
+            body.index("Programmheft prüfen"), body.index("Programm festlegen")
+        )
+
+    def test_a_rescheduled_task_moves_in_the_export_too(self):
+        # The regression the sort repairs in passing.
+        self.given_session_plan()
+        self.add("Programmheft prüfen", (date.today() + timedelta(days=3)).isoformat())
+        self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": (date.today() + timedelta(days=1)).isoformat()}),
+            content_type="application/json",
+        )
+        body = self.export()
+        self.assertLess(
+            body.index("Programm festlegen"), body.index("Programmheft prüfen")
+        )
+
+    def test_a_dateless_task_is_listed_last_rather_than_crashing_the_sort(self):
+        # A session written before a date was mandatory can still carry one.
+        plan = self.given_session_plan()
+        plan["tasks"].append(
+            {"id": "demo-session-1", "name": "Ohne Datum", "date": "", "done": False}
+        )
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        body = self.export()
+        self.assertLess(body.index("Programm festlegen"), body.index("Ohne Datum"))
+
+    def test_a_task_added_with_a_non_canonical_iso_date_sorts_by_its_day(self):
+        # The sort compares the stored string, so it only holds while every
+        # stored date is spelled the one way. date.fromisoformat validates
+        # "20260905" too, and "-" < "0" puts a compact form after every
+        # hyphenated date — the endpoint stores what the date spells instead
+        # (_parse_posted_task_date). given_session_plan's own task is 7 days
+        # out; both of these are 3.
+        self.given_session_plan()
+        compact = (date.today() + timedelta(days=3)).isoformat().replace("-", "")
+        self.add("Programmheft prüfen", compact)
+        body = self.export()
+        self.assertLess(
+            body.index("Programmheft prüfen"), body.index("Programm festlegen")
+        )

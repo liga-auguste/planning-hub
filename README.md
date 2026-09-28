@@ -69,6 +69,8 @@ Every Claude call runs inside the request — no task queue, no background worke
 
 What that waiting *does* shape is how gunicorn is sized. It runs threaded workers — `gthread`, two workers of four threads by default — because a blocked-on-I/O request costs a thread (a few hundred KB) rather than a process (~140 MB measured). Buying the concurrency in processes would have meant the usual `(2 × cores) + 1`, which sizes for computation this app does not do. Both numbers read `GUNICORN_WORKERS` and `GUNICORN_THREADS` from the environment, because the two stacks share one `entrypoint.sh` while their machines do not: the demo VPS has 2 cores, the production Mac Mini 8. The trigger for revisiting is unchanged — more than one person planning concurrently — it is just further off now. Threading is safe here because `notion._client()` builds a fresh client per call and none of `notion.py`, `ai.py` or `planner.py` keeps mutable module-level state; a shared client on a module would have to be made thread-safe first.
 
+What the threads do move is where the demo's ceiling sits. That stack keeps its sessions and its `DatabaseCache` in one SQLite file, and SQLite admits a single writer whichever way the concurrency was bought — so the demo database carries three options its defaults do not give it: `journal_mode=WAL`, so readers pass a write in flight; `transaction_mode=IMMEDIATE`, so a write transaction takes its lock when it opens rather than asking for it halfway through, which is the request that fails instead of waiting; and a 20-second `timeout`, so a writer that has to queue actually queues. Measured on the read-then-write shape a cache set and a session save both have, eight threads deep: 43 of 200 transactions failed with `database is locked` on the defaults, none with these three set. Production is PostgreSQL and needs none of it.
+
 One thing the worker switch quietly drops: `--timeout 120` is still in `entrypoint.sh`, but it no longer bounds a request. The threaded worker heartbeats from its own accept loop whether or not its threads are busy, so the timeout only means the process is still communicating — gunicorn's own documentation says exactly that for its non-sync workers. The sync worker it replaces went silent while it was inside a request and was killed and restarted after 120 seconds; that backstop is gone. Acceptable here rather than overlooked: logged calls run 3–11 seconds, nowhere near the old ceiling, a stuck call now costs one of eight threads instead of one of two workers, and the two longest calls stream, where the SDK's own read timeout already catches a response that stops arriving. Setting an explicit `anthropic.Anthropic(timeout=…)` is the honest fix, and it waits on a measured duration for `generate_plan` — the one call that neither streams nor has ever been timed — so the number is read off a `claude_call` log line rather than guessed.
 
 The one place where that blocking was worth removing is the multi-project demo view — where the landing-page CTA sends every first-time visitor. Its input is a pure function of `date.today()` with no per-visitor data, so its summary is cached for the day instead of being generated per request. The cache (`DatabaseCache`, shared across every gunicorn worker and thread) makes that one call per day, not one per worker.
@@ -117,7 +119,7 @@ Every change runs on its own branch and lands through a pull request; nothing go
 
 - **`CLAUDE.md`** carries the conventions an agent has to follow, including the deliberate exceptions it must not "fix". Without it the same misunderstandings come back every session.
 - **`docs/`** holds a written record for each larger change: the context that made it necessary, the decision taken, and how it was verified. Each one names the issue it implements.
-- **The test suite** is where the delegation is actually checked: 15,652 lines of tests against 5,437 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship. The tests live in a package split by subject ([`docs/test-suite-layout.md`](docs/test-suite-layout.md)); both numbers come from one command, so they stop drifting:
+- **The test suite** is where the delegation is actually checked: 18,386 lines of tests against 6,306 lines of application code, run in CI on every pull request against both SQLite and Postgres, because both configurations ship. The tests live in a package split by subject ([`docs/test-suite-layout.md`](docs/test-suite-layout.md)); both numbers come from one command, so they stop drifting:
   ```bash
   wc -l projects/tests/*.py | tail -1   # tests
   find projects planning_hub -name '*.py' \
@@ -132,12 +134,12 @@ A worked example, start to finish: [Issue #116](https://github.com/liga-auguste/
 
 - **AI weekly summary** — Claude returns structured JSON referencing projects and tasks by index; the summary renders with real inline task checkboxes (toggling the same task API as the Kanban board) and project links resolved server-side. The card has three states, and each says which one it is in words: resolved blocks, nothing due ("Diese Woche steht nichts an. Die nächste Aufgabe ist am …"), and Claude unavailable. Nothing due is the ordinary answer for a plan whose first task is months away, and each sentence of that note is guarded independently against the live task list rather than against Claude's silence — an empty answer while something is due this week names the date and drops the claim that the week is clear, and overdue work gets its own sentence ("Überfällig seit dem …") rather than being named as the *next* task. The keys behind those sentences are cut so that at least one always renders, which is what keeps the state from collapsing back into the blank box it replaced. The cross-project batching hint sits outside all three states: it is asked for over every open task with no date horizon, so a clear week — the very case the empty note exists for — is exactly when it can be the only thing the card has to say
 - **Event planner** — free-text → clarifying questions → editable task table → Notion write, with loading states and double-submit protection on every AI step
-- **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date. A moment is a *view* of that date, so it is read-only: everything due by then renders as done, which is the whole point, and offering a checkbox that the next render would overwrite would leave a visitor unable to tell a silent write from no write at all. Rescheduling stays available — a new date visibly moves the task in or out of that range. The page answers rather than going quiet, where the attempt is made rather than in a standing warning: a click on a locked dot gets a short notice beside that dot, and the row's ⋮ menu names the entries the moment removed. The banner above stays a label naming the simulated date
-- **Kanban view** — Open / Urgent / Done columns (stacked into one list below the tablet breakpoint, where three columns with a 220px floor cut the second one down the middle) with a progress bar tracking actual completions (via a real completion date, not a due-date proxy); the column grouping itself is unchanged, and only overdue cards carry a red accent. The bar counts only project-linked tasks, matching what the board beneath it can actually render — the project-less "Ohne Projekt" bucket is tracked separately, in the Heute view below. Scoped to "Diese Woche" (this calendar week) everywhere except a demo visitor's own session plan, where it tracks the whole plan's completion instead ("Projektfortschritt") — a week-scoped count barely moved between time-lapse moments, so the bar now fills moment to moment along with the Zeitreise
+- **Time-lapse simulation** — jump to any point in the project timeline, see AI summary for that moment. In demo mode it applies to the visitor's own session plan only — the example projects carry none of its moments and stay on the real date. A moment is a *view* of that date, so it is read-only: everything due by then renders as done, which is the whole point, and offering a checkbox that the next render would overwrite would leave a visitor unable to tell a silent write from no write at all. Rescheduling stays available — a new date visibly moves the task in or out of that range. The dashboard answers rather than going quiet, where the attempt is made rather than in a standing warning: a click on a locked dot gets a short notice beside that dot, and the row's ⋮ menu names the entries the moment removed. The read-only rule is the dashboard's alone — `/mein-plan/` renders the real date, so its own toggle stays live and a write there is visible where it is made; the list names the running moment instead of dropping out of it silently. The banner above stays a label naming the simulated date
+- **Kanban view** — Open / Urgent / Done columns (stacked into one list below the tablet breakpoint, where three columns with a 220px floor cut the second one down the middle) with a progress bar tracking actual completions (via a real completion date, not a due-date proxy) and filling in the brand accent, the app reporting on itself rather than on a task; the column grouping itself is unchanged, and only overdue cards carry a red accent. The bar counts only project-linked tasks, matching what the board beneath it can actually render — the project-less "Ohne Projekt" bucket is tracked separately, in the Heute view below. Scoped to "Diese Woche" (this calendar week) everywhere except a demo visitor's own session plan, where it tracks the whole plan's completion instead ("Projektfortschritt") — a week-scoped count barely moved between time-lapse moments, so the bar now fills moment to moment along with the Zeitreise
 - **Heute / Diese Woche** — a flat, cross-project work surface: overdue and due-today tasks separated from the rest of the calendar week, plus a project-less "Ohne Projekt" bucket for tasks with no project relation in Notion. Inline complete/reschedule reuse the same task API as every other view. "Diese Woche" further breaks into seven drag-and-drop day columns (SortableJS) with a per-day done/total indicator and prev/next week navigation; below the tablet breakpoint the columns become a vertical list built from the same heading and rows the lists above them use — a week is seven swipes long otherwise, with only one day ever on screen, which is the opposite of what a week view is for. A day with nothing due keeps its heading and lists nothing; moving a task onto it goes through the row's own "Datum ändern" rather than a drag, which is the reachable answer on a touch screen anyway. Offered in production and for the demo's example projects; currently hidden for a demo visitor's own session plan, which is one project — in its cross-project shape the view only re-sorted the tasks the dashboard above had just shown, so it is on hold there until it has something of its own to say about a single plan. "Plan als Liste" is that plan's full task list in the meantime
-- **Task management** — check tasks done, rename a task, reschedule due dates, move one to Notion's trash, "→ today" shortcut for overdue tasks, a quiet "N× verschoben" badge once a task has been moved more than once. Every row carries a `⋮` menu holding all of it, at every viewport width; the dot and the date stay directly clickable as desktop shortcuts. Trashing asks a second time, in the menu rather than in a modal, and the Notion API cannot delete permanently — hence "In den Papierkorb", not "Löschen". In demo mode these cover the visitor's own session plan only — the example projects live in no session, so they are not offered for them
-- **Urgency system** — overdue / due today / urgent (same ISO calendar week) / on track per task and project. Three of those carry a color: overdue is red, due today amber, completed green; urgent and on track render the same neutral grey, deliberately — two warm tones stay tellable apart at the size of a status dot where three did not. The sidebar progress ring turns red only when something is overdue and stays neutral otherwise; open tasks without a date stay neutral instead of counting as done
-- **Weekly close-out ritual** — a deliberate "close the week" flow: triage the week's still-open tasks, reschedule what needs moving, then see a stats snapshot (completed / rescheduled / added) plus an appreciative AI review. Closing a week is what lets the calendar's own rollover mark next week's tasks urgent — see [`docs/wochenabschluss.md`](docs/wochenabschluss.md)
+- **Task management** — check tasks done, add a task to a plan that already exists, rename a task, reschedule due dates, move one to Notion's trash, "→ today" shortcut for overdue tasks, a quiet "N× verschoben" badge once a task has been moved more than once. Every row carries a `⋮` menu holding all of it, at every viewport width; the dot and the date stay directly clickable as desktop shortcuts. Rescheduling is offered wherever a date is shown, not only on the dashboard's rows: the AI summary, "Plan als Liste" and the close-out triage list all render the same date control and bind the same picker (`projects/static/projects/js/task_date_picker.js`), each supplying only what a successful move means on that surface. Adding follows the same shape one write further on: one row (`_task_add_row.html`), one module (`projects/static/projects/js/task_add_row.js`), included by the dashboard's project detail and by "Plan als Liste". It is name and date only — no kontext, which the planner's Claude call supplies and this row does not ask for. Trashing asks a second time, in the menu rather than in a modal, and the Notion API cannot delete permanently — hence "In den Papierkorb", not "Löschen". In demo mode these cover the visitor's own session plan only — the example projects live in no session, so they are not offered for them
+- **Urgency system** — overdue / due today / urgent (same ISO calendar week) / on track per task and project. Three of those carry a color: overdue is red, due today amber, and a task completed in the current calendar week green — after the week turns the dot goes neutral again, so the green dots are exactly the ones filling the "Diese Woche" progress bar above them; urgent and on track render the same neutral grey, deliberately — two warm tones stay tellable apart at the size of a status dot where three did not. The sidebar progress ring turns red only when something is overdue and carries the brand accent otherwise — a ring shows a project's total completion rather than a task's stage, so it is chrome, not a fourth signal colour; open tasks without a date stay neutral instead of counting as done
+- **Weekly close-out ritual** — a deliberate "close the week" flow: triage the week's still-open tasks, reschedule what needs moving, then see a stats snapshot (completed / rescheduled / added) plus an appreciative AI review. Closing a week is what lets the calendar's own rollover mark next week's tasks urgent. The week is a parameter the flow carries rather than today's date read three times: the week that just ended can be closed ("← Vorwoche"), which is what a Monday-morning review is actually about, and a form submitted after the week rolls over still closes the week it was triaging instead of the one that started a few hours ago. The list holds every still-open task of that week, including one whose day has passed — that is the task most in need of a decision, and this is where it gets made — see [`docs/wochenabschluss.md`](docs/wochenabschluss.md)
 - **Plan download** — export session plan as Markdown with AI-tool tips
 - **Usage stats** — anonymous event tracking (plans generated / downloaded, by project type)
 - **Editable planning rules** — drag-and-drop admin UI, toggle on/off, no code change needed. In demo mode each visitor edits their own session copy, so the public page cannot be rewritten for everyone else
@@ -342,6 +344,39 @@ from (re)starting, even though the app itself is otherwise fine — this bit an
 already-deployed demo host whose `.env` predated the healthcheck and had
 `ALLOWED_HOSTS` set to only its public hostname.
 
+The same healthcheck is why `/health/` is in `SECURE_REDIRECT_EXEMPT`: it
+reaches gunicorn directly, so it carries no `X-Forwarded-Proto` and the HTTPS
+redirect below would answer it with a 301 to `https://localhost:8000/health/`.
+`urlopen` follows that, gunicorn speaks plain HTTP, and the check fails on
+`SSL: WRONG_VERSION_NUMBER` — the same `unhealthy` / blocked-nginx outcome as
+above, on the demo stack, which runs with `HTTPS_ONLY` at its default. nginx
+redirects every outside request to 443 before Django sees it, so the exemption
+only ever applies inside the compose network.
+
+**`HTTPS_ONLY=false` belongs in this stack's `.env`, and only this one.**
+`manage.py check --deploy` asks for secure cookies, HSTS and an HTTPS redirect,
+and `settings.py` turns all three on whenever `DEBUG` is false — so a fresh
+deployment is secure without naming the switch at all (#157). This stack is the
+exception: `nginx.conf` listens on port 80, access is over VPN, and there is no
+TLS. A browser discards a `Secure`-flagged cookie on such a connection, which
+would take sessions and every CSRF-protected POST with it, so `check --deploy`
+keeps reporting those warnings here. That is a true statement about this
+deployment rather than a gap — the demo, which does terminate TLS, reports
+none.
+
+When switching an existing host, **write the line before pulling and
+rebuilding.** In the other order the container comes up with secure cookies
+against a plain-HTTP nginx and the stack is unusable until the `.env` catches
+up.
+
+HSTS starts at one hour (`SECURE_HSTS_SECONDS = 3600`), deliberately short: a
+browser remembers it for the whole max-age and refuses plain HTTP for the
+domain until it expires, so a mistake cannot be fixed on the server, only
+waited out. Raise it to a year once HTTPS is confirmed clean on every host
+serving this domain. `SECURE_HSTS_INCLUDE_SUBDOMAINS` stays off — the other
+subdomains are not this app's to commit — which is why `security.W005` and
+`security.W021` are in `SILENCED_SYSTEM_CHECKS` with their reasoning.
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 
@@ -356,9 +391,13 @@ projects/
   notion.py          # Notion API read/write
   demo_data.py       # Fixture data for DEMO_MODE
   rules.py           # Planning rules: database in production, session in demo mode
-  views.py           # Dashboard, task toggle, time-lapse, stats, health check
+  closeout.py        # Wochenabschluss storage: table in production, session in demo mode
+  dates.py           # ISO calendar-week comparisons, shared by views.py and ai.py
+  date_format.py     # German date display, shared by views.py and the planner_tags filter
+  language_eval.py   # Language eval for Claude's German prose — real API calls, so not a test
+  views.py           # Dashboard, the task writes, time-lapse, stats, health check
   planner_views.py   # 4-step planner flow
-  models.py          # PlannerRule, DemoEvent
+  models.py          # DemoEvent, WeekCloseout, PlannerRule, RulesSeeded
   startup.py         # Fail-fast API-key checks at server start
   tests/             # Test suite, fully offline (Claude stubbed), split by subject:
     base.py            #   shared fixtures — imported, never collected
@@ -367,26 +406,38 @@ projects/
     test_sidebar.py    #   nav, project list, progress rings, viewport behaviour
     test_planner.py    #   the four-step planner flow and the calls behind it
     test_dashboard.py  #   the dashboard read path
-    test_dashboard_writes.py  # toggle, rename, reschedule, trash: persist, answer, cache
+    test_dashboard_writes.py  # toggle, add, rename, reschedule, trash: persist, answer, cache
     test_week_view.py  #   Heute / Diese Woche, day columns, week helpers
     test_timelapse.py  #   Zeitreise: moments, simulated date, preloader
     test_my_plan.py    #   /mein-plan/
+    test_landing.py    #   the landing page: what it renders, where it sends a visitor
     test_summary.py    #   the AI weekly summary, end to end
     test_closeout.py   #   Wochenabschluss
     test_notion.py     #   notion.py against a mocked API
     test_rules.py      #   planning rules, both backends, seeding, migrations
     test_naming.py     #   display names and date formatting
+    test_language_eval.py  # the eval's own checks — the eval itself is not run here
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
-  templates/projects/           # 15 templates, all JS inline
+  templates/projects/           # 34 templates: the pages plus the partials they share
+  static/projects/js/           # The three behaviours shared across surfaces:
+    action_feedback.js          #   how a failed write reports itself
+    task_date_picker.js         #   asking for a date; each surface owns the consequence
+    task_add_row.js             #   adding a task; one consequence, so the module owns it
+  templatetags/planner_tags.py  # The one filter: plan_date, so a template can format at render time
   templates/404.html, 500.html  # Custom error pages (top level, not projects/)
-  management/commands/seed_rules.py  # Seed initial planner rules
+  management/commands/
+    seed_rules.py               # Seed initial planner rules
+    eval_language.py            # Run the language eval — real Claude calls, run by hand
 docs/
-  template-refactoring.md      # Base-template inheritance layout, as carried out
+  dashboard-write-paths.md      # Which write touches which cache, and which is offered where
+  template-refactoring.md       # Base-template inheritance layout, as carried out
   demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
   planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
   production-readiness.md       # Favicon, social tags, error pages, robots.txt, health check
+  design-tokens.md              # The token set, the palette, and what each token is for
   test-suite-layout.md          # Which subject lives in which test module, and why
+  wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
   screenshots/                  # README images
 ```
 

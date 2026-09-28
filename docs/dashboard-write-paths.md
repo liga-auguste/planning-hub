@@ -2,8 +2,11 @@
 
 Implements [Issue #210](https://github.com/liga-auguste/planning-hub/issues/210),
 [Issue #199](https://github.com/liga-auguste/planning-hub/issues/199),
-[Issue #217](https://github.com/liga-auguste/planning-hub/issues/217) and the client
-half of [Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
+[Issue #217](https://github.com/liga-auguste/planning-hub/issues/217),
+[Issue #233](https://github.com/liga-auguste/planning-hub/issues/233),
+the pending half of [Issue #198](https://github.com/liga-auguste/planning-hub/issues/198)
+and the client half of
+[Issue #194](https://github.com/liga-auguste/planning-hub/issues/194).
 
 ## Context
 
@@ -57,11 +60,22 @@ read falls back to.
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
 | Move a task to the trash | full bust | full bust | — |
+| Add a task to a plan | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
 A rename ([#239](https://github.com/liga-auguste/planning-hub/issues/239)) sits with the
 toggle: `_annotate_tasks` sorts by due date, so a new name moves nothing and the summary's
 `task_refs` still point where they did.
+
+An add ([#148](https://github.com/liga-auguste/planning-hub/issues/148)) sits with the
+removal below, and in production it has even less choice: the new Notion page id does not
+exist until the write returns, so there is nothing for `_patch_cached_tasks` to find even
+if it had an insertion path. A demo session *could* do better — `_remap_summary_refs` maps
+by task identity, so an insertion is losslessly remappable and every existing `task_ref`
+would survive — and deliberately does not. A rescheduled task is one the summary already
+knew about; an added task is content the summary should have mentioned and now cannot, and
+having the two worlds answer the same write differently costs more in reasoning than the
+Claude call it would save.
 
 A removal is the one write with no patch path, and that is a decision rather than an
 omission. `_patch_cached_tasks` mutates in place and has no way to drop a task, and a
@@ -208,14 +222,32 @@ the others.
 A write is offered where it takes effect, and refused where it would not — the same rule
 either way, so a click never has to be interpreted.
 
-| Situation | Toggle | Reschedule |
-|---|---|---|
-| Production, a Notion task | yes | yes |
-| A demo session's own plan | yes | yes |
-| A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) |
-| A demo session under a Zeitreise moment | no — read-only, 404 (#217) | yes |
+| Situation | Toggle | Reschedule | Add |
+|---|---|---|---|
+| Production, a Notion task | yes | yes | yes |
+| A demo session's own plan | yes | yes | yes |
+| A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) | no — in no session, 404 (#10 §5) |
+| A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes | no — read-only, 404 (#217) |
+| A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes | no — the moment is in the same session, and the endpoint reads it (#217) |
 
-The last row is the one that is not about persistence. `dashboard()` renders a moment by
+The add column follows the toggle rather than the reschedule, and for the toggle's own
+reason. A new date visibly moves a task, so a reschedule under a moment is neither
+invisible nor lost; an added task dated before the moment would be forced `done` by the
+simulated render the instant it appeared, which is exactly the invisible write #217
+refused. `_task_add_row.html` is the single place that decides it, the way
+`_task_dot.html` decides the dot — the row is not rendered under `viewing_demo_data` or
+under `sim_date`, which are exactly the two cases `add_task_view` answers 404 for.
+
+`/mein-plan/` is the one row where the add and the toggle part company, and that is the
+endpoint being honest rather than an inconsistency. The page renders the real date, so its
+*toggle* has its own route (`session-task/<id>/toggle/`) that never asks about the moment.
+The add has one route for both worlds — a create has no task id to name itself with, so
+the project travels in the body — and that route reads the session's `demo_sim_date` like
+every other write. Rather than let a row promise something the endpoint would refuse, the
+row is hidden here too.
+
+The last two rows are the ones that are not about persistence, and they are the same
+rule reaching opposite answers. `dashboard()` renders a moment by
 forcing every task due by `sim_date` to done on a deep copy — that is what a moment *is*,
 a picture of the plan at that date. A toggle under one wrote into the session correctly
 and every derived number correctly ignored it, because the render overrides it anyway. So
@@ -234,6 +266,29 @@ arrives anyway gets the honest miss rather than a silent one.
 
 Rescheduling stays available: a new date visibly moves the task in or out of the
 forced-done range, so it is not the contradiction the toggle is.
+
+### The other toggle route keeps its button, and that is the same rule
+
+`/mein-plan/` drives `session-task/<id>/toggle/` (`toggle_session_task`), and that route
+carries no `sim_date` guard. Read as a rule about the session plan, the asymmetry looks
+like an oversight — the same plan, the same `done` field, one route refusing and the other
+writing (#246). It is not. The rule at the top of this section is about the *surface*, and
+the two surfaces differ in exactly the way the rule cares about: `my_plan()` never reads
+`sim_date`, so its list, its counter and its progress bar all render the real state on the
+real date. A toggle there is visible precisely where it is made, and it stays visible after
+a reload. Guarding it would refuse a write whose effect is on screen — #217's failure with
+the sign flipped.
+
+So both routes are correct and they answer differently because they are asked different
+questions. `TheSessionToggleStaysLiveDuringAMomentTest` (`test_timelapse.py`) pins it, so a
+later consistency fix has to argue with a red test rather than with an absence.
+
+What #246 found genuinely missing is the other half: `/mein-plan/` left the moment without
+a word, so the task the dashboard renders forced-done stood open on the list with nothing
+naming why — "a state the visitor can see but not explain or leave", the failure
+`docs/demo-mode.md` already warns about. That is answered by a notice on the page, not by a
+guard on the route: see [`docs/demo-mode.md`](demo-mode.md), "The Zeitreise stays a
+dashboard device".
 
 ### What the page says about it
 
@@ -366,6 +421,10 @@ re-triggers `preloadAll()` against the fresh `precached_moments`.
 | Reschedule, cold cache | no figures | reloads |
 | Reschedule from the day-column drag | same | reloads — the column change is definitional |
 | Reschedule fails in Notion | 502 | undoes the drag / restores the date |
+| Add, either world | bare `{"ok": true}` | reloads — the cache was busted, so there are no figures to write |
+| Add fails in Notion | 502 | keeps what was typed, flashes the button |
+| Zeitreise moment set | `{"ok": true}` | fades out and reloads — the whole page is a different date |
+| Zeitreise POST refused or never lands | 403 / 502 / nothing | **no reload** — takes the paint back, flashes the trigger, re-arms the preloads |
 
 The stage is what decides which *list* a task belongs to: the Heute lists and the Kanban
 column. When it changes, the task has to change list, not position within one — worth a
@@ -378,6 +437,212 @@ stale — the same page disagreeing with itself that #210 is about, on the one p
 does not reload. The counts now come from `_surface_figures` like every other number, and
 only the two cards that render the date move by hand: the day card, whose column *is* its
 date, and the Kanban card, which spells the date out.
+
+## Every write reports its own failure
+
+The convention was already here and already written down in its own comments; what
+#233 found is that one path did not follow it. `setSimDate` POSTed to `/timelapse/`,
+never looked at the answer, and faded out and reloaded either way — into exactly the
+state the click had meant to leave. Found live on 2026-09-08, where #232's missing CSRF
+token turned every Zeitreise POST into a 403 for as long as a moment was active: the
+tiles and "Zurück" read as dead buttons, and a visitor had no way out of the moment.
+Several minutes went into hunting for a stuck lock before the server log showed the
+requests arriving and being refused.
+
+| Call site | Checks | On failure |
+|---|---|---|
+| Toggle (`dashboard.html`) | `!response \|\| !response.ok`, with `catch` | flashes the button (#159) |
+| `reschedule()` (`dashboard.html`) | same | flashes, restores the date |
+| Day-column drag (`dashboard.html`) | same | undoes the drag |
+| Rename, trash (`dashboard.html`) | same | flashes the name / the trigger |
+| `my_plan.html` | same | reverts the optimistic toggle, flashes |
+| Triage `+7` and picker (`close_week_start.html`) | `reschedule()` answers `null` | flashes the button / the date (#233) |
+| `setSimDate` (`dashboard.html`) | same guard, same `catch` | no reload, paint undone, flashes the trigger (#233) |
+| `preloadOne` (`dashboard.html`) | `!response.ok` → return | silent **by design** — a dropped preload costs a green dot |
+
+**The guard is two checks, not one.** Reviewing the above turned up the same helper
+written the same wrong way twice: `reschedulePersist` (`dashboard.html`) and `reschedule`
+(`close_week_start.html`) cleared the `!response.ok` check and then handed
+`response.json()` on as a promise. A 200 whose body is not JSON makes it reject one step
+past the guard, and two callers await it with nothing of their own around it — #239's
+"Heute" menu item and the triage list's `+7` button. The rejection threw out of the
+handler: nothing flashed, and the triage button kept the `disabled` it had set itself, so
+the one path that was supposed to gain a failure report ended up worse than silent. Both
+helpers now `await response.json()` inside a `try` and answer `null`, which is #159's own
+rule applied one step later — an answer that never reaches the `.ok` check is a failed
+write like any other. The picker's `finally` was already putting the date back on both
+surfaces; what it could not do is flash, because the callback never returned.
+
+Three things had to move for the last two rows to be one line each rather than a third
+and fourth copy of the same block.
+
+**`flashActionFailed` is a module** (`static/projects/js/action_feedback.js`), loaded
+from `base_dashboard.html` beside the date picker and for the same reason: every caller
+is an inline script in `extra_js`, which runs while the document is still parsing, so a
+`defer`red module would not be defined yet.
+
+**`.action-failed` and `@keyframes flash-failed` are in `dashboard.css`**, which that
+same base already loads. This is the half that actually decided it. The triage list had
+the handler's shape and none of the animation — it could not have reported a failure
+even if it had wanted to, which is why both of its paths returned silently. A surface
+now inherits the whole feedback or none of it; it cannot inherit half. The bound is that
+all four surfaces extend `base_dashboard.html`; one outside that base would lose the
+animation again.
+
+**The failure branch does not reload, and takes its own paint back.** `setSimDate`
+paints optimistically before the request — `active` and `loading` on the clicked tile,
+`loading` on the bars, a reduced opacity on the moment title. Left standing after a
+refusal, the bar claims a moment that was never set. `active` is *restored* rather than
+removed: `setSimDate` never clears it off the tile that had it, so a failed click on the
+already-active moment would otherwise leave the bar showing no moment at all while one
+is still on. The dropped preloads are re-armed too — `dropPendingPreloads()` threw them
+out of the queue on the way in and only the reload ever brought them back, so without
+`preloadAll()` here the other moments' green dots would stay off for the rest of the
+session. `preloadOne` is idempotent on both sides (`preloaded` client-side,
+`precached_moments` server-side), so re-arming costs no Claude call for anything already
+generated. All three preload call sites swallow their own rejection — the two here and the
+original `setTimeout(preloadAll, 800)`, which the review found bare: whether a dropped
+preload is worth reporting is settled once (it is not), and left unhandled it arrives in
+the console as an unhandled rejection, noise in the one place a silent failure gets hunted.
+
+**"Zurück zu heute" gets no separate treatment.** Failing to *leave* a moment strands a
+visitor in a way failing to *enter* one does not, which is a real asymmetry — but the
+answer to it is not a second feedback shape. The flash lands on the control that was
+clicked, which for the return path is the button inside the banner, and the banner
+naming the simulated date stays on screen. The visitor is no longer facing a silent dead
+button either way.
+
+**The "Heute" tile was bound twice**, recorded by neither issue. `_timelapse_bar.html`
+carried an `onclick` and `dashboard.html` added a listener to the same button, so one
+press fired `setSimDate` twice: two POSTs and two reload paths. Harmless while nothing
+was checked, two flashes once something was. The attribute goes and the listener stays —
+it is the one that passes the button, which is what the flash needs as a target. The two
+inline callers that remain (the sim banner's "Zurück", #244's locked-dot notice) pass
+`this` for the same reason.
+
+**A rejected preload is not a failed click.** `setSimDate` awaits the clicked moment's
+preload before the POST, and that await had no catch either: offline, the rejection threw
+out of the handler before the POST was attempted at all — #233's silence one step earlier
+than #233 found it. The moment can still be entered without its preload; it only costs a
+Claude call on the other side of the reload.
+
+## A write that is running says so
+
+#198 asked for the reschedule to be optimistic the way the toggle is: write the new date
+into the DOM immediately, correct it when the server answers. That half is **declined**,
+deliberately, and the reasons are the project's own existing decisions rather than new
+ones:
+
+- Writing the date client-side means a second copy of German date formatting in
+  JavaScript. `reschedule_task_view` says so where it derives `next_week_display`, and
+  #192 will change what a role produces — a JS mirror would drift the day it lands.
+  `Intl.DateTimeFormat('de-DE', …)` does not avoid it: the roles produce `Mo, 15. Jun`
+  with no trailing period, which no option set reproduces, so the optimistic guess would
+  visibly differ from the string replacing it a moment later.
+- Painting the new stage means implementing #169's calendar-week urgency rule a second
+  time — and in a demo session it is measured against the simulated date.
+  `URGENCY_CLASSES`' own comment already settles this the other way.
+
+What is left of the intent — the interaction stops looking stuck — is met by the picker
+marking its input while `onPick` runs (`pending` + `aria-busy`, cleared in the same
+`finally` that swaps the display element back, so a thrown callback cannot leave it
+marked). The row shows the `<input type="date">` holding the newly picked date, marked as
+saving, rather than sitting unchanged with no sign that anything is happening. The wait
+is shared because every surface's wait is the same two Notion round trips
+(`increment_postpone_count` is read-then-write, `notion.py`); what the wait *ends* in is
+not, which is why the flash stays with each surface's `onPick`.
+
+Marked, not `disabled`: disabling blurs the input, and `blur` is what swaps the display
+element back — mid-request.
+
+## One picker, four consequences
+
+`_task_due.html` shared the date's *markup* (#195); `projects/static/projects/js/task_date_picker.js`
+shares its *behaviour* (#266). The cut between them is what keeps the second from
+collapsing into a fourth copy of the first.
+
+What is shared is the **asking**: swap the button for an `<input type="date">`, call
+`showPicker()`, track whether the pointer or the keyboard opened it (#200), swap back, and
+hand focus back to a keyboard user only. That is identical wherever a date is rendered,
+and it carries the Safari/Chrome focus-modality reasoning that should be derived once. Since
+#198 it also carries the `pending` mark on the input while `onPick` runs, for the same
+reason: the wait is the same two Notion round trips on every surface (see the section
+above).
+
+What is **not** shared is the consequence. The obvious reading of "extract the handler" is
+to share `reschedule()`, and it is wrong: the dashboard's depends on `browsedWeekStart()`,
+`reclassify()`, `URGENCY_CLASSES`, `applyRescheduleFigures()` and `sortRows()`, none of
+which mean anything on a triage list that does `fetch` and reads `ok`. So the module takes
+a callback and each surface keeps its own:
+
+```js
+bindTaskDatePickers(onPick, {rowSelector, within, exclude});
+onPick(taskId, isoDate, dueEl, row) -> Promise<boolean>
+```
+
+| Surface | After a successful move |
+|---|---|
+| Dashboard rows | patches in place, re-sorts, repaints the dot, writes the figures |
+| Dashboard AI summary | reloads — the prose makes urgency claims a new date invalidates, and `task_refs` are positions in an order the move just changed |
+| `/mein-plan/` | reloads — nothing there re-sorts the list, and badge, progress and summary are all server-rendered |
+| Close-out triage list | patches in place; a reload would drop the moved row and its `task_id` input out of the form that counts it |
+
+`row` is read at click time and handed in, and `within`/`exclude` are read at bind time,
+for the same reason: the picker detaches the button while the request runs, so `closest()`
+called inside a callback finds nothing. The dashboard's two behaviours name the region
+each owns (`{exclude: '.ai-card'}` and `{within: '.ai-card'}`) rather than depending on
+which binding runs first.
+
+Adding a surface is therefore an include plus one call. Copying `reschedule()` into it is
+the thing this split exists to prevent.
+
+### One add, one consequence — so that module keeps it
+
+`task_add_row.js` (#148) makes the opposite cut on purpose, and the two together are the
+rule rather than an inconsistency: **what is shared is whatever means the same thing
+everywhere.** For the picker that is the asking and not the consequence, because each
+surface's *reschedule* is genuinely its own — the table above is four different answers.
+For the add it is both. `add_task_view` busts every cache rather than patching one, so its
+answer carries no figures at all, and there is nothing left for a surface to do with a
+confirmed write but reload. The module therefore holds the whole write, and a surface is an
+include plus `bindTaskAddRows(csrfToken)`.
+
+The token is the argument because it is the one thing the two surfaces really do get
+differently — the dashboard from the hidden input the page owns (see "The page owns its
+CSRF token" above), `/mein-plan/` from the template variable. Two identical `fetch` calls in
+two templates would be exactly the duplication #233 and #266 were about.
+
+A callback earns itself the moment a surface has a consequence of its own — the
+cross-project work list (#53's follow-up) is the candidate. Not before: a split invented
+for a second caller that does not exist yet is a shape nobody can check.
+
+## A date is stored as the day it names, not as the string that arrived
+
+Both date-taking writes — `reschedule_task_view` and `add_task_view` via
+`_parse_posted_task_date` — validate with `date.fromisoformat` and then store
+`parsed.isoformat()`, never the string from the body.
+
+The distinction is not pedantry. Since Python 3.11 `date.fromisoformat` accepts every ISO
+8601 date form, so `"20260905"` and `"2026-W36-5"` pass the same check `"2026-09-05"` does
+— and the string that passed is what both worlds then persist: `task["date"]` in a demo
+session, `{"date": {"start": …}}` in Notion. Two consumers compare that string rather than
+a date:
+
+- `download_plan` sorts by it (`key=lambda t: (not t.get("date"), t.get("date") or "")`),
+  and `"-" < "0"`, so a compact form sorts after *every* hyphenated date — while the
+  rendered lists, which sort on a real `date` object via `_annotate_tasks`, put it in the
+  right place. The page and the export would disagree about the one thing the export's sort
+  exists to get right.
+- Notion is handed it verbatim as a date property's `start`. Whether the API accepts
+  `"20260905"` there is not something this repo knows: the Notion path is mocked in every
+  test (#215), so the only honest statement is that a spelling nobody has tested against the
+  live API would be reaching it. Normalising first removes the question instead of answering
+  it.
+
+Neither is reachable from the app itself: an `<input type="date">` only ever submits
+`YYYY-MM-DD`. That is the reason to fix it in the parser rather than in the client —
+validating a date and normalising it are two different things, and only the second one
+makes the stored string safe to compare.
 
 ## Deliberate gaps
 
@@ -412,8 +677,18 @@ These are decisions, not omissions.
 - **A moment stays read-only rather than explaining itself.** Withholding the button was
   chosen over keeping it and flashing `action-failed`, or writing a notice: a moment is a
   view of a past date, and a control that is always going to refuse is worse than no
-  control. `my_plan` is unaffected — it has never read `sim_date` at all, so its own
-  toggle (`toggle_session_task`) is untouched.
+  control. `my_plan` keeps its toggle (`toggle_session_task`) for the opposite half of the
+  same reason — it has never read `sim_date`, so it renders the real date and a write there
+  lands where it shows (#246). What it lacked was any mention of the moment
+  at all, which is what the notice above `.project-header` now adds.
+- **The add row disappears under a moment without saying so.** #244's answer to a silently
+  removed affordance is a notice where the attempt is made — beside the dot, and inside the
+  ⋮ menu that names the three entries the moment took. Both are *row*-scoped, and the add
+  row is not a row action but the last line of the list, so neither place can carry it. A
+  page-level notice is the obvious third answer and is exactly what #244 rejected for the
+  banner: a line on screen the whole time, aimed mostly at visitors who were never going to
+  try. Recorded rather than bolted on, and smaller than the toggle's case was — the row
+  never appears under a moment, so nothing about it changes under the visitor's hands.
 - **A project-less task has no Kanban card to move.** The board renders only
   `project["tasks"]` (#182), so there is nothing there for the toggle to update.
 - **Two writes landing at once can lose one of them.** `_patch_cached_tasks` is a
@@ -440,11 +715,14 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests/test_dashboard_writes.py` covers this in eleven classes:
+`projects/tests/test_dashboard_writes.py` covers this in seventeen classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
-- `KanbanColumnTest` — the mapping, including a completeness check against `_URGENCY_RANK`
+- `KanbanColumnTest` — the mapping, including a completeness check against `_URGENCY_RANK`.
+  The one class here that lives in `test_dashboard.py` instead: the column a task lands in
+  is read-path behaviour, and the write only has to agree with it (see
+  [`test-suite-layout.md`](test-suite-layout.md) — a test goes where its subject is)
 - `ToggleKeepsTheDashboardCacheWarmTest` — patched not deleted, stale copies included,
   derived fields re-derived, and the fallback to a full bust
 - `ToggleAnswersTheRecomputedFiguresTest` — the response shape, the denominator effect,
@@ -462,6 +740,31 @@ change, and the bump is mandatory rather than cosmetic.
 - `RegeneratingASummaryDoesNotUndoAConcurrentWriteTest` — the second request runs
   inside the stubbed Claude call, which is exactly where it would land; a toggle
   survives, a reschedule takes the summary with it, a bust is not resurrected
+- `TheFailureFlashIsOneModuleTest` — the module holds the flash, no template does, the
+  base loads it un-`defer`red and ahead of `extra_js`, and the animation lives exactly
+  once in `dashboard.css` and in no surface's own block
+- `ThePickerSaysItIsSavingTest` — the input is marked before the `await` and unmarked in
+  the same `finally` that swaps the date back, marked rather than disabled, with a rule
+  in the shared sheet
+- `AddTaskDemoModeTest` — the demo half (#148): where the task lands, that it survives the
+  next request, the key shape every consumer of `demo_plan["tasks"]` reads, an id that does
+  not reuse a trashed one, the summary sweep, and each refusal on its own — 405, a malformed
+  body, an empty name, a date that is not one, a missing date, a project that is not the
+  session plan, and a moment
+- `AddTaskProductionTest` — the Notion half: the arguments `create_task` is called with, the
+  full cache bust, the 502 that leaves the cache alone, the task on the next render, and
+  every 400 asserted to land *before* any write. Both halves also pin the canonical date:
+  `"20260905"` passes `date.fromisoformat` and is stored, and handed to Notion, as
+  `"2026-09-05"`
+- `AddRowIsOfferedOnlyWhereItPersistsTest` — the two refusals in the *markup*, one case per
+  test, ending with `/mein-plan/` losing the row under a moment. That is the one place the
+  add and the toggle part company, so it is pinned rather than left to be rediscovered as a
+  bug — `test_my_plan_loses_it_under_a_moment_too`, named for what it asserts
+- `TheAddRowIsOneComponentTest` — the module holds the write and no template holds a copy
+  of `/task/add/`, the base loads it un-`defer`red and ahead of `extra_js`, both surfaces
+  bind it with their own token, a confirmed write reloads, a rejected `fetch` counts as a
+  failure, what was typed survives one, and the `pending` guard that keeps a second click
+  from writing a second Notion page
 
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
@@ -470,6 +773,19 @@ with its urgency, the unchanged behaviour with no moment active, the reschedule 
 deliberately stays, and the page's own CSRF token — present under a moment, and rendered
 ahead of the toggle forms without one, so it cannot go back to being a side effect of
 whichever form happens to render.
+
+`TheZeitreiseChecksItsAnswerTest` and `TheHeuteTileIsBoundOnceTest`, also in that
+module, carry #233: the guard and the `catch`, a failure branch holding neither a reload
+nor the fade, the paint taken back with `active` *restored* rather than removed, the
+flash, the re-armed preloads, the return path deliberately sharing all of it, the bar's
+tile bound by listener alone, and both remaining inline callers handing their own control
+in. Markup contract only — the behaviour gets a browser pass with the network offline,
+the same boundary `TimelapsePreloadMarkupTest` and `TimelapseClickPriorityTest` already
+document.
+
+`projects/tests/test_closeout.py` carries the third write path in
+`TheTriageListReportsAFailedMoveTest`: both paths flashing, the guard unchanged, and the
+surface carrying no copy of either half of the feedback it now inherits.
 
 `AMomentSaysWhatItLocksTest`, in the same module, carries what the page *says*: the
 banner naming the state and stopping there — the consequence clause pinned out rather
@@ -480,3 +796,11 @@ until a click, tokens borrowed from the banner, above the menu's `z-index`, obey
 flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the
 dot gaining no affordance back, and the menu note — present in a moment, absent outside
 one, and deliberately not a `.task-menu-item` the keyboard handler would focus.
+
+`projects/tests/test_my_plan.py` carries what the add exposed downstream, in
+`ExportListsEveryTaskInDateOrderTest`: the Markdown export iterated `plan["tasks"]` in
+session order, which was only chronological because `planner_review` sorted it once. A
+reschedule already broke that and an appended task would have landed after the event. The
+class pins an added task being listed, being listed in the right *place*, a rescheduled task
+moving there too, a dateless task sorting last rather than crashing the sort, and — since the
+sort compares the stored string — a non-canonical spelling still sorting by the day it names.

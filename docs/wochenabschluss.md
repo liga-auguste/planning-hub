@@ -50,12 +50,105 @@ old label and only the future-due boundary changes.
 
 | Route | Name | Purpose |
 |---|---|---|
-| `woche-abschliessen/` | `close_week_start` | GET: triage list — open tasks due in the current ISO week (overdue tasks stay out; they already have their own signal) |
-| `woche-abschliessen/bestaetigen/` | `close_week_confirm` | POST: compute stats, persist, generate the AI summary, redirect to the review page |
-| `wochenrueckblick/` | `week_review` | GET: latest close-out + stats + AI text |
+| `woche-abschliessen/` | `close_week_start` | GET: triage list — every still-open task due in the browsed ISO week, `?week=YYYY-Www` (default: the current week) |
+| `woche-abschliessen/bestaetigen/` | `close_week_confirm` | POST: compute stats for the week the form carries, persist, generate the AI summary, redirect to that week's review |
+| `wochenrueckblick/` | `week_review` | GET: one close-out + stats + AI text, `?week=YYYY-Www` (default: the latest close-out) |
 
 German paths, English `{% url %}` names — the project's #15 convention for a page a
 visitor navigates to.
+
+### The week is a parameter, and the form wins (#263)
+
+All three views used to derive the week they act on from `timezone.localdate()`
+independently, and the form between the first two carried nothing but a CSRF token and a
+list of task ids. That holds only while the whole ritual happens inside one calendar day,
+which is not how a weekly review is used.
+
+`_week_monday(raw, default_monday)` (`views.py`) is the one parser: `2026-W25` → that
+week's Monday, falling back to `default_monday` on anything unusable — absent, malformed,
+a week number ISO doesn't have, or one too close to `date.min`/`date.max` to render
+(#216). `_parse_week_param` is its `request.GET` caller (#180's dashboard navigation),
+`close_week_confirm` its `request.POST` caller, and `_week_param(monday)` writes the same
+wire format back into links and the hidden field. One format app-wide, one guard, one
+fallback rule — the rejected alternative was a second week format for the form.
+
+**The posted week wins, and there is no mismatch case.** `close_week_confirm` closes the
+week its form was showing, whatever week the request itself falls in: a review begun on
+Friday evening and submitted on Monday still closes the week it was triaging. Once the
+week is a parameter, a week other than today's is a *choice* — reported back as an error
+it would fire on exactly the use the `?week=` navigation exists for. Submitted after the
+rollover, the old code stored the close-out under the following week, counted that week's
+completions (a few hours old), and counted **every** posted task as rescheduled, since a
+task due last week is by definition no longer in "this" one.
+
+**Closing the week that just ended** is the same parameter read from the query string.
+`close_week_start` offers "← Vorwoche" and, while browsing, a way back to the current
+week; there is no forward link, because closing a week that has not happened yet is not
+what the ritual means. `already_closed`, the subtitle and the weekend empty state all
+follow the browsed week — "Genieße dein Wochenende" is about the week that is ending now,
+not about a Saturday spent looking back at one that is over.
+
+**Backwards only, and the bound is in the parser.** `_closeout_week_monday(raw,
+current_monday)` is `_week_monday` plus `min(…, current_monday)`, and both close-out views
+read their week through it — the missing forward link is a decision about the UI, not an
+enforcement, and `?week=` is hand-editable. It matters because of the ordering:
+`get_latest_closeout` sorts by `-iso_year, -iso_week`, so one close-out stored under
+`2099-W01` would outrank every real one and `/wochenrueckblick/` with no parameter would
+answer with it until that week arrived. A future week is clamped rather than rejected —
+the same "not a week this page can act on, show the current one" the parser already
+applies to a malformed value. The dashboard's own `?week=` (#180) is deliberately *not*
+clamped: browsing ahead is what its next-week link is for.
+
+**The review is addressable.** `week_review` renders `get_latest_closeout` when no week is
+named, which is every route into the page that existed before. `close_week_confirm` now
+names the week it just closed: with KW 26 already closed, closing KW 25 would otherwise
+show KW 26's numbers as the result of this visitor's own action. `closeout.py` gained
+`get_closeout(request, iso_year, iso_week)` alongside it, both backends behind one
+interface and sharing one row-to-dict mapping. Demo mode hid this defect rather than
+lacking it: its session holds exactly one close-out, overwritten each time.
+
+`_closeout_dates` is untouched — it stays the single place demo mode's simulated date
+enters the flow, and the browsed week defaults off it, so the timelapse works exactly as
+documented below.
+
+**The triage list holds every still-open task of the week being closed** (#263), whether
+or not its day has passed. The bound used to be `due >= today` as well, on the reading
+that overdue tasks "already have their own signal" — true for a task from a *past* week,
+which `is_same_iso_week` still keeps out, and backwards for a task from the very week
+being closed: what that one is missing is precisely a deliberate decision, and this is the
+page the visitor is sitting on to make it. Before, a task due Tuesday and still open on
+Friday could not be moved from the one surface whose job is moving tasks.
+
+One list, one meaning for the button: "→ nächste Woche" is `due + 7` for every row.
+Browsing two or more weeks back, that can offer a date which is itself in the past — a
+real date the visitor reads before clicking and can correct afterwards. Splitting the list
+into two groups with two different move semantics was judged to cost more than that is
+worth.
+
+**The date itself can be given any value** (#266). It was dead text until then, which left
+the one surface whose whole job is deciding what happens to a task with the least control
+over the only thing it can decide — and since #263 widened the list, the rows most in need
+of a real decision were exactly the ones `due + 7` served worst. The date is the app's
+shared control now (`_task_due.html` plus
+`projects/static/projects/js/task_date_picker.js`), the same one the dashboard, the AI
+summary and "Plan als Liste" render; the button stays beside it, because moving to next
+week is the common case in a weekly review and picking a date is the exception. After a
+manual pick the button relabels itself from the server's own `next_week_display`, so it
+keeps offering seven days past the date now on the row.
+
+Two things about this surface are its own:
+
+- **The "verschoben" badge follows the week being closed, not the act of editing.** A row
+  greys out when its new date leaves the ISO week the page is closing — the string form of
+  the same `is_same_iso_week` comparison `close_week_confirm` counts `rescheduled_count`
+  with, so what the row shows is a preview of that number rather than a second rule that
+  can disagree with it. Moving a task from Monday to Wednesday inside the week changes a
+  date and leaves the row alone. The form carries the week's Monday and Sunday as data
+  attributes so the client needs no second answer to "which week is this".
+- **A move never reloads this page**, unlike the AI summary's. A task moved out of the week
+  drops out of `open_this_week`, so a reload would remove its row — and with it the
+  `<input type="hidden" name="task_id">` that `close_week_confirm` counts by walking. The
+  move would go uncounted by the very close-out it was made for.
 
 **The triage list's "→ nächste Woche" button posts to the existing**
 `/task/<id>/reschedule/` **endpoint** — the same one the dashboard's inline date edit and
@@ -81,7 +174,9 @@ one question (#215).
   population. Production only: a demo plan is created in one shot, so the count is
   structurally 0 and the tile is left out rather than shown (`week_review.html`).
 - **rescheduled** *(this close-out, not the week)* — of the ids the triage page posted,
-  those no longer due the same ISO week (or now undated) and not done. Notion's
+  those no longer due **the week being closed** (or now undated) and not done. The week
+  comes from the form (#263), so a submission after the rollover measures the same week
+  the list was built for rather than reporting a move for every task on it. Notion's
   `Verschoben` is a bare counter with no timestamp (#171), so "moved this week" is not
   derivable from the schema at all; this number is the honest, reachable one, and its
   scope is named in `WeekCloseout`, in the prompt and on the page.
@@ -102,9 +197,16 @@ name and date and takes the first result.
 **Demo mode follows the timelapse** (`_closeout_dates`): with a simulated date set, that
 date is "today" for the triage list, the counts and the review's KW, so the close-out does
 not talk about a different week than the dashboard is showing. Completions the timelapse
-produced carry no `completed_date` — they are marked done on a deepcopy that is never
-written back — so `_demo_completed_in_range` places them by their due date, which is what
-made them done.
+produced reach this flow with no `completed_date` — a moment forces them done on a
+deepcopy (`_simulated_project`) that is never written back, and the close-out reads the
+session plan itself rather than that copy — so `_demo_completed_in_range` places them by
+their due date, which is what made them done. Since #246 that placement is asked *alongside* a hand-written completion
+date rather than only where none stands: `toggle_session_task` records the real date,
+because `/mein-plan/` renders the real date and a write there lands where it shows. A task
+the moment had struck through would otherwise leave the simulated week the moment the
+visitor also cleared it by hand — the real date displacing a placement that was carrying
+it. Either date inside the range counts the task, and a task both dates place there is
+still one task.
 
 **Persistence** (`projects/closeout.py`): two backends behind one interface, the same
 shape as `rules.py` — production stores a `WeekCloseout` row (unique on
@@ -136,8 +238,17 @@ that earned it would then get nothing. Requiring both halves addresses the notic
 one response that follows the redirect, and consuming the ticket means a reload of that
 same URL stops warning about a failure that is over. No JavaScript involved.
 
-**Out of scope:** no browsable history of past close-outs — the UI only ever shows the
-*latest* one. The data model already supports adding that later without a shape change.
+Since #263 the redirect carries `?week=` beside the ticket. This is the only path back to
+the triage page, so leaving the week off it landed a KW 24 review on the KW 25 list under
+a notice whose whole message is "try again" — and the retry then closed the week the
+visitor never triaged. The notice and the week travel together: the page that carries the
+retry button is the page the retry acts on.
+
+**Out of scope:** no browsable *list* of past close-outs. Since #263 a specific one is
+addressable (`/wochenrueckblick/?week=2026-W25`) and a past week can be closed, but there
+is still no page that enumerates them and no navigation between them — `week_review` shows
+the week it was asked for, or the latest. The data model has always supported the list;
+what is missing is only the surface.
 
 ## The postpone-counter badge (#171)
 
@@ -183,12 +294,23 @@ Manual click-through, production:
 
 1. Add a task due tomorrow and one due in 10 days — the 10-day one must **not** render
    orange (this is the whole point of #169).
-2. `/woche-abschliessen/` — only tasks due this calendar week appear, overdue and done
-   tasks don't.
-3. Move one task with "→ nächste Woche", leave another as is, tick a third done directly
-   on the dashboard in a second tab, then "Woche abschließen" — the review page's
-   rescheduled/completed counts should match.
-4. Reschedule the same task three times — the fourth view of the dashboard should show
+2. `/woche-abschliessen/` — every still-open task due this calendar week appears,
+   including one whose day has already passed; tasks from an earlier week and done tasks
+   don't.
+3. Move one task with "→ nächste Woche", click another task's date and pick a day still
+   inside the week (its row must stay plain, and the move button must relabel itself),
+   click a third and pick a day in the next week (that row greys out and takes the
+   "verschoben" badge), leave a fourth as is, tick a fifth done directly on the dashboard
+   in a second tab, then "Woche abschließen" — the review page's rescheduled count covers
+   the two that left the week and not the one moved within it.
+4. "← Vorwoche" — the subtitle names the previous KW, the list holds that week's open
+   tasks, and closing it lands on *that* week's review even when the current week is
+   already closed. "Diese Woche" returns.
+5. The stale tab: open `/woche-abschliessen/`, change the hidden `week` field to the
+   previous week in the browser's dev tools (this stands in for leaving the tab open past
+   Sunday midnight), submit — the close-out is stored under that week, and a task still
+   due in it is not counted as rescheduled.
+6. Reschedule the same task three times — the fourth view of the dashboard should show
    "3× verschoben" (not before the second move).
 
 `DEMO_MODE=true` — the same click-through with a generated session plan; the multi-project

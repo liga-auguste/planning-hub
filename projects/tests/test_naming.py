@@ -366,10 +366,11 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         # Since #195 the markup comes from _task_due.html and only the form
         # is stated here, which is the half that is about this surface. What
         # the assertion protects is unchanged: the summary has the width for
-        # the month and spells it out where the row abbreviates.
+        # the month and spells it out where the row abbreviates. #266 dropped
+        # the readonly flag — the form is all this surface still states.
         self.assertIn(
             '{% include "projects/_task_due.html" '
-            'with due_display=task.due|plan_date:"long" readonly=True %}',
+            'with due_display=task.due|plan_date:"long" %}',
             self.read("dashboard.html"),
         )
 

@@ -36,9 +36,22 @@ jobs:
           # about a certificate that is perfectly fine. curl retries connection
           # errors and 5xx but still reports the final status, so the comparison
           # below is unchanged; three failed attempts mean the demo is really down.
+          # The exit code is captured rather than allowed to end the step: these
+          # blocks run as `bash -e`, so a curl that never gets an answer at all
+          # (DNS failure, refused connection, timeout) would abort the assignment
+          # before the ::error:: below ever runs, and the alert would read
+          # "Process completed with exit code 6". A 5xx is unaffected — without
+          # --fail curl exits 0 and the status comparison does the work — which
+          # is why only the reachable-but-broken case was covered until now.
+          curl_exit=0
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-                      --retry 2 --retry-all-errors --retry-delay 5 "https://$HOST/")
-          echo "HTTP $code"
+                      --retry 2 --retry-all-errors --retry-delay 5 "https://$HOST/") || curl_exit=$?
+          echo "HTTP ${code:-none} (curl exit $curl_exit)"
+
+          if [ "$curl_exit" -ne 0 ]; then
+            echo "::error::$HOST could not be reached — curl exited $curl_exit after three attempts"
+            exit 1
+          fi
           [ "$code" = "200" ] || { echo "::error::$HOST answered $code, not 200"; exit 1; }
 
       - name: The certificate is ours and not about to expire

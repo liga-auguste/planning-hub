@@ -66,7 +66,18 @@
 .sidebar-title { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); padding: 0 16px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
 .sidebar-item { display: flex; align-items: center; padding: 5px 16px; color: var(--color-text-primary); text-decoration: none; border-radius: 6px; margin: 1px 8px; font-size: 13px; }
 .sidebar-item:hover { background: var(--color-bg-tertiary); color: var(--color-text-primary); }
-.sidebar-item.active { background: var(--color-bg-tertiary); color: var(--color-text-primary); font-weight: 500; }
+/* #212: the accent-tint's own purpose — a quiet coloured surface — on the
+   single most persistent element on screen. Deliberately not a contrast
+   gain: the tint measures 1.12:1 against the sidebar card where the grey
+   it replaces measured 1.11:1, so font-weight: 500 still carries the
+   state and the tint only adds the hue cue on top of it. Dark mode's
+   #18182f is darker than the card rather than lighter, so the selected
+   item reads as recessed there instead of raised — a normal pattern,
+   accepted rather than worked around. Has to stay below the :hover rule
+   above: both selectors are (0,2,0), so source order alone decides, and
+   a swap would grey the selected item out the moment the pointer
+   touched it. */
+.sidebar-item.active { background: var(--color-accent-tint); color: var(--color-text-primary); font-weight: 500; }
 .sidebar-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; flex-shrink: 0; margin-right: 8px; }
 /* A dedicated class, not dashboard.html's task-toggle .dot — my_plan.html
    defines its own same-named .dot at a different size for its task list,
@@ -81,10 +92,18 @@
 .progress-ring { flex-shrink: 0; }
 .progress-ring-track, .progress-ring-fill { fill: none; }
 .progress-ring-track { stroke: var(--color-border-primary); }
-/* #173: neutral by default — overdue red is the only override left; the
-   today/urgent/ok ring classes stay in the markup as classification and all
-   render this neutral stroke. */
-.progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
+/* #212: the brand accent is the base stroke and overdue red is still the
+   only override — six identical grey rings become the app's own colour
+   without any of them becoming a status stage. That an accent ring reads
+   as "progress" rather than as "on track" rests on the accent being the
+   *absence* of the override: the today/urgent/ok ring classes stay in the
+   markup as classification (#173) and none of them gets a rule, so there
+   is no stage for the accent to name. Separation is not the risk here —
+   accent to red is ΔE2000 41.9 light / 39.2 dark, and accent to the grey
+   it replaces 25.9 / 22.3, so the change is plainly visible rather than a
+   repaint nobody notices. The stroke clears the 3:1 non-text floor on the
+   sidebar card at 3.85:1 light and 3.63:1 dark. */
+.progress-ring-fill { stroke: var(--color-accent); stroke-linecap: round; }
 .progress-ring-fill.overdue { stroke: var(--color-overdue); }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */
@@ -269,3 +288,67 @@
     .content-body { padding: 24px 20px; }
     .page-footer { padding: 20px 20px 32px; }
 }
+
+/* The task date (#266). Here rather than in dashboard.html because the
+   markup is one partial (_task_due.html) and the behaviour is one module
+   (js/task_date_picker.js) — a surface that includes the one and calls the
+   other would otherwise still have to re-type the styling, which is the
+   drift #195 set out to end. All four templates already load this file.
+
+   The margin is what the row's flex gap replaces, so every surface that
+   lays its dates out with a gap overrides it to 0 — .task-row does it here
+   for the dashboard and /mein-plan/ alike, and the two summaries and the
+   triage row do it in their own blocks. */
+.task-due { font-size: 13px; color: var(--color-text-quaternary); margin-left: 16px; white-space: nowrap; }
+.task-row .task-due { margin-left: 0; }
+.task-due.today { color: var(--color-today); font-weight: 500; }
+.task-due.overdue { color: var(--color-overdue); font-weight: 500; }
+/* #200: the reschedulable date is a <button>, so it takes focus and answers
+   Enter and Space. The reset keeps it looking like the span it replaced — a
+   button brings its own font, background and padding, and inherits none of
+   them. */
+button.task-due { font: inherit; font-size: 13px; background: none; border: none; padding: 0; text-align: inherit; }
+button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+/* The affordance follows the behaviour: only a date carrying data-task-id
+   is wired up for rescheduling (#10 §5). */
+.task-due[data-task-id] { cursor: pointer; }
+.task-due[data-task-id]:hover { text-decoration: underline; }
+.task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
+/* #198: the picker while its write runs. The row already shows the newly
+   picked date in the input; this is what says it is being saved rather than
+   already saved. Not `disabled` — disabling blurs the input, and blur is
+   what swaps the display element back (task_date_picker.js). */
+.task-due-input.pending { opacity: 0.6; }
+/* #233: a write that did not land, reported on the control that was clicked.
+   Here rather than once per surface's own extra_css block, so everything
+   extending base_dashboard.html can report a failure — the close-out triage
+   list had the handler's shape and none of this, which is why it reported
+   nothing at all.
+
+   outline, not color: .dot buttons carry no text and fill entirely via
+   background, so a color animation is invisible on them (#83 review) —
+   outline reads on the dot and on the text targets alike. */
+.action-failed { animation: flash-failed 0.4s ease-in-out 2; }
+@keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+
+/* The add-task row (#148). Here rather than in either surface's own
+   extra_css for the same reason the date's styling moved here in #266: the
+   markup is one partial (_task_add_row.html) and the behaviour is one module
+   (js/task_add_row.js), so a surface that includes the one and calls the
+   other must not have to re-type the third. Both templates already load this
+   file.
+
+   Aligned with the task rows above it rather than boxed: the row is the last
+   line of a list, not a form that happens to sit under one. */
+.task-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; flex-wrap: wrap; }
+.task-add-name { flex: 1 1 180px; min-width: 0; font-size: 13px; padding: 5px 8px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-primary); }
+.task-add-name::placeholder { color: var(--color-text-quaternary); }
+.task-add-date { font-size: 12px; padding: 4px 6px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-tertiary); }
+.task-add-submit { font-size: 13px; padding: 5px 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
+.task-add-submit:hover { background: var(--color-bg-secondary); }
+.task-add-submit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* #198, the same promise the date picker makes: the write is visible while
+   it runs. Not `hidden` or removed — the row keeps what was typed, so a
+   failure can be retried rather than retyped. */
+.task-add-row.pending { opacity: 0.6; }
+.task-add-submit:disabled { cursor: default; }

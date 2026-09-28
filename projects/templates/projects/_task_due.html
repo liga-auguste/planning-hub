@@ -8,8 +8,14 @@ re-typed on every surface that showed one, and two of them had already
 drifted (#195): the AI summary passes task.urgency straight through where
 the row filters it down to the three stages the CSS actually paints, and
 my_plan.html spells the class .task-date. #195 names the row the reference
-implementation, so its filtering is what this partial does; the surfaces
-that still differ are #186 and #193, and each becomes an include.
+implementation, so its filtering is what this partial does.
+
+#266 finished the job: every surface that renders a task date includes this
+partial — the dashboard's rows and its AI summary, /mein-plan/'s list and
+its summary, and the close-out triage list. The behaviour half followed it
+into static/projects/js/task_date_picker.js, so a new surface is an include
+plus one bindTaskDatePickers() call, and what that call may differ in is
+what a successful move *means*, never how the date is asked for.
 
 A <button> rather than a <span> (#200). Changing a date is one of the two
 things the app is for, and a span takes no focus, announces nothing to a
@@ -19,10 +25,12 @@ also what lets the date input's showPicker() open.
 
 Only where the change persists, though. The demo example projects are in no
 session (#10 §5), so there the date stays the span it always was, and
-`readonly` does the same for a surface that renders a date it does not yet
-offer to change (the AI summary, until #193). A button that does nothing
-would announce an affordance that is not there — the same reasoning that
-puts a span in _task_dot.html under a Zeitreise moment.
+`readonly` does the same for a surface that renders a date it does not
+offer to change. A button that does nothing would announce an affordance
+that is not there — the same reasoning that puts a span in _task_dot.html
+under a Zeitreise moment. No caller passes `readonly` since #193 took the
+AI summary off it; it stays as the flag the condition is written in, so the
+next such surface says so rather than adding a second one.
 
 A moment is deliberately *not* a condition here. Rescheduling stays
 available under one while toggling does not: a moment forces done on a deep

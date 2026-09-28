@@ -24,7 +24,12 @@ from .ai import (
     resolve_weekly_summary,
     summary_has_content,
 )
-from .closeout import get_latest_closeout, is_week_closed, save_closeout
+from .closeout import (
+    get_closeout,
+    get_latest_closeout,
+    is_week_closed,
+    save_closeout,
+)
 from .date_format import (
     MONTHS_DE,
     WEEKDAYS_SHORT,
@@ -36,6 +41,7 @@ from .demo_data import get_demo_projects, get_demo_unassigned_tasks
 from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
+    create_task,
     get_tasks_completed_in_range,
     get_tasks_created_in_range,
     get_unassigned_tasks,
@@ -61,7 +67,9 @@ logger = logging.getLogger(__name__)
 # due_display, see below; #210: v9 — task dicts carry a new kanban_column,
 # and a pre-deploy entry would render an empty Kanban board) — otherwise a
 # pre-deploy entry in the old shape would crash or misrender under the new
-# resolver.
+# resolver; #211: v11 — task dicts carry a new done_this_week, and a
+# pre-deploy entry would render every completed dot gray for up to eight
+# hours, or forever from the stale copy.
 #
 # #189 is the one bump that is not correctness-critical: a pre-deploy entry
 # still renders right, because the leftover due_display is simply no longer
@@ -77,12 +85,12 @@ logger = logging.getLogger(__name__)
 # it by the #19 lockstep even though its own shape is unchanged — the two
 # are counted across each other everywhere, and a half-refreshed pair is the
 # state _patch_cached_tasks refuses to work with anyway.
-CACHE_KEY = "dashboard_data_v10"
+CACHE_KEY = "dashboard_data_v11"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v10"
+STALE_CACHE_KEY = "dashboard_data_stale_v11"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -92,9 +100,10 @@ STALE_CACHE_KEY = "dashboard_data_stale_v10"
 # #189: v3 — and they lost due_display in the same way, bumped in lockstep
 # with CACHE_KEY as #19 established.
 # #210: v4 — and they gained kanban_column, bumped in the same lockstep.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v5"
+# #211: v6 — and done_this_week, bumped in the same lockstep again.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v6"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v5"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v6"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -380,14 +389,14 @@ def _patch_stale_copies(task_id, mutate, today, in_project):
 
 # Session key prefix for demo summaries; planner_create clears every version
 # by the unversioned "demo_plan_summary" prefix when a new plan is generated.
-SUMMARY_KEY = "demo_plan_summary_v6"
+SUMMARY_KEY = "demo_plan_summary_v7"
 # The multi-project demo summary: get_demo_projects() is a pure function of
 # timezone.localdate() and holds no per-visitor data, so one Claude call per day serves
 # every visitor. The day is part of the key, so a rollover invalidates by
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v3"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v4"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the
@@ -455,6 +464,34 @@ def _classify_due_urgency(due, today):
     return "ok"
 
 
+def _simulated_project(session_plan, sim_date):
+    """The session plan as one project, rendered at `sim_date`.
+
+    A Zeitreise moment is a rendering of a date, so everything due by that
+    date counts as cleared. The deepcopy is what keeps that forcing off the
+    session itself — the moment is a view, not a write (#217).
+
+    Each forced task is given its own due date as its completion date. Not
+    decoration: since #211 part 2 the dot's green reads completed_date, and
+    a forced task carrying none would render the whole moment gray — the
+    Zeitreise's own point is watching tasks clear. The due date is the
+    honest answer here, because "would have been done by then" is exactly
+    what the forcing above asserts, and it makes the moment's green obey the
+    same week rule the real dashboard does rather than an exception to it.
+
+    Three call sites had this mutation copied out — dashboard(), the
+    single-project summary and the reschedule figures — which is two chances
+    to add a field here and forget it there.
+    """
+    project = copy.deepcopy(_build_session_project(session_plan))
+    if sim_date:
+        for task in project["tasks"]:
+            if task.get("due") and task["due"] <= sim_date:
+                task["done"] = True
+                task["completed_date"] = task["due"]
+    return project
+
+
 def _annotate_tasks(projects, today):
     for project in projects:
         # Chronological order for every task-list view, dateless tasks last
@@ -470,6 +507,22 @@ def _annotate_tasks(projects, today):
                 task["urgency"] = "done"
             else:
                 task["urgency"] = _classify_due_urgency(task["due"], today)
+            # #211 part 2: green says "cleared this week", not "cleared at
+            # some point" — the same ISO week the progress bar above the
+            # dots counts, so the green dots are exactly the tasks filling
+            # it. A done task with no completed_date stays out on purpose:
+            # those are the ones checked off before "Erledigt am" existed in
+            # the Notion schema, or checked off in Notion's own UI, and
+            # without this clause the whole back catalogue would be
+            # permanently green (_count_done_in_range documents the same
+            # case for the same reason). Computed here rather than in the
+            # template because `today` is a request-level fact, and it
+            # reuses is_same_iso_week (#169) rather than restating what a
+            # week is.
+            completed = task.get("completed_date")
+            task["done_this_week"] = bool(
+                task["done"] and completed and is_same_iso_week(completed, today)
+            )
             task["kanban_column"] = _kanban_column(task["urgency"])
             if _URGENCY_RANK[task["urgency"]] > _URGENCY_RANK[project_urgency]:
                 project_urgency = task["urgency"]
@@ -613,13 +666,19 @@ def _usable_week_start(monday, default_monday):
 _WEEK_PARAM_RE = re.compile(r"(\d{4})-W(\d{2})")
 
 
-def _parse_week_param(request, default_monday):
-    """#180: ?week=2026-W37 navigates the day columns to that week. Anything
-    unparseable — absent, malformed, a week number ISO doesn't have, or one
-    too close to date.min/date.max to render (#216) — falls back to
-    default_monday rather than erroring the whole page over a query param a
-    visitor is free to hand-edit."""
-    raw = request.GET.get("week")
+def _week_monday(raw, default_monday):
+    """`2026-W37` -> that week's Monday, whatever carried the value.
+
+    Anything unusable — absent, malformed, a week number ISO doesn't have,
+    or one too close to date.min/date.max to render (#216) — falls back to
+    default_monday rather than erroring a whole page over a value a visitor
+    is free to hand-edit.
+
+    #263: source-agnostic because the close-out now carries a week too, in a
+    hidden form field rather than a query param. One wire format app-wide,
+    one guard, one fallback rule — the alternative was a second week format
+    that would have had to be kept in step with this one.
+    """
     if not raw:
         return default_monday
     match = _WEEK_PARAM_RE.fullmatch(raw)
@@ -630,6 +689,18 @@ def _parse_week_param(request, default_monday):
     except ValueError:
         return default_monday
     return _usable_week_start(monday, default_monday)
+
+
+def _parse_week_param(request, default_monday):
+    """#180: ?week=2026-W37 navigates the day columns to that week."""
+    return _week_monday(request.GET.get("week"), default_monday)
+
+
+def _week_param(monday):
+    """A week in the wire format _week_monday reads back — the one form
+    ?week= links and the close-out's hidden field both carry."""
+    iso_year, iso_week, _ = monday.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
 
 
 def _bucket_by_day(projects, unassigned_tasks, week_start):
@@ -983,12 +1054,9 @@ def dashboard(request):
             # and narrate the example projects too (#50).
             sim_date, sim_date_str = _get_sim_date(request)
             effective_today = sim_date or today
-            project = copy.deepcopy(_build_session_project(session_plan))
-            if sim_date:
-                for task in project["tasks"]:
-                    if task.get("due") and task["due"] <= sim_date:
-                        task["done"] = True
-            projects = _annotate_tasks([project], effective_today)
+            projects = _annotate_tasks(
+                [_simulated_project(session_plan, sim_date)], effective_today
+            )
             # #53: the planner always ties every task it generates to the one
             # project it just created — a session plan never has a
             # project-less task to show under "Ohne Projekt".
@@ -1226,8 +1294,8 @@ def dashboard(request):
             "day_columns": day_columns,
             "week_range_label": format_week_range(browsed_monday, browsed_sunday),
             "is_current_week": is_current_week,
-            "prev_week_param": f"{prev_monday.isocalendar()[0]}-W{prev_monday.isocalendar()[1]:02d}",
-            "next_week_param": f"{next_monday.isocalendar()[0]}-W{next_monday.isocalendar()[1]:02d}",
+            "prev_week_param": _week_param(prev_monday),
+            "next_week_param": _week_param(next_monday),
         },
     )
 
@@ -1271,12 +1339,9 @@ def preload_timelapse_summary(request):
     if not session_plan:
         return JsonResponse({"ok": False})
 
-    project = copy.deepcopy(_build_session_project(session_plan))
-    if sim_date:
-        for task in project["tasks"]:
-            if task.get("due") and task["due"] <= sim_date:
-                task["done"] = True
-    projects = _annotate_tasks([project], effective_today)
+    projects = _annotate_tasks(
+        [_simulated_project(session_plan, sim_date)], effective_today
+    )
     try:
         summary_data = generate_weekly_summary(
             projects, effective_today, single_project_demo=True
@@ -1437,14 +1502,17 @@ def toggle_task_view(request, task_id):
     return JsonResponse({"ok": True, **figures})
 
 
-def _parse_posted_name(request):
-    """Returns (name, error_response). #154/#61's shape: a malformed body is
-    a 400, never a 500, and a name is only a name once it has something in
-    it — an empty rename would leave a row nothing identifies it by."""
-    data, error = _parse_json_dict_body(request)
-    if error:
-        return None, error
-    name = data.get("name")
+def _parse_posted_name(request_data):
+    """Returns (name, error_response) from an already-parsed body. #154/#61's
+    shape: a name is only a name once it has something in it — an empty
+    rename would leave a row nothing identifies it by, and an added task
+    nothing to call it.
+
+    Takes the dict rather than the request, the way reschedule_task_view
+    already reads its own date: #148 needs the project id out of the same
+    body, and parsing it twice to get two fields out of it is one parse too
+    many."""
+    name = request_data.get("name")
     if not isinstance(name, str) or not name.strip():
         return None, JsonResponse({"error": "invalid name"}, status=400)
     return name.strip(), None
@@ -1459,7 +1527,10 @@ def rename_task_view(request, task_id):
     position. It is the one write that moves nothing."""
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
-    name, error = _parse_posted_name(request)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    name, error = _parse_posted_name(data)
     if error:
         return error
     if settings.DEMO_MODE:
@@ -1554,17 +1625,150 @@ def trash_task_view(request, task_id):
     return JsonResponse({"ok": True})
 
 
+def _parse_posted_task_date(request_data):
+    """Returns (iso_string, error_response). A date is mandatory, unlike the
+    timelapse's — an absent one there clears the simulated moment, while a
+    dateless task would drop out of every list this app sorts and buckets by
+    date (_annotate_tasks, _bucket_by_day, the export).
+
+    Parsed to prove it is a date, and handed on as what that date spells
+    rather than as what arrived. date.fromisoformat has accepted every ISO
+    8601 date form since 3.11, so "20260905" and "2026-W36-5" get through it
+    too — and the string is what both worlds then store and compare. The
+    export sorts on it (download_plan) where "-" < "0", so a compact form
+    would sort after every hyphenated date while the rendered list, which
+    sorts on a real date object, put it in the right place. One canonical
+    spelling in, one order out."""
+    raw = request_data.get("date")
+    try:
+        parsed = date.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None, JsonResponse({"error": "invalid date"}, status=400)
+    return parsed.isoformat(), None
+
+
+def _next_demo_task_id(tasks):
+    """The id for a task appended to a demo session plan.
+
+    Not len(tasks): planner_create numbers by enumerate, so after a trash an
+    id derived from the length re-uses one that is still live — and every
+    write addresses a task by id. Highest existing suffix + 1 instead,
+    stepping over any id that does not parse (a session written by an older
+    format, or one this function itself never produced)."""
+    prefix = "demo-session-"
+    highest = -1
+    for task in tasks:
+        task_id = str(task.get("id", ""))
+        # An explicit prefix test rather than rpartition: with the separator
+        # absent rpartition hands the whole string back as the suffix, so an
+        # id of "7" would be read as this scheme's number 7 instead of being
+        # stepped over.
+        if not task_id.startswith(prefix):
+            continue
+        suffix = task_id.removeprefix(prefix)
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    return f"{prefix}{highest + 1}"
+
+
+def add_task_view(request):
+    """#148: a task added to a plan that already exists.
+
+    The project is in the body rather than in the path, unlike every other
+    write here. A create has no task id to name itself with, and when this
+    row later surfaces on the cross-project work list (#53's follow-up) the
+    project simply becomes nullable there rather than the route becoming a
+    second route.
+
+    The cache is busted rather than patched, in both worlds. In production
+    it has no choice: _patch_cached_tasks mutates a task found by id and has
+    no insertion path, and the new Notion page id does not exist until the
+    write returns. Demo *could* do better — _remap_summary_refs maps by task
+    identity, so an insertion is losslessly remappable — and deliberately
+    does not: a rescheduled task is one the summary already knew about,
+    while an added task is content the summary should have mentioned and
+    now cannot. Having the two worlds answer the same write differently
+    costs more in reasoning than the Claude call it would save.
+
+    So the answer carries no figures, and the client reloads. Same shape as
+    trash_task_view, and the same #210 argument: every count, progress bar
+    and board badge is re-rendered by the server rather than reconciled by
+    hand.
+
+    Refused under a Zeitreise moment (#217), the way toggling is and
+    rescheduling is not. A task dated before the moment would be forced
+    `done` by the simulated render the instant it appeared — exactly the
+    invisible write #217 refused. The row is not offered there either.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    project_id = data.get("project_id")
+    if not isinstance(project_id, str) or not project_id.strip():
+        return JsonResponse({"error": "invalid project"}, status=400)
+    project_id = project_id.strip()
+    name, error = _parse_posted_name(data)
+    if error:
+        return error
+    task_date, error = _parse_posted_task_date(data)
+    if error:
+        return error
+
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
+        if sim_date:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        plan = request.session.get("demo_plan")
+        # The demo example projects come from get_demo_projects() and are in
+        # no session, so nothing there can be written to (#10 §5) — a 404
+        # rather than a cheerful ok for something that was never saved.
+        if not plan or project_id != "session-plan":
+            return JsonResponse({"error": "unknown project"}, status=404)
+        plan["tasks"].append(
+            {
+                "id": _next_demo_task_id(plan["tasks"]),
+                "name": name,
+                "date": task_date,
+                "done": False,
+            }
+        )
+        request.session["demo_plan"] = plan
+        # Swept rather than remapped — see the docstring. The unversioned
+        # prefix covers every summary version a long-lived session may still
+        # carry (SUMMARY_KEY above).
+        for key in list(request.session.keys()):
+            if key.startswith("demo_plan_summary"):
+                del request.session[key]
+    else:
+        try:
+            create_task(project_id, name, task_date)
+        except NotionUnavailableError:
+            # Including an unknown project_id, which production cannot tell
+            # apart from an outage without an extra read it does not need to
+            # pay for.
+            return JsonResponse({"error": "notion unavailable"}, status=502)
+        _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
+
+
 def reschedule_task_view(request, task_id):
     if request.method != "POST":
         return JsonResponse({"error": "method not allowed"}, status=405)
     data, error = _parse_json_dict_body(request)
     if error:
         return error
-    raw_date = data.get("date")
     try:
-        parsed_date = date.fromisoformat(raw_date)
+        parsed_date = date.fromisoformat(data.get("date"))
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
+    # Canonical rather than as it arrived, for _parse_posted_task_date's
+    # reason: fromisoformat takes every ISO 8601 date form, and this string
+    # is what the session stores and the export sorts on. Hence iso_date and
+    # not raw_date — what reaches Notion and the session is the date's own
+    # spelling, not the request's.
+    iso_date = parsed_date.isoformat()
     due_display = format_date(parsed_date, role="long")
     # #238: two formats, because the client writes this answer into two
     # elements. The Kanban card spells the month out; the task row was
@@ -1572,6 +1776,12 @@ def reschedule_task_view(request, task_id):
     # field for both would have put the long form back into every rescheduled
     # row until the next reload.
     due_display_row = format_date(parsed_date, role="row")
+    # #266: the close-out triage list's move button carries the date it would
+    # move to ("→ Mi, 24. Juni"), so a manual pick has to relabel it. Derived
+    # here rather than in the client for the reason #189/#192 drew the line:
+    # format_date is the one place that knows German date formatting, and the
+    # alternative is a second copy of the month names in JavaScript.
+    next_week_display = format_date(parsed_date + timedelta(days=7), role="long")
 
     # Read before the branches: both of them derive the figures below
     # against it. A demo visitor's time travel has to count here the way it
@@ -1601,7 +1811,7 @@ def reschedule_task_view(request, task_id):
         # reads before its own: the summaries below are numbered against
         # this order.
         numbered_before = _session_task_order(plan, effective_today)
-        task["date"] = raw_date
+        task["date"] = iso_date
         # #171: awareness, not punishment — starts counting from the second
         # move, but the counter itself increments on every reschedule from
         # the first one (the badge threshold is a display concern, applied
@@ -1627,15 +1837,10 @@ def reschedule_task_view(request, task_id):
             elif key.startswith("demo_plan_summary"):
                 del request.session[key]
         postpone_count = task["postpone_count"]
-        # The same deepcopy mutation toggle_task_view applies, so the figures
-        # match what a reload of the dashboard would render.
-        project = copy.deepcopy(_build_session_project(plan))
-        if sim_date:
-            for plan_task in project["tasks"]:
-                if plan_task.get("due") and plan_task["due"] <= sim_date:
-                    plan_task["done"] = True
+        # The same moment dashboard() renders, so the figures match what a
+        # reload would show.
         _, figures = _surface_figures(
-            _annotate_tasks([project], effective_today),
+            _annotate_tasks([_simulated_project(plan, sim_date)], effective_today),
             [],
             task_id,
             effective_today,
@@ -1645,7 +1850,7 @@ def reschedule_task_view(request, task_id):
         )
     else:
         try:
-            update_task_date(task_id, raw_date)
+            update_task_date(task_id, iso_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
         # Applied right away, before the counter call: the date change is
@@ -1707,6 +1912,7 @@ def reschedule_task_view(request, task_id):
             "postpone_count": postpone_count,
             "due_display": due_display,
             "due_display_row": due_display_row,
+            "next_week_display": next_week_display,
             "urgency": _classify_due_urgency(parsed_date, effective_today),
             **figures,
         }
@@ -1728,6 +1934,27 @@ def _closeout_dates(request):
     return sim_date or timezone.localdate(), sim_date
 
 
+def _closeout_week_monday(raw, current_monday):
+    """The week the close-out flow acts on — _week_monday's answer, never a
+    later one than the week the request itself falls in.
+
+    #263 made the week a parameter so the review that actually happens on a
+    Monday morning can reach the week that just ended. Forward is the
+    direction the ritual has no meaning in, which is why the triage page
+    offers no link for it — but the value is hand-editable all the same, and
+    a close-out stored under a future week outranks every real one in
+    get_latest_closeout's ordering, so /wochenrueckblick/ with no parameter
+    would answer with it for as long as that week stays in the future.
+    Clamped rather than rejected: it is the same "not a week this page can
+    act on, show the current one" the parser already applies to everything
+    else it cannot use.
+
+    The dashboard's own ?week= (#180) is deliberately *not* clamped —
+    browsing ahead is exactly what its next-week link is for.
+    """
+    return min(_week_monday(raw, current_monday), current_monday)
+
+
 # #215: the session half of the failure notice's claim ticket. The other
 # half rides the redirect URL, so the notice reaches the tab that actually
 # failed — see _closeout_read_failed.
@@ -1740,24 +1967,36 @@ def _demo_completed_in_range(tasks, start, end, sim_date):
 
     A task toggled by hand carries `completed_date`, written by
     toggle_task_view exactly the way toggle_task writes "Erledigt am" in
-    production. The timelapse completes tasks a second way — dashboard()
-    marks everything due on or before the simulated date as done — and it
-    does that on a deepcopy that is never written back, so those tasks carry
-    no completion date at all. The due date is what made them done, so it is
-    the date that places them in a week; without this branch a time-travelled
-    demo would report the same 0 this issue exists to remove.
+    production. The timelapse completes tasks a second way — a moment marks
+    everything due on or before the simulated date as done — and it does
+    that on a deepcopy (_simulated_project) that is never written back,
+    while this flow reads the session plan itself. So a task the moment
+    cleared arrives here with no completion date whatever that copy carries
+    of its own. The due date is what made it done, so it is the date that
+    places it in a week; without this branch a time-travelled demo would
+    report the same 0 this issue exists to remove.
+
+    #246: the two ways are asked together rather than the second answering
+    only where the first is silent. Since toggle_session_task records a
+    completion date of its own, one task can be completed both ways at once —
+    struck through by the moment because it is due by `sim_date`, and checked
+    off by hand on /mein-plan/, which renders the real date and therefore
+    writes the real one. Read as "completed only where the hand-written date
+    is missing", that real date displaced the moment's placement and a visitor
+    who cleared a task lost it from the very week the close-out was counting.
+    So both placements are collected and any one of them inside the range
+    counts the task — `any`, not a sum: a task placed there twice is still one
+    task.
     """
     count = 0
     for task in tasks:
+        placements = []
         completed = task.get("completed_date")
-        if (
-            completed is None
-            and sim_date
-            and task.get("due")
-            and task["due"] <= sim_date
-        ):
-            completed = task["due"]
-        if completed and start <= completed <= end:
+        if completed:
+            placements.append(completed)
+        if sim_date and task.get("due") and task["due"] <= sim_date:
+            placements.append(task["due"])
+        if any(start <= placement <= end for placement in placements):
             count += 1
     return count
 
@@ -1789,24 +2028,35 @@ def close_week_start(request):
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
-    # Overdue tasks stay out — they already have their own signal, and the
-    # point of this list is the tasks that are still a conscious choice to
-    # move, not the ones already late.
+    # #263: the week being triaged, which is not always the week the request
+    # falls in. A weekly review happens on Monday morning as readily as on
+    # Friday evening, and ?week= is what lets it reach the week it means.
+    current_monday = iso_week_bounds(today)[0]
+    browsed_monday = _closeout_week_monday(request.GET.get("week"), current_monday)
+    browsed_sunday = browsed_monday + timedelta(days=6)
+    is_current_week = browsed_monday == current_monday
+    # #263: the rule is the ISO week, whether or not the day has passed —
+    # is_same_iso_week keeps genuinely older tasks out, and those are the
+    # ones that already have their own signal. A task due Tuesday and still
+    # open on Friday belongs to the week being closed, and this page is the
+    # one surface whose whole job is deciding what happens to it; the old
+    # `>= today` bound cut exactly those out of it.
     open_this_week = [
         t
         for t in tasks
-        if not t["done"]
-        and t["due"]
-        and t["due"] >= today
-        and is_same_iso_week(t["due"], today)
+        if not t["done"] and t["due"] and is_same_iso_week(t["due"], browsed_monday)
     ]
     for task in open_this_week:
         # The move button's own label — otherwise "→ nächste Woche" doesn't
-        # say which date that actually is.
+        # say which date that actually is. #263: still due + 7 for a task
+        # whose date has passed, which can offer a day that is itself in the
+        # past. Deliberate: it is a real date the visitor reads before
+        # clicking and can correct afterwards, and the alternative — a second
+        # group with its own move semantics — buys less than it costs.
         task["next_week_display"] = format_date(
             task["due"] + timedelta(days=7), role="long"
         )
-    iso_year, iso_week, _ = today.isocalendar()
+    iso_year, iso_week, _ = browsed_monday.isocalendar()
     # #215: this no longer gates the submit button, it only changes what the
     # page says and offers. Re-closing a week is the supported way to bring
     # a review up to date — both week-scoped counts are read from the week
@@ -1842,9 +2092,25 @@ def close_week_start(request):
             "tasks": open_this_week,
             "already_closed": already_closed,
             "read_failed": read_failed,
-            "today_display": format_date(today, role="long"),
-            # A weekend-specific empty state reads oddly on a Tuesday.
-            "is_weekend": today.weekday() >= 5,
+            # #263: the page names the week it is triaging, not the day it
+            # was opened on — the two are no longer the same question.
+            "week_display": f"KW {iso_week}, {format_week_range(browsed_monday, browsed_sunday)}",
+            "week_param": _week_param(browsed_monday),
+            # #266: the week's own bounds, so a date picked on this page can
+            # be judged against the week being closed without the client
+            # deriving a second answer to "which week is this". The form
+            # renders them; the comparison is the string form of the
+            # is_same_iso_week() close_week_confirm counts with, so what the
+            # row shows is a preview of rescheduled_count rather than a
+            # second rule that can disagree with it.
+            "week_start_iso": browsed_monday.isoformat(),
+            "week_end_iso": browsed_sunday.isoformat(),
+            "prev_week_param": _week_param(browsed_monday - timedelta(days=7)),
+            "is_current_week": is_current_week,
+            # A weekend-specific empty state reads oddly on a Tuesday — and
+            # on a Saturday spent looking back at a week that is already
+            # over, which is why it asks the browsed week too.
+            "is_weekend": is_current_week and today.weekday() >= 5,
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html, so this view owes it the same three flags
             # (see the contract note in that partial). In DEMO_MODE a session
@@ -1861,7 +2127,7 @@ def close_week_start(request):
     )
 
 
-def _closeout_read_failed(request):
+def _closeout_read_failed(request, week_start):
     """#215: back to the triage page, but saying why.
 
     Persisting a close-out whose numbers came from a failed read would store
@@ -1875,10 +2141,19 @@ def _closeout_read_failed(request):
     request arrived first, which in a second open tab is a notice about a
     failure that tab never had. Requiring both halves addresses the notice to
     the one response that follows this redirect.
+
+    #263: and back to the *same* week. This is the only path that returns a
+    visitor to the triage page, so dropping the parameter here would land a
+    KW 38 review on the KW 39 list, under a notice whose whole message is
+    "try again" — and the next press of the button would close the wrong
+    week with a triage selection nobody made.
     """
     ticket = secrets.token_urlsafe(8)
     request.session[CLOSEOUT_FAILED_KEY] = ticket
-    return redirect(f"{reverse('close_week_start')}?{CLOSEOUT_NOTICE_PARAM}={ticket}")
+    return redirect(
+        f"{reverse('close_week_start')}?week={_week_param(week_start)}"
+        f"&{CLOSEOUT_NOTICE_PARAM}={ticket}"
+    )
 
 
 def close_week_confirm(request):
@@ -1889,14 +2164,24 @@ def close_week_confirm(request):
     if request.method != "POST":
         return redirect("close_week_start")
     today, sim_date = _closeout_dates(request)
-    iso_year, iso_week, _ = today.isocalendar()
-    week_start, week_end = iso_week_bounds(today)
+    # #263: the week the page was showing wins, and every number below is
+    # measured against it. The form carries it, so a review begun on Friday
+    # and submitted on Monday still closes the week it was triaging instead
+    # of the one that started a few hours ago — and browsing to a past week
+    # is a choice rather than a mismatch to report back. A missing or
+    # hand-edited value falls back to the request's own week, the behaviour
+    # this flow had when the week was never carried at all.
+    week_start = _closeout_week_monday(
+        request.POST.get("week"), iso_week_bounds(today)[0]
+    )
+    week_end = week_start + timedelta(days=6)
+    iso_year, iso_week, _ = week_start.isocalendar()
     task_ids = request.POST.getlist("task_id")
 
     try:
         projects = _current_projects_for_closeout(request, today)
     except NotionUnavailableError:
-        return _closeout_read_failed(request)
+        return _closeout_read_failed(request, week_start)
     if projects is None:
         return redirect("index")
     tasks = [t for p in projects for t in p["tasks"]]
@@ -1915,7 +2200,7 @@ def close_week_confirm(request):
         if task is None:
             continue
         if not task["done"] and (
-            task["due"] is None or not is_same_iso_week(task["due"], today)
+            task["due"] is None or not is_same_iso_week(task["due"], week_start)
         ):
             rescheduled_count += 1
 
@@ -1943,7 +2228,7 @@ def close_week_confirm(request):
             )
             added_count = len(get_tasks_created_in_range(week_start, week_end))
         except NotionUnavailableError:
-            return _closeout_read_failed(request)
+            return _closeout_read_failed(request, week_start)
 
     stats_dict = {
         "completed_count": completed_count,
@@ -1956,13 +2241,25 @@ def close_week_confirm(request):
         summary_text = ""
 
     save_closeout(request, iso_year, iso_week, stats_dict, summary_text)
-    return redirect("week_review")
+    # #263: the review is asked for the week that was just closed. Without
+    # the parameter it renders the *latest* close-out, so closing KW 25
+    # while KW 26 is already closed would answer with KW 26's numbers.
+    return redirect(f"{reverse('week_review')}?week={_week_param(week_start)}")
 
 
 def week_review(request):
     if settings.DEMO_MODE and not request.session.get("demo_plan"):
         return redirect("index")
-    closeout = get_latest_closeout(request)
+    # #263: ?week= names one close-out; without it — or with a week that was
+    # never closed — the latest one is still what this page shows, which is
+    # every route into it that existed before a past week could be closed.
+    browsed_monday = _week_monday(request.GET.get("week"), None)
+    closeout = None
+    if browsed_monday is not None:
+        iso_year, iso_week, _ = browsed_monday.isocalendar()
+        closeout = get_closeout(request, iso_year, iso_week)
+    if closeout is None:
+        closeout = get_latest_closeout(request)
     if closeout is None:
         return redirect("close_week_start")
     # Same date as close_week_start/close_week_confirm (#215), so the sidebar
@@ -2045,6 +2342,16 @@ def my_plan(request):
         return redirect("index")
 
     today = timezone.localdate()
+    # #246: read to be *named*, never to be rendered from. The list, the
+    # counter, the progress bar and the sidebar ring all stay on today — the
+    # boundary from "The Zeitreise stays a dashboard device" is unchanged, it
+    # is only labelled now. Without the label a task the dashboard shows
+    # struck through stands open here with nothing saying why.
+    # _get_sim_date, not session.get: it heals a value written before the
+    # moments were validated, the same way the dashboard is protected.
+    sim_date = None
+    if settings.DEMO_MODE:
+        sim_date, _ = _get_sim_date(request)
     project = _build_session_project(plan)
     project["display_name"] = _strip_trailing_date(project["name"])
     project["event_date_display"] = format_date(project["event_date"], role="long")
@@ -2090,6 +2397,8 @@ def my_plan(request):
             "total": total,
             "today": today,
             "today_display": format_date(today, role="long"),
+            "sim_date": sim_date,
+            "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
             "summary": summary,
             "summary_empty_state": summary_empty_state,
             "summary_error": summary_error,
@@ -2128,7 +2437,14 @@ def download_plan(request):
         "",
     ]
 
-    for t in plan["tasks"]:
+    # Sorted rather than iterated in session order (#148). That order only
+    # ever happened to be chronological because planner_review sorted it
+    # once: reschedule_task_view rewrites task["date"] in place and never
+    # re-sorts, and an added task is appended. Same key _annotate_tasks
+    # sorts the rendered lists by, so the export and the page agree.
+    for t in sorted(
+        plan["tasks"], key=lambda t: (not t.get("date"), t.get("date") or "")
+    ):
         checkbox = "[x]" if t["done"] else "[ ]"
         due = date.fromisoformat(t["date"]) if t.get("date") else None
         due_str = f" — {format_date(due, role='long')}" if due else ""
@@ -2184,12 +2500,25 @@ def toggle_session_task(request, task_id):
     done = data.get("done")
     if not isinstance(done, bool):
         return JsonResponse({"error": "invalid done"}, status=400)
+    # #246: no sim_date guard here, unlike toggle_task_view. The rule is that
+    # a write is offered where it takes effect, not that a moment locks the
+    # session plan: my_plan() never reads sim_date, renders the real state on
+    # the real date and keeps a live button.dot (_task_dot.html drops one only
+    # on the dashboard, where the render forces done and would swallow the
+    # write). A guard here would refuse a toggle the visitor can see land.
     plan = request.session.get("demo_plan")
     task = (
         next((t for t in plan["tasks"] if t["id"] == task_id), None) if plan else None
     )
     if task is None:
         return JsonResponse({"error": "unknown task"}, status=404)
+    today = timezone.localdate()
     task["done"] = done
+    # #246: the same pairing toggle_task_view writes (#19), and the same one
+    # _count_done_in_range's docstring already promises for "any task toggled
+    # through this app". Without it a task cleared here reached
+    # _demo_completed_in_range with no completion date, so the week close-out
+    # placed it by its due date or not at all.
+    task["completed_date"] = today.isoformat() if done else None
     request.session["demo_plan"] = plan
     return JsonResponse({"ok": True})

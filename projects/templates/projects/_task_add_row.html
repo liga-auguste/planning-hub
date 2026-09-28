@@ -1,0 +1,40 @@
+{% comment %}
+The one row that adds a task to a plan that already exists (#148).
+
+The sibling of _task_due.html and _task_dot.html, and it exists for the same
+reason: the markup that decides whether a write is offered lives in one
+template, so a second surface cannot re-derive the condition and get it
+wrong. Included by the dashboard's project section and by /mein-plan/'s
+list; the behaviour half is static/projects/js/task_add_row.js, so a third
+surface is an include plus one bindTaskAddRows() call.
+
+Two conditions, both inherited rather than invented here:
+
+  viewing_demo_data — the demo example projects are in no session (#10 §5),
+  so nothing in them can be written to. The endpoint answers 404 there, and
+  a row that answers 404 on every submit is an affordance that is not there.
+
+  sim_date — #217's rule that a Zeitreise moment is a rendering of a date,
+  not a place to change things. Rescheduling is the documented exception
+  because a new date visibly moves the task; an *added* task dated before
+  the moment would be forced `done` by the simulated render the instant it
+  appeared, which is exactly the invisible write #217 refused.
+
+project_id is passed in rather than read off a context variable: the
+dashboard includes this once per project section, and /mein-plan/ once for
+the one session plan. Which project a row belongs to is a statement about
+where it is included, the same way _task_due.html takes its due_display.
+
+Minimal input, name and date only (#148). No kontext select — that is the
+"full form page" the issue ruled out by another name, and #155's per-task
+durations will reopen this row's shape anyway. The accepted consequence is
+named in notion.py create_task: a task added here carries no kontext, so it
+is invisible to the cross-project batching hint the summary prompt derives
+from one (#145).
+{% endcomment %}{% if not viewing_demo_data and not sim_date %}
+<div class="task-add-row" data-project-id="{{ project_id }}">
+    <input type="text" class="task-add-name" placeholder="Neue Aufgabe" aria-label="Neue Aufgabe">
+    <input type="date" class="task-add-date" aria-label="Fällig am">
+    <button type="button" class="task-add-submit">Hinzufügen</button>
+</div>
+{% endif %}

@@ -1103,8 +1103,13 @@ class SidebarProgressRingTest(DemoModeTestCase):
 
 class SidebarProgressRingCssTest(DemoModeTestCase):
     def test_ring_css_references_the_status_tokens(self):
-        # #173: overdue is the only stroke override left — every other open
-        # stage rides the neutral base default.
+        # #212: the brand accent is the base stroke and overdue red stays
+        # the only override — six identical gray rings become the app's own
+        # color without any of them turning into a status stage. The accent
+        # is the *absence* of the override, not a stage of its own, which is
+        # why no ring class other than .overdue gets a rule. Before this,
+        # #173 left the base neutral and every open stage rode that default;
+        # the classification in the markup is unchanged either way.
         # #185 follow-up: .progress-ring* moved from dashboard.html's own
         # extra_css into the shared dashboard.css, alongside .sidebar-icon
         # (see SidebarIconSlotWidthTest) — _sidebar_project_list.html (which
@@ -1116,7 +1121,7 @@ class SidebarProgressRingCssTest(DemoModeTestCase):
         ).read_text()
         self.assertIn(".progress-ring-fill.overdue { stroke: var(--color-overdue)", css)
         self.assertIn(
-            ".progress-ring-fill { stroke: var(--color-text-quaternary); "
+            ".progress-ring-fill { stroke: var(--color-accent); "
             "stroke-linecap: round; }",
             css,
         )

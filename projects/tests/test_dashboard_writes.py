@@ -35,8 +35,10 @@ from ..views import (
     UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
     _annotate_tasks,
+    _build_session_project,
     _bust_dashboard_cache,
     _cache_fresh_read,
+    _demo_completed_in_range,
     _derive_dashboard_figures,
     _remap_summary_refs,
 )
@@ -46,6 +48,10 @@ from .base import (
     _fake_upcoming_project_with_task,
     _summary_data,
 )
+
+
+def _iso_in(days):
+    return (date.today() + timedelta(days=days)).isoformat()
 
 
 @override_settings(DEMO_MODE=False)
@@ -133,6 +139,20 @@ class RescheduleTaskNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json(), {"error": "notion unavailable"})
 
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD, and "20260905" passes
+        # date.fromisoformat — so validating is not the same as normalising.
+        with (
+            patch("projects.views.update_task_date") as mock_update,
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "20260905"}',
+                content_type="application/json",
+            )
+        mock_update.assert_called_once_with("task-1", "2026-09-05")
+
     def test_success_still_reports_ok(self):
         with (
             patch("projects.views.update_task_date") as mock_update,
@@ -209,6 +229,11 @@ class RescheduleIncrementsCounterProductionTest(TestCase):
                 "postpone_count": 4,
                 "due_display": format_date(self.NEW_DATE),
                 "due_display_row": format_date(self.NEW_DATE, role="row"),
+                # #266: the close-out triage list's move button is relabelled
+                # from this, so the German date stays server-side.
+                "next_week_display": format_date(
+                    self.NEW_DATE + timedelta(days=7), role="long"
+                ),
                 "urgency": "ok",
             },
         )
@@ -270,20 +295,43 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
         self.given_session_plan()
         response = self.client.get(reverse("my_plan"))
         self.assertContains(response, self.GUARD)
-        # The revert path survives behind the widened guard.
-        self.assertContains(response, "applyDone(taskId, currentDone);")
+        # The revert path survives behind the widened guard. #211 part 2
+        # added its second argument: the revert restores the green the dot
+        # had before the click, not the green the click would have implied.
+        self.assertContains(response, "applyDone(taskId, currentDone, wasThisWeek);")
         self.assertContains(response, "flashActionFailed(btn);")
 
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All five handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler and #239's rename and trash — carry the
-        # widened guard; their error paths (flash / return false / revert
-        # the drag) stay.
-        self.assertContains(response, self.GUARD, count=5)
+        # All six handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler, #239's rename and trash and #233's
+        # setSimDate — carry the widened guard; their error paths (flash /
+        # return false / revert the drag / take the Zeitreise paint back)
+        # stay.
+        self.assertContains(response, self.GUARD, count=6)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
+
+    PARSE_GUARD = "    try {\n        return await response.json();\n    } catch {"
+
+    def test_a_body_that_is_not_json_is_a_failed_write_too(self):
+        """Found reviewing #233: the guard above covers a rejected fetch and
+        an error response, and then both reschedule helpers handed
+        `response.json()` on as a promise. A 200 whose body is not JSON makes
+        it reject one step later, and two callers await it with no catch of
+        their own — #239's "Heute" menu item on the dashboard and the +7
+        button in the triage list. The rejection threw out of the handler:
+        nothing flashed, and the triage button kept the `disabled` it had set
+        itself."""
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(self.PARSE_GUARD, html)
+        # The bare form is what threw. Asserted as its own line, so a helper
+        # that goes back to returning the promise fails here. The triage
+        # list's own copy is checked where its fixtures live
+        # (TheTriageListReportsAFailedMoveTest, test_closeout.py).
+        self.assertNotIn("\n    return response.json();\n", html)
 
 
 class ToggleTaskDemoModeTest(DemoModeTestCase):
@@ -359,6 +407,47 @@ class ToggleSessionTaskDemoModeTest(DemoModeTestCase):
     def test_no_session_plan_at_all_is_a_404(self):
         response = self.post_toggle("demo-session-0", done=True)
         self.assertEqual(response.status_code, 404)
+
+    def test_a_toggle_records_when_it_happened(self):
+        """#246: _count_done_in_range promises in its own docstring that
+        "any task toggled through this app has `done` and `completed_date`
+        set together". This route wrote only `done`, so the sentence was
+        false for every toggle made on /mein-plan/."""
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"],
+            timezone.localdate().isoformat(),
+        )
+
+    def test_unchecking_clears_the_completion_date(self):
+        self.given_session_plan()
+        self.post_toggle("demo-session-0", done=True)
+        self.post_toggle("demo-session-0", done=False)
+        self.assertIsNone(
+            self.client.session["demo_plan"]["tasks"][0]["completed_date"]
+        )
+
+    def test_a_task_cleared_here_counts_in_the_week_closeout(self):
+        """Where the missing field actually cost something.
+        _demo_completed_in_range places a task in a week by its completion
+        date, and falls back to the due date only under a moment. A task due
+        outside this week, cleared on /mein-plan/ today, therefore never
+        appeared in the close-out's "completed this week" at all."""
+        week_start, week_end = iso_week_bounds(timezone.localdate())
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Programm festlegen",
+                    "date": (week_end + timedelta(days=14)).isoformat(),
+                    "done": False,
+                }
+            ]
+        )
+        self.post_toggle("demo-session-0", done=True)
+        tasks = _build_session_project(self.client.session["demo_plan"])["tasks"]
+        self.assertEqual(_demo_completed_in_range(tasks, week_start, week_end, None), 1)
 
 
 class MalformedJsonBodyTest(DemoModeTestCase):
@@ -447,6 +536,14 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
+
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # The same rule the add path follows (_parse_posted_task_date): a
+        # date that passes date.fromisoformat is not yet a YYYY-MM-DD string,
+        # and the stored one is what download_plan sorts on.
+        self.given_session_plan()
+        self.post_date("demo-session-0", '{"date": "20260905"}')
+        self.assertEqual(self.stored_dates(), ["2026-09-05"])
 
     def test_a_missing_date_is_rejected(self):
         plan = self.given_session_plan()
@@ -654,16 +751,27 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         # therefore read the row while the element is still attached and pass
         # it in. (The local name is dueEl rather than span since #200 made it
         # a button; what this asserts is the reading, not the name.)
-        html = self.dashboard_html()
+        #
+        # #266: the reading moved into the shared module with the picker, and
+        # it is what the row selector is a parameter for — the triage list's
+        # row is not a .task-row, and the summary has none at all.
         self.assertIn(
-            "async function reschedule(taskId, newDate, dueSpan, row) {", html
+            "async function reschedule(taskId, newDate, dueSpan, row) {",
+            self.dashboard_html(),
         )
-        self.assertIn("const row = dueEl.closest('.task-row');", html)
+        picker = (
+            Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+        ).read_text()
+        self.assertIn("const row = dueEl.closest(rowSelector);", picker)
+        self.assertIn("rowSelector = '.task-row'", picker)
+        # The module hands both to the callback, which is what makes the
+        # reading survive the swap regardless of which surface reacts to it.
         self.assertIn(
-            "await reschedule(dueEl.dataset.taskId, input.value, dueEl, row);", html
+            "await onPick(dueEl.dataset.taskId, input.value, dueEl, row);", picker
         )
         # #239 moved the second call site into the actions menu, which reads
         # the row off the clicked item rather than off a button in the row.
+        html = self.dashboard_html()
         self.assertIn(
             "await reschedule(item.dataset.taskId, TODAY, dueSpan, row);", html
         )
@@ -778,9 +886,11 @@ class TaskActionsMenuDrivesTheExistingControlsTest(DemoModeTestCase):
         self.assertNotIn("/delete/", html)
 
     def test_the_date_click_survives_as_a_desktop_shortcut(self):
-        # The one-click reschedule used daily is not lost to the menu.
+        # The one-click reschedule used daily is not lost to the menu. #266
+        # moved the listener into the shared module, so the page's half of
+        # that is the binding call.
         self.assertIn(
-            "document.querySelectorAll('.task-due[data-task-id]')",
+            "bindTaskDatePickers(reschedule, {exclude: '.ai-card'});",
             self.dashboard_html(),
         )
 
@@ -1209,6 +1319,430 @@ class TrashTaskProductionTest(TestCase):
         self.assertNotContains(response, "Programm festlegen")
 
 
+class AddTaskDemoModeTest(DemoModeTestCase):
+    """#148 in a demo session: the task lands in session['demo_plan'], the
+    same place every other demo write does."""
+
+    def post_add(self, project_id="session-plan", **body):
+        payload = {"name": "Programmheft prüfen", "date": _iso_in(3)}
+        payload.update(body)
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps({"project_id": project_id, **payload}),
+            content_type="application/json",
+        )
+
+    def test_the_task_lands_in_the_session_plan(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add().json(), {"ok": True})
+        names = [t["name"] for t in self.client.session["demo_plan"]["tasks"]]
+        self.assertIn("Programmheft prüfen", names)
+
+    def test_it_survives_the_next_request(self):
+        self.given_session_plan()
+        self.post_add()
+        self.assertContains(self.client.get(reverse("my_plan")), "Programmheft prüfen")
+
+    def test_it_is_stored_the_way_planner_create_stores_one(self):
+        # Every consumer of demo_plan["tasks"] reads these keys —
+        # _build_session_project the first three, the toggle "done".
+        self.given_session_plan()
+        self.post_add(date="2026-09-05")
+        added = self.client.session["demo_plan"]["tasks"][-1]
+        self.assertEqual(added["name"], "Programmheft prüfen")
+        self.assertEqual(added["date"], "2026-09-05")
+        self.assertIs(added["done"], False)
+        self.assertTrue(added["id"])
+
+    def test_the_new_id_does_not_reuse_a_trashed_one(self):
+        # planner_create numbers by enumerate, so an id derived from
+        # len(tasks) would collide with a live task after a trash — and
+        # every write addresses a task by id.
+        plan = self.given_session_plan()
+        plan["tasks"].append(
+            {
+                "id": "demo-session-1",
+                "name": "Plakate",
+                "date": _iso_in(5),
+                "done": False,
+            }
+        )
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        self.client.post(
+            reverse("trash_task", args=["demo-session-0"]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.post_add()
+        ids = [t["id"] for t in self.client.session["demo_plan"]["tasks"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertNotIn("demo-session-1", ids[1:])
+
+    def test_the_cached_summaries_are_swept(self):
+        # An added task is content the summary should have mentioned and
+        # could not — unlike a reschedule, which only moves a task the
+        # summary already knew about and is therefore remappable.
+        self.given_session_plan()
+        session = self.client.session
+        session[f"{SUMMARY_KEY}_today"] = _summary_data()
+        session["demo_plan_summary_v1_today"] = _summary_data()
+        session.save()
+        self.post_add()
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+        self.assertNotIn("demo_plan_summary_v1_today", self.client.session)
+
+    def test_a_project_that_is_not_the_session_plan_is_a_404(self):
+        # The demo example projects are in no session, so nothing there can
+        # be written to (#10 §5).
+        self.given_session_plan()
+        self.assertEqual(self.post_add(project_id="demo-1").status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_add_during_a_moment_is_refused(self):
+        # #217: a task dated before the moment would be forced done by the
+        # simulated render the instant it appeared.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertEqual(self.post_add().status_code, 404)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_get_is_a_405(self):
+        self.given_session_plan()
+        self.assertEqual(self.client.get(reverse("add_task")).status_code, 405)
+
+    def test_a_malformed_body_is_a_400(self):
+        self.given_session_plan()
+        response = self.client.post(
+            reverse("add_task"), data="not json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_empty_name_is_a_400(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add(name="   ").status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_an_unparseable_date_is_a_400(self):
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date="übermorgen").status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_a_missing_date_is_a_400(self):
+        # Unlike the timelapse date, an absent one here clears nothing — a
+        # dateless task would drop out of every list this app sorts by date.
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date=None).status_code, 400)
+        self.assertEqual(len(self.client.session["demo_plan"]["tasks"]), 1)
+
+    def test_the_name_is_stripped(self):
+        self.given_session_plan()
+        self.post_add(name="  Programmheft prüfen  ")
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["name"], "Programmheft prüfen"
+        )
+
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # date.fromisoformat takes every ISO 8601 date form since 3.11, so
+        # validating with it is not the same as having YYYY-MM-DD. The stored
+        # string is what download_plan sorts on, and "-" < "0", so "20260905"
+        # kept as it arrived would sort after every hyphenated date.
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date="20260905").json(), {"ok": True})
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-05"
+        )
+
+    def test_an_iso_week_date_is_stored_as_the_day_it_names(self):
+        self.given_session_plan()
+        self.post_add(date="2026-W36-5")
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-04"
+        )
+
+    def test_an_id_outside_the_scheme_does_not_raise_the_counter(self):
+        # _next_demo_task_id reads the number off "demo-session-N". An id that
+        # never carried that prefix carries no number of this scheme either —
+        # rpartition used to hand the whole string back as the suffix, so a
+        # bare "7" was read as number 7 and the next add jumped to 8.
+        plan = self.given_session_plan()
+        plan["tasks"].append({"id": "7", "name": "Alt", "date": "", "done": False})
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        self.post_add()
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["id"], "demo-session-1"
+        )
+
+
+@override_settings(DEMO_MODE=False)
+class AddTaskProductionTest(TestCase):
+    """The production half. The cache is busted rather than patched, for the
+    reason trash_task_view already wrote down and one more: the new Notion
+    page id does not exist until the write returns, and _patch_cached_tasks
+    has no insertion path at all."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post_add(self, **body):
+        payload = {
+            "project_id": "p1",
+            "name": "Programmheft prüfen",
+            "date": _iso_in(3),
+        }
+        payload.update(body)
+        return self.client.post(
+            reverse("add_task"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def warm_the_cache(self):
+        project = _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        return project
+
+    def test_the_write_reaches_notion(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(date="2026-09-05")
+        mock_create.assert_called_once_with("p1", "Programmheft prüfen", "2026-09-05")
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_a_confirmed_write_busts_every_cached_copy(self):
+        self.warm_the_cache()
+        with patch("projects.views.create_task"):
+            self.post_add()
+        for key in (
+            CACHE_KEY,
+            STALE_CACHE_KEY,
+            UNASSIGNED_CACHE_KEY,
+            STALE_UNASSIGNED_CACHE_KEY,
+            CACHE_DEADLINE_KEY,
+            UNASSIGNED_CACHE_DEADLINE_KEY,
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(cache.get(key))
+
+    def test_a_notion_failure_is_a_502_and_leaves_the_cache_alone(self):
+        self.warm_the_cache()
+        with patch(
+            "projects.views.create_task", side_effect=NotionUnavailableError("boom")
+        ):
+            self.assertEqual(self.post_add().status_code, 502)
+        self.assertIsNotNone(cache.get(CACHE_KEY))
+
+    def test_the_task_is_on_the_next_render(self):
+        project = self.warm_the_cache()
+        with patch("projects.views.create_task"):
+            self.post_add()
+        project["tasks"].append(
+            {
+                "id": "task-2",
+                "name": "Programmheft prüfen",
+                "due": date.today() + timedelta(days=3),
+                "done": False,
+                "kontext": [],
+            }
+        )
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Programmheft prüfen")
+
+    def test_a_get_is_a_405(self):
+        self.assertEqual(self.client.get(reverse("add_task")).status_code, 405)
+
+    def test_a_malformed_body_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.client.post(
+                reverse("add_task"), data="not json", content_type="application/json"
+            )
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_a_missing_project_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(project_id="")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_an_empty_name_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(name="   ")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_an_unparseable_date_is_a_400_before_any_write(self):
+        with patch("projects.views.create_task") as mock_create:
+            response = self.post_add(date="übermorgen")
+        self.assertEqual(response.status_code, 400)
+        mock_create.assert_not_called()
+
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD; "20260905" passes
+        # date.fromisoformat and would have been forwarded as it arrived.
+        with patch("projects.views.create_task") as mock_create:
+            self.post_add(date="20260905")
+        mock_create.assert_called_once_with("p1", "Programmheft prüfen", "2026-09-05")
+
+
+class AddRowIsOfferedOnlyWhereItPersistsTest(DemoModeTestCase):
+    """#148's two refusals, in the markup rather than only in the endpoint.
+    A row that answers 404 on every submit is an affordance that is not
+    there — the same reasoning _task_due.html and _task_dot.html carry."""
+
+    def dashboard_html(self, **params):
+        return self.client.get(reverse("dashboard"), params).content.decode()
+
+    def test_a_session_plan_gets_the_row_on_the_dashboard(self):
+        self.given_session_plan()
+        self.assertIn('class="task-add-row"', self.dashboard_html())
+
+    def test_a_session_plan_gets_the_row_on_my_plan(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertIn('class="task-add-row"', html)
+
+    def test_the_demo_example_projects_do_not_get_it(self):
+        # viewing_demo_data: those projects are in no session (#10 §5).
+        self.assertNotIn('class="task-add-row"', self.dashboard_html())
+
+    def test_a_moment_takes_it_away(self):
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        self.assertNotIn('class="task-add-row"', self.dashboard_html())
+
+    def test_my_plan_loses_it_under_a_moment_too(self):
+        # #246: /mein-plan/ renders the real date, so the write the
+        # dashboard refuses is not the one this page would make. The
+        # endpoint decides per world, and this page is not the simulated
+        # one — but the moment lives in the same session, so the refusal
+        # would reach it. Pinned so the pair cannot drift apart silently.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        self.client.post(
+            reverse("set_timelapse_date"),
+            data=json.dumps({"date": "2026-09-01"}),
+            content_type="application/json",
+        )
+        html = self.client.get(reverse("my_plan")).content.decode()
+        self.assertNotIn('class="task-add-row"', html)
+
+
+class TheAddRowIsOneComponentTest(DemoModeTestCase):
+    """#148 follows #266's and #233's cut, one write further on: the markup
+    is one partial and the write is one module, so a surface is an include
+    plus one call.
+
+    The whole write, not only the asking — which is where this differs from
+    the date picker deliberately. Each surface's *reschedule* means something
+    different; an add means the same thing everywhere, because the endpoint
+    busts the caches and answers no figures. Two identical fetches in two
+    templates would be the duplication those two issues were about."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_module_holds_the_write(self):
+        source = self.MODULE.read_text()
+        self.assertIn("function bindTaskAddRows(csrfToken)", source)
+        self.assertIn("fetch('/task/add/'", source)
+
+    def test_no_template_holds_a_copy_of_it(self):
+        # The uniqueness criterion as a test rather than as a review note:
+        # the endpoint is the one thing a second copy could not do without.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "/task/add/" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/task_add_row.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Not `defer`, for task_date_picker.js's reason: both surfaces call
+        # bindTaskAddRows() from an inline script in extra_js, and an inline
+        # script runs while the document is still parsing.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("task_add_row.js' %}\" defer", base)
+        self.assertLess(
+            base.index("task_add_row.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_both_surfaces_bind_it_with_their_own_token(self):
+        # The token is the one thing the two get differently — the dashboard
+        # from the hidden input the page owns, /mein-plan/ from the template
+        # variable — which is why it is the argument.
+        self.assertIn("bindTaskAddRows(CSRF);", self.dashboard_html())
+        self.assertIn(
+            "bindTaskAddRows(CSRF);",
+            self.client.get(reverse("my_plan")).content.decode(),
+        )
+
+    def test_a_successful_add_reloads(self):
+        # The answer carries no figures — the cache was busted, so there is
+        # nothing warm left to derive them from, and the server re-renders
+        # every count, bar and badge instead (#210).
+        self.assertIn("window.location.reload();", self.MODULE.read_text())
+
+    def test_a_rejected_fetch_is_a_failed_add_too(self):
+        # #159: a transport failure never reaches the .ok check.
+        source = self.MODULE.read_text()
+        self.assertIn("if (!response || !response.ok)", source)
+        self.assertIn("flashActionFailed(submitEl);", source)
+
+    def test_what_was_typed_survives_a_failure(self):
+        # Cleared by the reload on success and by nothing else, so a failed
+        # add is retried rather than retyped.
+        source = self.MODULE.read_text()
+        self.assertNotIn("nameEl.value = ''", source)
+
+    def test_the_write_is_visible_while_it_runs(self):
+        # #198, the same promise the date picker makes — and the guard that
+        # keeps a second click from writing a second Notion page, which
+        # create_task deliberately does not deduplicate.
+        source = self.MODULE.read_text()
+        self.assertIn("row.classList.add('pending');", source)
+        self.assertIn("if (row.classList.contains('pending')) return;", source)
+
+
 class TrashHappensBehindASecondClickTest(DemoModeTestCase):
     """The only action that reads as irreversible, so it asks — a two-step
     inside the menu rather than a modal, which would sit outside the page's
@@ -1258,9 +1792,17 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
     carrying `data-task-id` and `data-raw-date`, picked up by selector — and
     two of them had already drifted apart. The point of the partial is that
     a new surface offering the date (#186, #193) is an include, and that
-    #200's question "what element is this" has exactly one answer."""
+    #200's question "what element is this" has exactly one answer.
+
+    #266 moved the behaviour after the markup: the picker is one module, so
+    the assertions about how the date is asked for read that file rather
+    than whichever template used to hold the block."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+
+    def picker_source(self):
+        return self.PICKER.read_text()
 
     def test_only_the_partial_writes_the_date_markup(self):
         # The assertion that keeps the next surface from re-typing it: any
@@ -1285,7 +1827,10 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # the whole contract — an element with them is reschedulable.
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("document.querySelectorAll('.task-due[data-task-id]')", html)
+        self.assertIn(
+            "document.querySelectorAll('.task-due[data-task-id]')",
+            self.picker_source(),
+        )
         self.assertRegex(
             html,
             r'<button type="button" class="task-due[^"]*" data-task-id="[^"]+" '
@@ -1304,26 +1849,26 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         # false in Safari on macOS for an ordinary mouse click, because Safari
         # does not focus a <button> when you click it. An element cannot say
         # how the click that reached it was produced; the events can.
-        html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", html)
+        source = self.picker_source()
+        self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", source)
         self.assertIn(
-            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", html
+            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", source
         )
 
     def test_the_device_is_tracked_from_the_events_themselves(self):
         # capture:true so a handler that stops propagation cannot leave the
         # modality stale, and pointerdown/keydown rather than click/keyup so it
         # is already current when the click handler above reads it.
-        html = self.client.get(reverse("dashboard")).content.decode()
+        source = self.picker_source()
         self.assertIn(
             "document.addEventListener('keydown', "
             "() => { lastInputWasKeyboard = true; }, true);",
-            html,
+            source,
         )
         self.assertIn(
             "document.addEventListener('pointerdown', "
             "() => { lastInputWasKeyboard = false; }, true);",
-            html,
+            source,
         )
 
     def test_the_menu_route_reaches_the_button_without_focusing_it(self):
@@ -1346,6 +1891,296 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
             "`Datum ändern, aktuell ${data.due_display_row}`);",
             html,
         )
+
+
+class ThePickerIsOneModuleTest(DemoModeTestCase):
+    """#266: the behaviour half of #195. The markup was already one partial;
+    the handler that turns it into a control was still a block inside
+    dashboard.html, bound by selector — which only ever reached markup
+    rendered by that one template. Any further surface had to copy it, and
+    the block carries #200's modality reasoning, which is the part most
+    likely to be re-derived wrongly.
+
+    What moved is the *asking*: swap the button for an input, open it, track
+    the device, swap back. What stayed per surface is the consequence — each
+    passes its own callback."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_the_module_holds_the_picker(self):
+        source = self.PICKER.read_text()
+        self.assertIn("function bindTaskDatePickers(onPick", source)
+        self.assertIn("input.showPicker();", source)
+
+    def test_no_template_holds_a_copy_of_it(self):
+        # The uniqueness criterion as a test rather than as a review note:
+        # showPicker() is the one call a second copy could not do without.
+        # The call, not the word — _task_due.html names it in prose, which
+        # is the pointer working rather than a copy.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "input.showPicker()" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        # In base_dashboard.html, so the dashboard, /mein-plan/, the triage
+        # list and any further surface get it without a script tag of their
+        # own — and cannot get a different one.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/task_date_picker.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Not `defer`: every surface calls bindTaskDatePickers() from an
+        # inline script in extra_js, and an inline script runs while the
+        # document is still parsing — a deferred module would not be defined
+        # yet. Order is what makes the plain tag correct, so it is asserted.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("task_date_picker.js' %}\" defer", base)
+        self.assertLess(
+            base.index("task_date_picker.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_the_consequence_did_not_move_with_it(self):
+        # The wrong reading of "extract the handler" is to share
+        # reschedule(): the dashboard's depends on browsedWeekStart(),
+        # reclassify(), applyRescheduleFigures() and sortRows(), none of
+        # which mean anything on the triage list.
+        source = self.PICKER.read_text()
+        for helper in ("sortRows", "reclassify", "applyRescheduleFigures"):
+            with self.subTest(helper=helper):
+                self.assertNotIn(helper, source)
+
+    def test_the_two_dashboard_behaviours_are_bound_by_region(self):
+        # Read at bind time, not at pick time: the picker detaches the
+        # button while the request runs, so closest() inside the callback
+        # would find nothing to decide with.
+        html = self.dashboard_html()
+        self.assertIn("bindTaskDatePickers(reschedule, {exclude: '.ai-card'});", html)
+        self.assertIn("}, {within: '.ai-card'});", html)
+
+    def dashboard_html(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+
+class TheFailureFlashIsOneModuleTest(DemoModeTestCase):
+    """#233: the second half of #266's cut, one level up. The *asking* for a
+    date was shared; the *reporting* of a write that did not land still lived
+    in two copies of the same four lines plus two copies of the same CSS —
+    and in neither of the surfaces #266 added. The close-out triage list was
+    the proof: it had the handler's shape and none of the animation, so it
+    could not have reported a failure even if it had wanted to, and both of
+    its paths returned silently.
+
+    Both halves move together, into base_dashboard.html's script tag and into
+    dashboard.css, which that base already loads. A surface inherits the whole
+    feedback or none of it — it cannot inherit half."""
+
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/action_feedback.js"
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def test_the_module_holds_the_flash(self):
+        source = self.MODULE.read_text()
+        self.assertIn("function flashActionFailed(el)", source)
+        self.assertIn("el.classList.add('action-failed');", source)
+        self.assertIn(
+            "setTimeout(() => el.classList.remove('action-failed'), 1500);", source
+        )
+
+    def test_no_template_holds_a_copy_of_it(self):
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "function flashActionFailed" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_every_surface_inherits_it_from_the_base_template(self):
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertIn(
+            "<script src=\"{% static 'projects/js/action_feedback.js' %}\"></script>",
+            base,
+        )
+
+    def test_it_is_loaded_before_the_inline_scripts_that_call_it(self):
+        # Same reason as the picker's tag: every caller is an inline script in
+        # extra_js, which runs while the document is still parsing, so a
+        # deferred module would not be defined yet.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertNotIn("action_feedback.js' %}\" defer", base)
+        self.assertLess(
+            base.index("action_feedback.js"), base.index("{% block extra_js %}")
+        )
+
+    def test_the_animation_lives_once_in_the_shared_sheet(self):
+        css = self.CSS.read_text()
+        self.assertEqual(css.count(".action-failed { animation:"), 1)
+        self.assertEqual(css.count("@keyframes flash-failed"), 1)
+
+    def test_no_surface_carries_its_own_copy_of_the_animation(self):
+        # The CSS is the half that decided this: a template keeping its own
+        # keyframes would go on working while the triage list still could not
+        # flash, which is exactly the state this replaces.
+        holders = sorted(
+            path.name
+            for path in self.TEMPLATES.glob("*.html")
+            if "@keyframes flash-failed" in path.read_text()
+        )
+        self.assertEqual(holders, [])
+
+    def test_the_guard_is_only_for_the_caller_that_needs_it(self):
+        # setSimDate's clicked control is an optional argument, so its failure
+        # branch flashes unconditionally rather than repeating the check its
+        # optimistic paint already makes.
+        self.assertIn("if (!el) return;", self.MODULE.read_text())
+
+
+class ThePickerSaysItIsSavingTest(DemoModeTestCase):
+    """#198: the row sat unchanged while a reschedule ran, and a reschedule is
+    two Notion round trips — update_task_date plus increment_postpone_count,
+    which is read-then-write because Notion has no atomic increment. Nothing
+    on screen said the pick had been taken.
+
+    The literal optimistic write the issue asks for is declined deliberately
+    (see the comment on #198): it means a second copy of German date
+    formatting and of #169's calendar-week urgency rule in JavaScript, both
+    settled the other way. What is shared instead is the *wait*, because every
+    surface's wait is the same one."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+
+    def test_the_input_is_marked_while_the_write_runs(self):
+        source = self.PICKER.read_text()
+        self.assertIn("input.classList.add('pending');", source)
+        self.assertIn("input.setAttribute('aria-busy', 'true');", source)
+        self.assertLess(
+            source.index("input.classList.add('pending');"),
+            source.index("await onPick("),
+        )
+
+    def test_the_mark_is_cleared_in_the_finally_that_swaps_the_date_back(self):
+        # The same finally, not a second one: a callback that throws rather
+        # than answering falsy would otherwise leave the input marked, and
+        # the module exists so no surface has to know that.
+        self.assertIn(
+            "} finally {\n"
+            "                    input.classList.remove('pending');\n"
+            "                    input.removeAttribute('aria-busy');\n"
+            "                    swapBack();",
+            self.PICKER.read_text(),
+        )
+
+    def test_it_marks_rather_than_disables(self):
+        # Disabling blurs the input, and blur is what swaps the display
+        # element back — mid-request.
+        self.assertNotIn("input.disabled", self.PICKER.read_text())
+
+    def test_the_mark_has_a_rule_in_the_shared_sheet(self):
+        self.assertIn(".task-due-input.pending", self.CSS.read_text())
+
+
+class TheDateAlwaysComesBackTest(DemoModeTestCase):
+    """The one promise the shared module makes to all four surfaces: a click
+    on a date can cost the picker, never the date. Swapping in an
+    <input type="date"> puts the row in a state only this module knows how to
+    leave, and a surface's onPick cannot be trusted to unwind it — each one is
+    a different page's code, and the module exists so none of them has to know.
+
+    Two paths used to skip the way back. An onPick that *threw* rather than
+    answering falsy — response.json() on a 200 that is not JSON, or any of the
+    dashboard's own patching helpers — never reached the swap; and showPicker()
+    throwing ran before the listeners existed at all. Either left a bare date
+    input standing where the date was until the next page load."""
+
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+
+    def source(self):
+        return self.PICKER.read_text()
+
+    def test_a_throwing_callback_still_gets_the_date_put_back(self):
+        # try/finally rather than a plain await: resolved, falsy and thrown
+        # all have to end in the same swap.
+        source = self.source()
+        self.assertIn(
+            "} finally {\n"
+            "                    input.classList.remove('pending');\n"
+            "                    input.removeAttribute('aria-busy');\n"
+            "                    swapBack();",
+            source,
+        )
+        # Asserted before the index() below, so a module without the try at all
+        # fails with the reason rather than with a ValueError.
+        self.assertIn("try {", source)
+        self.assertLess(source.index("try {"), source.index("await onPick("))
+
+    def test_both_listeners_exist_before_the_picker_is_opened(self):
+        # showPicker() is the line that can throw, so it is the line nothing
+        # this handler still owes may sit behind. Registered first, a throw
+        # costs the picker and nothing else: blur still brings the date back.
+        source = self.source()
+        opened = source.index("input.showPicker();")
+        self.assertLess(source.index("input.addEventListener('change'"), opened)
+        self.assertLess(source.index("input.addEventListener('blur'"), opened)
+
+    def test_one_place_puts_it_back_and_it_runs_once(self):
+        # A pick followed by a click elsewhere fires change and blur both, so
+        # the way back needs a guard — replaceWith() on a detached input is
+        # already a no-op, but a second restore() would drag a keyboard user's
+        # focus off whatever they had just moved to. One call site, one guard.
+        source = self.source()
+        self.assertEqual(source.count("input.replaceWith(dueEl);"), 1)
+        self.assertIn("if (swappedBack) return;", source)
+        self.assertIn("input.addEventListener('blur', swapBack);", source)
+
+
+class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
+    """#193: the summary rendered a date it did not offer to change. It
+    reloads rather than patching — its prose makes claims about urgency that
+    a new date invalidates, and its task_refs are positions in a
+    chronological order the move has just changed."""
+
+    def summary_html(self):
+        self.given_session_plan()
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("dashboard")).content.decode()
+        return html[html.index('class="ai-card"') : html.index('<div class="kanban">')]
+
+    def test_the_summary_date_is_a_button_for_a_session_plan(self):
+        self.assertIn('<button type="button" class="task-due', self.summary_html())
+
+    def test_it_stays_a_span_for_the_demo_example_projects(self):
+        # The gate #193 asks for, and it needed no flag of its own: those
+        # projects are in no session, so reschedule_task_view answers 404 by
+        # design (#10 §5) — which is exactly what viewing_demo_data means.
+        self.ai_mocks["projects.views.generate_weekly_summary"].return_value = {
+            "jetzt_faellig": [
+                {"heading": "Testkonzert", "assessment": "x", "task_refs": [1]}
+            ],
+            "naechste_woche": [],
+        }
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertNotIn('<button type="button" class="task-due', html)
+        self.assertIn('<span class="task-due', html)
+
+    def test_a_successful_move_from_the_summary_reloads(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        binding = html[html.index("bindTaskDatePickers(async") :]
+        self.assertIn("const ok = await reschedulePersist(taskId, newDate);", binding)
+        self.assertIn("window.location.reload();", binding)
 
 
 class RescheduleOfferedOnlyWherePersistedTest(DemoModeTestCase):
@@ -2128,7 +2963,7 @@ class ToggleUpdatesEverySurfaceTest(DemoModeTestCase):
         html = self.dashboard_html()
         toggle_block = html[
             html.index("function applyToggleFigures") : html.index(
-                "function flashActionFailed"
+                "function applyRescheduleFigures"
             )
         ]
         self.assertNotIn(".length", toggle_block)
@@ -2634,9 +3469,11 @@ class RescheduleResortsTheRowTest(DemoModeTestCase):
         return self.client.get(reverse("dashboard")).content.decode()
 
     def reschedule_block(self, html):
+        # #266: the block ends where the shared picker is bound to it — the
+        # listener that used to close it off lives in its own file now.
         return html[
             html.index("async function reschedule(") : html.index(
-                "document.querySelectorAll('.task-due[data-task-id]')"
+                "bindTaskDatePickers(reschedule,"
             )
         ]
 
@@ -2704,6 +3541,23 @@ class RescheduleAnswersBothDateFormsTest(DemoModeTestCase):
         self.assertEqual(answer["due_display"], format_date(new_date, role="long"))
         self.assertEqual(answer["due_display_row"], format_date(new_date, role="row"))
 
+    def test_the_answer_also_carries_the_next_week_label(self):
+        # #266: the close-out triage list's move button offers due + 7 and
+        # has to follow a hand-picked date. Derived here, so format_date
+        # stays the one place that knows German date formatting (#189/#192)
+        # and the client never grows a second copy of the month names.
+        self.given_session_plan()
+        new_date = date.today() + timedelta(days=14)
+        response = self.client.post(
+            reverse("reschedule_task", args=["demo-session-0"]),
+            data=json.dumps({"date": new_date.isoformat()}),
+            content_type="application/json",
+        )
+        self.assertEqual(
+            response.json()["next_week_display"],
+            format_date(new_date + timedelta(days=7), role="long"),
+        )
+
     def test_the_row_takes_the_short_form_and_the_board_the_long_one(self):
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
@@ -2724,7 +3578,7 @@ class RescheduleUpdatesTheDayColumnsTest(DemoModeTestCase):
     def figures_block(self, html):
         return html[
             html.index("function applyRescheduleFigures") : html.index(
-                "function flashActionFailed"
+                "const SIM_LOCK_NOTICE_MS"
             )
         ]
 

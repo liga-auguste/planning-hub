@@ -24,7 +24,7 @@ Four surfaces render this dot — the AI summary's list item, the project
 section's task row, the Heute lists (_task_row.html) and the day-column
 card (_day_task_card.html) — which is why the condition lives here instead
 of four times over, the same reason applyTaskDone keeps one selector list.
-{% endcomment %}{% if sim_date %}<span class="dot {{ task.urgency }} {% if task.done %}done{% endif %}"></span>{% else %}<form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
+{% endcomment %}{% if sim_date %}<span class="dot {{ task.urgency }} {% if task.done %}done{% endif %}{% if task.done_this_week %} done-this-week{% endif %}"></span>{% else %}<form class="toggle-form" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}">
     {% csrf_token %}
-    <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}" title="Abhaken"></button>
+    <button type="submit" class="dot {{ task.urgency }} {% if task.done %}done{% endif %}{% if task.done_this_week %} done-this-week{% endif %}" title="Abhaken"></button>
 </form>{% endif %}
