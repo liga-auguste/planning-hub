@@ -1631,14 +1631,20 @@ def _parse_posted_task_date(request_data):
     dateless task would drop out of every list this app sorts and buckets by
     date (_annotate_tasks, _bucket_by_day, the export).
 
-    Parsed to prove it is a date, handed on as the string Notion and the
-    session both store."""
+    Parsed to prove it is a date, and handed on as what that date spells
+    rather than as what arrived. date.fromisoformat has accepted every ISO
+    8601 date form since 3.11, so "20260905" and "2026-W36-5" get through it
+    too — and the string is what both worlds then store and compare. The
+    export sorts on it (download_plan) where "-" < "0", so a compact form
+    would sort after every hyphenated date while the rendered list, which
+    sorts on a real date object, put it in the right place. One canonical
+    spelling in, one order out."""
     raw = request_data.get("date")
     try:
-        date.fromisoformat(raw)
+        parsed = date.fromisoformat(raw)
     except (ValueError, TypeError):
         return None, JsonResponse({"error": "invalid date"}, status=400)
-    return raw, None
+    return parsed.isoformat(), None
 
 
 def _next_demo_task_id(tasks):
@@ -1649,12 +1655,20 @@ def _next_demo_task_id(tasks):
     write addresses a task by id. Highest existing suffix + 1 instead,
     stepping over any id that does not parse (a session written by an older
     format, or one this function itself never produced)."""
+    prefix = "demo-session-"
     highest = -1
     for task in tasks:
-        _, _, suffix = str(task.get("id", "")).rpartition("demo-session-")
+        task_id = str(task.get("id", ""))
+        # An explicit prefix test rather than rpartition: with the separator
+        # absent rpartition hands the whole string back as the suffix, so an
+        # id of "7" would be read as this scheme's number 7 instead of being
+        # stepped over.
+        if not task_id.startswith(prefix):
+            continue
+        suffix = task_id.removeprefix(prefix)
         if suffix.isdigit():
             highest = max(highest, int(suffix))
-    return f"demo-session-{highest + 1}"
+    return f"{prefix}{highest + 1}"
 
 
 def add_task_view(request):
@@ -1745,11 +1759,16 @@ def reschedule_task_view(request, task_id):
     data, error = _parse_json_dict_body(request)
     if error:
         return error
-    raw_date = data.get("date")
     try:
-        parsed_date = date.fromisoformat(raw_date)
+        parsed_date = date.fromisoformat(data.get("date"))
     except (ValueError, TypeError):
         return JsonResponse({"error": "invalid date"}, status=400)
+    # Canonical rather than as it arrived, for _parse_posted_task_date's
+    # reason: fromisoformat takes every ISO 8601 date form, and this string
+    # is what the session stores and the export sorts on. Hence iso_date and
+    # not raw_date — what reaches Notion and the session is the date's own
+    # spelling, not the request's.
+    iso_date = parsed_date.isoformat()
     due_display = format_date(parsed_date, role="long")
     # #238: two formats, because the client writes this answer into two
     # elements. The Kanban card spells the month out; the task row was
@@ -1792,7 +1811,7 @@ def reschedule_task_view(request, task_id):
         # reads before its own: the summaries below are numbered against
         # this order.
         numbered_before = _session_task_order(plan, effective_today)
-        task["date"] = raw_date
+        task["date"] = iso_date
         # #171: awareness, not punishment — starts counting from the second
         # move, but the counter itself increments on every reschedule from
         # the first one (the badge threshold is a display concern, applied
@@ -1831,7 +1850,7 @@ def reschedule_task_view(request, task_id):
         )
     else:
         try:
-            update_task_date(task_id, raw_date)
+            update_task_date(task_id, iso_date)
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
         # Applied right away, before the counter call: the date change is

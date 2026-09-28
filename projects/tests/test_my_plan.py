@@ -319,3 +319,18 @@ class ExportListsEveryTaskInDateOrderTest(DemoModeTestCase):
         session.save()
         body = self.export()
         self.assertLess(body.index("Programm festlegen"), body.index("Ohne Datum"))
+
+    def test_a_task_added_with_a_non_canonical_iso_date_sorts_by_its_day(self):
+        # The sort compares the stored string, so it only holds while every
+        # stored date is spelled the one way. date.fromisoformat validates
+        # "20260905" too, and "-" < "0" puts a compact form after every
+        # hyphenated date — the endpoint stores what the date spells instead
+        # (_parse_posted_task_date). given_session_plan's own task is 7 days
+        # out; both of these are 3.
+        self.given_session_plan()
+        compact = (date.today() + timedelta(days=3)).isoformat().replace("-", "")
+        self.add("Programmheft prüfen", compact)
+        body = self.export()
+        self.assertLess(
+            body.index("Programmheft prüfen"), body.index("Programm festlegen")
+        )

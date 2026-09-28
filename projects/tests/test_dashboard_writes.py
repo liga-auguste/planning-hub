@@ -139,6 +139,20 @@ class RescheduleTaskNotionFailureTest(TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json(), {"error": "notion unavailable"})
 
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD, and "20260905" passes
+        # date.fromisoformat — so validating is not the same as normalising.
+        with (
+            patch("projects.views.update_task_date") as mock_update,
+            patch("projects.views.increment_postpone_count", return_value=1),
+        ):
+            self.client.post(
+                reverse("reschedule_task", args=["task-1"]),
+                data='{"date": "20260905"}',
+                content_type="application/json",
+            )
+        mock_update.assert_called_once_with("task-1", "2026-09-05")
+
     def test_success_still_reports_ok(self):
         with (
             patch("projects.views.update_task_date") as mock_update,
@@ -522,6 +536,14 @@ class RescheduleTaskDemoModeTest(DemoModeTestCase):
         response = self.post_date("demo-session-0", '{"date": "kein-datum"}')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.stored_dates(), [plan["tasks"][0]["date"]])
+
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # The same rule the add path follows (_parse_posted_task_date): a
+        # date that passes date.fromisoformat is not yet a YYYY-MM-DD string,
+        # and the stored one is what download_plan sorts on.
+        self.given_session_plan()
+        self.post_date("demo-session-0", '{"date": "20260905"}')
+        self.assertEqual(self.stored_dates(), ["2026-09-05"])
 
     def test_a_missing_date_is_rejected(self):
         plan = self.given_session_plan()
@@ -1427,6 +1449,39 @@ class AddTaskDemoModeTest(DemoModeTestCase):
             self.client.session["demo_plan"]["tasks"][-1]["name"], "Programmheft prüfen"
         )
 
+    def test_a_non_canonical_iso_date_is_stored_canonically(self):
+        # date.fromisoformat takes every ISO 8601 date form since 3.11, so
+        # validating with it is not the same as having YYYY-MM-DD. The stored
+        # string is what download_plan sorts on, and "-" < "0", so "20260905"
+        # kept as it arrived would sort after every hyphenated date.
+        self.given_session_plan()
+        self.assertEqual(self.post_add(date="20260905").json(), {"ok": True})
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-05"
+        )
+
+    def test_an_iso_week_date_is_stored_as_the_day_it_names(self):
+        self.given_session_plan()
+        self.post_add(date="2026-W36-5")
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["date"], "2026-09-04"
+        )
+
+    def test_an_id_outside_the_scheme_does_not_raise_the_counter(self):
+        # _next_demo_task_id reads the number off "demo-session-N". An id that
+        # never carried that prefix carries no number of this scheme either —
+        # rpartition used to hand the whole string back as the suffix, so a
+        # bare "7" was read as number 7 and the next add jumped to 8.
+        plan = self.given_session_plan()
+        plan["tasks"].append({"id": "7", "name": "Alt", "date": "", "done": False})
+        session = self.client.session
+        session["demo_plan"] = plan
+        session.save()
+        self.post_add()
+        self.assertEqual(
+            self.client.session["demo_plan"]["tasks"][-1]["id"], "demo-session-1"
+        )
+
 
 @override_settings(DEMO_MODE=False)
 class AddTaskProductionTest(TestCase):
@@ -1545,6 +1600,13 @@ class AddTaskProductionTest(TestCase):
         self.assertEqual(response.status_code, 400)
         mock_create.assert_not_called()
 
+    def test_a_non_canonical_iso_date_reaches_notion_canonically(self):
+        # Notion's date property takes YYYY-MM-DD; "20260905" passes
+        # date.fromisoformat and would have been forwarded as it arrived.
+        with patch("projects.views.create_task") as mock_create:
+            self.post_add(date="20260905")
+        mock_create.assert_called_once_with("p1", "Programmheft prüfen", "2026-09-05")
+
 
 class AddRowIsOfferedOnlyWhereItPersistsTest(DemoModeTestCase):
     """#148's two refusals, in the markup rather than only in the endpoint.
@@ -1577,7 +1639,7 @@ class AddRowIsOfferedOnlyWhereItPersistsTest(DemoModeTestCase):
         )
         self.assertNotIn('class="task-add-row"', self.dashboard_html())
 
-    def test_my_plan_keeps_it_under_a_moment(self):
+    def test_my_plan_loses_it_under_a_moment_too(self):
         # #246: /mein-plan/ renders the real date, so the write the
         # dashboard refuses is not the one this page would make. The
         # endpoint decides per world, and this page is not the simulated
