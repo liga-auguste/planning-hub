@@ -213,6 +213,54 @@ class TheDateStylingLivesWithTheDateTest(DemoModeTestCase):
         self.assertIn(".task-row .task-due { margin-left: 0; }", self.dashboard_css())
 
 
+class SidebarButtonStylingLivesWithTheSidebarTest(DemoModeTestCase):
+    """#200: the sidebar's in-page entries became <button>s, and a button
+    inherits none of what the <a> brought for free — its own font,
+    background, border, padding and width. The reset and the focus ring go
+    into dashboard.css for the same reason the rest of .sidebar-item does:
+    _sidebar_nav.html renders on four pages, each with its own extra_css,
+    and this is the one stylesheet all four load."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    RULES = (
+        "button.sidebar-item {",
+        "button.sidebar-item:focus-visible {",
+    )
+
+    def dashboard_css(self):
+        return (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_stylesheet_carries_them(self):
+        css = self.dashboard_css()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, css)
+
+    def test_no_template_carries_them(self):
+        for rule in self.RULES:
+            holders = sorted(
+                path.name
+                for path in self.TEMPLATES.glob("*.html")
+                if rule in path.read_text()
+            )
+            with self.subTest(rule=rule):
+                self.assertEqual(holders, [])
+
+    def test_the_reset_restates_what_the_anchor_gave_for_free(self):
+        # Each of these was inherited or defaulted on the <a> and is not on
+        # a <button>: the font (a button brings its own), the padding and
+        # the width (a button sizes to fit-content even as a block-level
+        # flex container, where the anchor filled the sidebar on its own).
+        rule = (
+            self.dashboard_css().split("button.sidebar-item {", 1)[1].split("}", 1)[0]
+        )
+        for declaration in ("font: inherit", "padding: 5px 16px", "width: calc(100%"):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, rule)
+
+
 class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
     """Four surfaces render a dot, a task name and a date — the dashboard's
     task rows and its summary, /mein-plan/'s list and its summary — and each

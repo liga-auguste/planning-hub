@@ -439,7 +439,12 @@ def _sidebar_group(html, heading, count):
     """
     _, after = html.split(f">{heading}</div>", 1)
     entries = re.findall(
-        r'<a class="sidebar-item[^"]*"[^>]*>(.*?)</a>', after, re.DOTALL
+        # Both tags, since #200: an entry that navigates is an <a href>, one
+        # that switches the view in place is a <button>. The labels read the
+        # same either way, which is what this helper is about.
+        r'<(?:a|button)[^>]*\bclass="sidebar-item[^"]*"[^>]*>(.*?)</(?:a|button)>',
+        after,
+        re.DOTALL,
     )
     labels = []
     for entry in entries[:count]:
@@ -648,6 +653,87 @@ class SidebarLogoHeaderTest(DemoModeTestCase):
         self.assertNotContains(response, "sidebar-header")
 
 
+class SidebarEntriesAreButtonsTest(DemoModeTestCase):
+    """#200: the sidebar's in-page toggles were <a> elements carrying an
+    onclick and no href. An anchor without href takes no focus and answers
+    no key, so Dashboard, Heute and every project entry could be reached
+    with a mouse only — the same gap the date control had in this issue's
+    first half, wearing a link's tag.
+
+    They are <button>s now, and the <a href> branches on the standalone
+    pages are deliberately untouched: those really navigate. After this the
+    tag itself carries the distinction the partials' comments describe."""
+
+    def test_the_two_view_toggles_are_buttons(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            '<button type="button" class="sidebar-item active" id="nav-overview">',
+        )
+        self.assertContains(
+            response, '<button type="button" class="sidebar-item" id="nav-today">'
+        )
+
+    def test_the_project_entries_are_buttons_carrying_their_id(self):
+        # data-project-id is what the listener binds to, on both branches
+        # since #210 — here it is also what tells the dashboard's own
+        # entries apart from the standalone pages' links.
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            '<button type="button" class="sidebar-item" id="nav-session-plan" '
+            'data-project-id="session-plan">',
+        )
+
+    def test_the_rendered_sidebar_carries_no_onclick(self):
+        # The behaviour lives with the rest of the JS, not in the markup.
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        for attribute in (
+            'onclick="showOverview()"',
+            'onclick="showToday()"',
+            'onclick="showProject(',
+        ):
+            with self.subTest(attribute=attribute):
+                self.assertNotIn(attribute, html)
+
+    def test_the_partials_carry_no_onclick_attribute(self):
+        templates = Path(settings.BASE_DIR) / "projects/templates/projects"
+        for name in ("_sidebar_nav.html", "_sidebar_project_list.html"):
+            with self.subTest(template=name):
+                self.assertNotIn("onclick=", (templates / name).read_text())
+
+    def test_the_standalone_pages_keep_real_links(self):
+        # The other half of the distinction: a button where the view switches
+        # in place, an <a href> where the browser navigates.
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assertContains(
+            response, f'class="sidebar-item active" href="{reverse("my_plan")}"'
+        )
+        self.assertContains(
+            response, f'href="{reverse("dashboard")}?project=session-plan"'
+        )
+        # Narrowed to the nav entries: the About opener is a <button> on
+        # every page carrying the sidebar (#200, stage 2), and it is not one
+        # of the entries this distinction is about.
+        html = response.content.decode()
+        self.assertNotIn('id="nav-overview"', html)
+        self.assertNotIn(
+            '<button type="button" class="sidebar-item" id="nav-session-plan"', html
+        )
+
+    def test_the_dashboard_binds_the_toggles_by_id_and_the_projects_by_data(self):
+        html = self.client.get(reverse("dashboard")).content.decode()
+        for listener in (
+            "document.getElementById('nav-overview')",
+            "document.getElementById('nav-today')",
+            "document.querySelectorAll('button.sidebar-item[data-project-id]')",
+        ):
+            with self.subTest(listener=listener):
+                self.assertIn(listener, html)
+
+
 class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
     """#183 follow-up: my_plan.html, close_week_start.html and
     week_review.html used to override {% block body %} entirely, same as
@@ -669,7 +755,9 @@ class SidebarNavOnStandalonePagesTest(DemoModeTestCase):
             response, f'class="sidebar-item active" href="{reverse("my_plan")}"'
         )
         self.assertContains(response, f'href="{reverse("dashboard")}"')
-        self.assertNotContains(response, 'onclick="showOverview()"')
+        # Re-hung on the tag since #200: the toggle is a <button> here and
+        # this page renders none, where the absent onclick used to say so.
+        self.assertNotContains(response, 'id="nav-overview"')
 
     def test_my_plan_has_the_about_link_and_overlay(self):
         # #183 follow-up: "Über dieses Projekt" lived only in dashboard.html's
@@ -734,7 +822,11 @@ class SidebarProjectListOnStandalonePagesTest(DemoModeTestCase):
         self.assertContains(
             response, f'href="{reverse("dashboard")}?project=session-plan"'
         )
-        self.assertNotContains(response, 'onclick="showProject(')
+        # Re-hung on the tag since #200: the dashboard's own entries are
+        # <button>s bound by data-project-id, these are real links.
+        self.assertNotContains(
+            response, '<button type="button" class="sidebar-item" id="nav-'
+        )
 
     @patch("django.utils.timezone.localdate")
     def test_close_week_start_shows_the_project_list_sidebar(self, mock_localdate):
@@ -748,7 +840,11 @@ class SidebarProjectListOnStandalonePagesTest(DemoModeTestCase):
         self.assertContains(
             response, f'href="{reverse("dashboard")}?project=session-plan"'
         )
-        self.assertNotContains(response, 'onclick="showProject(')
+        # Re-hung on the tag since #200: the dashboard's own entries are
+        # <button>s bound by data-project-id, these are real links.
+        self.assertNotContains(
+            response, '<button type="button" class="sidebar-item" id="nav-'
+        )
 
     def test_week_review_shows_the_project_list_sidebar(self):
         self.given_session_plan()
@@ -771,7 +867,11 @@ class SidebarProjectListOnStandalonePagesTest(DemoModeTestCase):
         self.assertContains(
             response, f'href="{reverse("dashboard")}?project=session-plan"'
         )
-        self.assertNotContains(response, 'onclick="showProject(')
+        # Re-hung on the tag since #200: the dashboard's own entries are
+        # <button>s bound by data-project-id, these are real links.
+        self.assertNotContains(
+            response, '<button type="button" class="sidebar-item" id="nav-'
+        )
 
 
 @override_settings(DEMO_MODE=False)

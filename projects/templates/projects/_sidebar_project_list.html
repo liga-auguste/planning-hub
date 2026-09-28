@@ -15,7 +15,13 @@ dashboard.html's extra_js block).
 <div style="font-size: 11px; color: var(--color-text-quaternary); padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: 0.06em;">{{ group.month }}</div>
 {% for project in group.projects %}
 {% if not active_nav %}
-    <a class="sidebar-item" id="nav-{{ project.id }}" data-project-id="{{ project.id }}" onclick="showProject('{{ project.id }}')">
+    {% comment %}
+    #200: a <button>, because this one switches the view in place rather
+    than navigating. The <a> it replaces carried no href, so it took no
+    focus and answered no key — the project detail was mouse-only. The
+    branch below really does navigate and stays a link.
+    {% endcomment %}
+    <button type="button" class="sidebar-item" id="nav-{{ project.id }}" data-project-id="{{ project.id }}">
 {% else %}
     {% comment %}
     data-project-id on both branches, not id="nav-…": that id only exists on
@@ -33,7 +39,7 @@ dashboard.html's extra_js block).
             </svg>
         </span>
         {{ project.display_name }}
-    </a>
+    {% if not active_nav %}</button>{% else %}</a>{% endif %}
 {% endfor %}
 {% endfor %}
 {% endif %}

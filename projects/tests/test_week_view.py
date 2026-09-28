@@ -694,9 +694,17 @@ class TodayWeekViewProductionTest(TestCase):
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(
-            response, '<a class="sidebar-item active" id="nav-overview"'
+            response,
+            '<button type="button" class="sidebar-item active" id="nav-overview">',
         )
-        self.assertContains(response, 'id="nav-today" onclick="showToday()"')
+        # #200: the toggle is a <button> and its handler is bound in
+        # dashboard.html's extra_js, so the id is the whole contract.
+        self.assertContains(
+            response, '<button type="button" class="sidebar-item" id="nav-today">'
+        )
+        self.assertContains(
+            response, "document.getElementById('nav-today')?.addEventListener"
+        )
 
 
 @override_settings(DEMO_MODE=False)
