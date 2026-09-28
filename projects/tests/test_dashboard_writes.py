@@ -1893,6 +1893,65 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         )
 
 
+class ProjectLinksAreButtonsTest(DemoModeTestCase):
+    """#200: opening a project was an onclick on a <span> in the task row
+    and on a <strong> in the AI summary. Neither takes focus, so the second
+    of the two things this app is for could be reached with a mouse only.
+
+    The same shape _task_due.html settled for the date: keep the class, use
+    a real <button>, and give it an accessible name that carries the
+    context rather than leaning on a title attribute.
+
+    In the summary the button sits *inside* the <strong> rather than
+    replacing it, so the bold weight is inherited instead of rebuilt in
+    CSS — and the › affordance's selector moves down with the class. That
+    markup is asserted in test_summary, where the generator is stubbed and
+    the block renders at all."""
+
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+
+    def test_the_row_label_is_a_button_naming_its_project(self):
+        html = self.client.get(reverse("dashboard") + "?mode=multi").content.decode()
+        self.assertRegex(
+            html,
+            r'<button type="button" class="task-project ai-project-link" '
+            r'data-project-id="[^"]+" aria-label="Projekt [^"]+ öffnen">',
+        )
+
+    def test_the_chevron_follows_the_class_down(self):
+        # The › decorates the click-through only, so the selector has to
+        # move with the element that now carries it (#122).
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            ".ai-card ul > li > strong > button.ai-project-link::after",
+        )
+
+    def test_no_rendered_page_opens_a_project_from_an_onclick(self):
+        for query in ("", "?mode=multi"):
+            with self.subTest(query=query):
+                self.assertNotIn(
+                    'onclick="showProject(',
+                    self.client.get(reverse("dashboard") + query).content.decode(),
+                )
+
+    def test_one_listener_covers_both_sites(self):
+        # .task-project.ai-project-link is a subset of this selector, so the
+        # row and the summary need one binding between them.
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            "document.querySelectorAll('button.ai-project-link[data-project-id]')",
+        )
+
+    def test_the_reset_and_the_ring_live_in_the_stylesheet(self):
+        css = self.CSS.read_text()
+        for rule in (
+            "button.ai-project-link {",
+            "button.ai-project-link:focus-visible {",
+        ):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, css)
+
+
 class ThePickerIsOneModuleTest(DemoModeTestCase):
     """#266: the behaviour half of #195. The markup was already one partial;
     the handler that turns it into a control was still a block inside

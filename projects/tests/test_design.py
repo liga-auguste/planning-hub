@@ -1642,7 +1642,18 @@ class BrandAccentPlacementTest(DemoModeTestCase):
     # rendered page that paints the AI summary's project link with the
     # accent. Prefix-matched for the same reason — -hover and -tint would be
     # the accent on small text just as much as the base token.
-    LINK_SURFACE = re.compile(r"\.ai-project-link[^{}]*\{[^{}]*var\(--color-accent")
+    #
+    # Narrowed to the colour properties in #200, when the link became a
+    # <button> and got a focus ring. What this guard is about is text
+    # contrast (WCAG 1.4.3, 4.5:1), which is what the accent misses here; an
+    # outline is non-text UI (1.4.11, 3:1), which the accent clears and
+    # which the neighbouring status test already measures it against. The
+    # property has to be a colour one and the accent has to be inside that
+    # same declaration, so border-color stays caught and outline passes.
+    LINK_SURFACE = re.compile(
+        r"\.ai-project-link[^{}]*\{[^{}]*"
+        r"(?:color|background)[\w-]*:[^{};]*var\(--color-accent"
+    )
 
     def dashboard_css(self):
         return (
@@ -1714,6 +1725,24 @@ class BrandAccentPlacementTest(DemoModeTestCase):
             match,
             f"the accent is painting small text: {match.group() if match else ''}",
         )
+
+    def test_the_link_guard_reads_colour_and_not_an_outline(self):
+        # What the narrowing above means, pinned rather than left to the
+        # regex: a colour on this element is the violation, a focus ring is
+        # not — and the ring is what #200 had to add.
+        caught = (
+            ".ai-project-link { color: var(--color-accent); }",
+            ".ai-project-link:hover { border-color: var(--color-accent); }",
+            ".ai-project-link { background-color: var(--color-accent); }",
+        )
+        for rule in caught:
+            with self.subTest(rule=rule):
+                self.assertIsNotNone(self.LINK_SURFACE.search(rule))
+        allowed = (
+            "button.ai-project-link:focus-visible "
+            "{ outline: 2px solid var(--color-accent); outline-offset: 2px; }"
+        )
+        self.assertIsNone(self.LINK_SURFACE.search(allowed))
 
     def test_the_accent_never_colors_a_task_status(self):
         # The central constraint of #212, pinned by nothing before this.

@@ -86,7 +86,7 @@
         .ai-project-link:hover { text-decoration: underline; }
         /* The › affordance belongs to the click-through, so it only decorates
            real project links — single-project headings carry none (#122). */
-        .ai-card ul > li > strong.ai-project-link::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
+        .ai-card ul > li > strong > button.ai-project-link::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
         .ai-card .toggle-form { display: inline; margin-right: 2px; }
         /* #217: during a moment the dot renders as a bare span with no
            form around it, so the form's own 2px has to live on the dot
@@ -204,6 +204,11 @@
            row's project-name width. */
         .task-project { font-size: 11px; color: var(--color-text-quaternary); white-space: nowrap; flex-shrink: 0; }
         .task-project.ai-project-link { color: var(--color-text-tertiary); }
+        /* #200: the label is a <button> now, and dashboard.css's
+           button.ai-project-link reset is (0,1,1) — it would beat the
+           (0,1,0) .task-project above and hand the row's own 14px back to
+           an 11px label. Restated here, next to the size it restates. */
+        button.task-project.ai-project-link { font-size: 11px; }
         .today-week-heading { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin: 24px 0 8px; }
         .today-week-heading:first-child { margin-top: 0; }
         /* #180: week navigation sits beside the "Diese Woche" heading, so its
@@ -600,7 +605,8 @@
                 {% for block in section.blocks %}
                 <li>
                     {% if block.project_id %}
-                    <strong class="ai-project-link" onclick="showProject('{{ block.project_id }}')">{{ block.project_name }}{% if block.event_date_display %}, {{ block.event_date_display }}{% endif %}</strong>
+                    {# #200: the button sits inside the <strong>, so the bold weight is inherited rather than rebuilt in CSS — and the › selector below moves down with the class. #}
+                    <strong><button type="button" class="ai-project-link" data-project-id="{{ block.project_id }}" aria-label="Projekt {{ block.project_name }} öffnen">{{ block.project_name }}{% if block.event_date_display %}, {{ block.event_date_display }}{% endif %}</button></strong>
                     {% else %}
                     <strong>{{ block.heading }}</strong>
                     {% endif %}
@@ -947,6 +953,15 @@ the wording either way.
     document.getElementById('nav-today')?.addEventListener('click', showToday);
     document.querySelectorAll('button.sidebar-item[data-project-id]').forEach(item => {
         item.addEventListener('click', () => showProject(item.dataset.projectId));
+    });
+    // Both in-content sites at once: .task-project.ai-project-link is a
+    // subset of this selector, so the row's label and the summary's heading
+    // need one binding between them. Bound once on load rather than
+    // rebound after a write, because neither list is rebuilt from markup —
+    // the row is moved as the element it already is, and the summary
+    // reloads the page.
+    document.querySelectorAll('button.ai-project-link[data-project-id]').forEach(link => {
+        link.addEventListener('click', () => showProject(link.dataset.projectId));
     });
 </script>
 <script>

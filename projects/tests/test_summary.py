@@ -1102,8 +1102,15 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
             "naechste_woche": [],
         }
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "showProject('demo-1')")
-        self.assertContains(response, 'class="ai-project-link"')
+        # #200: a <button> inside the <strong>, so the heading keeps its
+        # bold weight by inheritance and the link takes focus. The id it
+        # opens travels as data-project-id rather than in an onclick.
+        self.assertContains(
+            response,
+            '<strong><button type="button" class="ai-project-link" '
+            'data-project-id="demo-1" aria-label="Projekt',
+        )
+        self.assertNotContains(response, "showProject('demo-1')")
         self.assertNotContains(response, "PROJECT_MAP")
 
     def test_my_plan_summary_renders_the_same_live_checkbox(self):

@@ -323,6 +323,18 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    them. */
 button.task-due { font: inherit; font-size: 13px; background: none; border: none; padding: 0; text-align: inherit; }
 button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+/* #200: opening a project is a <button> too, on both surfaces that offer
+   it — the task row's label and the AI summary's heading. Same reset as the
+   date above, minus the font-size: the two surfaces render the label at
+   different sizes, so the size stays with each of them (dashboard.html) and
+   this rule must not be the one that decides it. color: inherit keeps the
+   label reading as the text it replaced rather than as a control.
+
+   The ring is an outline, which WCAG counts as non-text UI (1.4.11, 3:1)
+   rather than as text (1.4.3, 4.5:1) — the reason the accent is allowed
+   here while it is still kept off the link's own colour. */
+button.ai-project-link { font: inherit; background: none; border: none; padding: 0; color: inherit; cursor: pointer; }
+button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
 /* The affordance follows the behaviour: only a date carrying data-task-id
    is wired up for rescheduling (#10 §5). */
 .task-due[data-task-id] { cursor: pointer; }
