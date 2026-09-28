@@ -83,6 +83,19 @@ jobs:
           # job's process only.
           SECRET_KEY: ci-test-key
 
+      # The gate (#272). Until this step existed, coverage measured and nothing
+      # stopped — a drop from 93% to 80% went green and the badge just reported
+      # the lower number. `coverage report` is the whole check: fail_under lives
+      # in pyproject.toml, so the exit code (2 when below) is the gate and there
+      # is no threshold repeated here to drift from it.
+      #
+      # On both legs rather than only the badge's: a number that fails should
+      # fail the job that measured it, and this runs in well under a second.
+      # Placed ahead of the badge step, so the badge can only ever describe a
+      # number that passed.
+      - name: Fail if coverage dropped below the floor
+        run: coverage report
+
       # The badge is a single file in the repo, so exactly one leg may write it:
       # both legs pushing to main would race, and the loser would fail a job
       # whose tests passed. Postgres is the leg that mirrors production. Pull
@@ -107,7 +120,13 @@ jobs:
           total = next(
               line.split()[-1] for line in report.splitlines() if line.startswith("TOTAL")
           )
-          pct = int(total.rstrip("%"))
+          # A float, not an int: [report] precision is 2 since #272, so the
+          # TOTAL row reads "92.52%" and int() would raise. The badge itself
+          # stays whole-percent — a hundredth of a point is not something a
+          # badge communicates, and the precision exists for fail_under, which
+          # compares against the displayed value.
+          pct = round(float(total.rstrip("%")))
+          label = f"{pct}%"
 
           if pct >= 90:
               color = "#4c1"
@@ -120,7 +139,7 @@ jobs:
 
           # The value box follows the text width so that "100%" cannot outgrow it.
           label_w = 63
-          value_w = 7 * len(total) + 10
+          value_w = 7 * len(label) + 10
           total_w = label_w + value_w
 
           svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="20">
@@ -130,14 +149,14 @@ jobs:
             <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
               <text x="{label_w // 2}" y="15" fill="#010101" fill-opacity=".3">coverage</text>
               <text x="{label_w // 2}" y="14">coverage</text>
-              <text x="{label_w + value_w // 2}" y="15" fill="#010101" fill-opacity=".3">{total}</text>
-              <text x="{label_w + value_w // 2}" y="14">{total}</text>
+              <text x="{label_w + value_w // 2}" y="15" fill="#010101" fill-opacity=".3">{label}</text>
+              <text x="{label_w + value_w // 2}" y="14">{label}</text>
             </g>
           </svg>"""
 
           with open("coverage.svg", "w") as f:
               f.write(svg)
-          print(f"Coverage badge: {total}")
+          print(f"Coverage badge: {label} (measured {total})")
           BADGE
 
           git config user.name "github-actions[bot]"

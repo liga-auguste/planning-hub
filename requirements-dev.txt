@@ -11,14 +11,18 @@
 # a deliberate commit, not a surprise.
 ruff==0.16.2
 
-# Coverage runs locally only — no CI job consumes a report, so this pin keeps
-# successive measurements comparable rather than keeping a workflow green.
+# Coverage runs locally and in CI — .github/workflows/test.yml installs this file
+# for it, gates the build on `coverage report` and writes the badge from the same
+# data (#272). So this pin keeps successive measurements comparable *and* keeps a
+# workflow green: a coverage release that changed how branches are counted would
+# move the number the gate judges.
 #
 #   coverage run manage.py test projects --noinput
 #   coverage report
 #   coverage html   # browsable, writes htmlcov/index.html
 #
-# No flags needed: what is measured and what is excluded lives in the
-# [tool.coverage.run] section of pyproject.toml, so a plain report is already
-# the honest number. Both artefacts (.coverage, htmlcov/) are gitignored.
+# No flags needed: what is measured, what is excluded and where the floor sits
+# all live in the [tool.coverage.*] sections of pyproject.toml, so a plain report
+# is already the honest number and the same check CI runs. Both artefacts
+# (.coverage, htmlcov/) are gitignored.
 coverage==7.16.0

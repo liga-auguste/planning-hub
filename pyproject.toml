@@ -21,10 +21,18 @@ ignore = [
     "RUF012",
 ]
 
-# Coverage configuration. Both settings exist so that a plain `coverage report`
-# is already the honest number — a measurement you have to remember a flag for
-# is one you will eventually read wrong.
+# Coverage configuration. Everything lives here so that a plain `coverage report`
+# is already the honest number *and* the gate — a measurement you have to
+# remember a flag for is one you will eventually read wrong, and a threshold you
+# have to remember a flag for is one that eventually stops holding.
 [tool.coverage.run]
+# Branches as well as statements (#272). A line report says which lines ran; it
+# never says whether both sides of a conditional were taken. For a codebase
+# whose decisions are branches — `if sim_date`, `if not viewing_demo_data`, the
+# demo/production fork in every write view — that is the more interesting half.
+# It does not move the badge: 93.10% statements alone, 92.52% combined, both
+# 93% rounded.
+branch = true
 # Naming the packages, rather than letting coverage record whatever happened to
 # be imported, is what makes a file no test touches show up at 0% instead of not
 # showing up at all.
@@ -46,3 +54,25 @@ omit = [
     "*/wsgi.py",
     "*/asgi.py",
 ]
+
+[tool.coverage.report]
+# The gate (#272). Until this existed, coverage measured and nothing ever
+# stopped: a pull request could take the total from 93% to 80% and go green,
+# with the badge simply reporting the lower number afterwards.
+#
+# 90, not 92, deliberately. This is a floor against a real regression, not a
+# ratchet that has to be nudged on every pull request — a gate you raise
+# routinely is one you end up raising without reading. Moving it is a deliberate
+# commit, the same stance requirements-dev.txt takes about the ruff pin.
+fail_under = 90
+# Not decoration: fail_under is compared against the percentage *as displayed at
+# this precision*, so the default of 0 would make the threshold fuzzy by up to
+# half a point in the permissive direction. Verified against the real data file
+# at 92.52%:
+#
+#   coverage report --fail-under=93                 -> exit 0   (displays as 93)
+#   coverage report --fail-under=93 --precision=2   -> exit 2
+#
+# With two digits the number means what it says. The badge keeps showing whole
+# percent — see the badge step in .github/workflows/test.yml.
+precision = 2
