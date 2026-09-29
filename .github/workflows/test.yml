@@ -83,6 +83,19 @@ jobs:
           # job's process only.
           SECRET_KEY: ci-test-key
 
+      # The gate (#272). Until this step existed, coverage measured and nothing
+      # stopped — a drop from 93% to 80% went green and the badge just reported
+      # the lower number. `coverage report` is the whole check: fail_under lives
+      # in pyproject.toml, so the exit code (2 when below) is the gate and there
+      # is no threshold repeated here to drift from it.
+      #
+      # On both legs rather than only the badge's: a number that fails should
+      # fail the job that measured it, and this runs in well under a second.
+      # Placed ahead of the badge step, so the badge can only ever describe a
+      # number that passed.
+      - name: Fail if coverage dropped below the floor
+        run: coverage report
+
       # The badge is a single file in the repo, so exactly one leg may write it:
       # both legs pushing to main would race, and the loser would fail a job
       # whose tests passed. Postgres is the leg that mirrors production. Pull
@@ -97,8 +110,16 @@ jobs:
           # sys.executable, not "python3": coverage is installed in the
           # interpreter running this script, and that is the one that must read
           # the data file. It also lets the script be run locally to check it.
+          #
+          # --precision=0 asks coverage for the rounding instead of doing it
+          # here. Its own display clamps at both ends — "100" only when the
+          # value is truly 100, "0" only when truly 0 — and a round() in this
+          # script would not, so the badge could have read 100% at 99.5%. It is
+          # a display flag, not a second threshold: fail_under and the precision
+          # it is judged at stay in pyproject.toml, and the exact number is in
+          # the gate step's log right above this one.
           report = subprocess.run(
-              [sys.executable, "-m", "coverage", "report"],
+              [sys.executable, "-m", "coverage", "report", "--precision=0"],
               capture_output=True, text=True, check=True,
           ).stdout
 
