@@ -74,5 +74,8 @@ fail_under = 90
 #   coverage report --fail-under=93 --precision=2   -> exit 2
 #
 # With two digits the number means what it says. The badge keeps showing whole
-# percent — see the badge step in .github/workflows/test.yml.
+# percent by asking for --precision=0 in its own report call, rather than
+# rounding what it reads: coverage's display never reaches 100% below a true
+# 100 and a round() here would — see the badge step in
+# .github/workflows/test.yml.
 precision = 2
