@@ -523,7 +523,17 @@ def resolve_weekly_summary(
                     continue
                 block["project_id"] = project["id"]
                 block["project_name"] = project.get("display_name") or project["name"]
-                block["event_date_display"] = project.get("event_date_display", "")
+                # One string for both the visible heading and the button's
+                # accessible name (#200). They were assembled separately in the
+                # template, and the label lost the date the heading showed —
+                # WCAG 2.5.3 asks that the name contain the visible text, so
+                # the two cannot be allowed to drift apart again.
+                date_display = project.get("event_date_display", "")
+                block["heading_display"] = (
+                    f"{block['project_name']}, {date_display}"
+                    if date_display
+                    else block["project_name"]
+                )
             refs = raw_block.get("task_refs")
             block["tasks"] = [
                 {

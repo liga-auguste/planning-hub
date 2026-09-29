@@ -653,6 +653,18 @@ down with the class it decorates. The row's own 11px is restated as
 `button.task-project.ai-project-link`, because the shared reset in `dashboard.css` is
 `(0,1,1)` and would otherwise beat the `(0,1,0)` `.task-project` that sets it.
 
+**The accessible name contains the visible one.** Both buttons carry an `aria-label`, and
+WCAG 2.5.3 (Label in Name, Level A) asks that such a name contain the text the control
+displays — otherwise speech input has nothing to match when the visitor reads the label
+aloud. The task row's label is the project name and nothing else, so `Projekt <name>
+öffnen` satisfies it directly. The summary's heading also shows the event date, and
+assembling name and date separately in the template is how the label lost it: the heading
+read *"Orgelkonzert zum Reformationstag, 31. Oktober 2026"* while the name said only
+*"Projekt Orgelkonzert zum Reformationstag öffnen"*. `resolve_weekly_summary` now derives
+`heading_display` once (`ai.py`) and the template spends it twice, so the two cannot drift
+apart again. A future field added to that heading belongs in `heading_display`, not beside
+it in the template.
+
 Binding once on load is enough because neither list is rebuilt from markup: a rescheduled
 row is *moved* as the element it already is (`insertBefore`), and the summary reloads.
 

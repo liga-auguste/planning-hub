@@ -610,7 +610,8 @@
                 <li>
                     {% if block.project_id %}
                     {# #200: the button sits inside the <strong>, so the bold weight is inherited rather than rebuilt in CSS — and the › selector below moves down with the class. #}
-                    <strong><button type="button" class="ai-project-link" data-project-id="{{ block.project_id }}" aria-label="Projekt {{ block.project_name }} öffnen">{{ block.project_name }}{% if block.event_date_display %}, {{ block.event_date_display }}{% endif %}</button></strong>
+                    {# heading_display carries the name and its date as one string (ai.py), so the accessible name contains the visible text rather than assembling its own version of it. #}
+                    <strong><button type="button" class="ai-project-link" data-project-id="{{ block.project_id }}" aria-label="Projekt {{ block.heading_display }} öffnen">{{ block.heading_display }}</button></strong>
                     {% else %}
                     <strong>{{ block.heading }}</strong>
                     {% endif %}

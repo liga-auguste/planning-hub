@@ -17,6 +17,7 @@ from django.test import (
     override_settings,
 )
 from django.urls import reverse
+from django.utils.html import escape
 
 from ..ai import (
     AIUnavailableError,
@@ -1105,10 +1106,16 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
         # #200: a <button> inside the <strong>, so the heading keeps its
         # bold weight by inheritance and the link takes focus. The id it
         # opens travels as data-project-id rather than in an onclick.
+        # Pinned to the closing quote, not just the prefix: the accessible
+        # name has to contain the visible heading (WCAG 2.5.3), and the two
+        # drifted apart once already when the template assembled each of them
+        # on its own. heading_display is now the single source of both.
+        heading = escape(response.context["summary"][0]["blocks"][0]["heading_display"])
         self.assertContains(
             response,
-            '<strong><button type="button" class="ai-project-link" '
-            'data-project-id="demo-1" aria-label="Projekt',
+            f'<strong><button type="button" class="ai-project-link" '
+            f'data-project-id="demo-1" aria-label="Projekt {heading} öffnen">'
+            f"{heading}</button></strong>",
         )
         self.assertNotContains(response, "showProject('demo-1')")
         self.assertNotContains(response, "PROJECT_MAP")

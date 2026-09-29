@@ -84,8 +84,9 @@
    font-size again after the shorthand), background, border and padding —
    and the width, because a button sizes to fit-content even as a
    block-level flex container, where the anchor filled the sidebar by
-   itself. calc() rather than 100% because .sidebar-item's own 8px side
-   margins are inside that width under the global border-box.
+   itself. calc() rather than 100% because margins sit outside the width
+   whatever box-sizing says — 100% plus .sidebar-item's own 8px on each
+   side would overflow the sidebar by exactly those 16px.
 
    Ordered before .sidebar-item:hover and .sidebar-item.active above only in
    specificity, not in source: those are (0,2,0) against this (0,1,1), so
