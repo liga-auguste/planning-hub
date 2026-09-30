@@ -1,12 +1,20 @@
-from django.test import SimpleTestCase
+from unittest.mock import patch
 
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from projects.ai import KONTEXTE, build_prompt
+from projects.demo_data import get_demo_projects
 from projects.language_eval import (
+    DEMO_TASK_KONTEXTE,
     CaseResult,
     CheckResult,
     JudgeResult,
     _check_no_project_name_repeat,
+    _eval_a,
     _format_calls,
     _format_texts,
+    _projects_with_kontext,
     check_date_format,
     check_du_form,
     check_no_anglicisms,
@@ -211,3 +219,108 @@ class FormatReportTest(SimpleTestCase):
             [self.a_result(key="f", error="Claude returned an unusable plan twice")]
         )
         self.assertIn("227 in / 97 out over 1 calls", report)
+
+
+class DemoKontextFixtureTest(SimpleTestCase):
+    """#262: the (a) case runs against a kontext-decorated copy of the demo
+    fixture.
+
+    `get_demo_projects()` carries no kontext — that is #18, and demo mode
+    keeps it — but `build_prompt` omits the Kontext-Übersicht *and* the
+    kontext_hinweis instruction when no task has one, while the judge went
+    on scoring `bundling_named` against a prompt that never asked for a
+    bundling hint. The verdict was meaningless rather than negative. These
+    tests pin the precondition; none of them spends an API call.
+    """
+
+    def test_every_key_names_a_real_demo_task(self):
+        real_names = {
+            task["name"] for project in get_demo_projects() for task in project["tasks"]
+        }
+        for name in DEMO_TASK_KONTEXTE:
+            with self.subTest(task=name):
+                self.assertIn(name, real_names)
+
+    def test_every_value_is_one_of_the_apps_kontexte(self):
+        for name, kontext in DEMO_TASK_KONTEXTE.items():
+            with self.subTest(task=name):
+                self.assertIn(kontext, KONTEXTE)
+
+    def test_every_demo_task_is_mapped(self):
+        # A task the mapping forgets keeps its empty kontext, which is a
+        # hole in the overview rather than an error — so the completeness
+        # has to be asserted rather than relied on.
+        for project in _projects_with_kontext():
+            for task in project["tasks"]:
+                with self.subTest(task=task["name"]):
+                    self.assertEqual(len(task["kontext"]), 1)
+
+    def test_two_open_tasks_in_different_projects_share_a_kontext(self):
+        """The actual guard. The hint asks for a batch opportunity *across*
+        project boundaries, so a decoration that happened to give every
+        project its own kontext would restore the block and still leave the
+        judge nothing to find."""
+        owners = {}
+        for project in _projects_with_kontext():
+            for task in project["tasks"]:
+                if task["done"]:
+                    continue
+                for kontext in task["kontext"]:
+                    owners.setdefault(kontext, set()).add(project["id"])
+        self.assertTrue(
+            any(len(projects) >= 2 for projects in owners.values()),
+            f"no kontext spans two projects: {owners}",
+        )
+
+    def test_the_prompt_carries_the_overview_and_asks_for_the_hint(self):
+        prompt = build_prompt(_projects_with_kontext(), timezone.localdate())
+        self.assertIn("## Kontext-Übersicht", prompt)
+        self.assertIn("kontext_hinweis", prompt)
+
+    def test_the_undecorated_fixture_still_asks_for_neither(self):
+        # #18 in one assertion: demo_data.py is not what this fixture
+        # changes, and demo mode must go on seeing no kontext anywhere.
+        prompt = build_prompt(get_demo_projects(), timezone.localdate())
+        self.assertNotIn("## Kontext-Übersicht", prompt)
+        self.assertNotIn("kontext_hinweis", prompt)
+        self.assertNotIn("[Kontext:", prompt)
+
+    def test_decorating_leaves_the_demo_fixture_itself_alone(self):
+        _projects_with_kontext()
+        self.assertEqual(
+            [
+                task["kontext"]
+                for project in get_demo_projects()
+                for task in project["tasks"]
+            ],
+            [[] for project in get_demo_projects() for _ in project["tasks"]],
+        )
+
+
+class EvalACollectsTheKontextHintTest(SimpleTestCase):
+    """#262: the hint is a top-level field, so collecting only the block
+    assessments meant the judge's `bundling_named` verdict was passed text
+    that structurally could not contain a bundling statement."""
+
+    SUMMARY = {
+        "jetzt_faellig": [
+            {"project_ref": 1, "assessment": "Alles im Plan.", "task_refs": []}
+        ],
+        "naechste_woche": [],
+        "kontext_hinweis": "Wenn du ohnehin im Büro bist: beide Pressetexte in einem Rutsch.",
+    }
+
+    def _texts(self, summary):
+        with patch(
+            "projects.language_eval.generate_weekly_summary", return_value=summary
+        ):
+            texts, _ = _eval_a()
+        return texts
+
+    def test_the_hint_reaches_the_reviewed_text(self):
+        self.assertIn(self.SUMMARY["kontext_hinweis"], self._texts(self.SUMMARY))
+
+    def test_a_week_without_a_hint_adds_no_empty_text(self):
+        summary = {key: value for key, value in self.SUMMARY.items()}
+        del summary["kontext_hinweis"]
+        self.assertNotIn("", self._texts(summary))
