@@ -684,9 +684,13 @@ class NumberingAndPromptTest(SimpleTestCase):
         self.assertNotIn('"project_ref"', prompt)
         self.assertIn('"heading"', prompt)
 
-    def test_prompt_asks_for_json_only(self):
+    def test_prompt_states_the_json_shape_it_expects(self):
+        """#262 moved the "answer in JSON only" rule into the shared `system`
+        instruction — it was one of five wordings across the six touchpoints.
+        What stays here is the shape only this prompt knows: its two section
+        keys. The rule's new home is guarded in test_prompt_voice.py."""
         prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
-        self.assertIn("NUR mit JSON", prompt)
+        self.assertNotIn("NUR mit JSON", prompt)
         self.assertIn('"jetzt_faellig"', prompt)
         self.assertIn('"naechste_woche"', prompt)
 

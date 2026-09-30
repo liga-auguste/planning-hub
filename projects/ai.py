@@ -108,6 +108,50 @@ SUMMARY_SECTIONS = (
     ("naechste_woche", "Nächste Woche"),
 )
 
+# The voice every Claude touchpoint shares (#262), sent as the `system`
+# parameter rather than copied into each prompt body. The API renders
+# tools → system → messages, so an instruction that never varies sits ahead
+# of the data that does, and all six call sites read one constant instead of
+# six copies that had already drifted: "Auf Deutsch, Du-Form" existed three
+# times and was missing from three touchpoints entirely, the date format
+# twice, the JSON rule in five different wordings.
+#
+# A relocation, not a rewrite — the same rules stated once. The one addition
+# is brevity, which language_eval.py's judge has always scored ("clear,
+# friendly, short") and no prompt actually asked for. Each touchpoint's own
+# task, its JSON shape and its domain rules stay in the prompt that needs them.
+#
+# What did *not* survive the move are the register clauses the six prompts
+# carried in four wordings ("nicht als Auflistungsmaschine", "direkt, klar,
+# hilfreich", "ein erfahrener Planungsassistent"). Measured: broadcasting
+# them to all six raised both input and output tokens, which is #262's own
+# finding — an expansive instruction produces an expansive answer. The bar
+# is stated once, short, and the sentence rule is what makes it operable.
+VOICE_INSTRUCTION = (
+    "Du bist die Planungsassistentin dieser App.\n"
+    "Schreib klar, freundlich und kurz — ein Gedanke pro Satz.\n"
+    "Auf Deutsch, Du-Form.\n"
+    "Datumsformat: '5. August' — keine führenden Nullen."
+)
+
+# The one wording for the five touchpoints that answer in JSON, replacing the
+# five that existed before. Separate from VOICE_INSTRUCTION because
+# get_clarifying_questions answers in prose: a single shared block carrying
+# this rule would be actively wrong for that touchpoint.
+JSON_ONLY_INSTRUCTION = "Antworte NUR mit JSON, kein anderer Text darum."
+
+
+def system_instruction(json_only: bool = True) -> str:
+    """The `system` value a touchpoint sends: the shared voice, plus the
+    JSON-only rule for the five touchpoints whose answer is parsed as JSON.
+
+    Pass json_only=False for a touchpoint that answers in prose — today only
+    get_clarifying_questions.
+    """
+    if not json_only:
+        return VOICE_INSTRUCTION
+    return f"{VOICE_INSTRUCTION}\n\n{JSON_ONLY_INSTRUCTION}"
+
 
 def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
     """The single source of the reference numbering shared by build_prompt
@@ -201,11 +245,10 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         lines += [
             "---",
             "",
-            "Erstelle eine Übersicht für dieses einzelne Projekt. Schreibe als Assistentin — direkt, klar, hilfreich.",
-            "Nur Infos aus den Daten. Auf Deutsch, Du-Form.",
-            "Datumsformat: '5. August' — keine führenden Nullen.",
+            "Erstelle eine Übersicht für dieses einzelne Projekt.",
+            "Nur Infos aus den Daten.",
             "",
-            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+            "Format:",
             '{"jetzt_faellig": [{"heading": "Jetzt kritisch", "assessment": "die Buchung muss heute raus, sonst wird der Termin knapp", "task_refs": [1, 2]}], "naechste_woche": []}',
             "",
             '- "heading": Status oder Kontext als kurzes Thema (2–3 Wörter). Nenne den Projektnamen NICHT — er ist bereits im Header sichtbar.',
@@ -220,11 +263,10 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         lines += [
             "---",
             "",
-            "Erstelle mir eine Wochenübersicht. Schreibe als Assistentin — nicht als Auflistungsmaschine.",
-            "Nur Infos aus den Daten. Auf Deutsch, Du-Form.",
-            "Datumsformat: '5. August' — keine führenden Nullen.",
+            "Erstelle mir eine Wochenübersicht.",
+            "Nur Infos aus den Daten.",
             "",
-            "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+            "Format:",
             '{"jetzt_faellig": [{"project_ref": 1, "assessment": "übermorgen, alles läuft, nur Aufbau noch offen", "task_refs": [1, 2]}], "naechste_woche": []}',
             "",
             '- "project_ref": die Projekt-Nr. des Projekts (steht bei jedem Projekt oben).',
@@ -293,7 +335,7 @@ Aufgaben:
 
 Wähle 4 dramatisch interessante Momente aus dem Zeitverlauf — Wendepunkte, bei denen etwas Entscheidendes passiert oder der Status des Projekts sich spürbar verändert. Benenne jeden Moment nach dem, was inhaltlich passiert (z.B. "Buchungen starten", "Öffentlichkeitsphase", "Letzter Schliff", "Generalprobe"). Keine generischen Zeitangaben.
 
-Antworte NUR mit einem JSON-Array, kein anderer Text:
+Format:
 [
   {{"date": "YYYY-MM-DD", "label": "2–3 Wörter", "description": "Ein Satz was gerade passiert"}},
   {{"date": "YYYY-MM-DD", "label": "...", "description": "..."}},
@@ -307,6 +349,7 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=512,
+            system=system_instruction(),
             messages=[{"role": "user", "content": prompt}],
         )
         result["message"] = response
@@ -340,6 +383,7 @@ def generate_weekly_summary(
             client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=2048,
+                system=system_instruction(),
                 messages=[{"role": "user", "content": prompt}],
             ) as stream,
         ):
@@ -404,9 +448,9 @@ def build_closeout_prompt(stats: dict, today: date) -> str:
         "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend:",
         "was erledigt wurde, zählt. Verschobene Aufgaben sind bewusste",
         "Planungsentscheidungen, keine verpassten Deadlines — benenne sie neutral,",
-        "nicht als Rückstand. Auf Deutsch, Du-Form, 2–3 Sätze.",
+        "nicht als Rückstand. 2–3 Sätze.",
         "",
-        "Antworte NUR mit JSON, kein anderer Text darum. Format:",
+        "Format:",
         '{"summary_text": "..."}',
     ]
     return "\n".join(lines)
@@ -429,6 +473,7 @@ def generate_closeout_summary(stats: dict, today: date) -> str:
             client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=512,
+                system=system_instruction(),
                 messages=[{"role": "user", "content": prompt}],
             ) as stream,
         ):
