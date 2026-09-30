@@ -9,6 +9,7 @@ that reappears in a prompt body, or a call site that stops sending the
 shared instruction, fails here.
 """
 
+import ast
 import tokenize
 from datetime import (
     date,
@@ -92,6 +93,78 @@ ALL_KEYS = ("a", "b", "c", "d", "e", "f")
 # The five that answer in JSON. (e) answers in prose, so the JSON rule would
 # be actively wrong there — which is why this step needs two blocks, not one.
 JSON_KEYS = ("a", "b", "c", "d", "f")
+
+
+def _app_modules() -> list:
+    """Every application module, the test package excluded.
+
+    Discovered, not listed: a guard that names the files it inspects stops
+    inspecting the moment someone adds one, which is the failure mode a
+    single-source rule can least afford. Tests are excluded because
+    asserting on a string requires naming it.
+    """
+    root = settings.BASE_DIR / "projects"
+    return sorted(
+        path
+        for path in root.rglob("*.py")
+        if "tests" not in path.relative_to(root).parts
+    )
+
+
+def _source_without_comments(paths: list) -> str:
+    """The modules' code with comments removed — a comment that quotes a
+    rule to explain it is documentation, not a second copy of the
+    instruction, and tokenize is what tells the two apart."""
+    parts = []
+    for path in paths:
+        with tokenize.open(path) as handle:
+            parts.append(
+                "".join(
+                    token.string if token.type != tokenize.COMMENT else ""
+                    for token in tokenize.generate_tokens(handle.readline)
+                )
+            )
+    return "\n".join(parts)
+
+
+def _is_claude_call(node) -> bool:
+    """A `client.messages.create(...)` or `client.messages.stream(...)`.
+
+    Matched on the `messages.<verb>` shape rather than on the receiver's
+    name: the client is a local in every call site and could be called
+    anything.
+    """
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr in ("create", "stream")
+        and isinstance(func.value, ast.Attribute)
+        and func.value.attr == "messages"
+    )
+
+
+def _calls_with_owner(node, owner):
+    """Yields (innermost enclosing function name, Call node) for one tree."""
+    for child in ast.iter_child_nodes(node):
+        inner = (
+            child.name
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            else owner
+        )
+        if isinstance(child, ast.Call):
+            yield inner, child
+        yield from _calls_with_owner(child, inner)
+
+
+def _claude_call_sites() -> list:
+    """Every Claude call in the app source, as (module, function, keywords)."""
+    sites = []
+    for path in _app_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for function, node in _calls_with_owner(tree, None):
+            if _is_claude_call(node):
+                sites.append((path.name, function, [kw.arg for kw in node.keywords]))
+    return sites
 
 
 class VoiceInstructionContentTest(SimpleTestCase):
@@ -182,6 +255,16 @@ class MovedRulesAreGoneFromThePromptBodiesTest(SimpleTestCase):
     def test_the_closeout_prompt_still_describes_its_own_json_shape(self):
         self.assertIn("summary_text", build_closeout_prompt(CLOSEOUT_STATS, TODAY))
 
+    def test_the_timelapse_prompt_still_names_its_array_shape(self):
+        # (d) is the only touchpoint whose answer has to be a top-level
+        # array, and the only one without a retry: _valid_moments takes its
+        # `isinstance(raw, list) else []` branch on an object, so a shape
+        # miss costs the visitor the timelapse silently, without raising.
+        # The shared rule says "JSON"; *array* has to stay with the prompt
+        # that needs it.
+        _, user_message = _capture("d")
+        self.assertIn("JSON-Array", user_message)
+
 
 class SharedRulesAreStatedOnceInTheSourceTest(SimpleTestCase):
     """#262's actual complaint: the JSON rule existed in five wordings and
@@ -189,32 +272,72 @@ class SharedRulesAreStatedOnceInTheSourceTest(SimpleTestCase):
     everywhere or nowhere. A second occurrence in the application source is
     the regression this catches."""
 
-    # Every module that builds a prompt or calls Claude. Tests are excluded
-    # on purpose: asserting on a string requires naming it.
-    SOURCES = ("ai.py", "planner.py", "language_eval.py")
-
-    def source(self):
-        """The three modules' code with comments removed — a comment that
-        quotes a rule to explain it is documentation, not a second copy of
-        the instruction, and tokenize is what tells the two apart."""
-        parts = []
-        for name in self.SOURCES:
-            path = settings.BASE_DIR / "projects" / name
-            with tokenize.open(path) as handle:
-                parts.append(
-                    "".join(
-                        token.string if token.type != tokenize.COMMENT else ""
-                        for token in tokenize.generate_tokens(handle.readline)
-                    )
-                )
-        return "\n".join(parts)
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Read once for the whole class: every application module, not the
+        # three that happened to hold a copy when this was written.
+        cls.source = _source_without_comments(_app_modules())
 
     def test_each_shared_rule_appears_exactly_once(self):
         for fragment in ("Auf Deutsch, Du-Form", "keine führenden Nullen"):
             with self.subTest(fragment=fragment):
-                self.assertEqual(self.source().count(fragment), 1)
+                self.assertEqual(self.source.count(fragment), 1)
 
     def test_the_json_rule_appears_exactly_once(self):
         # Counted on "Antworte NUR mit JSON" rather than on "JSON": the word
         # itself legitimately appears in each touchpoint's own format block.
-        self.assertEqual(self.source().count("Antworte NUR mit JSON"), 1)
+        self.assertEqual(self.source.count("Antworte NUR mit JSON"), 1)
+
+
+class EveryClaudeCallSiteSendsSomeSystemInstructionTest(SimpleTestCase):
+    """The guard the six-key list above cannot be.
+
+    ALL_KEYS is written by hand, so it proves what the six known touchpoints
+    send but stays silent about a seventh. This class finds the call sites in
+    the source instead of naming them: a new one — in ai.py, or in a module
+    that does not exist yet — is covered the day it is written. The two are
+    complementary. The list above asserts *what* was sent, which only a real
+    call can show; this asserts that nothing was forgotten.
+    """
+
+    # The judge is the one deliberate exception. It reviews German output for
+    # the maintainer and answers in English (#248), so the app's voice would
+    # be the wrong instruction for it rather than a missing one.
+    WITHOUT_SYSTEM = {("language_eval.py", "judge_voice")}
+
+    # Not the coverage — that comes from the walk. This is the matcher's own
+    # canary: a shape check that quietly stops matching would make every
+    # assertion below vacuously true, and adding a touchpoint does not
+    # require touching this set.
+    KNOWN = {
+        ("ai.py", "generate_timelapse_moments"),
+        ("ai.py", "generate_weekly_summary"),
+        ("ai.py", "generate_closeout_summary"),
+        ("planner.py", "get_clarifying_questions"),
+        ("planner.py", "_generate_plan_text"),
+        ("language_eval.py", "judge_voice"),
+    }
+
+    def setUp(self):
+        self.sites = _claude_call_sites()
+
+    def test_the_walk_still_finds_every_known_call_site(self):
+        self.assertLessEqual(
+            self.KNOWN, {(module, function) for module, function, _ in self.sites}
+        )
+
+    def test_every_call_site_passes_a_system_parameter(self):
+        for module, function, keywords in self.sites:
+            if (module, function) in self.WITHOUT_SYSTEM:
+                continue
+            with self.subTest(module=module, function=function):
+                self.assertIn("system", keywords)
+
+    def test_each_documented_exception_is_still_a_real_call_site(self):
+        # An exception that outlives its call site is a standing exemption
+        # nobody reads any more.
+        found = {(module, function) for module, function, _ in self.sites}
+        for exception in self.WITHOUT_SYSTEM:
+            with self.subTest(exception=exception):
+                self.assertIn(exception, found)

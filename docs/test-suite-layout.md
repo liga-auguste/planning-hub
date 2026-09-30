@@ -33,8 +33,8 @@ test was added, renamed or removed.
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 10 | 28 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
-| `test_prompt_voice.py` | 5 | 15 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| **total** | **346** | **1458** | |
+| `test_prompt_voice.py` | 6 | 19 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
+| **total** | **347** | **1462** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-09-30 with #262 —

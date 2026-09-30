@@ -335,7 +335,7 @@ Aufgaben:
 
 Wähle 4 dramatisch interessante Momente aus dem Zeitverlauf — Wendepunkte, bei denen etwas Entscheidendes passiert oder der Status des Projekts sich spürbar verändert. Benenne jeden Moment nach dem, was inhaltlich passiert (z.B. "Buchungen starten", "Öffentlichkeitsphase", "Letzter Schliff", "Generalprobe"). Keine generischen Zeitangaben.
 
-Format:
+Format — ein JSON-Array mit vier Objekten:
 [
   {{"date": "YYYY-MM-DD", "label": "2–3 Wörter", "description": "Ein Satz was gerade passiert"}},
   {{"date": "YYYY-MM-DD", "label": "...", "description": "..."}},
