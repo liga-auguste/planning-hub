@@ -107,6 +107,15 @@ show KW 26's numbers as the result of this visitor's own action. `closeout.py` g
 interface and sharing one row-to-dict mapping. Demo mode hid this defect rather than
 lacking it: its session holds exactly one close-out, overwritten each time.
 
+**And so is the AI review's prompt** (#262). The numbers were addressable from #263 on
+while the generated text still was not: `build_closeout_prompt` took `today` and opened
+with "Heute ist der …. Ich schließe die Woche ab.", which is the only date it had.
+Reproduced in the browser on 22.09.2026 — KW 38 closed from a day in KW 39, every number
+right, and Claude writing "Diese Woche war eine ruhige … Woche" about KW 39. It now takes
+the week, states it as "KW 38 (14.–20. September)" through the same `format_week_range`
+the triage page uses, and there is no second date for a caller to make inconsistent with
+the first.
+
 `_closeout_dates` is untouched — it stays the single place demo mode's simulated date
 enters the flow, and the browsed week defaults off it, so the timelapse works exactly as
 documented below.
