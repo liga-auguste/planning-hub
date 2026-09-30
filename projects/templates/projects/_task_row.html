@@ -17,7 +17,14 @@ this surface (#238).
     <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
     {% if task.project_name %}
     {% if task.project_id %}
-    <span class="task-project ai-project-link" onclick="showProject('{{ task.project_id }}')">{{ task.project_name }}</span>
+    {% comment %}
+    #200: a <button>, not a span. Opening a project is the second of the two
+    things this app is for, and a span takes no focus, announces nothing and
+    answers no key. The class stays, so every rule written for the label
+    still applies; the accessible name carries the project rather than
+    leaning on a title attribute, which is a tooltip and not a name.
+    {% endcomment %}
+    <button type="button" class="task-project ai-project-link" data-project-id="{{ task.project_id }}" aria-label="Projekt {{ task.project_name }} öffnen">{{ task.project_name }}</button>
     {% else %}
     <span class="task-project">{{ task.project_name }}</span>
     {% endif %}

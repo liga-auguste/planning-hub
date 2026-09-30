@@ -45,7 +45,8 @@ class OverviewPageNamingTest(DemoModeTestCase):
     def test_sidebar_nav_overview_says_dashboard(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(
-            response, '<a class="sidebar-item active" id="nav-overview"'
+            response,
+            '<button type="button" class="sidebar-item active" id="nav-overview">',
         )
         self.assertContains(response, "Dashboard")
         self.assertNotContains(response, "Übersicht")

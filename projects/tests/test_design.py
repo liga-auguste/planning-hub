@@ -213,6 +213,54 @@ class TheDateStylingLivesWithTheDateTest(DemoModeTestCase):
         self.assertIn(".task-row .task-due { margin-left: 0; }", self.dashboard_css())
 
 
+class SidebarButtonStylingLivesWithTheSidebarTest(DemoModeTestCase):
+    """#200: the sidebar's in-page entries became <button>s, and a button
+    inherits none of what the <a> brought for free — its own font,
+    background, border, padding and width. The reset and the focus ring go
+    into dashboard.css for the same reason the rest of .sidebar-item does:
+    _sidebar_nav.html renders on four pages, each with its own extra_css,
+    and this is the one stylesheet all four load."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    RULES = (
+        "button.sidebar-item {",
+        "button.sidebar-item:focus-visible {",
+    )
+
+    def dashboard_css(self):
+        return (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def test_the_stylesheet_carries_them(self):
+        css = self.dashboard_css()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, css)
+
+    def test_no_template_carries_them(self):
+        for rule in self.RULES:
+            holders = sorted(
+                path.name
+                for path in self.TEMPLATES.glob("*.html")
+                if rule in path.read_text()
+            )
+            with self.subTest(rule=rule):
+                self.assertEqual(holders, [])
+
+    def test_the_reset_restates_what_the_anchor_gave_for_free(self):
+        # Each of these was inherited or defaulted on the <a> and is not on
+        # a <button>: the font (a button brings its own), the padding and
+        # the width (a button sizes to fit-content even as a block-level
+        # flex container, where the anchor filled the sidebar on its own).
+        rule = (
+            self.dashboard_css().split("button.sidebar-item {", 1)[1].split("}", 1)[0]
+        )
+        for declaration in ("font: inherit", "padding: 5px 16px", "width: calc(100%"):
+            with self.subTest(declaration=declaration):
+                self.assertIn(declaration, rule)
+
+
 class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
     """Four surfaces render a dot, a task name and a date — the dashboard's
     task rows and its summary, /mein-plan/'s list and its summary — and each
@@ -1594,7 +1642,18 @@ class BrandAccentPlacementTest(DemoModeTestCase):
     # rendered page that paints the AI summary's project link with the
     # accent. Prefix-matched for the same reason — -hover and -tint would be
     # the accent on small text just as much as the base token.
-    LINK_SURFACE = re.compile(r"\.ai-project-link[^{}]*\{[^{}]*var\(--color-accent")
+    #
+    # Narrowed to the colour properties in #200, when the link became a
+    # <button> and got a focus ring. What this guard is about is text
+    # contrast (WCAG 1.4.3, 4.5:1), which is what the accent misses here; an
+    # outline is non-text UI (1.4.11, 3:1), which the accent clears and
+    # which the neighbouring status test already measures it against. The
+    # property has to be a colour one and the accent has to be inside that
+    # same declaration, so border-color stays caught and outline passes.
+    LINK_SURFACE = re.compile(
+        r"\.ai-project-link[^{}]*\{[^{}]*"
+        r"(?:color|background)[\w-]*:[^{};]*var\(--color-accent"
+    )
 
     def dashboard_css(self):
         return (
@@ -1666,6 +1725,24 @@ class BrandAccentPlacementTest(DemoModeTestCase):
             match,
             f"the accent is painting small text: {match.group() if match else ''}",
         )
+
+    def test_the_link_guard_reads_colour_and_not_an_outline(self):
+        # What the narrowing above means, pinned rather than left to the
+        # regex: a colour on this element is the violation, a focus ring is
+        # not — and the ring is what #200 had to add.
+        caught = (
+            ".ai-project-link { color: var(--color-accent); }",
+            ".ai-project-link:hover { border-color: var(--color-accent); }",
+            ".ai-project-link { background-color: var(--color-accent); }",
+        )
+        for rule in caught:
+            with self.subTest(rule=rule):
+                self.assertIsNotNone(self.LINK_SURFACE.search(rule))
+        allowed = (
+            "button.ai-project-link:focus-visible "
+            "{ outline: 2px solid var(--color-accent); outline-offset: 2px; }"
+        )
+        self.assertIsNone(self.LINK_SURFACE.search(allowed))
 
     def test_the_accent_never_colors_a_task_status(self):
         # The central constraint of #212, pinned by nothing before this.

@@ -330,7 +330,12 @@ either. What is left for them is the menu note, reached by tabbing to the ⋮ tr
 that is thinner than it looks, because `.task-menu-note` is a plain `<div>` inside
 `role="menu"`, which a screen reader in menu mode may skip entirely.
 
-That is a decision, not a loose end. The whole row this section is about — a demo session
+That is a decision, not a loose end, and it is now the only span left standing where a
+control would be. #200 turned every other one into a real `<button>` — the date, the
+project label in a task row, the AI summary's project heading and the sidebar's in-page
+entries (see "Opening a project" below). The locked dot is the exception because
+focusability is the affordance here: making it reachable would hand back exactly what
+#217 removed. The whole row this section is about — a demo session
 under a Zeitreise moment — exists only in demo mode: `sim_date` is read in one place,
 inside `dashboard()`'s `DEMO_MODE` branch and only for a visitor's own session plan, so
 production never renders a locked dot, a notice or a menu note at all. The gap is
@@ -587,6 +592,12 @@ onPick(taskId, isoDate, dueEl, row) -> Promise<boolean>
 | `/mein-plan/` | reloads — nothing there re-sorts the list, and badge, progress and summary are all server-rendered |
 | Close-out triage list | patches in place; a reload would drop the moved row and its `task_id` input out of the form that counts it |
 
+`lastInputWasKeyboard` is the module's other export in practice. It is a top-level `let`
+rather than a parameter because two things outside the picker need the same answer —
+`about_overlay.js` when it hands focus back to the opener, and `showProject()` when it
+moves focus into the section it just opened (#200). All three are the same question, and
+#257 settled that it has to be read off the events rather than off the element.
+
 `row` is read at click time and handed in, and `within`/`exclude` are read at bind time,
 for the same reason: the picker detaches the button while the request runs, so `closest()`
 called inside a callback finds nothing. The dashboard's two behaviours name the region
@@ -615,6 +626,59 @@ two templates would be exactly the duplication #233 and #266 were about.
 A callback earns itself the moment a surface has a consequence of its own — the
 cross-project work list (#53's follow-up) is the candidate. Not before: a split invented
 for a second caller that does not exist yet is a shape nobody can check.
+
+## Opening a project
+
+The other of the two things this app is for, and #200's second half. Four places offer
+it, and all four were an `onclick` on something that takes no focus — a `<span>` in the
+task row, a `<strong>` in the AI summary, and `<a>` elements with no `href` in the
+sidebar's view toggles and project list. An anchor without `href` is a link in name only:
+it is not in the tab order and answers no key.
+
+All four are `<button>`s now, and the distinction the sidebar partials' comments used to
+carry is in the tag itself: a `<button>` switches the view in place, an `<a href>`
+navigates. The standalone pages (`my_plan`, `close_week_start`, `week_review`) render the
+`<a href>` branch, because there `showProject()` does not exist in the DOM at all.
+
+| Site | Element | Bound by |
+|---|---|---|
+| Task row label | `button.task-project.ai-project-link` | `button.ai-project-link[data-project-id]` |
+| AI summary heading | `button.ai-project-link` inside the `<strong>` | the same one selector |
+| Sidebar project entry | `button.sidebar-item` | `button.sidebar-item[data-project-id]` |
+| Sidebar Dashboard/Heute | `button.sidebar-item#nav-overview` / `#nav-today` | by id |
+
+The summary's button sits *inside* the `<strong>` rather than replacing it, so the bold
+weight is inherited instead of restated in CSS — and the `›` affordance's selector moves
+down with the class it decorates. The row's own 11px is restated as
+`button.task-project.ai-project-link`, because the shared reset in `dashboard.css` is
+`(0,1,1)` and would otherwise beat the `(0,1,0)` `.task-project` that sets it.
+
+**The accessible name contains the visible one.** Both buttons carry an `aria-label`, and
+WCAG 2.5.3 (Label in Name, Level A) asks that such a name contain the text the control
+displays — otherwise speech input has nothing to match when the visitor reads the label
+aloud. The task row's label is the project name and nothing else, so `Projekt <name>
+öffnen` satisfies it directly. The summary's heading also shows the event date, and
+assembling name and date separately in the template is how the label lost it: the heading
+read *"Orgelkonzert zum Reformationstag, 31. Oktober 2026"* while the name said only
+*"Projekt Orgelkonzert zum Reformationstag öffnen"*. `resolve_weekly_summary` now derives
+`heading_display` once (`ai.py`) and the template spends it twice, so the two cannot drift
+apart again. A future field added to that heading belongs in `heading_display`, not beside
+it in the template.
+
+Binding once on load is enough because neither list is rebuilt from markup: a rescheduled
+row is *moved* as the element it already is (`insertBefore`), and the summary reloads.
+
+**Focus follows the switch.** Activating the label in a task row hides that row, so focus
+would be left on a hidden element and the next Tab would start at the top of the
+document. `showProject()` moves it to the opened section's `.project-header`, which
+carries `tabindex="-1"` — focusable, but not in the tab order. Gated on
+`lastInputWasKeyboard`, which also keeps the initial `?project=` sync out: no keystroke
+has happened at load, so a deep link leaves focus where the page put it.
+
+**Out of scope, deliberately.** The About overlay is dismissable from the keyboard (its ×
+is a real button) but is not a dialog: no focus trap, no Escape. And the day columns'
+drag-and-drop still has no keyboard path — the "→ heute" button and the date control
+reach the same intent, which is why #200 excluded it.
 
 ## A date is stored as the day it names, not as the string that arrived
 
@@ -715,7 +779,7 @@ change, and the bump is mandatory rather than cosmetic.
 
 ## Verification
 
-`projects/tests/test_dashboard_writes.py` covers this in seventeen classes:
+`projects/tests/test_dashboard_writes.py` covers this in eighteen classes:
 
 - `ToggleSyncCoversEveryCardShapeTest` — each card shape asserted on its own, because a
   single "the handler exists" check is exactly what would have passed all along
@@ -765,6 +829,12 @@ change, and the bump is mandatory rather than cosmetic.
   bind it with their own token, a confirmed write reloads, a rejected `fetch` counts as a
   failure, what was typed survives one, and the `pending` guard that keeps a second click
   from writing a second Notion page
+- `ProjectLinksAreButtonsTest` — #200's second half: the row's label as a `<button>` with
+  an accessible name, the chevron selector following the class down, no `onclick` on either
+  rendered page, one listener for both sites, the reset and the ring in the shared sheet,
+  and the focus move into the opened section with the modality flag it is gated on. The
+  summary's own markup is asserted in `test_summary.py`, where the generator is stubbed and
+  the block renders at all
 
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
@@ -796,6 +866,22 @@ until a click, tokens borrowed from the banner, above the menu's `z-index`, obey
 flagging, and offering "Heute anzeigen" rather than the banner's pinned short label), the
 dot gaining no affordance back, and the menu note — present in a moment, absent outside
 one, and deliberately not a `.task-menu-item` the keyboard handler would focus.
+
+`projects/tests/test_sidebar.py` carries the rest of #200's second half, in
+`SidebarEntriesAreButtonsTest` and `AboutOverlayIsKeyboardOperableTest`: the two view
+toggles and each project entry as `<button>`s, no `onclick` left in either partial or on
+the rendered page, the standalone pages keeping their real links, the three bindings, and
+the About overlay's opener, close control, shared script and focus hand-back. Four
+assertions that used to distinguish the dashboard branch from the standalone one *by the
+`onclick`* are re-hung on the tag, so they keep their teeth rather than passing on nothing.
+
+`projects/tests/test_design.py` carries the two styling halves:
+`SidebarButtonStylingLivesWithTheSidebarTest` in the shape
+`TheDateStylingLivesWithTheDateTest` set (the rules in `dashboard.css`, in no template,
+and the reset restating what the anchor gave for free), and — in
+`BrandAccentPlacementTest` — the narrowed `LINK_SURFACE` guard, with a test of its
+own for what the narrowing means: a colour on `.ai-project-link` is still caught, a focus
+ring is not.
 
 `projects/tests/test_my_plan.py` carries what the add exposed downstream, in
 `ExportListsEveryTaskInDateOrderTest`: the Markdown export iterated `plan["tasks"]` in
