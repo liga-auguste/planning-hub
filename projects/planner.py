@@ -3,7 +3,7 @@ import logging
 
 import anthropic
 
-from .ai import KONTEXTE, AIUnavailableError, log_claude_call
+from .ai import KONTEXTE, AIUnavailableError, log_claude_call, system_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,8 @@ def get_clarifying_questions(
 Ein neues Projekt soll geplant werden:
 {event_description}
 
-Du bist ein erfahrener Planungsassistent. Erkenne den Projekttyp selbst und leite
-alle relevanten Rahmenbedingungen aus dem Kontext ab.
+Erkenne den Projekttyp selbst und leite alle relevanten Rahmenbedingungen aus dem
+Kontext ab.
 Nutze die Referenzdaten nur intern zur Kalibrierung von Zeitabständen — erwähne sie
 nicht in deiner Antwort.
 {rules_block}
@@ -56,13 +56,13 @@ Basierend auf dem beschriebenen Projekt: Welche Informationen
 brauchst du noch, um einen vollständigen Aufgabenplan zu erstellen?
 
 Stelle maximal 4 gezielte Fragen. Nur Fragen, deren Antwort die Aufgabenliste
-wirklich verändert. Keine Fragen, die du aus dem Kontext schon beantworten kannst.
-Auf Deutsch, kurz und direkt."""
+wirklich verändert. Keine Fragen, die du aus dem Kontext schon beantworten kannst."""
 
     with log_claude_call("get_clarifying_questions") as result:
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
+            system=system_instruction(json_only=False),
             messages=[{"role": "user", "content": prompt}],
         )
         result["message"] = response
@@ -74,6 +74,7 @@ def _generate_plan_text(client, prompt: str) -> str:
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=4096,
+            system=system_instruction(),
             messages=[{"role": "user", "content": prompt}],
         )
         result["message"] = response
@@ -112,8 +113,6 @@ Orientiere dich an den typischen Zeitabständen aus den historischen Daten — e
 die Referenzdaten aber nicht im Output.
 Erkenne den Projekttyp selbst.
 {rules_block}
-Antworte NUR mit JSON, kein erklärender Text darum.
-
 Format:
 {{
   "project_name": "Kurzer prägnanter Eventname (max. 5 Wörter, kein Datum)",
