@@ -352,7 +352,7 @@ Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortie
 
     with log_claude_call("generate_timelapse_moments") as result:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-haiku-4-5",
             max_tokens=512,
             system=system_instruction(),
             messages=[{"role": "user", "content": prompt}],

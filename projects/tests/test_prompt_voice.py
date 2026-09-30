@@ -10,6 +10,7 @@ shared instruction, fails here.
 """
 
 import ast
+import re
 import tokenize
 from datetime import (
     date,
@@ -288,6 +289,33 @@ class SharedRulesAreStatedOnceInTheSourceTest(SimpleTestCase):
         # Counted on "Antworte NUR mit JSON" rather than on "JSON": the word
         # itself legitimately appears in each touchpoint's own format block.
         self.assertEqual(self.source.count("Antworte NUR mit JSON"), 1)
+
+
+class ModelIdsAreWrittenUndatedTest(SimpleTestCase):
+    """#262: one call carried `claude-haiku-4-5-20251001` while the five
+    others wrote the undated form.
+
+    The canonical identifier has no date suffix, so the dated spelling was
+    the same model under a second name — and a second name is what makes a
+    fleet-wide model change miss a call site. Walks the source rather than
+    listing the calls, for the reason the class below spells out.
+    """
+
+    DATED = re.compile(r"claude-[a-z0-9-]*?-\d{8}")
+
+    def test_no_application_module_names_a_dated_model(self):
+        source = _source_without_comments(_app_modules())
+        self.assertEqual(self.DATED.findall(source), [])
+
+    def test_the_pattern_still_matches_a_dated_id(self):
+        # The matcher's own canary: a regex that quietly stopped matching
+        # would make the assertion above vacuously true.
+        self.assertTrue(self.DATED.search("claude-haiku-4-5-20251001"))
+
+    def test_every_claude_call_still_names_a_model(self):
+        for module, function, keywords in _claude_call_sites():
+            with self.subTest(module=module, function=function):
+                self.assertIn("model", keywords)
 
 
 class EveryClaudeCallSiteSendsSomeSystemInstructionTest(SimpleTestCase):
