@@ -369,6 +369,78 @@ class PromptUndatedAndTodayTest(SimpleTestCase):
         self.assertIn("Aufgabe X — DIESE WOCHE", prompt)
 
 
+class PromptStatesEachFigureOnceTest(SimpleTestCase):
+    """#262: a figure the prompt can already be read off from is not stated
+    a second time. The prompt opens with "Heute ist der …" and gives each
+    project's `Termin:` as a date, so the "(in N Tagen)" suffix handed
+    Claude arithmetic it had the operands for; `Offene Aufgaben (N):`
+    counted the list printed directly beneath it.
+
+    Two figures deliberately stay, and these tests say so, so the next pass
+    does not remove them as a consistency fix:
+
+    - the per-task urgency labels. Measured against the demo fixture on
+      01.10.2026, they are the *only* place a task's own due date appears
+      anywhere in the prompt — removing them removes information.
+    - `Erledigt: N Aufgaben`. Done tasks are skipped by the render loop, so
+      that count cannot be read off the list either.
+    """
+
+    TODAY = date(2026, 9, 1)
+
+    def project(self):
+        return {
+            "id": "p-solo",
+            "name": "Konzert Solo",
+            "event_date": self.TODAY + timedelta(days=5),
+            "performers": "",
+            "tasks": [
+                {
+                    "id": "t-open",
+                    "name": "Aufgabe Offen",
+                    "due": self.TODAY + timedelta(days=2),
+                    "done": False,
+                    "kontext": [],
+                },
+                {
+                    "id": "t-done",
+                    "name": "Aufgabe Erledigt",
+                    "due": self.TODAY - timedelta(days=2),
+                    "done": True,
+                    "kontext": [],
+                },
+            ],
+        }
+
+    def prompt(self):
+        return build_prompt([self.project()], self.TODAY)
+
+    def test_the_event_date_carries_no_day_offset(self):
+        prompt = self.prompt()
+        self.assertIn("Termin: 06.09.2026", prompt)
+        self.assertNotIn("(in 5 Tagen)", prompt)
+
+    def test_todays_date_is_still_there_to_derive_the_offset_from(self):
+        # The offset is removed because it is derivable, not because it is
+        # irrelevant — which only holds while both operands are in the prompt.
+        self.assertIn("Heute ist der 01.09.2026.", self.prompt())
+
+    def test_the_open_count_is_not_stated_above_the_list_it_counts(self):
+        prompt = self.prompt()
+        self.assertIn("Offene Aufgaben:", prompt)
+        self.assertNotIn("Offene Aufgaben (1)", prompt)
+
+    def test_the_done_count_stays_because_done_tasks_are_not_listed(self):
+        prompt = self.prompt()
+        self.assertIn("Erledigt: 1 Aufgaben", prompt)
+        self.assertNotIn("Aufgabe Erledigt", prompt)
+
+    def test_the_only_carrier_of_a_task_due_date_stays(self):
+        # The per-task label. No date is emitted next to a task line, so
+        # this is what tells Claude when the task is due at all.
+        self.assertIn("Aufgabe Offen — DIESE WOCHE", self.prompt())
+
+
 class BuildPromptCalendarWeekLabelTest(SimpleTestCase):
     """#169: build_prompt's "DIESE WOCHE" label follows the same calendar-week
     rule as _annotate_tasks now, not a rolling 7-day window — but an overdue

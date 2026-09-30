@@ -183,19 +183,21 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
 
     task_no = 0
     for project_no, p in enumerate(numbered_projects, start=1):
-        days_until = (p["event_date"] - today).days
-        open_tasks = [t for t in p["tasks"] if not t["done"]]
         done_count = len([t for t in p["tasks"] if t["done"]])
 
         lines.append(f"## {'Dein Projekt' if single_project_demo else p['name']}")
         if not single_project_demo:
             lines.append(f"Projekt-Nr.: {project_no}")
-        lines.append(
-            f"Termin: {p['event_date'].strftime('%d.%m.%Y')} (in {days_until} Tagen)"
-        )
+        # #262: the date alone. The "(in N Tagen)" suffix that used to follow
+        # it was arithmetic over two figures the prompt already carries —
+        # this date and the "Heute ist der …" line above.
+        lines.append(f"Termin: {p['event_date'].strftime('%d.%m.%Y')}")
         lines.append(f"Mitwirkende: {p.get('performers', '')}")
+        # Stays, unlike the open count below: the render loop skips done
+        # tasks, so this number cannot be read off anything else in the
+        # prompt (#262 — measured, not assumed).
         lines.append(f"Erledigt: {done_count} Aufgaben")
-        lines.append(f"Offene Aufgaben ({len(open_tasks)}):")
+        lines.append("Offene Aufgaben:")
 
         for t in p["tasks"]:
             task_no += 1
