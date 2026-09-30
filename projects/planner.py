@@ -8,7 +8,23 @@ from .ai import KONTEXTE, AIUnavailableError, log_claude_call, system_instructio
 logger = logging.getLogger(__name__)
 
 
-def _format_history(projects: list) -> str:
+def _format_history(projects: list, *, with_tasks: bool) -> str:
+    """The reference block both planner calls open with: past projects, and
+    optionally each project's tasks with their day offset from the event.
+
+    #262: `with_tasks` is required rather than defaulting, because the two
+    call sites want different answers and neither is the obvious one. This
+    block was the largest duplicate across the six prompts — 1,274
+    characters on the demo fixture, sent twice per planning flow, and capped
+    at HISTORY_PROJECT_LIMIT (40) closed projects in production, where it
+    runs to roughly 16,000.
+
+    generate_plan needs the offsets: they are what it calibrates a new
+    plan's intervals against. get_clarifying_questions does not — no
+    clarifying question asks about an interval — but it does need the
+    project names and performers, which are what tell it the kind of
+    projects this person runs.
+    """
     lines = ["# Vergangene Projekte als Referenz\n"]
     for p in projects:
         if not p["event_date"]:
@@ -16,12 +32,13 @@ def _format_history(projects: list) -> str:
         lines.append(f"## {p['name']}")
         if p["performers"]:
             lines.append(f"Mitwirkende: {p['performers']}")
-        for t in p["tasks"]:
-            if t["due"]:
-                offset = (p["event_date"] - t["due"]).days
-                lines.append(f"  - {t['name']} ({offset} Tage vor dem Termin)")
-            else:
-                lines.append(f"  - {t['name']} (kein Datum)")
+        if with_tasks:
+            for t in p["tasks"]:
+                if t["due"]:
+                    offset = (p["event_date"] - t["due"]).days
+                    lines.append(f"  - {t['name']} ({offset} Tage vor dem Termin)")
+                else:
+                    lines.append(f"  - {t['name']} (kein Datum)")
         lines.append("")
     return "\n".join(lines)
 
@@ -36,7 +53,11 @@ def _format_rules(rules: list) -> str:
 def get_clarifying_questions(
     event_description: str, historical_projects: list, rules: list | None = None
 ) -> str:
-    history = _format_history(historical_projects)
+    # #262: without the task lines. The offsets are calibration data for the
+    # plan, and the sentence that pointed at them goes with them — an
+    # instruction about data the prompt no longer carries would be
+    # half-false, which is the shape of wording this issue removes.
+    history = _format_history(historical_projects, with_tasks=False)
     rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
 
@@ -49,8 +70,7 @@ Ein neues Projekt soll geplant werden:
 
 Erkenne den Projekttyp selbst und leite alle relevanten Rahmenbedingungen aus dem
 Kontext ab.
-Nutze die Referenzdaten nur intern zur Kalibrierung von Zeitabständen — erwähne sie
-nicht in deiner Antwort.
+Erwähne die Referenzprojekte nicht in deiner Antwort.
 {rules_block}
 Basierend auf dem beschriebenen Projekt: Welche Informationen
 brauchst du noch, um einen vollständigen Aufgabenplan zu erstellen?
@@ -95,7 +115,9 @@ def generate_plan(
     self-corrects — and only gives up with AIUnavailableError after the
     second attempt.
     """
-    history = _format_history(historical_projects)
+    # With the task lines: this is the call that calibrates a new plan's
+    # intervals against the past ones (#262).
+    history = _format_history(historical_projects, with_tasks=True)
     rules_block = _format_rules(rules or [])
     client = anthropic.Anthropic()
 
