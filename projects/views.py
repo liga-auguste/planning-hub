@@ -2236,7 +2236,7 @@ def close_week_confirm(request):
         "added_count": added_count,
     }
     try:
-        summary_text = generate_closeout_summary(stats_dict, today)
+        summary_text = generate_closeout_summary(stats_dict, week_start)
     except AIUnavailableError:
         summary_text = ""
 

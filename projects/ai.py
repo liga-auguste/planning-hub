@@ -8,7 +8,8 @@ from datetime import date
 import anthropic
 from django.utils import timezone
 
-from .dates import is_same_iso_week
+from .date_format import format_week_range
+from .dates import is_same_iso_week, iso_week_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -419,7 +420,7 @@ def generate_weekly_summary(
     ) from last_error
 
 
-def build_closeout_prompt(stats: dict, today: date) -> str:
+def build_closeout_prompt(stats: dict, week_start: date) -> str:
     """#169: the close-out review's summary — appreciative by design, not a
     second status report. Rescheduled tasks are named as decisions, not as
     a shortfall against the week.
@@ -431,9 +432,25 @@ def build_closeout_prompt(stats: dict, today: date) -> str:
     `added_count` is None for a demo close-out (a plan created in one shot
     has nothing "new"), and the line is then left out rather than stating a
     zero the number can never leave.
+
+    #262: takes the week, not the day. Since #263 the week being closed can
+    differ from the week of the request — reproduced in the browser on
+    22.09.2026, where KW 38 was closed from a day in KW 39 and Claude wrote
+    "Diese Woche war eine ruhige … Woche" about KW 39. The numbers were
+    always right; "Heute ist der …" was the only date the prompt carried,
+    so the wording pointed at the wrong week. One date in, one week out:
+    the pair cannot be made inconsistent because there is no pair.
+
+    #262 also drops the clause justifying the neutral framing. That exact
+    wording ("bewusste Planungsentscheidungen, keine verpassten Deadlines")
+    came back as padding in the generated text, which is this issue's own
+    finding — and "Deadlines" is on the eval's anglicism list, so the
+    prompt was handing Claude the word the check then failed on.
     """
+    monday, sunday = iso_week_bounds(week_start)
+    _, iso_week, _ = monday.isocalendar()
     lines = [
-        f"Heute ist der {today.strftime('%d.%m.%Y')}. Ich schließe die Woche ab.",
+        f"Ich schließe KW {iso_week} ab ({format_week_range(monday, sunday)}).",
         "",
         f"In dieser Woche erledigt: {stats['completed_count']} Aufgaben",
     ]
@@ -447,10 +464,8 @@ def build_closeout_prompt(stats: dict, today: date) -> str:
             f"{stats['rescheduled_count']} Aufgaben"
         ),
         "",
-        "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend:",
-        "was erledigt wurde, zählt. Verschobene Aufgaben sind bewusste",
-        "Planungsentscheidungen, keine verpassten Deadlines — benenne sie neutral,",
-        "nicht als Rückstand. 2–3 Sätze.",
+        "Schreib eine kurze Rückschau auf diese Woche. Anerkennend, nicht bewertend.",
+        "Verschobene Aufgaben neutral benennen, nicht als Rückstand. 2–3 Sätze.",
         "",
         "Format:",
         '{"summary_text": "..."}',
@@ -458,7 +473,7 @@ def build_closeout_prompt(stats: dict, today: date) -> str:
     return "\n".join(lines)
 
 
-def generate_closeout_summary(stats: dict, today: date) -> str:
+def generate_closeout_summary(stats: dict, week_start: date) -> str:
     """Returns the close-out review's German summary text.
 
     Same retry contract as generate_weekly_summary: one re-ask on
@@ -466,7 +481,7 @@ def generate_closeout_summary(stats: dict, today: date) -> str:
     response, SDK failures never spent as a JSON retry.
     """
     client = anthropic.Anthropic()
-    prompt = build_closeout_prompt(stats, today)
+    prompt = build_closeout_prompt(stats, week_start)
 
     last_error = None
     for attempt in (1, 2):

@@ -27,6 +27,7 @@ from .ai import (
     resolve_kontext_hint,
     resolve_weekly_summary,
 )
+from .dates import iso_week_bounds
 from .demo_data import get_demo_history, get_demo_projects
 from .planner import generate_plan, get_clarifying_questions
 from .rules import INITIAL_RULES
@@ -361,9 +362,11 @@ def _eval_b():
 
 
 def _eval_c():
-    today = timezone.localdate()
+    # The current week's Monday, which is what the touchpoint takes since
+    # #262 — the close-out names the week it closes, not the day it runs on.
+    week_start = iso_week_bounds(timezone.localdate())[0]
     stats = {"completed_count": 7, "added_count": 3, "rescheduled_count": 2}
-    summary_text = generate_closeout_summary(stats, today)
+    summary_text = generate_closeout_summary(stats, week_start)
     texts = [summary_text]
     checks = [
         check_du_form(texts),

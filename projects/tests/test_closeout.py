@@ -46,6 +46,10 @@ from .base import (
 
 VALID_CLOSEOUT_JSON = '{"summary_text": "Gute Woche gewesen."}'
 
+# The week the prompt is about, as a Monday — KW 38, 14.–20. September 2026,
+# the week the #263 browser reproduction closed from a day in KW 39.
+CLOSED_WEEK_MONDAY = date(2026, 9, 14)
+
 
 def _closeout_stats():
     return {"completed_count": 3, "rescheduled_count": 1, "added_count": 2}
@@ -58,7 +62,7 @@ class GenerateCloseOutSummaryTest(SimpleTestCase):
     the second bad response, SDK failures never spent as a JSON retry."""
 
     def generate(self):
-        return generate_closeout_summary(_closeout_stats(), date(2026, 9, 1))
+        return generate_closeout_summary(_closeout_stats(), CLOSED_WEEK_MONDAY)
 
     def test_returns_the_summary_text_on_first_valid_response(self):
         with patch("anthropic.Anthropic") as MockAnthropic:
@@ -117,7 +121,7 @@ class GenerateCloseOutSummaryTest(SimpleTestCase):
         self.assertEqual(text, "Gute Woche gewesen.")
 
     def test_prompt_names_the_three_stats_and_asks_for_json(self):
-        prompt = build_closeout_prompt(_closeout_stats(), date(2026, 9, 1))
+        prompt = build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
         self.assertIn("In dieser Woche erledigt: 3 Aufgaben", prompt)
         self.assertIn("In dieser Woche neu dazugekommen: 2 Aufgaben", prompt)
         self.assertIn("summary_text", prompt)
@@ -127,7 +131,7 @@ class GenerateCloseOutSummaryTest(SimpleTestCase):
         to say so — Claude echoes the framing it is given, and the old
         wording invited it to narrate a session-scoped count as a fact about
         the week."""
-        prompt = build_closeout_prompt(_closeout_stats(), date(2026, 9, 1))
+        prompt = build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
         self.assertIn(
             "Gerade beim Abschließen in die nächste Woche verschoben: 1 Aufgaben",
             prompt,
@@ -138,9 +142,74 @@ class GenerateCloseOutSummaryTest(SimpleTestCase):
         """#215: a demo close-out passes None rather than 0 — stating a zero
         the number can never leave is what this issue removed elsewhere."""
         stats = {**_closeout_stats(), "added_count": None}
-        prompt = build_closeout_prompt(stats, date(2026, 9, 1))
+        prompt = build_closeout_prompt(stats, CLOSED_WEEK_MONDAY)
         self.assertNotIn("dazugekommen", prompt)
         self.assertIn("In dieser Woche erledigt: 3 Aufgaben", prompt)
+
+
+class CloseoutPromptNamesTheClosedWeekTest(SimpleTestCase):
+    """#262: the prompt's opening line names the week being closed instead
+    of the day the request was made on.
+
+    Since #263 those are two different questions. Reproduced in the browser
+    on 22.09.2026: KW 38 was closed on a day in KW 39, the numbers were
+    right, and Claude wrote "Diese Woche war eine ruhige … Woche" about the
+    wrong week — because "Heute ist der …" was the only date it had.
+    """
+
+    def test_the_prompt_names_the_closed_iso_week(self):
+        prompt = build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
+        self.assertIn("KW 38", prompt)
+        self.assertIn("14.–20. September", prompt)
+
+    def test_closing_a_past_week_from_a_later_one_still_names_the_closed_one(self):
+        # The signature takes the week, not the day, so the two cannot
+        # disagree — there is no second date for a caller to get wrong.
+        prompt = build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
+        self.assertNotIn("22.09.2026", prompt)
+        self.assertNotIn("KW 39", prompt)
+
+    def test_a_week_spanning_two_months_reads_both(self):
+        prompt = build_closeout_prompt(_closeout_stats(), date(2026, 8, 31))
+        self.assertIn("KW 36", prompt)
+        self.assertIn("31. Aug – 6. September", prompt)
+
+    def test_the_day_of_the_request_is_no_longer_in_the_prompt(self):
+        prompt = build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
+        self.assertNotIn("Heute ist der", prompt)
+
+
+class CloseoutPromptDropsItsJustifyingClausesTest(SimpleTestCase):
+    """#262: the instruction asking for a neutral framing was itself the
+    source of the padding — "Verschobene Aufgaben sind bewusste
+    Planungsentscheidungen, keine verpassten Deadlines" came back as
+    "bewusst in die kommende Woche überführt, um sie zum richtigen
+    Zeitpunkt anzugehen". The rule stays, its justification goes.
+
+    Side effect that counts on its own: "Deadlines" is on the eval's own
+    anglicism list, and the 30.09. run failed that check on "Deadline". A
+    word the prompt no longer contains is a word Claude cannot echo.
+    """
+
+    def prompt(self):
+        return build_closeout_prompt(_closeout_stats(), CLOSED_WEEK_MONDAY)
+
+    def test_the_rule_itself_survives(self):
+        self.assertIn("nicht als Rückstand", self.prompt())
+
+    def test_the_justification_is_gone(self):
+        prompt = self.prompt()
+        self.assertNotIn("Planungsentscheidungen", prompt)
+        self.assertNotIn("Deadlines", prompt)
+        self.assertNotIn("was erledigt wurde, zählt", prompt)
+
+    def test_the_length_gate_the_eval_checks_stays(self):
+        # language_eval.py's (c) case allows at most three sentences, and the
+        # prompt is the only place that number is asked for.
+        self.assertIn("2–3 Sätze", self.prompt())
+
+    def test_the_appreciative_framing_stays(self):
+        self.assertIn("Anerkennend, nicht bewertend", self.prompt())
 
 
 class WeekCloseoutModelTest(TestCase):
