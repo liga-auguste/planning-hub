@@ -442,6 +442,50 @@ class TimelapseBaselineUsesLocalDateTest(SimpleTestCase):
         self.assertIn("Zeitraum: 2026-01-16 bis", prompt)
 
 
+class TimelapsePromptStatesEachThingOnceTest(SimpleTestCase):
+    """#262: the (d) prompt carried the event date in two formats and the
+    example object four times.
+
+    Since PR #275 the prompt says "ein JSON-Array mit vier Objekten" in
+    words, which made the three ellipsis lines below it pure repetition —
+    the count is stated, so it does not also have to be demonstrated.
+    """
+
+    EVENT_DATE = date(2026, 12, 14)
+
+    def prompt(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response("[]")
+            generate_timelapse_moments("Adventskonzert", self.EVENT_DATE, [])
+        return create.call_args.kwargs["messages"][0]["content"]
+
+    def test_the_event_date_appears_exactly_once(self):
+        prompt = self.prompt()
+        self.assertEqual(prompt.count(self.EVENT_DATE.isoformat()), 1)
+
+    def test_the_german_spelling_of_the_event_date_is_gone(self):
+        # The ISO form is the one that stays: the model has to answer in it,
+        # and the `Zeitraum:` line is where the range is stated.
+        self.assertNotIn("14.12.2026", self.prompt())
+
+    def test_the_example_object_appears_once(self):
+        prompt = self.prompt()
+        self.assertEqual(prompt.count('"date": "YYYY-MM-DD"'), 1)
+        self.assertNotIn('"label": "..."', prompt)
+
+    def test_the_array_shape_and_its_count_still_stand(self):
+        # The guard PR #275 added, and (d) is the only touchpoint without a
+        # retry: _valid_moments takes its `else []` branch on a JSON object,
+        # so a shape miss costs the visitor the timelapse silently.
+        prompt = self.prompt()
+        self.assertIn("JSON-Array mit vier Objekten", prompt)
+        self.assertIn("[", prompt)
+
+    def test_the_project_name_still_opens_the_prompt(self):
+        self.assertIn('Du planst ein Projekt: "Adventskonzert"', self.prompt())
+
+
 class TimelapseMomentsLoggingTest(SimpleTestCase):
     def test_logs_usage_on_success(self):
         with patch("anthropic.Anthropic") as MockAnthropic:

@@ -331,7 +331,12 @@ def generate_timelapse_moments(
     task_lines = "\n".join(
         f"- {t['name']} (fällig: {t['date']})" for t in tasks if t.get("date")
     )
-    prompt = f"""Du planst ein Projekt: "{project_name}", Termin: {event_date.strftime("%d.%m.%Y")}.
+    # #262: the event date is stated once, in the `Zeitraum:` line, in the
+    # ISO form the answer has to come back in — the opening line used to
+    # repeat it as %d.%m.%Y. The example object likewise appears once: the
+    # count is already given in words ("vier Objekten", the array guard from
+    # PR #275), so it does not also have to be demonstrated four times.
+    prompt = f"""Du planst ein Projekt: "{project_name}".
 
 Aufgaben:
 {task_lines}
@@ -340,10 +345,7 @@ Wähle 4 dramatisch interessante Momente aus dem Zeitverlauf — Wendepunkte, be
 
 Format — ein JSON-Array mit vier Objekten:
 [
-  {{"date": "YYYY-MM-DD", "label": "2–3 Wörter", "description": "Ein Satz was gerade passiert"}},
-  {{"date": "YYYY-MM-DD", "label": "...", "description": "..."}},
-  {{"date": "YYYY-MM-DD", "label": "...", "description": "..."}},
-  {{"date": "YYYY-MM-DD", "label": "...", "description": "..."}}
+  {{"date": "YYYY-MM-DD", "label": "2–3 Wörter", "description": "Ein Satz was gerade passiert"}}
 ]
 
 Zeitraum: {today.isoformat()} bis {event_date.isoformat()}, chronologisch sortiert."""
