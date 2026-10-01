@@ -24,8 +24,10 @@ from .ai import (
     generate_timelapse_moments,
     generate_weekly_summary,
     log_claude_call,
+    resolve_kontext_hint,
     resolve_weekly_summary,
 )
+from .dates import iso_week_bounds
 from .demo_data import get_demo_history, get_demo_projects
 from .planner import generate_plan, get_clarifying_questions
 from .rules import INITIAL_RULES
@@ -57,6 +59,91 @@ ANSWERS = (
     "3. Programm steht noch nicht fest, muss erarbeitet werden\n"
     "4. Ja, Solistin bekommt Honorar, Chor ist ehrenamtlich"
 )
+
+# The kontext each demo task would carry in production, keyed by task name.
+#
+# `get_demo_projects()` carries none, and that stays: kontext is
+# production-only (#18), so demo mode never collects, derives, stores or
+# displays one. But `build_prompt` omits the Kontext-Übersicht *and* the
+# kontext_hinweis instruction when no task has a kontext, while the (a)
+# judge kept scoring `bundling_named` — against a prompt that never asked
+# for a bundling hint. The verdict was not negative, it was meaningless.
+# Decorating the fixture here, in the eval and not in demo_data.py,
+# restores the precondition the verdict depends on and leaves #18 intact.
+#
+# Keyed by name rather than by id so a name that recurs across projects
+# ("Pressetext schreiben", "Graphiker beauftragen") genuinely shares its
+# kontext — that cross-project sharing is the whole subject of the hint.
+# test_language_eval.py holds the guards: every key is a real task name,
+# every value is one of KONTEXTE, every task is mapped, and at least one
+# kontext spans two projects.
+DEMO_TASK_KONTEXTE = {
+    "Ensemble anfragen": "Kommunikation",
+    "Ensemble anfragen und bestätigen": "Kommunikation",
+    "Termin und Honorar bestätigen": "Kommunikation",
+    "Musiker bestätigt": "Kommunikation",
+    "Solistin anfragen": "Kommunikation",
+    "Chor-Kontakt bestätigen": "Kommunikation",
+    "Probenplan an Chor versenden": "Kommunikation",
+    "Pressetext an Lokalzeitung": "Kommunikation",
+    "Pressetext an Zeitung": "Kommunikation",
+    "Programm festlegen": "Planung",
+    "Programm abstimmen": "Planung",
+    "Programm-Entwurf": "Planung",
+    "Programm-Ablauf abstimmen": "Planung",
+    "Programm-Wünsche abstimmen": "Planung",
+    "Probentermine festlegen": "Planung",
+    "Eintrittspreis festlegen": "Planung",
+    "Pressetext schreiben": "Büro",
+    "Pressetext verfassen": "Büro",
+    "Facebook-Veranstaltung anlegen": "Büro",
+    "Ankündigung Gemeindebrief": "Büro",
+    "Honorarvereinbarung schriftlich": "Büro",
+    "GEMA-Meldung vorbereiten": "Büro",
+    "GEMA-Meldung einreichen": "Büro",
+    "Noten vorbereiten und kopieren": "Büro",
+    "Noten kopieren": "Büro",
+    "Noten und Aufführungsrechte prüfen": "Büro",
+    "Plakat gestalten (Graphiker)": "Graphiker",
+    "Plakat gestalten lassen": "Graphiker",
+    "Graphiker beauftragen": "Graphiker",
+    "Plakate drucken": "Unterwegs",
+    "Plakate drucken und aushängen": "Unterwegs",
+    "Programmheft drucken": "Unterwegs",
+    "Stühle und Aufbau koordinieren": "Vor Ort",
+    "Abendkasse organisieren": "Vor Ort",
+    "Mikrofon-Anlage prüfen": "Vor Ort",
+    "Generalprobe koordinieren": "Vor Ort",
+    "Kirchenraum und Bestuhlung planen": "Vor Ort",
+    "Tonanlage und Technik klären": "Vor Ort",
+}
+
+
+def _projects_with_kontext() -> list:
+    """`get_demo_projects()` with DEMO_TASK_KONTEXTE filled in, as new dicts
+    — the fixture itself is left as it is, so a case that wants the
+    kontext-less prompt (b, and every test outside this module) still gets
+    one from the same function.
+
+    An unmapped task keeps its empty list rather than raising: a missing
+    entry costs the overview one line, which the test suite catches without
+    spending an API call, and raising here would cost a whole eval run.
+    """
+    return [
+        {
+            **project,
+            "tasks": [
+                {
+                    **task,
+                    "kontext": [kontext]
+                    if (kontext := DEMO_TASK_KONTEXTE.get(task["name"]))
+                    else task["kontext"],
+                }
+                for task in project["tasks"]
+            ],
+        }
+        for project in get_demo_projects()
+    ]
 
 
 @dataclass
@@ -230,11 +317,22 @@ def _safe_judge(texts: list, strict_structure: bool) -> JudgeResult | None:
 
 def _eval_a():
     today = timezone.localdate()
-    projects = get_demo_projects()
+    # The one case that runs on the decorated fixture: (a) is the
+    # multi-project prompt, and the cross-project batch hint only exists
+    # there. (b) stays on the plain fixture — a "projektübergreifend"
+    # overview over a single project would be a contradiction.
+    projects = _projects_with_kontext()
     data = generate_weekly_summary(projects, today, single_project_demo=False)
     sections = resolve_weekly_summary(data, projects, single_project_demo=False)
     blocks = [block for section in sections for block in section["blocks"]]
-    texts = [block["assessment"] for block in blocks]
+    # The cross-project hint is a top-level field, not part of any block, so
+    # collecting only the assessments left the judge scoring `bundling_named`
+    # against text that could never contain a bundling statement — the other
+    # half of the blind spot DEMO_TASK_KONTEXTE fixes. Optional by design
+    # (#145): a week with no cluster yields "", and that empty string is not
+    # a text to review.
+    hint = resolve_kontext_hint(data)
+    texts = [block["assessment"] for block in blocks] + ([hint] if hint else [])
     checks = [
         check_du_form(texts),
         check_date_format(texts),
@@ -264,9 +362,11 @@ def _eval_b():
 
 
 def _eval_c():
-    today = timezone.localdate()
+    # The current week's Monday, which is what the touchpoint takes since
+    # #262 — the close-out names the week it closes, not the day it runs on.
+    week_start = iso_week_bounds(timezone.localdate())[0]
     stats = {"completed_count": 7, "added_count": 3, "rescheduled_count": 2}
-    summary_text = generate_closeout_summary(stats, today)
+    summary_text = generate_closeout_summary(stats, week_start)
     texts = [summary_text]
     checks = [
         check_du_form(texts),

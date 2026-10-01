@@ -19,8 +19,10 @@ from django.test import (
 from django.urls import reverse
 
 from ..ai import AIUnavailableError
+from ..demo_data import get_demo_history
 from ..notion import NotionUnavailableError
 from ..planner import (
+    _format_history,
     generate_plan,
     get_clarifying_questions,
 )
@@ -1411,3 +1413,110 @@ class PlannerReplaceNoticeIsDemoOnlyTest(DemoModeTestCase):
         self.given_session_plan(name="Adventskonzert")
         response = self.client.get(reverse("planner_start"))
         self.assertNotContains(response, 'class="replace-notice"')
+
+
+def _history_project():
+    return {
+        "id": "h-1",
+        "name": "Adventskonzert 2025",
+        "event_date": date(2025, 12, 14),
+        "performers": "Kammerchor",
+        "tasks": [
+            {"id": "h-1-1", "name": "Solistin buchen", "due": date(2025, 10, 5)},
+            {"id": "h-1-2", "name": "Plakate drucken", "due": None},
+        ],
+    }
+
+
+class HistoryWithoutTaskIntervalsTest(SimpleTestCase):
+    """#262: `_format_history` was the single largest duplicate in the six
+    prompts — 1,274 characters on the demo fixture, sent twice per planning
+    flow, and capped at 40 closed projects in production, where it is
+    roughly 16,000.
+
+    The clarifying-questions call does not need the day offsets: they are
+    calibration data for the *plan*, and no clarifying question asks about
+    an interval. It still needs the project names and performers — "what
+    kind of projects does this person run" is what shapes a good question.
+    """
+
+    def test_with_tasks_carries_the_names_and_the_offsets(self):
+        history = _format_history([_history_project()], with_tasks=True)
+        self.assertIn("## Adventskonzert 2025", history)
+        self.assertIn("Mitwirkende: Kammerchor", history)
+        self.assertIn("Solistin buchen", history)
+        self.assertIn("70 Tage vor dem Termin", history)
+
+    def test_without_tasks_keeps_the_project_but_drops_the_task_lines(self):
+        history = _format_history([_history_project()], with_tasks=False)
+        self.assertIn("## Adventskonzert 2025", history)
+        self.assertIn("Mitwirkende: Kammerchor", history)
+        self.assertNotIn("Solistin buchen", history)
+        self.assertNotIn("Tage vor dem Termin", history)
+        self.assertNotIn("kein Datum", history)
+
+    def test_the_task_lines_are_the_bulk_of_the_block(self):
+        """Measured on the demo history, which is where #262's 1,274
+        characters come from: the task lines are ~84% of it. In production
+        the block is capped at 40 closed projects rather than three, so the
+        same share is roughly 16,000 characters against ~2,600."""
+        history = get_demo_history()
+        with_tasks = _format_history(history, with_tasks=True)
+        without = _format_history(history, with_tasks=False)
+        self.assertLess(len(without), len(with_tasks) / 4)
+
+
+class ClarifyingQuestionsPromptTest(SimpleTestCase):
+    """#262: (e) gets the history without intervals, and loses the sentence
+    that pointed at them.
+
+    Leaving "Nutze die Referenzdaten nur intern zur Kalibrierung von
+    Zeitabständen" in place would be an instruction about data the prompt no
+    longer carries — half-false, and exactly the kind of wording this issue
+    found coming back in the output.
+    """
+
+    def prompt(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response("1. Wann genau?")
+            get_clarifying_questions("Ein Konzert im Dezember", [_history_project()])
+        return create.call_args.kwargs["messages"][0]["content"]
+
+    def test_the_reference_projects_are_still_named(self):
+        self.assertIn("Adventskonzert 2025", self.prompt())
+
+    def test_the_day_offsets_are_gone(self):
+        self.assertNotIn("Tage vor dem Termin", self.prompt())
+
+    def test_the_calibration_sentence_is_gone(self):
+        prompt = self.prompt()
+        self.assertNotIn("Kalibrierung", prompt)
+        self.assertNotIn("Zeitabständen", prompt)
+
+    def test_the_rule_that_still_applies_stays(self):
+        self.assertIn("nicht in deiner Antwort", self.prompt())
+
+
+class PlanPromptKeepsTheIntervalsTest(SimpleTestCase):
+    """The counter-statement: (f) is the call that calibrates day offsets,
+    so it keeps both the task lines and the sentence naming them."""
+
+    def prompt(self):
+        with patch("anthropic.Anthropic") as MockAnthropic:
+            create = MockAnthropic.return_value.messages.create
+            create.return_value = _fake_response(
+                '{"project_name": "Test", "tasks": []}'
+            )
+            generate_plan(
+                "Ein Konzert im Dezember", "keine Angaben", [_history_project()]
+            )
+        return create.call_args.kwargs["messages"][0]["content"]
+
+    def test_the_day_offsets_are_still_there(self):
+        prompt = self.prompt()
+        self.assertIn("Solistin buchen", prompt)
+        self.assertIn("70 Tage vor dem Termin", prompt)
+
+    def test_the_sentence_about_the_intervals_survives_where_they_do(self):
+        self.assertIn("Zeitabständen", self.prompt())

@@ -20,24 +20,24 @@ test was added, renamed or removed.
 | `test_config.py` | 25 | 69 | Deployment, settings, environment, error pages, health check |
 | `test_design.py` | 55 | 228 | The visual language: tokens, palette, dark theme, layout, what may appear on a page at all |
 | `test_sidebar.py` | 27 | 114 | Nav, project list, progress rings, behaviour across viewports and views |
-| `test_planner.py` | 33 | 104 | The four-step planner flow and the plan-generating calls behind it |
+| `test_planner.py` | 36 | 113 | The four-step planner flow and the plan-generating calls behind it |
 | `test_dashboard.py` | 25 | 70 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 47 | 281 | Add, toggle, rename, reschedule, trash: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 23 | 113 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_timelapse.py` | 24 | 118 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 8 | 24 | `/mein-plan/`, including the Markdown export |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
-| `test_summary.py` | 19 | 77 | The AI weekly summary: prompt, parsing, resolution, caches |
-| `test_closeout.py` | 14 | 91 | Wochenabschluss: the ritual, its two backends, its summary |
+| `test_summary.py` | 20 | 82 | The AI weekly summary: prompt, parsing, resolution, caches |
+| `test_closeout.py` | 16 | 99 | Wochenabschluss: the ritual, its two backends, its summary |
 | `test_notion.py` | 16 | 59 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
-| `test_language_eval.py` | 10 | 28 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
-| `test_prompt_voice.py` | 6 | 19 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| **total** | **347** | **1462** | |
+| `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
+| `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
+| **total** | **357** | **1501** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
-goes. The two number columns are a count, retaken on 2026-09-30 with #262 —
+goes. The two number columns are a count, retaken on 2026-10-01 with #262's second step —
 they move with every branch, and a stale number here is a stale number, not a wrong rule. `test_language_eval.py`
 joined the list after the split (#248) and `test_prompt_voice.py` after #262; the seventeen modules above are all of
 them.
