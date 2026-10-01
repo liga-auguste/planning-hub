@@ -24,7 +24,7 @@ test was added, renamed or removed.
 | `test_dashboard.py` | 25 | 70 | The dashboard read path: what renders, in which column, from which cache |
 | `test_dashboard_writes.py` | 47 | 281 | Add, toggle, rename, reschedule, trash: what they persist, answer and leave in the cache |
 | `test_week_view.py` | 14 | 78 | Heute / Diese Woche, the day columns, and the date helpers behind them |
-| `test_timelapse.py` | 23 | 118 | Zeitreise: generated moments, the simulated date, the preloader |
+| `test_timelapse.py` | 24 | 118 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 8 | 24 | `/mein-plan/`, including the Markdown export |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
 | `test_summary.py` | 20 | 82 | The AI weekly summary: prompt, parsing, resolution, caches |
@@ -34,7 +34,7 @@ test was added, renamed or removed.
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
 | `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| **total** | **347** | **1462** | |
+| **total** | **357** | **1501** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-10-01 with #262's second step —
