@@ -304,12 +304,13 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All six handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler, #239's rename and trash and #233's
-        # setSimDate — carry the widened guard; their error paths (flash /
-        # return false / revert the drag / take the Zeitreise paint back)
+        # All seven handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler, #239's rename and trash, #233's
+        # setSimDate and #156's loadSummary — carry the widened guard; their
+        # error paths (flash / return false / revert the drag / take the
+        # Zeitreise paint back / show the summary's own unavailable state)
         # stay.
-        self.assertContains(response, self.GUARD, count=6)
+        self.assertContains(response, self.GUARD, count=7)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
@@ -1157,6 +1158,7 @@ class RenameTaskProductionTest(TestCase):
             ) as mock_summary,
         ):
             self.client.get(reverse("dashboard"))
+            self.client.post(reverse("summary_fragment"))
             with patch("projects.views.rename_task"):
                 self.post_name("task-1", "Programm endlich festlegen")
             response = self.client.get(reverse("dashboard"))
@@ -1676,8 +1678,21 @@ class TheAddRowIsOneComponentTest(DemoModeTestCase):
 
     def test_the_module_holds_the_write(self):
         source = self.MODULE.read_text()
-        self.assertIn("function bindTaskAddRows(csrfToken)", source)
+        self.assertIn(
+            "function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {})",
+            source,
+        )
         self.assertIn("fetch('/task/add/'", source)
+
+    def test_the_write_goes_through_the_surface_s_own_serialisation(self):
+        """#156: an add writes the session, and so does the background request
+        that fetches the AI summary — Django saves the whole dict per
+        response, so two in flight mean the later save drops the earlier
+        one's. The two surfaces serialise differently, so the module takes the
+        wrapper rather than one of their implementations. The default runs the
+        fetch straight, for a surface with no background writer."""
+        source = self.MODULE.read_text()
+        self.assertIn("response = await serialize(() => fetch('/task/add/'", source)
 
     def test_no_template_holds_a_copy_of_it(self):
         # The uniqueness criterion as a test rather than as a review note:
@@ -1710,9 +1725,23 @@ class TheAddRowIsOneComponentTest(DemoModeTestCase):
         # The token is the one thing the two get differently — the dashboard
         # from the hidden input the page owns, /mein-plan/ from the template
         # variable — which is why it is the argument.
-        self.assertIn("bindTaskAddRows(CSRF);", self.dashboard_html())
+        self.assertIn("bindTaskAddRows(CSRF, {serialize:", self.dashboard_html())
         self.assertIn(
-            "bindTaskAddRows(CSRF);",
+            "bindTaskAddRows(CSRF, {serialize:",
+            self.client.get(reverse("my_plan")).content.decode(),
+        )
+
+    def test_each_surface_passes_the_serialisation_it_has(self):
+        """The dashboard has the #235 queue; /mein-plan/ has the one promise
+        its single background request needs. Same guarantee, two sizes — the
+        argument is what keeps the module out of that choice (#156)."""
+        self.assertIn(
+            "bindTaskAddRows(CSRF, {serialize: withSessionWriteLock});",
+            self.dashboard_html(),
+        )
+        self.assertIn(
+            "bindTaskAddRows(CSRF, {serialize: async fn => "
+            "{ await summarySettled(); return fn(); }});",
             self.client.get(reverse("my_plan")).content.decode(),
         )
 
@@ -1967,11 +1996,15 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
 
     def test_one_listener_covers_both_sites(self):
         # .task-project.ai-project-link is a subset of this selector, so the
-        # row and the summary need one binding between them.
+        # row and the summary need one binding between them. #156 gave the
+        # binding a root so the summary can be rebound after the fragment
+        # endpoint swaps it in; the selector it binds by is unchanged.
+        page = self.client.get(reverse("dashboard"))
         self.assertContains(
-            self.client.get(reverse("dashboard")),
-            "document.querySelectorAll('button.ai-project-link[data-project-id]')",
+            page,
+            "root.querySelectorAll('button.ai-project-link[data-project-id]')",
         )
+        self.assertContains(page, "bindProjectLinks(document);")
 
     def test_the_reset_and_the_ring_live_in_the_stylesheet(self):
         css = self.CSS.read_text()
@@ -2052,7 +2085,15 @@ class ThePickerIsOneModuleTest(DemoModeTestCase):
         # would find nothing to decide with.
         html = self.dashboard_html()
         self.assertIn("bindTaskDatePickers(reschedule, {exclude: '.ai-card'});", html)
-        self.assertIn("}, {within: '.ai-card'});", html)
+        # #156 named the summary's callback, because the fragment makes it a
+        # binding that has to happen twice — once on load and once against
+        # the markup that was swapped in.
+        self.assertEqual(
+            html.count(
+                "bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});"
+            ),
+            2,
+        )
 
     def dashboard_html(self):
         self.given_session_plan()
@@ -2245,7 +2286,7 @@ class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        html = self.client.get(reverse("dashboard")).content.decode()
+        html = self.dashboard_with_summary().content.decode()
         return html[html.index('class="ai-card"') : html.index('<div class="kanban">')]
 
     def test_the_summary_date_is_a_button_for_a_session_plan(self):
@@ -2268,7 +2309,7 @@ class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
     def test_a_successful_move_from_the_summary_reloads(self):
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
-        binding = html[html.index("bindTaskDatePickers(async") :]
+        binding = html[html.index("async function rescheduleFromSummary(") :]
         self.assertIn("const ok = await reschedulePersist(taskId, newDate);", binding)
         self.assertIn("window.location.reload();", binding)
 
@@ -2675,7 +2716,7 @@ class PatchingDoesNotRenewTheReadWindowTest(TestCase):
                 ),
                 patch("projects.views.get_upcoming_projects") as fetch,
             ):
-                self.client.get(reverse("dashboard"))
+                self.client.post(reverse("summary_fragment"))
             fetch.assert_not_called()
 
         timeouts = self.timeouts_named_by(load, CACHE_KEY)
@@ -3421,9 +3462,15 @@ class RescheduleFiguresFromTheSessionPlanTest(DemoModeTestCase):
 class DashboardRegeneratesADroppedSummaryTest(TestCase):
     """CACHE_KEY holds (projects, summary_data) as one tuple, so
     "invalidate only the summary" means writing (patched_projects, None). A
-    hit in that shape now means "projects are good, regenerate the summary"
-    — otherwise the card would read "KI nicht verfügbar" until the TTL ran
-    out, which is not what a reschedule should cost."""
+    hit in that shape means "projects are good, generate the summary" —
+    otherwise the card would read "KI nicht verfügbar" until the TTL ran
+    out, which is not what a reschedule should cost.
+
+    #156 moved that generation into summary_fragment() and made the same
+    shape the one a *first* load leaves behind, so this is now the ordinary
+    path rather than the post-reschedule one. What is asserted is unchanged:
+    the summary comes back, it is written back, and no Notion read is paid
+    for."""
 
     def setUp(self):
         cache.clear()
@@ -3437,7 +3484,7 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
             ) as generate,
             patch("projects.views.get_upcoming_projects") as fetch,
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         self.assertEqual(response.status_code, 200)
         generate.assert_called_once()
         # The point of the whole exercise: no Notion round trip.
@@ -3454,7 +3501,7 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
             ),
             patch("projects.views.get_upcoming_projects"),
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Die KI-Wochenübersicht ist gerade nicht")
         self.assertIsNone(cache.get(CACHE_KEY)[1])
@@ -3476,6 +3523,9 @@ class RegeneratingASummaryDoesNotUndoAConcurrentWriteTest(TestCase):
         self.addCleanup(cache.clear)
 
     def load_dashboard_while(self, concurrent_write):
+        """#156: the Claude call runs inside summary_fragment() now, so the
+        window this test simulates is that request's, not the page load's."""
+
         def generate(*args, **kwargs):
             concurrent_write()
             return _summary_data()
@@ -3485,7 +3535,7 @@ class RegeneratingASummaryDoesNotUndoAConcurrentWriteTest(TestCase):
             patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch("projects.views.get_upcoming_projects") as fetch,
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         # Still the point of the branch: no Notion round trip for the projects.
         fetch.assert_not_called()
         return response

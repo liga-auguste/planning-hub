@@ -305,7 +305,9 @@
         .moment-btn-today:hover { border-color: var(--color-text-quaternary); color: var(--color-text-primary); }
         .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
         .moment-preloaded::after { content: ''; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--color-done); position: absolute; top: 6px; right: 6px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* #156: @keyframes spin moved to dashboard.css — the AI card's own
+           loading spinner needs it on /mein-plan/ too, and both pages already
+           load that file. The timelapse spinner above reads it from there. */
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
         .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
@@ -596,72 +598,20 @@
             {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {% comment %}
-            #214: three states, not two. The label sits outside this chain,
-            so before the empty branch existed a summary that resolved to
-            nothing left the heading standing over nothing at all.
-            {% endcomment %}
-            {% if summary_empty_state %}
-            <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
-            {% elif summary %}
-            {% for section in summary %}{% if section.blocks %}
-            <h2>{{ section.title }}</h2>
-            <ul>
-                {% for block in section.blocks %}
-                <li>
-                    {% if block.project_id %}
-                    {# #200: the button sits inside the <strong>, so the bold weight is inherited rather than rebuilt in CSS — and the › selector below moves down with the class. #}
-                    {# heading_display carries the name and its date as one string (ai.py), so the accessible name contains the visible text rather than assembling its own version of it. #}
-                    <strong><button type="button" class="ai-project-link" data-project-id="{{ block.project_id }}" aria-label="Projekt {{ block.heading_display }} öffnen">{{ block.heading_display }}</button></strong>
-                    {% else %}
-                    <strong>{{ block.heading }}</strong>
-                    {% endif %}
-                    {% if block.assessment %}— {{ block.assessment }}{% endif %}
-                    {% if block.tasks %}
-                    <ul>
-                        {% for task in block.tasks %}
-                        <li>
-                            {% include "projects/_task_dot.html" %}
-                            <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
-                            {% comment %}
-                            #193: the readonly flag is gone — the summary
-                            offers the date like every other surface now.
-                            No gate of its own: _task_due.html already
-                            renders a span under viewing_demo_data, which is
-                            exactly the case that could not persist (the
-                            example projects are in no session, #10 §5).
-                            The move reloads here rather than patching; the
-                            binding in extra_js says why.
-                            {% endcomment %}
-                            {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}{% endif %}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% endif %}
-                </li>
-                {% endfor %}
-            </ul>
-            {% endif %}{% endfor %}
-            {% else %}
-            <p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
-            {% endif %}
-            {% comment %}
-            #145: the one thing kontext is for — work that can be batched
-            across projects. Below the blocks rather than inside one: the
-            blocks are per project, and a statement about two of them would
-            be attributed to whichever one happened to hold it. Absent
-            whenever Claude found no cluster, which is most weeks.
+            #156: the element the fetched fragment replaces. data-summary-url
+            is both the address and the signal — present exactly while the
+            loading state is rendered, so a page that already has its summary
+            starts no request at all and the JS needs no second copy of that
+            condition.
 
-            Outside the three-state chain, not inside the resolved arm:
-            build_prompt asks for "kontext_hinweis" over every open task
-            with no date horizon, while the blocks are scoped to "this week"
-            and "7-14 days" — so a plan whose first task is months away, the
-            very case the empty branch above exists for, can carry a hint
-            and no blocks at all. A clear week is when batching further-out
-            work is worth naming, so the hint belongs to that state too.
-            The "unavailable" state needs no guard of its own: kontext_hint
-            is resolved from summary_data, which is None exactly then.
+            aria-live/aria-busy rather than nothing: the content arrives
+            without a navigation, and "polite" is the right register for a
+            summary — it is read out when the reader next pauses, not over
+            whatever they are on.
             {% endcomment %}
-            {% if kontext_hint %}<p class="ai-kontext-hint">{{ kontext_hint }}</p>{% endif %}
+            <div id="ai-summary" aria-live="polite"{% if summary_pending %} aria-busy="true" data-summary-url="{{ summary_url }}"{% endif %}>
+                {% include "projects/_ai_summary_body.html" %}
+            </div>
         </div>
 
         <div class="overview-progress" style="margin-top:36px;">
@@ -975,45 +925,81 @@ the wording either way.
     });
     // Both in-content sites at once: .task-project.ai-project-link is a
     // subset of this selector, so the row's label and the summary's heading
-    // need one binding between them. Bound once on load rather than
-    // rebound after a write, because neither list is rebuilt from markup —
-    // the row is moved as the element it already is, and the summary
-    // reloads the page.
-    document.querySelectorAll('button.ai-project-link[data-project-id]').forEach(link => {
-        link.addEventListener('click', () => showProject(link.dataset.projectId));
-    });
+    // need one binding between them.
+    //
+    // Takes a root rather than reaching for `document` itself (#156). Every
+    // binding on this page is direct, not delegated, and the comment that
+    // used to stand here said why that was safe: neither list is rebuilt
+    // from markup, the row is moved as the element it already is, and the
+    // summary reloads the page. The summary is markup now — the fragment
+    // endpoint swaps it in — so the function has to be callable a second
+    // time against just the region that changed. Called with `document` on
+    // load, which is what it did before.
+    function bindProjectLinks(root) {
+        root.querySelectorAll('button.ai-project-link[data-project-id]').forEach(link => {
+            link.addEventListener('click', () => showProject(link.dataset.projectId));
+        });
+    }
+    bindProjectLinks(document);
 </script>
 <script>
-document.querySelectorAll('.toggle-form').forEach(form => {
+// Root-scopeable for the same reason as bindProjectLinks (#156): the
+// summary's dots arrive as markup from the fragment endpoint, and a form
+// nothing bound submits as a GET to the current URL — a silent reload that
+// looks exactly like a toggle that did not take.
+function bindToggleForms(root) {
+    root.querySelectorAll('.toggle-form').forEach(form => {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+        // #198's pending, which the toggle did without while it was the
+        // fastest write on the page: one Notion round trip, answered before
+        // anyone could wonder. Through the queue it can also *wait* — on the
+        // dashboard a plan was just created on, for the summary request
+        // holding the lock (#156). A dot that sits there doing nothing for
+        // two seconds is the thing that issue is about, one layer down, so
+        // the wait is visible here too. Set before the await, because the
+        // queue is half of what is being waited for.
+        const dot = form.querySelector('button');
+        form.classList.add('pending');
+        dot.setAttribute('aria-busy', 'true');
         let response;
         try {
-            response = await fetch(`/task/${taskId}/toggle/`, {
+            // withSessionWriteLock, like every other write here — it is
+            // defined with the queue further down, which is reached long
+            // before this handler can run (#156).
+            response = await withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                 body: JSON.stringify({done, week_start: browsedWeekStart()})
-            });
+            }));
         } catch {
             // A rejected fetch (offline, server unreachable) never reaches
             // the .ok check — same feedback as an error response (#159).
             response = null;
+        } finally {
+            // Both outcomes, and before the reload path below: an enabled
+            // dot is what the next state is read off, and a failed toggle
+            // has to be retryable.
+            form.classList.remove('pending');
+            dot.removeAttribute('aria-busy');
         }
         if (!response || !response.ok) {
             // Notion disagreed or the request never arrived — leave the
             // checkbox exactly as it was rather than claim a change that
             // didn't happen.
-            flashActionFailed(form.querySelector('button'));
+            flashActionFailed(dot);
             return;
         }
         const data = await response.json();
         applyTaskDone(taskId, done);
         if (!applyToggleFigures(taskId, data)) window.location.reload();
     });
-});
+    });
+}
+bindToggleForms(document);
 
 // The same task renders in more than one place — update every copy, not
 // just the clicked one. #122 wrote this for the two shapes that existed
@@ -1225,7 +1211,10 @@ if (simLockNotice) {
 </script>
 <script>
 const TODAY = '{{ today_iso }}';
-const TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+// let, not const: buildTimelapseBar rewrites it when the moments arrive on
+// their own request, and preloadAll() reads it afterwards (#156).
+let TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+const TIMELAPSE_PENDING = {{ timelapse_pending|yesno:"true,false" }};
 const PRECACHED_MOMENTS = {{ precached_moments|safe }};
 const SIM_DATE = '{{ sim_date }}';
 
@@ -1288,6 +1277,41 @@ function drainSessionQueue() {
 function promoteSessionTask(key) {
     const index = backgroundQueue.findIndex(entry => entry.key === key);
     if (index !== -1) priorityQueue.push(backgroundQueue.splice(index, 1)[0]);
+}
+
+// #156: the gate every write on this page goes through. The queue's docstring
+// above has always claimed "every session-writing fetch", and until now only
+// the Zeitreise fetches honoured it — the toggle, the reschedule, the rename,
+// the trash and the add all wrote the session outside it. That was survivable
+// while the only other writer was a preload starting 800 ms into a page that
+// had already finished loading. It is not survivable now: the summary request
+// starts at once and runs for seconds, and a write that lands inside it is
+// dropped by whichever response saves last. A toggle then answers 200, paints
+// the task done and rewrites the counters for a write that is gone by the next
+// load.
+//
+// Conditional rather than unconditional, because the cost is real. The
+// fragment writes the *session* only in a demo session; production and the
+// example catalog write the cache instead, and serialising there would make a
+// click wait out a 6–7 s Sonnet call for a race that cannot happen — the
+// opposite of what this issue is for. Which is also why it is exactly
+// has_session_plan: that is the one state in which /summary/,
+// /timelapse/moments/, /timelapse/preload/ and the five write endpoints all
+// touch the same session dict. Production's stale-card case is handled where
+// it actually lands, in syncSummaryToBoard.
+//
+// Per document, which is the limit of what a client-side queue can be: two
+// tabs on one demo session still overlap. Closing that needs the write to
+// move to the server side of the session — recorded in ANALYSEN.md rather
+// than attempted here, because it is a different decision from #235's.
+//
+// Priority, like the Zeitreise click: a write is the one thing on screen the
+// visitor is waiting for, so it takes the next free slot and the preloads
+// keep the ones behind it.
+const SESSION_WRITES = {{ has_session_plan|yesno:"true,false" }};
+
+function withSessionWriteLock(fn) {
+    return SESSION_WRITES ? withSessionLock(fn, {priority: true}) : fn();
 }
 
 // A click drops the preloads that have not started rather than deferring
@@ -1421,12 +1445,17 @@ async function preloadAll() {
     await Promise.all(TIMELAPSE_MOMENTS.map(m => preloadOne(m.date)));
 }
 
-if (TIMELAPSE_MOMENTS.length > 0) {
+// #156: a function rather than a block, because the moments can now arrive
+// after this render — planner_create hands their Haiku call to the dashboard
+// instead of making it between "Zum Dashboard" and the dashboard.
+function buildTimelapseBar(moments) {
+    if (moments.length === 0) return;
+    TIMELAPSE_MOMENTS = moments;
     document.querySelectorAll('.timelapse-bar').forEach(bar => {
         const container = bar.querySelector('.timelapse-moments');
         if (!container) return;
         bar.style.display = 'block';
-        TIMELAPSE_MOMENTS.forEach(m => {
+        moments.forEach(m => {
             const btn = document.createElement('button');
             btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '') + (PRECACHED_MOMENTS.includes(m.date) ? ' moment-preloaded' : '');
             btn.title = m.description;
@@ -1446,6 +1475,39 @@ if (TIMELAPSE_MOMENTS.length > 0) {
     // unhandled it lands in the console as an unhandled rejection — noise in
     // exactly the place #233 went looking for the failure it could not see.
     setTimeout(() => preloadAll().catch(() => {}), 800);
+}
+
+// Background rather than priority, unlike the summary: nothing is on screen
+// waiting for this, and the summary above it is what the visitor is reading.
+// The queue because it writes the session, same as every other fetch here.
+//
+// Asked at most once per plan: the server clears the pending flag before it
+// calls, so a failure costs one Haiku call rather than one per dashboard
+// load. An empty answer is that failure and needs no handling of its own —
+// the bar simply stays hidden, which is what a plan without moments has
+// always looked like.
+async function loadTimelapseMoments() {
+    let moments = [];
+    try {
+        const response = await withSessionLock(() => fetch('/timelapse/moments/', {
+            method: 'POST',
+            headers: {'X-CSRFToken': CSRF},
+        }));
+        if (response.ok) moments = (await response.json()).moments || [];
+    } catch {
+        // A rejected fetch (offline, server unreachable) leaves the bar
+        // hidden, the same as an answer with no moments in it (#159).
+        return;
+    }
+    buildTimelapseBar(moments);
+}
+
+// The moments this render already carries need no request, so they are built
+// here. The ones that have to be asked for are started further down, next to
+// loadSummary() — the order the two are registered in decides which one the
+// visitor waits for, so they belong side by side rather than 240 lines apart.
+if (TIMELAPSE_MOMENTS.length > 0) {
+    buildTimelapseBar(TIMELAPSE_MOMENTS);
 }
 
 // Every stage _annotate_tasks (views.py) can put on a task, minus `done`,
@@ -1515,11 +1577,11 @@ async function reschedulePersist(taskId, newDate) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/reschedule/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({date: newDate, week_start: browsedWeekStart()})
-        });
+        }));
     } catch {
         // A rejected fetch (offline, server unreachable) would otherwise
         // throw into the input's change handler and leave the date picker
@@ -1612,7 +1674,9 @@ bindTaskDatePickers(reschedule, {exclude: '.ai-card'});
 // viewing_demo_data is set, which is exactly the case #193 named — the demo
 // example projects are in no session, so reschedule_task_view answers 404
 // for them by design (#10 §5).
-bindTaskDatePickers(async (taskId, newDate, dueEl) => {
+// Named rather than inline since #156: the same consequence has to be bound
+// a second time after the fragment replaces the markup it was bound to.
+async function rescheduleFromSummary(taskId, newDate, dueEl) {
     const ok = await reschedulePersist(taskId, newDate);
     if (!ok) {
         flashActionFailed(dueEl);
@@ -1620,7 +1684,114 @@ bindTaskDatePickers(async (taskId, newDate, dueEl) => {
     }
     window.location.reload();
     return true;
-}, {within: '.ai-card'});
+}
+bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});
+
+// #156: everything the summary's own markup carries, bound against the region
+// it was just swapped into. Every binding on this page is direct rather than
+// delegated (see bindProjectLinks), so injected markup is inert until this
+// runs — a project heading that does not open its project, a checkbox whose
+// form submits as a GET, a date that is only text.
+//
+// bindTaskDatePickers takes no root: it queries globally and filters with
+// closest(within), which reaches exactly the new dates — the ones that were
+// in the card are gone with the swap, and the rows outside it are excluded by
+// the same selector the load-time call excludes them with.
+function bindSummary(card) {
+    bindProjectLinks(card);
+    bindToggleForms(card);
+    bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});
+}
+
+// #156: the fragment is resolved against the projects as they stood when its
+// request opened, so a write that lands during the Claude call arrives inside
+// the card undone — and nothing re-renders the card afterwards, so the
+// disagreement outlives the request rather than flickering.
+//
+// A demo session cannot reach this from the tab it is looking at: every write
+// there goes through the queue (withSessionWriteLock). Production is
+// where it is live — the writes are not queued there, because the fragment
+// touches only the cache and making a toggle wait out a 6–7 s Sonnet call
+// would undo what this issue is for. So the reconciliation happens here
+// instead, once, against the one copy that was confirmed by a server answer:
+// the board below, which applyTaskDone already patched.
+//
+// Only a difference is written, and a difference can only have come from a
+// write inside that window — so `done` carries today's date and
+// applyTaskDone's done-this-week tautology (#211 part 2) holds here too.
+function syncSummaryToBoard(card) {
+    card.querySelectorAll('.toggle-form[data-task-id]').forEach(form => {
+        const taskId = form.dataset.taskId;
+        const confirmed = Array.from(
+            document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`)
+        ).find(other => !card.contains(other));
+        if (!confirmed || confirmed.dataset.done === form.dataset.done) return;
+        applyTaskDone(taskId, confirmed.dataset.done === 'true');
+    });
+}
+
+// The request the loading state exists for. data-summary-url is both the
+// address and the condition: the server renders it only alongside the loading
+// state, so a page that already has its summary starts nothing and this
+// function needs no second copy of that rule.
+//
+// Through withSessionLock with priority, like the Zeitreise click: in a demo
+// session this writes the session, and two overlapping session writes mean
+// the later save silently drops the earlier one's (#235). In production it
+// writes only the cache, where the queue costs nothing — one path rather than
+// a branch on which mode this is.
+//
+// Priority buys the slot ahead of everything *queued*, not ahead of whatever
+// is already running — a running task is never preempted, by design. So this
+// has to be registered before the other request a fresh plan's dashboard
+// starts, which is why loadTimelapseMoments() sits below the call rather than
+// beside buildTimelapseBar above: registered first, its Haiku call would hold
+// the lock and the visitor would watch the spinner through both.
+async function loadSummary() {
+    const card = document.getElementById('ai-summary');
+    const url = card && card.dataset.summaryUrl;
+    if (!url) return;
+    let response;
+    try {
+        response = await withSessionLock(() => fetch(url, {
+            method: 'POST',
+            headers: {'X-CSRFToken': CSRF},
+        }), {priority: true});
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — same handling as an error response (#159).
+        response = null;
+    }
+    // Dropped in both branches: this runs once, and the attribute is what
+    // says a request is still owed.
+    card.removeAttribute('data-summary-url');
+    card.removeAttribute('aria-busy');
+    if (!response || !response.ok) {
+        // No HTML to swap in. An AI failure is not this case — the endpoint
+        // answers that with the "nicht verfügbar" state itself, 200 and all —
+        // so what is left here is a request that never arrived. The fallback
+        // the template kept hidden says so, in the one place that wording
+        // lives.
+        card.querySelector('.ai-loading')?.remove();
+        card.querySelector('.ai-unavailable')?.removeAttribute('hidden');
+        return;
+    }
+    card.innerHTML = await response.text();
+    bindSummary(card);
+    syncSummaryToBoard(card);
+}
+loadSummary();
+
+// Registered after loadSummary, and that order is the point: both run on the
+// dashboard a plan was just created on, the queue starts whichever was
+// registered first, and a running task is never preempted — so this one going
+// first would make the spinner wait out a Haiku call nothing is waiting for
+// (#156). Background rather than priority for the same reason: nothing is on
+// screen waiting for the Zeitreise bar, and the summary above it is what the
+// visitor is reading.
+if (TIMELAPSE_PENDING && TIMELAPSE_MOMENTS.length === 0) {
+    loadTimelapseMoments();
+}
 
 // #148: the add row, one per project section. The module owns the whole
 // write, not just the asking — an add has one consequence everywhere, and
@@ -1631,7 +1802,11 @@ bindTaskDatePickers(async (taskId, newDate, dueEl) => {
 // No gate of its own: _task_add_row.html renders nothing under
 // viewing_demo_data or under a moment, which are exactly the two cases
 // add_task_view answers 404 for.
-bindTaskAddRows(CSRF);
+//
+// Serialised through the same lock as every other write on this page (#156).
+// The add is the one of them that is not written here, which is why the
+// module had to take the wrapper rather than reach for it.
+bindTaskAddRows(CSRF, {serialize: withSessionWriteLock});
 
 // #239: the row's actions menu. It adds no endpoint of its own — every
 // item drives a control the row already had, so there is exactly one
@@ -1733,11 +1908,11 @@ async function trashTask(taskId, trigger) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/trash/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/trash/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({})
-        });
+        }));
     } catch {
         response = null;
     }
@@ -1804,11 +1979,11 @@ async function commitRename(taskId, name, nameSpan) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/rename/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/rename/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({name})
-        });
+        }));
     } catch {
         // A rejected fetch (offline, server unreachable) never reaches the
         // .ok check — same feedback as an error response (#159).
@@ -1914,11 +2089,11 @@ document.querySelectorAll('.day-column-body').forEach(column => {
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             let response;
             try {
-                response = await fetch(`/task/${taskId}/reschedule/`, {
+                response = await withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                     body: JSON.stringify({date: newDate})
-                });
+                }));
             } catch {
                 response = null;
             }

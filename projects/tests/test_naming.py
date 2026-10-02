@@ -32,6 +32,7 @@ from ..views import (
 )
 from .base import (
     DemoModeTestCase,
+    SummaryFlowMixin,
     _fake_upcoming_project_with_task,
     _summary_data,
 )
@@ -348,6 +349,12 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
     def read(self, name):
         return (self.TEMPLATES / name).read_text()
 
+    def read_with_summary(self, name, summary_partial):
+        """A page together with the summary body it includes (#156). Both
+        runs of tasks are still this page's surfaces; one of them simply
+        lives in its own file now so the fragment endpoint can render it."""
+        return self.read(name) + self.read(summary_partial)
+
     def test_the_task_row_is_the_only_template_on_the_row_role(self):
         on_row_role = sorted(
             path.name
@@ -372,11 +379,16 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         self.assertIn(
             '{% include "projects/_task_due.html" '
             'with due_display=task.due|plan_date:"long" %}',
-            self.read("dashboard.html"),
+            self.read("_ai_summary_body.html"),
         )
 
     def test_my_plan_and_the_close_out_triage_are_untouched(self):
-        self.assertEqual(self.read("my_plan.html").count('plan_date:"long"'), 2)
+        self.assertEqual(
+            self.read_with_summary("my_plan.html", "_my_plan_summary_body.html").count(
+                'plan_date:"long"'
+            ),
+            2,
+        )
         self.assertIn('plan_date:"long"', self.read("close_week_start.html"))
 
 
@@ -447,7 +459,7 @@ class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class DashboardSummaryShowsTaskDatesTest(TestCase):
+class DashboardSummaryShowsTaskDatesTest(SummaryFlowMixin, TestCase):
     """#190: the projection is only half the fix — the KI-Wochenübersicht
     writes out its own task list, so the date has to be rendered there too.
     A page-wide assertContains would pass on the task rows further down,
@@ -484,7 +496,9 @@ class DashboardSummaryShowsTaskDatesTest(TestCase):
                 },
             ),
         ):
-            return self.client.get(reverse("dashboard"))
+            # #156: the card renders its summary inline once the fragment has
+            # filled the cache, which is the render this slices.
+            return self.dashboard_with_summary()
 
     def test_the_summary_lists_each_tasks_due_date(self):
         response = self._render()
@@ -517,7 +531,7 @@ class MyPlanSummaryShowsTaskDatesTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertIn(
             format_date(date.today() + timedelta(days=7)),
             self._summary_box_html(response),

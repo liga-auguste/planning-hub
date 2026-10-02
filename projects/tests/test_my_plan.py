@@ -26,14 +26,18 @@ class MyPlanMultiViewCtaTest(DemoModeTestCase):
 
 
 class MyPlanAiFailureTest(DemoModeTestCase):
+    """#156: the page itself can no longer fail — it never calls Claude. The
+    failure state is the fragment's answer, which is what these assert."""
+
     def test_my_plan_degrades_without_a_summary(self):
         self.given_session_plan()
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("my_plan"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "nicht verfügbar")
+        page = self.client.get(reverse("my_plan"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Programm festlegen")
+        self.assertContains(self.fetch_summary("?surface=my_plan"), "nicht verfügbar")
 
     def test_an_unavailable_summary_is_not_an_empty_one(self):
         """#214: "Claude could not answer" and "Claude answered nothing"
@@ -42,7 +46,7 @@ class MyPlanAiFailureTest(DemoModeTestCase):
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("my_plan"))
+        response = self.fetch_summary("?surface=my_plan")
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
 
@@ -130,7 +134,8 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
     """#214: a summary that resolved to nothing left the
     "KI-Wochenübersicht" label standing over a gap. It now says so in
     words. The default AI stub in base.py already returns an empty summary,
-    so these need no mock of their own.
+    so these need no mock of their own. #156: the summary arrives on its own
+    request now, so the page is read through my_plan_with_summary().
 
     Each sentence is guarded by live data rather than by Claude's silence:
     an empty answer while something is due this week is a model error, and
@@ -154,7 +159,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
 
     def test_a_plan_months_away_says_both_sentences(self):
         self.given_plan_with_task()
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertContains(response, "Diese Woche steht nichts an.")
         self.assertContains(
             response,
@@ -164,7 +169,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
 
     def test_nothing_open_left_drops_the_date_sentence(self):
         self.given_plan_with_task(done=True)
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
 
@@ -173,7 +178,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
         # gone as the next one — the failure this note exists to prevent,
         # told backwards. Overdue work is its own sentence now.
         self.given_plan_with_task(days_out=-30)
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertContains(
             response,
             f"Überfällig seit dem "
@@ -184,7 +189,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
 
     def test_something_due_today_drops_the_clear_week_sentence(self):
         self.given_plan_with_task(days_out=0)
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertContains(
             response,
@@ -193,7 +198,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
 
     def test_the_note_keeps_the_label_and_the_summary_box(self):
         self.given_plan_with_task()
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertContains(response, "KI-Wochenübersicht")
         self.assertContains(response, '<div class="summary-box ai-error">')
 
@@ -209,7 +214,7 @@ class MyPlanEmptySummaryTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertContains(response, "Programm ist der Engpass")
         self.assertNotContains(response, "Diese Woche steht nichts an.")
         self.assertNotContains(response, "Die nächste Aufgabe ist am")
@@ -228,7 +233,7 @@ class MyPlanOffersTheDatePickerTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        html = self.client.get(reverse("my_plan")).content.decode()
+        html = self.my_plan_with_summary().content.decode()
         split = html.index('<div class="task-list">')
         summary = html[html.index('<div class="summary-box">') : split]
         self.assertIn('<button type="button" class="task-due', summary)

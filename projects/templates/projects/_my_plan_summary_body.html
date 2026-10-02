@@ -1,0 +1,56 @@
+{% load planner_tags %}{% comment %}
+/mein-plan/'s KI-Wochenübersicht, label and body together (#156). Extracted
+for the same reason as _ai_summary_body.html: one template renders it inline
+when the session already holds a summary, and on its own as the answer
+`summary_fragment()` hands back when it does not.
+
+The label is *inside* this partial here, unlike the dashboard's — on this
+page it is repeated once per state rather than standing above the chain, so
+there is no single element the swap could leave in place. Which also means
+the whole block is absent when there is nothing to show at all: the
+dashboard always draws its card, this page does not announce one it has no
+content for.
+
+Not shared with the dashboard: the markup differs (.summary-box against
+.ai-card, inline onclick against submit handlers). #92 owns unifying them.
+{% endcomment %}
+{% if summary_pending %}
+<div class="summary-label">KI-Wochenübersicht</div>
+<div class="summary-box ai-loading"><span class="ai-loading-spinner" aria-hidden="true"></span>Deine Wochenübersicht wird erstellt …</div>
+{% comment %}
+The dashboard's hidden fallback, same reason — see _ai_summary_body.html.
+{% endcomment %}
+<div class="summary-box ai-error ai-unavailable" hidden>{% include "projects/_summary_unavailable.html" %}</div>
+{% elif summary_empty_state %}
+<div class="summary-label">KI-Wochenübersicht</div>
+<div class="summary-box ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</div>
+{% elif summary %}
+<div class="summary-label">KI-Wochenübersicht</div>
+<div class="summary-box">
+    {% for section in summary %}{% if section.blocks %}
+    <h2>{{ section.title }}</h2>
+    <ul>
+        {% for block in section.blocks %}
+        <li>
+            <strong>{{ block.heading }}</strong>
+            {% if block.assessment %}— {{ block.assessment }}{% endif %}
+            {% if block.tasks %}
+            <ul>
+                {% for task in block.tasks %}
+                <li>
+                    <button class="dot {{ task.urgency }}{% if task.done %} done{% endif %}{% if task.done_this_week %} done-this-week{% endif %}" data-task-id="{{ task.id }}" data-done="{% if task.done %}true{% else %}false{% endif %}" onclick="toggleTask(this)" title="{% if task.done %}Als offen markieren{% else %}Als erledigt markieren{% endif %}"></button>
+                    <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                    {% if task.due %}{% include "projects/_task_due.html" with due_display=task.due|plan_date:"long" %}{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}{% endfor %}
+</div>
+{% elif summary_error %}
+<div class="summary-label">KI-Wochenübersicht</div>
+<div class="summary-box ai-error">{% include "projects/_summary_unavailable.html" %}</div>
+{% endif %}

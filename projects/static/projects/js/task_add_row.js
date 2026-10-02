@@ -1,6 +1,6 @@
 /* Adding a task, once, for every surface that shows a plan (#148).
  *
- *     bindTaskAddRows(csrfToken)
+ *     bindTaskAddRows(csrfToken, {serialize})
  *
  * The whole write, not just the asking. task_date_picker.js kept the
  * consequence with each surface because each surface's is genuinely
@@ -15,6 +15,17 @@
  * a hidden input the page owns, /mein-plan/ only ever had the template
  * variable — so it is the argument.
  *
+ * `serialize` wraps the fetch in whatever the surface uses to keep its
+ * session writes from overlapping (#156). An add writes the session in a
+ * demo session, and so does the background request that fetches the AI
+ * summary; Django saves the whole session dict per response, so two in
+ * flight at once mean the later save drops the earlier one's — an add that
+ * answered 200 and reloaded, with the task gone from the plan. The surfaces
+ * serialise differently (the dashboard has a queue, /mein-plan/ one promise),
+ * which is why this takes the wrapper rather than one of them. Defaults to
+ * running the fetch straight, so a surface with no background writer passes
+ * nothing.
+ *
  * When the row reaches the cross-project work list (#53's follow-up) with a
  * consequence of its own, that is the moment a callback earns itself. Not
  * before: a split invented for a second caller that does not exist yet is a
@@ -25,7 +36,7 @@
  * that decide whether a row is rendered at all.
  */
 
-function bindTaskAddRows(csrfToken) {
+function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {}) {
     document.querySelectorAll('.task-add-row[data-project-id]').forEach(row => {
         const nameEl = row.querySelector('.task-add-name');
         const dateEl = row.querySelector('.task-add-date');
@@ -50,11 +61,11 @@ function bindTaskAddRows(csrfToken) {
             submitEl.disabled = true;
             let response;
             try {
-                response = await fetch('/task/add/', {
+                response = await serialize(() => fetch('/task/add/', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                     body: JSON.stringify({project_id: row.dataset.projectId, name: name, date: iso}),
-                });
+                }));
             } catch {
                 // A rejected fetch (offline, server unreachable) never
                 // reaches the .ok check — treat it exactly like an error

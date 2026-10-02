@@ -10,6 +10,12 @@ staticfiles/
 # — belongs on the maintainer's machine, never in the repo.
 .claude/skills/deploy/hosts.md
 demo.sqlite3
+# SQLite's own sidecars for the file above. They exist only while the demo
+# stack is running, and `git add -A` after a local run sweeps them in
+# otherwise — ignoring the database and not its two companions is half an
+# ignore rule.
+demo.sqlite3-shm
+demo.sqlite3-wal
 .venv/
 __pycache__/
 *.pyc
