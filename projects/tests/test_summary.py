@@ -33,11 +33,17 @@ from ..ai import (
     summary_has_content,
 )
 from ..views import (
+    CACHE_DEADLINE_KEY,
+    CACHE_KEY,
+    CACHE_TTL,
     DEMO_MULTI_SUMMARY_KEY,
     SUMMARY_KEY,
+    _annotate_tasks,
+    _cache_fresh_read,
     _summary_empty_state,
 )
 from .base import (
+    AiStubMixin,
     DemoModeTestCase,
     _anthropic_timeout_error,
     _fake_response,
@@ -1211,3 +1217,182 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
         # row formats its attributes across lines, so this single-line
         # pattern matches the summary markup).
         self.assertContains(response, 'data-task-id="demo-session-0" data-done="true"')
+
+
+class SummaryFragmentTest(DemoModeTestCase):
+    """#156: the summary as its own request. The page no longer waits on
+    Claude, so this endpoint is where the wait moved — it blocks its own XHR
+    and answers with the rendered block the page swaps in."""
+
+    def fragment(self, query=""):
+        return self.client.post(reverse("summary_fragment") + query)
+
+    def summary_stub(self):
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
+
+    def single_project_summary(self, marker="Alles im Plan"):
+        """A session plan's summary heads its blocks with free text rather
+        than a project_ref — single_project_demo mode has no refs to resolve
+        (see ResolveWeeklySummaryTest), so _summary_data's shape would be
+        dropped here rather than rendered."""
+        return {
+            "jetzt_faellig": [
+                {"heading": "Jetzt kritisch", "assessment": marker, "task_refs": []}
+            ],
+            "naechste_woche": [],
+        }
+
+    def test_a_get_is_refused(self):
+        # Every branch writes — the session, the day cache or CACHE_KEY —
+        # so this is a POST like /timelapse/preload/ before it.
+        self.assertEqual(self.client.get(reverse("summary_fragment")).status_code, 405)
+
+    def test_a_session_plan_gets_its_summary_rendered(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary()
+        response = self.fragment()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Alles im Plan")
+
+    def test_the_answer_is_only_the_body(self):
+        """A fragment, not a page: the label stays on the page it belongs to,
+        and nothing around the card comes along."""
+        self.given_session_plan()
+        response = self.fragment()
+        self.assertNotContains(response, "KI-Wochenübersicht")
+        self.assertNotContains(response, "<html")
+
+    def test_the_generated_summary_is_cached_in_the_session(self):
+        self.given_session_plan()
+        self.fragment()
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_a_cached_summary_costs_no_second_call(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary()
+        self.fragment()
+        second = self.fragment()
+        self.assertEqual(self.summary_stub().call_count, 1)
+        self.assertContains(second, "Alles im Plan")
+
+    def test_a_failure_renders_the_state_the_page_already_had(self):
+        self.summary_stub().side_effect = AIUnavailableError("boom")
+        self.given_session_plan()
+        response = self.fragment()
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "nicht verfügbar")
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_a_simulated_moment_is_keyed_by_its_own_date(self):
+        plan = self.given_session_plan()
+        moment = plan["tasks"][0]["date"]
+        self.given_timelapse_moments(moment)
+        session = self.client.session
+        session["demo_sim_date"] = moment
+        session.save()
+        self.fragment()
+        self.assertIn(f"{SUMMARY_KEY}_{moment}", self.client.session)
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_multi_mode_uses_the_day_cache(self):
+        self.given_session_plan()
+        self.fragment("?mode=multi")
+        self.assertIsNotNone(
+            cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
+        )
+        self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
+
+    def test_the_example_catalog_is_the_default_without_a_plan(self):
+        """Same rule dashboard() applies: no session plan means the catalog."""
+        self.fragment()
+        self.assertIsNotNone(
+            cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
+        )
+
+    def test_the_my_plan_surface_answers_in_its_own_markup(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = self.single_project_summary()
+        response = self.fragment("?surface=my_plan")
+        self.assertContains(response, 'class="summary-box"')
+        self.assertContains(response, "Alles im Plan")
+        # Its label travels with the body on this page (#156) — it is
+        # repeated once per state rather than standing above the chain.
+        self.assertContains(response, "KI-Wochenübersicht")
+
+    def test_the_my_plan_surface_summarizes_today_under_a_moment(self):
+        """#246: the Zeitreise is named there, never rendered from."""
+        plan = self.given_session_plan()
+        moment = plan["tasks"][0]["date"]
+        self.given_timelapse_moments(moment)
+        session = self.client.session
+        session["demo_sim_date"] = moment
+        session.save()
+        self.fragment("?surface=my_plan")
+        self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
+        self.assertNotIn(f"{SUMMARY_KEY}_{moment}", self.client.session)
+
+    def test_the_my_plan_surface_needs_a_plan(self):
+        self.assertEqual(self.fragment("?surface=my_plan").status_code, 404)
+
+
+@override_settings(DEMO_MODE=False)
+class SummaryFragmentProductionTest(AiStubMixin, TestCase):
+    """The production branch: the projects come out of CACHE_KEY, never out
+    of Notion. The page load that preceded this request is what filled it."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        super().setUp()
+
+    def fragment(self):
+        return self.client.post(reverse("summary_fragment"))
+
+    def summary_stub(self):
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
+
+    def given_cached_projects(self, summary_data=None):
+        projects = _annotate_tasks([_fake_upcoming_project_with_task()], date.today())
+        _cache_fresh_read(
+            CACHE_KEY, (projects, summary_data), CACHE_DEADLINE_KEY, CACHE_TTL
+        )
+        return projects
+
+    def test_a_cached_summary_is_rendered_without_a_call(self):
+        self.given_cached_projects(_summary_data("Alles im Plan"))
+        response = self.fragment()
+        self.assertContains(response, "Alles im Plan")
+        self.summary_stub().assert_not_called()
+
+    def test_projects_without_a_summary_are_the_shape_this_works_from(self):
+        """The #199 branch, reached on every first load now rather than only
+        after a reschedule."""
+        self.given_cached_projects(None)
+        self.summary_stub().return_value = _summary_data("Alles im Plan")
+        response = self.fragment()
+        self.assertContains(response, "Alles im Plan")
+        self.assertIsNotNone(cache.get(CACHE_KEY)[1])
+
+    def test_a_cold_cache_asks_notion_for_nothing(self):
+        with patch("projects.views.get_upcoming_projects") as notion:
+            response = self.fragment()
+        notion.assert_not_called()
+        self.summary_stub().assert_not_called()
+        self.assertContains(response, "nicht verfügbar")
+
+    def test_a_failure_is_not_written_back(self):
+        self.given_cached_projects(None)
+        self.summary_stub().side_effect = AIUnavailableError("boom")
+        response = self.fragment()
+        self.assertContains(response, "nicht verfügbar")
+        self.assertIsNone(cache.get(CACHE_KEY)[1])
+
+    def test_the_fragment_reads_no_notion_data_of_its_own(self):
+        self.given_cached_projects(None)
+        with (
+            patch("projects.views.get_upcoming_projects") as projects,
+            patch("projects.views.get_unassigned_tasks") as unassigned,
+        ):
+            self.fragment()
+        projects.assert_not_called()
+        unassigned.assert_not_called()

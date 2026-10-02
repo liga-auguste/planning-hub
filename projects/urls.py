@@ -26,6 +26,9 @@ urlpatterns = [
         name="toggle_session_task",
     ),
     path("timelapse/", views.set_timelapse_date, name="set_timelapse_date"),
+    # #156: an English path for the same reason dashboard/ and refresh/ have
+    # one — technical routing a visitor never reads as a word.
+    path("summary/", views.summary_fragment, name="summary_fragment"),
     path(
         "timelapse/preload/",
         views.preload_timelapse_summary,

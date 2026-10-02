@@ -383,9 +383,9 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
 
     def test_my_plan_and_the_close_out_triage_are_untouched(self):
         self.assertEqual(
-            self.read_with_summary(
-                "my_plan.html", "_my_plan_summary_body.html"
-            ).count('plan_date:"long"'),
+            self.read_with_summary("my_plan.html", "_my_plan_summary_body.html").count(
+                'plan_date:"long"'
+            ),
             2,
         )
         self.assertIn('plan_date:"long"', self.read("close_week_start.html"))
