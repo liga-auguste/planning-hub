@@ -41,7 +41,9 @@ AI_STUBS = {
         "project_name": "Testkonzert",
         "tasks": [],
     },
-    "projects.planner_views.generate_timelapse_moments": [],
+    # #156: the call moved out of planner_create into timelapse_moments(),
+    # so the name to patch moved with it.
+    "projects.views.generate_timelapse_moments": [],
     "projects.views.generate_closeout_summary": "Gute Woche gewesen.",
 }
 

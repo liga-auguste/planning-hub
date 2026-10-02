@@ -19,6 +19,7 @@ from .ai import (
     AIUnavailableError,
     _number_projects_and_tasks,
     generate_closeout_summary,
+    generate_timelapse_moments,
     generate_weekly_summary,
     resolve_kontext_hint,
     resolve_weekly_summary,
@@ -1218,8 +1219,16 @@ def dashboard(request):
         else ""
     )
 
-    timelapse_moments = (
+    moments = (
         request.session.get("demo_timelapse_moments", []) if settings.DEMO_MODE else []
+    )
+    # #156: a plan whose moments have not been generated yet. The bar is built
+    # from the answer instead of from this render, and only ever once per
+    # plan — see timelapse_moments().
+    timelapse_pending = bool(
+        settings.DEMO_MODE
+        and has_session_plan
+        and request.session.get("demo_timelapse_pending")
     )
 
     # Moments whose summary is already cached in the session, so the JS
@@ -1273,7 +1282,8 @@ def dashboard(request):
             "force_multi": force_multi,
             "viewing_demo_data": viewing_demo_data,
             "demo_mode": settings.DEMO_MODE,
-            "timelapse_moments": json.dumps(timelapse_moments),
+            "timelapse_moments": json.dumps(moments),
+            "timelapse_pending": timelapse_pending,
             "precached_moments": json.dumps(precached_moments),
             "sim_date": sim_date_str,
             "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
@@ -1559,6 +1569,45 @@ def summary_fragment(request):
             "viewing_demo_data": settings.DEMO_MODE and not has_session_plan,
         },
     )
+
+
+def timelapse_moments(request):
+    """Generates the plan's narrative Zeitreise moments, out of the request
+    that created the plan (#156).
+
+    planner_create used to make this Haiku call inline, between "Zum
+    Dashboard" and the dashboard — and the dashboard then made the summary
+    call, so the visitor waited twice with nothing on screen for either. The
+    same shape as the summary endpoint: the call blocks its own XHR and the
+    page is already up.
+
+    demo_timelapse_pending is what says a plan is still owed its moments, and
+    it is cleared *before* the call rather than after. A failure must not be
+    retried on every dashboard load — one plan, one attempt — which is what
+    planner_create's try/except has always bought.
+
+    The broad except is that try/except, moved: anything this call raises
+    must not cost the visitor the plan they just waited for.
+    generate_timelapse_moments already narrows API failures to
+    AIUnavailableError, so what is caught here is the unexpected rest.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    if not settings.DEMO_MODE:
+        return JsonResponse({"error": "not available"}, status=404)
+    session_plan = request.session.get("demo_plan")
+    if not request.session.pop("demo_timelapse_pending", False) or not session_plan:
+        return JsonResponse({"moments": []})
+    try:
+        moments = generate_timelapse_moments(
+            session_plan["name"],
+            date.fromisoformat(session_plan["event_date"]),
+            session_plan["tasks"],
+        )
+    except Exception:  # noqa: BLE001 — deliberate: the moments are a garnish
+        return JsonResponse({"moments": []})
+    request.session["demo_timelapse_moments"] = moments
+    return JsonResponse({"moments": moments})
 
 
 def _parse_week_start(data, default_monday):

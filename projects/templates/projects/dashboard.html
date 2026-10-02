@@ -1191,7 +1191,10 @@ if (simLockNotice) {
 </script>
 <script>
 const TODAY = '{{ today_iso }}';
-const TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+// let, not const: buildTimelapseBar rewrites it when the moments arrive on
+// their own request, and preloadAll() reads it afterwards (#156).
+let TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+const TIMELAPSE_PENDING = {{ timelapse_pending|yesno:"true,false" }};
 const PRECACHED_MOMENTS = {{ precached_moments|safe }};
 const SIM_DATE = '{{ sim_date }}';
 
@@ -1387,12 +1390,17 @@ async function preloadAll() {
     await Promise.all(TIMELAPSE_MOMENTS.map(m => preloadOne(m.date)));
 }
 
-if (TIMELAPSE_MOMENTS.length > 0) {
+// #156: a function rather than a block, because the moments can now arrive
+// after this render — planner_create hands their Haiku call to the dashboard
+// instead of making it between "Zum Dashboard" and the dashboard.
+function buildTimelapseBar(moments) {
+    if (moments.length === 0) return;
+    TIMELAPSE_MOMENTS = moments;
     document.querySelectorAll('.timelapse-bar').forEach(bar => {
         const container = bar.querySelector('.timelapse-moments');
         if (!container) return;
         bar.style.display = 'block';
-        TIMELAPSE_MOMENTS.forEach(m => {
+        moments.forEach(m => {
             const btn = document.createElement('button');
             btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '') + (PRECACHED_MOMENTS.includes(m.date) ? ' moment-preloaded' : '');
             btn.title = m.description;
@@ -1412,6 +1420,37 @@ if (TIMELAPSE_MOMENTS.length > 0) {
     // unhandled it lands in the console as an unhandled rejection — noise in
     // exactly the place #233 went looking for the failure it could not see.
     setTimeout(() => preloadAll().catch(() => {}), 800);
+}
+
+// Background rather than priority, unlike the summary: nothing is on screen
+// waiting for this, and the summary above it is what the visitor is reading.
+// The queue because it writes the session, same as every other fetch here.
+//
+// Asked at most once per plan: the server clears the pending flag before it
+// calls, so a failure costs one Haiku call rather than one per dashboard
+// load. An empty answer is that failure and needs no handling of its own —
+// the bar simply stays hidden, which is what a plan without moments has
+// always looked like.
+async function loadTimelapseMoments() {
+    let moments = [];
+    try {
+        const response = await withSessionLock(() => fetch('/timelapse/moments/', {
+            method: 'POST',
+            headers: {'X-CSRFToken': CSRF},
+        }));
+        if (response.ok) moments = (await response.json()).moments || [];
+    } catch {
+        // A rejected fetch (offline, server unreachable) leaves the bar
+        // hidden, the same as an answer with no moments in it (#159).
+        return;
+    }
+    buildTimelapseBar(moments);
+}
+
+if (TIMELAPSE_MOMENTS.length > 0) {
+    buildTimelapseBar(TIMELAPSE_MOMENTS);
+} else if (TIMELAPSE_PENDING) {
+    loadTimelapseMoments();
 }
 
 // Every stage _annotate_tasks (views.py) can put on a task, minus `done`,

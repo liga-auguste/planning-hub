@@ -30,6 +30,11 @@ urlpatterns = [
     # one — technical routing a visitor never reads as a word.
     path("summary/", views.summary_fragment, name="summary_fragment"),
     path(
+        "timelapse/moments/",
+        views.timelapse_moments,
+        name="timelapse_moments",
+    ),
+    path(
         "timelapse/preload/",
         views.preload_timelapse_summary,
         name="preload_timelapse_summary",
