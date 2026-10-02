@@ -37,6 +37,7 @@ from ..views import (
     CACHE_KEY,
     CACHE_TTL,
     DEMO_MULTI_SUMMARY_KEY,
+    STALE_CACHE_KEY,
     SUMMARY_KEY,
     _annotate_tasks,
     _cache_fresh_read,
@@ -45,6 +46,7 @@ from ..views import (
 from .base import (
     AiStubMixin,
     DemoModeTestCase,
+    SummaryFlowMixin,
     _anthropic_timeout_error,
     _fake_response,
     _fake_stream,
@@ -54,18 +56,22 @@ from .base import (
 
 
 class SummarySessionCacheTest(DemoModeTestCase):
-    """Proves the views actually write the current versioned key — without
-    this, a key bump could leave every view writing a dead key and the
-    assertNotIn tests above would pass vacuously."""
+    """Proves the summary endpoint actually writes the current versioned key —
+    without this, a key bump could leave it writing a dead key and the
+    assertNotIn tests above would pass vacuously.
+
+    #156: the write moved out of the two page views into summary_fragment(),
+    which both pages fetch. The surface is still what decides the key, which
+    is why both are asserted."""
 
     def test_a_successful_summary_is_cached_under_the_current_key(self):
         self.given_session_plan()
-        self.client.get(reverse("dashboard"))
+        self.fetch_summary()
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
     def test_my_plan_reads_and_writes_the_same_key(self):
         self.given_session_plan()
-        self.client.get(reverse("my_plan"))
+        self.fetch_summary("?surface=my_plan")
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
@@ -80,37 +86,39 @@ class MultiViewSummaryCacheTest(DemoModeTestCase):
         return self.ai_mocks["projects.views.generate_weekly_summary"]
 
     def test_claude_is_called_once_for_repeated_visits(self):
-        self.client.get(reverse("dashboard") + "?mode=multi")
-        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.dashboard_with_summary("?mode=multi")
+        self.dashboard_with_summary("?mode=multi")
         self.assertEqual(self.summary_mock.call_count, 1)
 
     def test_the_second_visit_still_renders_the_summary(self):
-        """ "Called once" must not be bought with a blank AI card."""
+        """ "Called once" must not be bought with a blank AI card. #156: the
+        second visit is also the one that proves the cached summary renders
+        *inline*, with no loading state in between."""
         self.summary_mock.return_value = _summary_data("Alles im Plan")
-        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.dashboard_with_summary("?mode=multi")
         second = self.client.get(reverse("dashboard") + "?mode=multi")
         self.assertContains(second, "Alles im Plan")
 
     def test_the_summary_is_cached_under_the_current_key(self):
         """Without this, a key bump would leave the tests above vacuously green."""
-        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.fetch_summary("?mode=multi")
         self.assertIsNotNone(
             cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
         )
 
     def test_a_failure_is_not_cached(self):
         self.summary_mock.side_effect = AIUnavailableError("boom")
-        first = self.client.get(reverse("dashboard") + "?mode=multi")
+        first = self.fetch_summary("?mode=multi")
         self.assertContains(first, "nicht verfügbar")
         self.summary_mock.side_effect = None
         self.summary_mock.return_value = _summary_data("Alles im Plan")
-        second = self.client.get(reverse("dashboard") + "?mode=multi")
+        second = self.dashboard_with_summary("?mode=multi")
         self.assertContains(second, "Alles im Plan")
 
     def test_the_single_plan_view_does_not_use_the_multi_cache(self):
         """The visitor's own plan is per-session data and stays in the session."""
         self.given_session_plan()
-        self.client.get(reverse("dashboard"))
+        self.dashboard_with_summary()
         self.assertIsNone(
             cache.get(f"{DEMO_MULTI_SUMMARY_KEY}_{date.today().isoformat()}")
         )
@@ -274,6 +282,10 @@ class KontextHintRenderingTest(TestCase):
         self.addCleanup(cache.clear)
 
     def dashboard_with(self, summary_data):
+        """#156: the card's body is what summary_fragment() answers with, so
+        that answer is what carries the hint. The page load first, because it
+        is the one that fills CACHE_KEY — the endpoint reads Notion for
+        nothing."""
         project = _fake_upcoming_project_with_task()
         project["tasks"][0]["kontext"] = ["Büro"]
         with (
@@ -281,7 +293,8 @@ class KontextHintRenderingTest(TestCase):
             patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch("projects.views.generate_weekly_summary", return_value=summary_data),
         ):
-            return self.client.get(reverse("dashboard"))
+            self.client.get(reverse("dashboard"))
+            return self.client.post(reverse("summary_fragment"))
 
     def test_a_hint_renders_under_the_blocks(self):
         response = self.dashboard_with(
@@ -313,7 +326,7 @@ class KontextHintIsProductionOnlyTest(DemoModeTestCase):
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].return_value = self.HINTED_SUMMARY
-        response = self.client.get(reverse("dashboard"))
+        response = self.dashboard_with_summary()
         self.assertNotContains(response, 'ai-kontext-hint">')
         self.assertNotContains(response, "Ab ins Büro.")
 
@@ -1137,7 +1150,7 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
     def test_dashboard_summary_renders_a_checkbox_for_a_referenced_task(self):
         self.given_session_plan()
         self.summary_stub().return_value = self.single_project_summary([1])
-        response = self.client.get(reverse("dashboard"))
+        response = self.dashboard_with_summary()
         self.assertContains(response, "Jetzt kritisch")
         self.assertContains(response, "Programm zuerst")
         # Once in the AI card, once in the project section's task list —
@@ -1151,7 +1164,7 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
     def test_dashboard_checkbox_state_follows_a_toggle_not_the_cache(self):
         self.given_session_plan()
         self.summary_stub().return_value = self.single_project_summary([1])
-        self.client.get(reverse("dashboard"))  # caches the raw refs in the session
+        self.fetch_summary()  # caches the raw refs in the session
         self.client.post(
             reverse("toggle_task", args=["demo-session-0"]),
             json.dumps({"done": True}),
@@ -1171,7 +1184,7 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
     def test_an_unresolvable_ref_does_not_break_the_page(self):
         self.given_session_plan()
         self.summary_stub().return_value = self.single_project_summary([99])
-        response = self.client.get(reverse("dashboard"))
+        response = self.dashboard_with_summary()
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Jetzt kritisch")
 
@@ -1184,7 +1197,7 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        response = self.client.get(reverse("dashboard"))
+        response = self.dashboard_with_summary()
         # #200: a <button> inside the <strong>, so the heading keeps its
         # bold weight by inheritance and the link takes focus. The id it
         # opens travels as data-project-id rather than in an onclick.
@@ -1396,3 +1409,138 @@ class SummaryFragmentProductionTest(AiStubMixin, TestCase):
             self.fragment()
         projects.assert_not_called()
         unassigned.assert_not_called()
+
+
+class PagesDoNotWaitOnClaudeTest(DemoModeTestCase):
+    """#156's acceptance, demo half: a page load reaches no Claude call at
+    all, and says so on screen instead of leaving the browser's tab spinner
+    to it."""
+
+    def summary_stub(self):
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
+
+    def assert_waits_visibly(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.summary_stub().assert_not_called()
+        self.assertContains(response, "wird erstellt")
+        self.assertContains(response, 'data-summary-url="/summary/')
+
+    def test_a_session_plan_dashboard(self):
+        self.given_session_plan()
+        self.assert_waits_visibly(self.client.get(reverse("dashboard")))
+
+    def test_the_example_catalog_dashboard(self):
+        self.assert_waits_visibly(self.client.get(reverse("dashboard")))
+
+    def test_my_plan(self):
+        self.given_session_plan()
+        response = self.client.get(reverse("my_plan"))
+        self.assert_waits_visibly(response)
+        self.assertContains(response, 'data-summary-url="/summary/?surface=my_plan"')
+
+    def test_the_multi_view_asks_for_the_summary_it_is_showing(self):
+        """?mode=multi is the one part of the context the session cannot
+        carry, so it has to travel in the URL the page hands the JS."""
+        self.given_session_plan()
+        self.assertContains(
+            self.client.get(reverse("dashboard") + "?mode=multi"),
+            'data-summary-url="/summary/?mode=multi"',
+        )
+
+    def test_the_project_data_is_there_while_the_summary_is_not(self):
+        """The point of the whole issue: everything that needs no AI call
+        renders immediately."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Programm festlegen")
+        self.assertContains(response, "Testkonzert")
+
+    def test_a_cached_summary_renders_inline_with_no_loading_state(self):
+        """Acceptance item 4: caching behaviour is unchanged, which means a
+        visitor who already has a summary never sees a flash of one."""
+        self.given_session_plan()
+        self.summary_stub().return_value = {
+            "jetzt_faellig": [
+                {"heading": "Jetzt kritisch", "assessment": "x", "task_refs": []}
+            ],
+            "naechste_woche": [],
+        }
+        response = self.dashboard_with_summary()
+        self.assertContains(response, "Jetzt kritisch")
+        self.assertNotContains(response, "wird erstellt")
+        self.assertNotContains(response, "data-summary-url")
+
+    def test_my_plan_likewise_renders_a_cached_summary_inline(self):
+        self.given_session_plan()
+        self.summary_stub().return_value = {
+            "jetzt_faellig": [
+                {"heading": "Jetzt kritisch", "assessment": "x", "task_refs": []}
+            ],
+            "naechste_woche": [],
+        }
+        response = self.my_plan_with_summary()
+        self.assertContains(response, "Jetzt kritisch")
+        self.assertNotContains(response, "data-summary-url")
+
+
+@override_settings(DEMO_MODE=False)
+class ProductionPageDoesNotWaitOnClaudeTest(SummaryFlowMixin, AiStubMixin, TestCase):
+    """#156's acceptance, production half — plus the trap in it: CACHE_KEY
+    used to be written only when the summary was not None, so with the Claude
+    call gone from the load path that guard would have meant never caching a
+    Notion read again."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        super().setUp()
+
+    def summary_stub(self):
+        return self.ai_mocks["projects.views.generate_weekly_summary"]
+
+    def load(self, notion):
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=notion) as fetch,
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+        ):
+            return self.client.get(reverse("dashboard")), fetch
+
+    def test_the_page_reaches_no_claude_call(self):
+        response, _fetch = self.load([_fake_upcoming_project_with_task()])
+        self.assertEqual(response.status_code, 200)
+        self.summary_stub().assert_not_called()
+        self.assertContains(response, "wird erstellt")
+
+    def test_the_notion_read_is_performed_once_and_cached(self):
+        response, fetch = self.load([_fake_upcoming_project_with_task()])
+        self.assertContains(response, "Programm festlegen")
+        fetch.assert_called_once()
+        cached = cache.get(CACHE_KEY)
+        self.assertIsNotNone(cached, "a summaryless read must still be cached")
+        self.assertIsNone(cached[1])
+
+    def test_the_second_load_reads_notion_again_for_nothing(self):
+        """The failure mode this pass had to avoid: a guard left in place
+        would have made every single load re-read Notion."""
+        self.load([_fake_upcoming_project_with_task()])
+        _response, fetch = self.load([_fake_upcoming_project_with_task()])
+        fetch.assert_not_called()
+
+    def test_the_stale_copys_last_good_summary_is_not_overwritten(self):
+        """STALE_CACHE_KEY is what a Notion outage serves. A fresh read with
+        no summary yet must not replace the last one a Claude call paid for —
+        the reason the old guard existed, kept where it still applies."""
+        self.summary_stub().return_value = _summary_data("Letzte gute Übersicht")
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+        ):
+            self.dashboard_with_summary()
+        cache.delete(CACHE_KEY)
+        self.load([_fake_upcoming_project_with_task()])
+        self.assertEqual(
+            cache.get(STALE_CACHE_KEY)[1], _summary_data("Letzte gute Übersicht")
+        )

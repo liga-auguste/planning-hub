@@ -742,9 +742,13 @@ class MeinPlanSeparatesTheSummaryFromTheListTest(DemoModeTestCase):
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("my_plan"))
-        self.assertContains(response, "nicht verfügbar")
-        self.assertContains(response, ">Alle Aufgaben</div>")
+        # #156: the page waits on no Claude call, so the failure arrives with
+        # the fragment. The label has to survive both — the loading state the
+        # page renders and the error state that replaces it.
+        page = self.client.get(reverse("my_plan"))
+        self.assertContains(page, ">Alle Aufgaben</div>")
+        self.assertContains(self.fetch_summary("?surface=my_plan"), "nicht verfügbar")
+        self.assertContains(self.client.get(reverse("my_plan")), ">Alle Aufgaben</div>")
 
 
 class MeinPlanSummaryDropsItsDiscBulletsTest(DemoModeTestCase):
@@ -2534,7 +2538,7 @@ class RecentCompletionRendersGreenTest(DemoModeTestCase):
         }
         return re.findall(
             r'class="dot ([^"]*)"',
-            self.client.get(reverse("my_plan")).content.decode(),
+            self.my_plan_with_summary().content.decode(),
         )
 
     def test_every_copy_of_one_task_renders_the_same_green(self):

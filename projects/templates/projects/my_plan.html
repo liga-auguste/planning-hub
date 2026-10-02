@@ -187,7 +187,14 @@ is gone; the sidebar already covers that.
         {% endif %}
     </div>
 
-    {% include "projects/_my_plan_summary_body.html" %}
+    {% comment %}
+    #156: the swap target, same contract as the dashboard's — see the comment
+    there. The label is inside it on this page, because here it is repeated
+    per state rather than standing above the chain.
+    {% endcomment %}
+    <div id="ai-summary" aria-live="polite"{% if summary_pending %} aria-busy="true" data-summary-url="{{ summary_url }}"{% endif %}>
+        {% include "projects/_my_plan_summary_body.html" %}
+    </div>
 
     {% comment %}
     The summary and the full list are both runs of tasks, and once the card

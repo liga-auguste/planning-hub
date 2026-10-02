@@ -35,6 +35,7 @@ from ..views import (
 )
 from .base import (
     DemoModeTestCase,
+    SummaryFlowMixin,
     _fake_upcoming_project,
     _fake_upcoming_project_with_task,
     _summary_data,
@@ -56,27 +57,34 @@ class DashboardKanbanCssTest(DemoModeTestCase):
 
 
 class DashboardAiFailureTest(DemoModeTestCase):
-    """generate_weekly_summary is called from four different places in
-    views.py (dashboard x2, my_plan, preload) — none of them guarded before
-    #29. The dashboard must still show projects/tasks even when the AI card
-    can't."""
+    """generate_weekly_summary is reached from one place per context
+    (_session_summary, _demo_multi_summary, _production_summary) — none of
+    them guarded before #29. The dashboard must still show projects/tasks
+    even when the AI card can't.
+
+    #156 moved the call off the page load, so the degradation has two halves
+    now and both are asserted: the page renders without waiting on Claude at
+    all, and the fragment it then asks for answers with the state the card
+    already had."""
 
     def test_multi_project_dashboard_degrades_without_a_summary(self):
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("dashboard"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "nicht verfügbar")
+        page = self.client.get(reverse("dashboard"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Deine Wochenübersicht wird erstellt")
+        self.assertContains(self.fetch_summary(), "nicht verfügbar")
 
     def test_session_plan_dashboard_degrades_without_a_summary(self):
         self.given_session_plan()
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        response = self.client.get(reverse("dashboard"))
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "nicht verfügbar")
+        page = self.client.get(reverse("dashboard"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "Programm festlegen")
+        self.assertContains(self.fetch_summary(), "nicht verfügbar")
 
     def test_a_failure_is_not_cached_as_a_summary(self):
         """A later, healthy request must retry rather than replay a blank."""
@@ -84,7 +92,7 @@ class DashboardAiFailureTest(DemoModeTestCase):
         self.ai_mocks[
             "projects.views.generate_weekly_summary"
         ].side_effect = AIUnavailableError("boom")
-        self.client.get(reverse("dashboard"))
+        self.fetch_summary()
         self.assertNotIn(f"{SUMMARY_KEY}_today", self.client.session)
 
 
@@ -420,7 +428,7 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class DashboardNotionFailureTest(TestCase):
+class DashboardNotionFailureTest(SummaryFlowMixin, TestCase):
     """dashboard()'s production branch used to have nothing between it and
     Notion — a single failed read 500'd the whole page. It now either serves
     the last successful read (flagged stale) or, the very first time ever,
@@ -454,7 +462,10 @@ class DashboardNotionFailureTest(TestCase):
                 return_value=_summary_data(),
             ),
         ):
-            first = self.client.get(reverse("dashboard"))
+            # #156: the stale copy is written when the summary arrives, not by
+            # the Notion read — so the fragment request is what arms this
+            # test's second half.
+            first = self.dashboard_with_summary()
         self.assertEqual(first.status_code, 200)
         self.assertContains(first, "Testkonzert")
 
@@ -487,7 +498,7 @@ class DashboardNotionFailureTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class DashboardAiFailureCacheTest(TestCase):
+class DashboardAiFailureCacheTest(SummaryFlowMixin, TestCase):
     """A Claude failure while Notion is fine must not be remembered as a
     success: (projects, None) used to land in CACHE_KEY (blanking the AI
     card for the whole 8h TTL) and in STALE_CACHE_KEY (clobbering the last
@@ -509,10 +520,12 @@ class DashboardAiFailureCacheTest(TestCase):
                 side_effect=AIUnavailableError("boom"),
             ),
         ):
-            first = self.client.get(reverse("dashboard"))
+            self.client.get(reverse("dashboard"))
+            first = self.fetch_summary()
         self.assertContains(first, "nicht verfügbar")
         # Claude recovers. Without any cache-busting in between, the very
-        # next request must pick the summary up again.
+        # next request must pick the summary up again — off the same
+        # (projects, None) entry the failed one left behind.
         with (
             patch(
                 "projects.views.get_upcoming_projects",
@@ -524,7 +537,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 return_value=_summary_data("Wieder da"),
             ),
         ):
-            second = self.client.get(reverse("dashboard"))
+            second = self.fetch_summary()
         self.assertContains(second, "Wieder da")
 
     def test_a_failed_summary_does_not_clobber_the_last_good_one(self):
@@ -539,7 +552,7 @@ class DashboardAiFailureCacheTest(TestCase):
                 return_value=_summary_data("Letzte gute Übersicht"),
             ),
         ):
-            self.client.get(reverse("dashboard"))
+            self.dashboard_with_summary()
 
         cache.delete(CACHE_KEY)  # the 8h primary cache expiring; the stale copy stays
         with (
@@ -553,9 +566,9 @@ class DashboardAiFailureCacheTest(TestCase):
                 side_effect=AIUnavailableError("boom"),
             ),
         ):
-            self.client.get(reverse("dashboard"))
+            self.dashboard_with_summary()
 
-        cache.delete(CACHE_KEY)  # must be a no-op — a failed fetch may not have cached
+        cache.delete(CACHE_KEY)  # the read it did cache, without a summary
         with patch(
             "projects.views.get_upcoming_projects",
             side_effect=NotionUnavailableError("boom"),
@@ -995,7 +1008,16 @@ class DashboardEmptySummaryTest(TestCase):
             ],
         }
 
-    def _render(self, projects, unassigned=(), summary_fails=False, raw_summary=None):
+    def _requests(self, projects, unassigned=(), summary_fails=False, raw_summary=None):
+        """Returns (page, fragment) — the dashboard once its summary has
+        arrived, and the fragment answer itself (#156).
+
+        Two responses because the four states no longer render on one. The
+        empty note and a resolved summary come back on the next page render,
+        inline out of CACHE_KEY; "nicht verfügbar" never does — a failed
+        fragment leaves the entry summaryless so the next load retries, so
+        that state lives on the fragment alone.
+        """
         summary = patch(
             "projects.views.generate_weekly_summary",
             side_effect=AIUnavailableError("boom"),
@@ -1010,7 +1032,15 @@ class DashboardEmptySummaryTest(TestCase):
             patch("projects.views.get_unassigned_tasks", return_value=list(unassigned)),
             summary,
         ):
-            return self.client.get(reverse("dashboard"))
+            self.client.get(reverse("dashboard"))
+            fragment = self.client.post(reverse("summary_fragment"))
+            return self.client.get(reverse("dashboard")), fragment
+
+    def _render(self, *args, **kwargs):
+        return self._requests(*args, **kwargs)[0]
+
+    def _fragment(self, *args, **kwargs):
+        return self._requests(*args, **kwargs)[1]
 
     def test_an_empty_summary_says_nothing_is_due(self):
         response = self._render([self._project("p1", "Adventskonzert", [120])])
@@ -1055,7 +1085,7 @@ class DashboardEmptySummaryTest(TestCase):
         )
 
     def test_an_unavailable_summary_keeps_its_own_wording(self):
-        response = self._render(
+        response = self._fragment(
             [self._project("p1", "Adventskonzert", [120])], summary_fails=True
         )
         self.assertContains(response, "nicht verfügbar")
@@ -1123,10 +1153,8 @@ class DashboardEmptySummaryTest(TestCase):
         # kontext_hint is resolved from summary_data, which is None exactly
         # when the "nicht verfügbar" branch renders — so moving the hint out
         # of the chain needs no guard of its own.
-        response = self._render(
+        response = self._fragment(
             [self._project("p1", "Adventskonzert", [120])], summary_fails=True
         )
         self.assertContains(response, "nicht verfügbar")
-        # The bare class name is also its own CSS rule in the <style> block,
-        # so the assertion has to name the element.
         self.assertNotContains(response, '<p class="ai-kontext-hint">')

@@ -1157,6 +1157,7 @@ class RenameTaskProductionTest(TestCase):
             ) as mock_summary,
         ):
             self.client.get(reverse("dashboard"))
+            self.client.post(reverse("summary_fragment"))
             with patch("projects.views.rename_task"):
                 self.post_name("task-1", "Programm endlich festlegen")
             response = self.client.get(reverse("dashboard"))
@@ -2249,7 +2250,7 @@ class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        html = self.client.get(reverse("dashboard")).content.decode()
+        html = self.dashboard_with_summary().content.decode()
         return html[html.index('class="ai-card"') : html.index('<div class="kanban">')]
 
     def test_the_summary_date_is_a_button_for_a_session_plan(self):
@@ -2679,7 +2680,7 @@ class PatchingDoesNotRenewTheReadWindowTest(TestCase):
                 ),
                 patch("projects.views.get_upcoming_projects") as fetch,
             ):
-                self.client.get(reverse("dashboard"))
+                self.client.post(reverse("summary_fragment"))
             fetch.assert_not_called()
 
         timeouts = self.timeouts_named_by(load, CACHE_KEY)
@@ -3425,9 +3426,15 @@ class RescheduleFiguresFromTheSessionPlanTest(DemoModeTestCase):
 class DashboardRegeneratesADroppedSummaryTest(TestCase):
     """CACHE_KEY holds (projects, summary_data) as one tuple, so
     "invalidate only the summary" means writing (patched_projects, None). A
-    hit in that shape now means "projects are good, regenerate the summary"
-    — otherwise the card would read "KI nicht verfügbar" until the TTL ran
-    out, which is not what a reschedule should cost."""
+    hit in that shape means "projects are good, generate the summary" —
+    otherwise the card would read "KI nicht verfügbar" until the TTL ran
+    out, which is not what a reschedule should cost.
+
+    #156 moved that generation into summary_fragment() and made the same
+    shape the one a *first* load leaves behind, so this is now the ordinary
+    path rather than the post-reschedule one. What is asserted is unchanged:
+    the summary comes back, it is written back, and no Notion read is paid
+    for."""
 
     def setUp(self):
         cache.clear()
@@ -3441,7 +3448,7 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
             ) as generate,
             patch("projects.views.get_upcoming_projects") as fetch,
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         self.assertEqual(response.status_code, 200)
         generate.assert_called_once()
         # The point of the whole exercise: no Notion round trip.
@@ -3458,7 +3465,7 @@ class DashboardRegeneratesADroppedSummaryTest(TestCase):
             ),
             patch("projects.views.get_upcoming_projects"),
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Die KI-Wochenübersicht ist gerade nicht")
         self.assertIsNone(cache.get(CACHE_KEY)[1])
@@ -3480,6 +3487,9 @@ class RegeneratingASummaryDoesNotUndoAConcurrentWriteTest(TestCase):
         self.addCleanup(cache.clear)
 
     def load_dashboard_while(self, concurrent_write):
+        """#156: the Claude call runs inside summary_fragment() now, so the
+        window this test simulates is that request's, not the page load's."""
+
         def generate(*args, **kwargs):
             concurrent_write()
             return _summary_data()
@@ -3489,7 +3499,7 @@ class RegeneratingASummaryDoesNotUndoAConcurrentWriteTest(TestCase):
             patch("projects.views.get_unassigned_tasks", return_value=[]),
             patch("projects.views.get_upcoming_projects") as fetch,
         ):
-            response = self.client.get(reverse("dashboard"))
+            response = self.client.post(reverse("summary_fragment"))
         # Still the point of the branch: no Notion round trip for the projects.
         fetch.assert_not_called()
         return response

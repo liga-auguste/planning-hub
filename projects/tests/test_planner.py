@@ -96,10 +96,13 @@ class PlannerLoadingStateTest(DemoModeTestCase):
 
 
 class AiStubTest(DemoModeTestCase):
-    """Guards the guard: proves the stubs are actually in the request path."""
+    """Guards the guard: proves the stubs are actually in the request path.
 
-    def test_dashboard_does_not_call_the_real_api(self):
-        self.client.get("/dashboard/")
+    #156: the dashboard reaches no Claude call any more, which is the point of
+    that issue — so the request that does is the one this asserts on."""
+
+    def test_the_summary_endpoint_does_not_call_the_real_api(self):
+        self.fetch_summary()
         self.ai_mocks["projects.views.generate_weekly_summary"].assert_called()
 
 

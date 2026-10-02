@@ -32,6 +32,7 @@ from ..views import (
 )
 from .base import (
     DemoModeTestCase,
+    SummaryFlowMixin,
     _fake_upcoming_project_with_task,
     _summary_data,
 )
@@ -458,7 +459,7 @@ class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class DashboardSummaryShowsTaskDatesTest(TestCase):
+class DashboardSummaryShowsTaskDatesTest(SummaryFlowMixin, TestCase):
     """#190: the projection is only half the fix — the KI-Wochenübersicht
     writes out its own task list, so the date has to be rendered there too.
     A page-wide assertContains would pass on the task rows further down,
@@ -495,7 +496,9 @@ class DashboardSummaryShowsTaskDatesTest(TestCase):
                 },
             ),
         ):
-            return self.client.get(reverse("dashboard"))
+            # #156: the card renders its summary inline once the fragment has
+            # filled the cache, which is the render this slices.
+            return self.dashboard_with_summary()
 
     def test_the_summary_lists_each_tasks_due_date(self):
         response = self._render()
@@ -528,7 +531,7 @@ class MyPlanSummaryShowsTaskDatesTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertIn(
             format_date(date.today() + timedelta(days=7)),
             self._summary_box_html(response),

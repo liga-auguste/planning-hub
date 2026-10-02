@@ -57,6 +57,47 @@ def _summary_data(marker="Zusammenfassung läuft"):
     }
 
 
+class SummaryFlowMixin:
+    """#156: the two pages no longer generate their own summary — they render
+    a loading state and fetch summary_fragment() for it. A test whose subject
+    is what the *summary* renders therefore has to make that request, the way
+    the page's own JS does, before reading the page.
+
+    Here rather than per module because every surface that shows a summary
+    needs it: the dashboard in both demo modes and in production, and
+    /mein-plan/.
+    """
+
+    def fetch_summary(self, query=""):
+        """The fragment request the page's JS fires on load. Returns the
+        rendered block, which is the right assertion target for anything
+        about the summary's own markup — including its failure state.
+
+        In production it needs a page load before it: summary_fragment()
+        takes its projects out of CACHE_KEY and never out of Notion.
+        """
+        return self.client.post(reverse("summary_fragment") + query)
+
+    def dashboard_with_summary(self, query=""):
+        """The dashboard as a visitor sees it once the summary has arrived —
+        the page load, the fragment request, and the next render, which is
+        the first one carrying the summary inline.
+
+        All three, in that order, because that is the sequence a browser
+        performs and the one production depends on. The query travels to the
+        fragment too: ?mode=multi decides which summary this is on either
+        side.
+        """
+        self.client.get(reverse("dashboard") + query)
+        self.fetch_summary(query)
+        return self.client.get(reverse("dashboard") + query)
+
+    def my_plan_with_summary(self):
+        self.client.get(reverse("my_plan"))
+        self.fetch_summary("?surface=my_plan")
+        return self.client.get(reverse("my_plan"))
+
+
 class AiStubMixin:
     """Stubs the Claude API — no test may make a real call. A mixin rather
     than part of DemoModeTestCase, because production-mode classes need the
@@ -75,7 +116,7 @@ class AiStubMixin:
 
 
 @override_settings(DEMO_MODE=True)
-class DemoModeTestCase(AiStubMixin, TestCase):
+class DemoModeTestCase(SummaryFlowMixin, AiStubMixin, TestCase):
     """The demo-mode half of the same guarantee."""
 
     def setUp(self):

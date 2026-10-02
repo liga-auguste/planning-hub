@@ -275,7 +275,7 @@ class MultiViewSimDateTest(DemoModeTestCase):
         """A fix that only corrects the classification would leave the AI card
         narrating the simulated date — the contradiction the issue observed."""
         self.given_plan_in_the_future()
-        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.fetch_summary("?mode=multi")
         call = self.ai_mocks["projects.views.generate_weekly_summary"].call_args
         self.assertEqual(call[0][1], date.today())
 
@@ -1364,7 +1364,7 @@ class TimelapseEmptySummaryTest(DemoModeTestCase):
 
     def test_the_note_measures_against_the_simulated_date(self):
         self.given_simulated_plan()
-        html = self._ai_card_html(self.client.get(reverse("dashboard")))
+        html = self._ai_card_html(self.dashboard_with_summary())
         # The task before the moment is forced done by the simulation, so
         # it is not the next one — the one after it is.
         self.assertIn(

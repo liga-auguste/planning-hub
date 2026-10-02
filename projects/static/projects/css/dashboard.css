@@ -364,6 +364,30 @@ button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); o
 .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
 @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
 
+/* #156: the KI-Wochenübersicht while it is still being generated. Here
+   rather than in either page's extra_css for the reason the add row and the
+   date styling are here: the markup is one partial per surface, the wait is
+   the same wait, and both templates already load this file.
+
+   Wears .ai-error's quiet italic deliberately — "nicht verfügbar" and "wird
+   erstellt" are the same register, a line of prose standing in for the
+   summary rather than a widget of their own. The spinner is what separates
+   them, and it is the one the Zeitreise bar already uses.
+
+   No skeleton bars: the finished summary's height depends on how many
+   projects Claude found something to say about, so bars sized for a guess
+   would trade one reflow for a wrong one. The card is at the top of the
+   page, above the progress bar and the board, so what moves when it fills is
+   below the fold on a phone and unread on a desktop. */
+.ai-loading { display: flex; align-items: center; gap: 8px; color: var(--color-text-quaternary); font-style: italic; }
+.ai-loading-spinner { flex-shrink: 0; width: 9px; height: 9px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-text-quaternary); border-radius: 50%; animation: spin 0.7s linear infinite; }
+/* The spinner is the only moving thing on the page that is not opt-in, and
+   it says nothing the copy beside it does not. */
+@media (prefers-reduced-motion: reduce) { .ai-loading-spinner { animation: none; } }
+/* Read by .ai-loading-spinner and by .timelapse-spinner (dashboard.html),
+   which is why it lives here rather than in one page's extra_css. */
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* The add-task row (#148). Here rather than in either surface's own
    extra_css for the same reason the date's styling moved here in #266: the
    markup is one partial (_task_add_row.html) and the behaviour is one module

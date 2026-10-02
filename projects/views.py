@@ -799,15 +799,14 @@ def _derive_dashboard_figures(
 
 
 def _fetch_fresh_data(today):
-    """Returns (projects, summary_data) — the summary as Claude's raw
-    reference dict, resolved against live projects only at render time."""
-    projects = get_upcoming_projects(today)
-    projects = _annotate_tasks(projects, today)
-    try:
-        summary_data = generate_weekly_summary(projects, today)
-    except AIUnavailableError:
-        summary_data = None
-    return projects, summary_data
+    """The live Notion projects, annotated — and nothing else (#156).
+
+    It used to generate the weekly summary too, which is what made a first
+    uncached dashboard load block for 6–7 seconds before the browser saw any
+    HTML. The Claude call moved to summary_fragment(), which blocks its own
+    XHR instead.
+    """
+    return _annotate_tasks(get_upcoming_projects(today), today)
 
 
 def _group_by_month(projects):
@@ -1043,6 +1042,10 @@ def dashboard(request):
     sim_date, sim_date_str = None, None
     stale = False
     data_unavailable = False
+    # #156: set by whichever branch below finds no cached summary. The page
+    # renders the loading state and fetches summary_fragment() for it; every
+    # other state is rendered inline, so a cached summary never flashes.
+    summary_pending = False
 
     if settings.DEMO_MODE:
         session_plan = request.session.get("demo_plan")
@@ -1061,17 +1064,11 @@ def dashboard(request):
             # project it just created — a session plan never has a
             # project-less task to show under "Ohne Projekt".
             unassigned_tasks = []
+            # #156: read, never generated. An absent entry is the loading
+            # state, and summary_fragment() fills it from the same key.
             summary_key = f"{SUMMARY_KEY}_{sim_date_str or 'today'}"
             summary_data = request.session.get(summary_key)
-            if not summary_data:
-                try:
-                    summary_data = generate_weekly_summary(
-                        projects, effective_today, single_project_demo=True
-                    )
-                except AIUnavailableError:
-                    summary_data = None
-                else:
-                    request.session[summary_key] = summary_data
+            summary_pending = not summary_data
         else:
             # The example projects carry none of the plan's moments, so they
             # are always classified against the real today (#50).
@@ -1081,44 +1078,22 @@ def dashboard(request):
             )[0]["tasks"]
             summary_cache_key = f"{DEMO_MULTI_SUMMARY_KEY}_{today.isoformat()}"
             summary_data = cache.get(summary_cache_key)
-            if summary_data is None:
-                try:
-                    summary_data = generate_weekly_summary(projects, today)
-                except AIUnavailableError:
-                    # Not cached, so the next request retries Claude.
-                    summary_data = None
-                else:
-                    cache.set(summary_cache_key, summary_data, DEMO_MULTI_SUMMARY_TTL)
+            summary_pending = summary_data is None
     else:
         cached = cache.get(CACHE_KEY)
         if cached:
             projects, summary_data = cached
-            if summary_data is None:
-                # #199: CACHE_KEY holds (projects, summary_data) as one
-                # tuple, so "invalidate only the summary" means writing
-                # (patched_projects, None) after a reschedule. A hit in that
-                # shape means "the projects are good, regenerate the
-                # summary" — without this branch the card would read "KI
-                # nicht verfügbar" until the TTL ran out. Smaller than
-                # splitting the summary into its own key, and it matches the
-                # cost #199 already accepts: the Notion read goes, the
-                # Claude call stays.
-                try:
-                    summary_data = generate_weekly_summary(projects, today)
-                except AIUnavailableError:
-                    # Left unwritten, so the next request retries Claude —
-                    # same reasoning as the fetch path below.
-                    summary_data = None
-                else:
-                    # #216: only the summary is new here — these projects
-                    # came out of the cache, not out of Notion — so the
-                    # write-back neither renews the read-freshness window
-                    # nor carries this request's snapshot of the projects
-                    # over whatever landed during the Claude call.
-                    _attach_regenerated_summary(projects, summary_data)
+            # #199: CACHE_KEY holds (projects, summary_data) as one tuple, so
+            # "invalidate only the summary" means writing (patched_projects,
+            # None) after a reschedule. A hit in that shape means "the
+            # projects are good, the summary has to be generated" — which
+            # #156 turned from an inline Claude call into the loading state.
+            # It is now also the shape a *first* load leaves behind, see
+            # below.
+            summary_pending = summary_data is None
         else:
             try:
-                projects, summary_data = _fetch_fresh_data(today)
+                projects = _fetch_fresh_data(today)
             except NotionUnavailableError:
                 logger.warning(
                     "Notion read failed; falling back to the last known-good dashboard data"
@@ -1130,19 +1105,35 @@ def dashboard(request):
                 else:
                     projects, summary_data = last_known_good
                     stale = True
+                    # No loading state: CACHE_KEY is cold, which is exactly
+                    # the shape _production_summary() has nothing to work
+                    # from. Whatever summary the stale copy carries is what
+                    # this page can show.
             else:
-                # A fetch whose summary failed (None) is not a success worth
-                # remembering: caching it would blank the AI card for the
-                # whole TTL and overwrite the stale copy's last good summary.
-                # Leaving the cache empty makes the next request retry Claude.
-                if summary_data is not None:
-                    _cache_fresh_read(
-                        CACHE_KEY,
-                        (projects, summary_data),
-                        CACHE_DEADLINE_KEY,
-                        CACHE_TTL,
-                    )
-                    cache.set(STALE_CACHE_KEY, (projects, summary_data), None)
+                summary_data = None
+                summary_pending = True
+                # #156: (projects, None) is cached deliberately. This used to
+                # be guarded on `summary_data is not None` — a fetch whose
+                # Claude call had failed was not a success worth remembering.
+                # With the call gone from here, summary_data is *always* None,
+                # so keeping the guard would mean never caching a Notion read
+                # again and re-reading Notion on every single load: the exact
+                # opposite of what this issue is for. The guard's purpose
+                # survives in summary_fragment(), which writes back only on
+                # success, so a failed summary is still not sticky.
+                #
+                # STALE_CACHE_KEY is deliberately *not* written here, and for
+                # the reason the guard existed: the last-known-good copy is
+                # what a Notion outage serves, and overwriting it with a None
+                # summary would throw away the last summary a Claude call was
+                # paid for. _attach_regenerated_summary writes it, with these
+                # same projects, as soon as the summary arrives.
+                _cache_fresh_read(
+                    CACHE_KEY,
+                    (projects, None),
+                    CACHE_DEADLINE_KEY,
+                    CACHE_TTL,
+                )
 
         # #53: an independent read from get_upcoming_projects (own cache
         # pair, see UNASSIGNED_CACHE_KEY above) — annotated and cached in
@@ -1266,6 +1257,13 @@ def dashboard(request):
             "years": years,
             "summary": summary,
             "summary_empty_state": summary_empty_state,
+            "summary_pending": summary_pending,
+            # Built here rather than in the template so the one rule that
+            # says which summary this is stays server-side (#156). ?mode=multi
+            # travels because it is the only part summary_fragment() cannot
+            # read off the session.
+            "summary_url": reverse("summary_fragment")
+            + ("?mode=multi" if force_multi else ""),
             "kontext_hint": kontext_hint,
             "today": today,
             "today_display": format_date(today, role="long"),
@@ -2576,17 +2574,12 @@ def my_plan(request):
     done_count = sum(1 for t in tasks if t["done"])
     total = len(tasks)
 
+    # #156: read, never generated — same as dashboard(). An absent entry is
+    # the loading state, and summary_fragment() fills it from the same key.
+    # summary_error is therefore unreachable from here: the only thing that
+    # can fail now is the fragment request, which renders that state itself.
     summary_data = request.session.get(f"{SUMMARY_KEY}_today")
-    summary_error = False
-    if not summary_data:
-        try:
-            summary_data = generate_weekly_summary(
-                [project], today, single_project_demo=True
-            )
-        except AIUnavailableError:
-            summary_error = True
-        else:
-            request.session[f"{SUMMARY_KEY}_today"] = summary_data
+    summary_pending = not summary_data
 
     # Resolved against the live session plan at render time (#122) — the
     # session-cached raw dict never carries done state.
@@ -2610,7 +2603,8 @@ def my_plan(request):
             "sim_date_display": format_date(sim_date, role="long") if sim_date else "",
             "summary": summary,
             "summary_empty_state": summary_empty_state,
-            "summary_error": summary_error,
+            "summary_pending": summary_pending,
+            "summary_url": reverse("summary_fragment") + "?surface=my_plan",
             # #183 follow-up: the sidebar is now shared with dashboard() via
             # _sidebar_nav.html — a session plan is guaranteed here (redirect
             # above), so both has_session_plan and plan_exists are always

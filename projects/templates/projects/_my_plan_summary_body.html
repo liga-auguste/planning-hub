@@ -14,7 +14,10 @@ content for.
 Not shared with the dashboard: the markup differs (.summary-box against
 .ai-card, inline onclick against submit handlers). #92 owns unifying them.
 {% endcomment %}
-{% if summary_empty_state %}
+{% if summary_pending %}
+<div class="summary-label">KI-Wochenübersicht</div>
+<div class="summary-box ai-loading"><span class="ai-loading-spinner" aria-hidden="true"></span>Deine Wochenübersicht wird erstellt …</div>
+{% elif summary_empty_state %}
 <div class="summary-label">KI-Wochenübersicht</div>
 <div class="summary-box ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</div>
 {% elif summary %}

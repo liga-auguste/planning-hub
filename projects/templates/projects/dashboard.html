@@ -305,7 +305,9 @@
         .moment-btn-today:hover { border-color: var(--color-text-quaternary); color: var(--color-text-primary); }
         .moment-btn.loading, .moment-btn-today.loading { opacity: 0.6; pointer-events: none; }
         .moment-preloaded::after { content: ''; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--color-done); position: absolute; top: 6px; right: 6px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* #156: @keyframes spin moved to dashboard.css — the AI card's own
+           loading spinner needs it on /mein-plan/ too, and both pages already
+           load that file. The timelapse spinner above reads it from there. */
         .overview-progress { margin-bottom: 24px; }
         .overview-progress-label { font-size: 11px; color: var(--color-text-quaternary); margin-bottom: 6px; display: flex; justify-content: space-between; }
         .progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: var(--radius-pill); overflow: hidden; }
@@ -595,7 +597,21 @@
             <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
             {% endif %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
-            {% include "projects/_ai_summary_body.html" %}
+            {% comment %}
+            #156: the element the fetched fragment replaces. data-summary-url
+            is both the address and the signal — present exactly while the
+            loading state is rendered, so a page that already has its summary
+            starts no request at all and the JS needs no second copy of that
+            condition.
+
+            aria-live/aria-busy rather than nothing: the content arrives
+            without a navigation, and "polite" is the right register for a
+            summary — it is read out when the reader next pauses, not over
+            whatever they are on.
+            {% endcomment %}
+            <div id="ai-summary" aria-live="polite"{% if summary_pending %} aria-busy="true" data-summary-url="{{ summary_url }}"{% endif %}>
+                {% include "projects/_ai_summary_body.html" %}
+            </div>
         </div>
 
         <div class="overview-progress" style="margin-top:36px;">

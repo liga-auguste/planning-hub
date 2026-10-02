@@ -17,8 +17,23 @@ handlers). Unifying the two is #92's job, not this one.
 #214: three states, not two. The label sits outside this chain,
 so before the empty branch existed a summary that resolved to
 nothing left the heading standing over nothing at all.
+
+#156 made it four. The loading state comes first because it is
+the one state that is about this request rather than about the
+summary: there is nothing resolved to judge yet. It is also the
+only one the page can render without the summary existing, which
+is the whole point — the card is on screen while Claude is still
+being asked.
 {% endcomment %}
-{% if summary_empty_state %}
+{% if summary_pending %}
+{% comment %}
+The copy mirrors the label above it rather than naming the card
+a second way — "Übersicht" on its own is the word #48 removed
+for labelling two different things, and the compound is what
+this card has been called ever since.
+{% endcomment %}
+<p class="ai-loading"><span class="ai-loading-spinner" aria-hidden="true"></span>Deine {% if sim_date %}KI-Simulation{% else %}Wochenübersicht{% endif %} wird erstellt …</p>
+{% elif summary_empty_state %}
 <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
 {% elif summary %}
 {% for section in summary %}{% if section.blocks %}
