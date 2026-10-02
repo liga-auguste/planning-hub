@@ -304,12 +304,13 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All six handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler, #239's rename and trash and #233's
-        # setSimDate — carry the widened guard; their error paths (flash /
-        # return false / revert the drag / take the Zeitreise paint back)
+        # All seven handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler, #239's rename and trash, #233's
+        # setSimDate and #156's loadSummary — carry the widened guard; their
+        # error paths (flash / return false / revert the drag / take the
+        # Zeitreise paint back / show the summary's own unavailable state)
         # stay.
-        self.assertContains(response, self.GUARD, count=6)
+        self.assertContains(response, self.GUARD, count=7)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
@@ -2057,7 +2058,15 @@ class ThePickerIsOneModuleTest(DemoModeTestCase):
         # would find nothing to decide with.
         html = self.dashboard_html()
         self.assertIn("bindTaskDatePickers(reschedule, {exclude: '.ai-card'});", html)
-        self.assertIn("}, {within: '.ai-card'});", html)
+        # #156 named the summary's callback, because the fragment makes it a
+        # binding that has to happen twice — once on load and once against
+        # the markup that was swapped in.
+        self.assertEqual(
+            html.count(
+                "bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});"
+            ),
+            2,
+        )
 
     def dashboard_html(self):
         self.given_session_plan()
@@ -2273,7 +2282,7 @@ class TheAiSummaryOffersTheDateTest(DemoModeTestCase):
     def test_a_successful_move_from_the_summary_reloads(self):
         self.given_session_plan()
         html = self.client.get(reverse("dashboard")).content.decode()
-        binding = html[html.index("bindTaskDatePickers(async") :]
+        binding = html[html.index("async function rescheduleFromSummary(") :]
         self.assertIn("const ok = await reschedulePersist(taskId, newDate);", binding)
         self.assertIn("window.location.reload();", binding)
 

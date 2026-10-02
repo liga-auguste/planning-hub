@@ -33,6 +33,14 @@ for labelling two different things, and the compound is what
 this card has been called ever since.
 {% endcomment %}
 <p class="ai-loading"><span class="ai-loading-spinner" aria-hidden="true"></span>Deine {% if sim_date %}KI-Simulation{% else %}Wochenübersicht{% endif %} wird erstellt …</p>
+{% comment %}
+Kept hidden beside the spinner for the one failure the endpoint
+cannot answer: a request that never arrives (offline, server
+unreachable) has no HTML to swap in, and a spinner left turning
+over a wait that has ended is the exact thing #156 is about. The
+JS unhides this and drops the line above it.
+{% endcomment %}
+<p class="ai-error ai-unavailable" hidden>{% include "projects/_summary_unavailable.html" with with_data_note=True %}</p>
 {% elif summary_empty_state %}
 <p class="ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</p>
 {% elif summary %}
@@ -75,7 +83,7 @@ this card has been called ever since.
 </ul>
 {% endif %}{% endfor %}
 {% else %}
-<p class="ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar. Deine Projekte und Aufgaben unten sind trotzdem aktuell.</p>
+<p class="ai-error">{% include "projects/_summary_unavailable.html" with with_data_note=True %}</p>
 {% endif %}
 {% comment %}
 #145: the one thing kontext is for — work that can be batched

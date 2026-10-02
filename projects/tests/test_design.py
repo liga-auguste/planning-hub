@@ -2824,3 +2824,65 @@ class RulesPageWearsThePublicPillTest(DemoModeTestCase):
             .split("@media (max-width: 560px) {", 1)
         )
         self.assertIn(".btn-add { align-self: stretch; }", mobile)
+
+
+class TheSummaryLoadingStateIsOneLookTest(DemoModeTestCase):
+    """#156: the KI-Wochenübersicht while it is being generated. Both pages
+    show it, so it is styled once — in dashboard.css, which both of them
+    already load, the same place the add row and the date styling moved to."""
+
+    CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+
+    def test_the_rules_live_in_the_shared_stylesheet(self):
+        css = self.CSS.read_text()
+        self.assertIn(".ai-loading {", css)
+        self.assertIn(".ai-loading-spinner {", css)
+
+    def test_neither_page_carries_them(self):
+        for name in ("dashboard.html", "my_plan.html"):
+            with self.subTest(template=name):
+                template = (
+                    Path(settings.BASE_DIR) / "projects/templates/projects" / name
+                ).read_text()
+                self.assertNotIn(".ai-loading {", template)
+                self.assertNotIn(".ai-loading-spinner {", template)
+
+    def test_the_spin_keyframes_moved_with_it(self):
+        """The Zeitreise spinner had them in dashboard.html's own block; the
+        card's spinner needs them on /mein-plan/ too, so they belong to the
+        file both pages load rather than to one of the pages."""
+        self.assertIn(
+            "@keyframes spin { to { transform: rotate(360deg); } }",
+            self.CSS.read_text(),
+        )
+        self.assertNotIn(
+            "@keyframes spin {",
+            (
+                Path(settings.BASE_DIR) / "projects/templates/projects/dashboard.html"
+            ).read_text(),
+        )
+
+    def test_the_animation_is_dropped_for_a_reader_who_asked_for_that(self):
+        css = self.CSS.read_text()
+        self.assertIn(
+            "@media (prefers-reduced-motion: reduce) { .ai-loading-spinner "
+            "{ animation: none; } }",
+            css,
+        )
+
+    def test_it_carries_no_pictographic_icon(self):
+        """The spinner is a bordered span, like the Zeitreise bar's — the
+        design language has no pictographic emoji in it (CLAUDE.md)."""
+        page = self.client.get(reverse("dashboard")).content.decode()
+        card = page[page.index('<div id="ai-summary"') :]
+        self.assertIn(
+            '<span class="ai-loading-spinner" aria-hidden="true"></span>', card
+        )
+
+    def test_the_card_announces_the_arrival_without_shouting(self):
+        """The content appears with no navigation, so the region is live —
+        "polite", because a summary is read out at the reader's next pause
+        rather than over whatever they are on."""
+        page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, 'aria-live="polite"')
+        self.assertContains(page, 'aria-busy="true"')

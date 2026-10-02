@@ -1,0 +1,13 @@
+{% comment %}
+What the KI-Wochenübersicht says when it could not be produced. Shared so
+the German wording exists once (#156) — the same reason _summary_empty.html
+is shared, and for one sentence more: this state now has two carriers, the
+fragment answer and the hidden element the loading state keeps for a request
+that never arrives at all.
+
+`with_data_note` is the dashboard's second sentence. There the page below the
+card is a full board of live project data, so saying it is still current is
+worth a clause; /mein-plan/ is one list the visitor is already looking at.
+That is the only difference between the two surfaces' wording, which is why
+it is a flag rather than a second partial.
+{% endcomment %}Die KI-Wochenübersicht ist gerade nicht verfügbar.{% if with_data_note %} Deine Projekte und Aufgaben unten sind trotzdem aktuell.{% endif %}

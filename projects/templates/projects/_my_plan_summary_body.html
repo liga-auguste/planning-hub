@@ -17,6 +17,10 @@ Not shared with the dashboard: the markup differs (.summary-box against
 {% if summary_pending %}
 <div class="summary-label">KI-Wochenübersicht</div>
 <div class="summary-box ai-loading"><span class="ai-loading-spinner" aria-hidden="true"></span>Deine Wochenübersicht wird erstellt …</div>
+{% comment %}
+The dashboard's hidden fallback, same reason — see _ai_summary_body.html.
+{% endcomment %}
+<div class="summary-box ai-error ai-unavailable" hidden>{% include "projects/_summary_unavailable.html" %}</div>
 {% elif summary_empty_state %}
 <div class="summary-label">KI-Wochenübersicht</div>
 <div class="summary-box ai-error">{% include "projects/_summary_empty.html" with state=summary_empty_state %}</div>
@@ -48,5 +52,5 @@ Not shared with the dashboard: the markup differs (.summary-box against
 </div>
 {% elif summary_error %}
 <div class="summary-label">KI-Wochenübersicht</div>
-<div class="summary-box ai-error">Die KI-Wochenübersicht ist gerade nicht verfügbar.</div>
+<div class="summary-box ai-error">{% include "projects/_summary_unavailable.html" %}</div>
 {% endif %}

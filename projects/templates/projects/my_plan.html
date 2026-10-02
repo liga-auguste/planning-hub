@@ -281,6 +281,54 @@ function applyDone(taskId, done, thisWeek = done) {
     });
 }
 
+// #156: the summary arrives on its own request now, and that request writes
+// the session — the same session the three writes on this page write. Django
+// saves the whole session dict per response, so a write that overlaps it
+// would be dropped by whichever response saves last (#235 found this on the
+// dashboard, where a queue serialises every such fetch). This page has
+// exactly one background request, so one promise is the same guarantee at the
+// size this page needs it: a write awaits it instead of racing it.
+let summaryRequest = null;
+
+function summarySettled() {
+    // Swallowed deliberately: a summary that could not be fetched is not a
+    // failed toggle, and letting its rejection out here would report one.
+    return summaryRequest ? summaryRequest.catch(() => {}) : Promise.resolve();
+}
+
+async function loadSummary() {
+    const card = document.getElementById('ai-summary');
+    const url = card && card.dataset.summaryUrl;
+    if (!url) return;
+    let response;
+    try {
+        summaryRequest = fetch(url, {method: 'POST', headers: {'X-CSRFToken': CSRF}});
+        response = await summaryRequest;
+    } catch {
+        response = null;
+    } finally {
+        summaryRequest = null;
+    }
+    card.removeAttribute('data-summary-url');
+    card.removeAttribute('aria-busy');
+    if (!response || !response.ok) {
+        // Same split as the dashboard: an AI failure comes back as the
+        // "nicht verfügbar" state with a 200, so this is a request that never
+        // arrived, and the fallback the template kept hidden says so.
+        card.querySelector('.ai-loading')?.remove();
+        card.querySelector('.ai-unavailable')?.removeAttribute('hidden');
+        return;
+    }
+    card.innerHTML = await response.text();
+    // The dots in there carry onclick="toggleTask(this)" — a global function,
+    // so injected markup calls it without being bound. Only the dates need
+    // the picker, scoped to the region that was just replaced: the load-time
+    // call above has no scope, so a second unscoped call would double-bind
+    // every row in "Alle Aufgaben" below.
+    bindTaskDatePickers(reschedule, {within: '#ai-summary'});
+}
+loadSummary();
+
 async function toggleTask(btn) {
     const taskId = btn.dataset.taskId;
     const currentDone = btn.dataset.done === 'true';
@@ -293,6 +341,7 @@ async function toggleTask(btn) {
     updateProgress();
     let response;
     try {
+        await summarySettled();
         response = await fetch(`/session-task/${taskId}/toggle/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
@@ -324,9 +373,10 @@ async function toggleTask(btn) {
 // page would have to patch by hand is one the server re-renders correctly
 // for free. The session-cached summary is remapped rather than regenerated
 // on a reschedule (views.py), so the reload costs no Claude call.
-bindTaskDatePickers(async (taskId, iso, dueEl) => {
+async function reschedule(taskId, iso, dueEl) {
     let response;
     try {
+        await summarySettled();
         response = await fetch(`/task/${taskId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
@@ -343,7 +393,8 @@ bindTaskDatePickers(async (taskId, iso, dueEl) => {
     }
     window.location.reload();
     return true;
-});
+}
+bindTaskDatePickers(reschedule);
 
 // #148: the same module the dashboard binds, and the same consequence —
 // the add busts every cached summary (add_task_view), so the reload is what

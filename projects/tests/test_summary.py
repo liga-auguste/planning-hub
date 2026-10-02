@@ -6,10 +6,12 @@ from datetime import (
     date,
     timedelta,
 )
+from pathlib import Path
 from unittest.mock import patch
 
 import anthropic
 import httpx
+from django.conf import settings
 from django.core.cache import cache
 from django.test import (
     SimpleTestCase,
@@ -1468,7 +1470,9 @@ class PagesDoNotWaitOnClaudeTest(DemoModeTestCase):
         response = self.dashboard_with_summary()
         self.assertContains(response, "Jetzt kritisch")
         self.assertNotContains(response, "wird erstellt")
-        self.assertNotContains(response, "data-summary-url")
+        # The attribute, not the bare name: the JS that reads it names it in
+        # a comment, and only the attribute means a request is owed.
+        self.assertNotContains(response, 'data-summary-url="')
 
     def test_my_plan_likewise_renders_a_cached_summary_inline(self):
         self.given_session_plan()
@@ -1480,7 +1484,7 @@ class PagesDoNotWaitOnClaudeTest(DemoModeTestCase):
         }
         response = self.my_plan_with_summary()
         self.assertContains(response, "Jetzt kritisch")
-        self.assertNotContains(response, "data-summary-url")
+        self.assertNotContains(response, 'data-summary-url="')
 
 
 @override_settings(DEMO_MODE=False)
@@ -1544,3 +1548,86 @@ class ProductionPageDoesNotWaitOnClaudeTest(SummaryFlowMixin, AiStubMixin, TestC
         self.assertEqual(
             cache.get(STALE_CACHE_KEY)[1], _summary_data("Letzte gute Übersicht")
         )
+
+
+class TheSummaryIsFetchedAndReboundTest(DemoModeTestCase):
+    """#156, client half. Every binding on the dashboard is direct rather
+    than delegated, so markup that arrives after load is inert until it is
+    bound again — a project heading that opens nothing, a checkbox whose form
+    submits as a GET, a date that is only text."""
+
+    def dashboard_js(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def my_plan_js(self):
+        self.given_session_plan()
+        return self.client.get(reverse("my_plan")).content.decode()
+
+    def test_the_card_is_fetched_from_the_url_it_carries(self):
+        js = self.dashboard_js()
+        self.assertIn("const url = card && card.dataset.summaryUrl;", js)
+        self.assertIn("if (!url) return;", js)
+        self.assertIn("loadSummary();", js)
+
+    def test_the_fetch_is_serialised_with_the_other_session_writes(self):
+        """Two overlapping session writes mean the later save drops the
+        earlier one's (#235). Priority because the visitor is watching the
+        spinner — the preloads registered 800 ms later queue behind it."""
+        js = self.dashboard_js()
+        self.assertIn("response = await withSessionLock(() => fetch(url, {", js)
+        self.assertIn("}), {priority: true});", js)
+
+    def test_everything_the_summary_carries_is_bound_again(self):
+        js = self.dashboard_js()
+        bind = js[js.index("function bindSummary(card) {") :]
+        self.assertIn("bindProjectLinks(card);", bind)
+        self.assertIn("bindToggleForms(card);", bind)
+        self.assertIn(
+            "bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});", bind
+        )
+
+    def test_a_request_that_never_arrives_stops_claiming_to_be_working(self):
+        js = self.dashboard_js()
+        self.assertIn("card.querySelector('.ai-loading')?.remove();", js)
+        self.assertIn(
+            "card.querySelector('.ai-unavailable')?.removeAttribute('hidden');", js
+        )
+        self.assertIn("card.removeAttribute('aria-busy');", js)
+
+    def test_the_fallback_is_rendered_hidden_rather_than_written_in_js(self):
+        """The German wording for this state exists once, in
+        _summary_unavailable.html — so the failure path unhides an element
+        instead of carrying a second copy of the sentence."""
+        page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, '<p class="ai-error ai-unavailable" hidden>')
+        self.assertContains(page, "Die KI-Wochenübersicht ist gerade nicht verfügbar.")
+
+    def test_my_plan_rebinds_only_the_region_that_was_replaced(self):
+        """Its load-time call has no scope, unlike the dashboard's — so a
+        second unscoped call would double-bind every row in "Alle Aufgaben"
+        below the summary."""
+        js = self.my_plan_js()
+        self.assertIn("bindTaskDatePickers(reschedule);", js)
+        self.assertIn("bindTaskDatePickers(reschedule, {within: '#ai-summary'});", js)
+
+    def test_my_plan_writes_wait_for_the_summary_request(self):
+        """The same guarantee the dashboard's queue gives, at the size this
+        page needs it: one background request, so one promise."""
+        js = self.my_plan_js()
+        self.assertIn("await summarySettled();", js)
+        self.assertIn(
+            "return summaryRequest ? summaryRequest.catch(() => {}) : Promise.resolve();",
+            js,
+        )
+        toggle = js[js.index("async function toggleTask(btn) {") :]
+        self.assertIn("await summarySettled();", toggle)
+
+    def test_the_summary_sentence_lives_in_one_template(self):
+        templates = Path(settings.BASE_DIR) / "projects/templates/projects"
+        carriers = sorted(
+            path.name
+            for path in templates.glob("*.html")
+            if "Die KI-Wochenübersicht ist gerade nicht verfügbar." in path.read_text()
+        )
+        self.assertEqual(carriers, ["_summary_unavailable.html"])

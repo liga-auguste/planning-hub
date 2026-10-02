@@ -1578,7 +1578,9 @@ bindTaskDatePickers(reschedule, {exclude: '.ai-card'});
 // viewing_demo_data is set, which is exactly the case #193 named — the demo
 // example projects are in no session, so reschedule_task_view answers 404
 // for them by design (#10 §5).
-bindTaskDatePickers(async (taskId, newDate, dueEl) => {
+// Named rather than inline since #156: the same consequence has to be bound
+// a second time after the fragment replaces the markup it was bound to.
+async function rescheduleFromSummary(taskId, newDate, dueEl) {
     const ok = await reschedulePersist(taskId, newDate);
     if (!ok) {
         flashActionFailed(dueEl);
@@ -1586,7 +1588,69 @@ bindTaskDatePickers(async (taskId, newDate, dueEl) => {
     }
     window.location.reload();
     return true;
-}, {within: '.ai-card'});
+}
+bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});
+
+// #156: everything the summary's own markup carries, bound against the region
+// it was just swapped into. Every binding on this page is direct rather than
+// delegated (see bindProjectLinks), so injected markup is inert until this
+// runs — a project heading that does not open its project, a checkbox whose
+// form submits as a GET, a date that is only text.
+//
+// bindTaskDatePickers takes no root: it queries globally and filters with
+// closest(within), which reaches exactly the new dates — the ones that were
+// in the card are gone with the swap, and the rows outside it are excluded by
+// the same selector the load-time call excludes them with.
+function bindSummary(card) {
+    bindProjectLinks(card);
+    bindToggleForms(card);
+    bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});
+}
+
+// The request the loading state exists for. data-summary-url is both the
+// address and the condition: the server renders it only alongside the loading
+// state, so a page that already has its summary starts nothing and this
+// function needs no second copy of that rule.
+//
+// Through withSessionLock with priority, like the Zeitreise click: in a demo
+// session this writes the session, and two overlapping session writes mean
+// the later save silently drops the earlier one's (#235). In production it
+// writes only the cache, where the queue costs nothing — one path rather than
+// a branch on which mode this is. Priority because the visitor is looking at
+// the spinner: the preloads registered 800 ms from now queue behind it.
+async function loadSummary() {
+    const card = document.getElementById('ai-summary');
+    const url = card && card.dataset.summaryUrl;
+    if (!url) return;
+    let response;
+    try {
+        response = await withSessionLock(() => fetch(url, {
+            method: 'POST',
+            headers: {'X-CSRFToken': CSRF},
+        }), {priority: true});
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — same handling as an error response (#159).
+        response = null;
+    }
+    // Dropped in both branches: this runs once, and the attribute is what
+    // says a request is still owed.
+    card.removeAttribute('data-summary-url');
+    card.removeAttribute('aria-busy');
+    if (!response || !response.ok) {
+        // No HTML to swap in. An AI failure is not this case — the endpoint
+        // answers that with the "nicht verfügbar" state itself, 200 and all —
+        // so what is left here is a request that never arrived. The fallback
+        // the template kept hidden says so, in the one place that wording
+        // lives.
+        card.querySelector('.ai-loading')?.remove();
+        card.querySelector('.ai-unavailable')?.removeAttribute('hidden');
+        return;
+    }
+    card.innerHTML = await response.text();
+    bindSummary(card);
+}
+loadSummary();
 
 // #148: the add row, one per project section. The module owns the whole
 // write, not just the asking — an add has one consequence everywhere, and
