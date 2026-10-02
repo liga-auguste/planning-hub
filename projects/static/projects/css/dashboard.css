@@ -352,6 +352,11 @@ button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); o
    already saved. Not `disabled` — disabling blurs the input, and blur is
    what swaps the display element back (task_date_picker.js). */
 .task-due-input.pending { opacity: 0.6; }
+/* #156: the toggle joined #198's pending look, because through the session
+   queue it can now wait on the summary request rather than only on Notion.
+   The same 0.6 as the other two writes — the dot keeps its urgency colour
+   and its hover, so what reads as "running" is the dimming alone. */
+.toggle-form.pending { opacity: 0.6; }
 /* #233: a write that did not land, reported on the control that was clicked.
    Here rather than once per surface's own extra_css block, so everything
    extending base_dashboard.html can report a failure — the close-out triage

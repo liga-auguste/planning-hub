@@ -1678,8 +1678,21 @@ class TheAddRowIsOneComponentTest(DemoModeTestCase):
 
     def test_the_module_holds_the_write(self):
         source = self.MODULE.read_text()
-        self.assertIn("function bindTaskAddRows(csrfToken)", source)
+        self.assertIn(
+            "function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {})",
+            source,
+        )
         self.assertIn("fetch('/task/add/'", source)
+
+    def test_the_write_goes_through_the_surface_s_own_serialisation(self):
+        """#156: an add writes the session, and so does the background request
+        that fetches the AI summary — Django saves the whole dict per
+        response, so two in flight mean the later save drops the earlier
+        one's. The two surfaces serialise differently, so the module takes the
+        wrapper rather than one of their implementations. The default runs the
+        fetch straight, for a surface with no background writer."""
+        source = self.MODULE.read_text()
+        self.assertIn("response = await serialize(() => fetch('/task/add/'", source)
 
     def test_no_template_holds_a_copy_of_it(self):
         # The uniqueness criterion as a test rather than as a review note:
@@ -1712,9 +1725,23 @@ class TheAddRowIsOneComponentTest(DemoModeTestCase):
         # The token is the one thing the two get differently — the dashboard
         # from the hidden input the page owns, /mein-plan/ from the template
         # variable — which is why it is the argument.
-        self.assertIn("bindTaskAddRows(CSRF);", self.dashboard_html())
+        self.assertIn("bindTaskAddRows(CSRF, {serialize:", self.dashboard_html())
         self.assertIn(
-            "bindTaskAddRows(CSRF);",
+            "bindTaskAddRows(CSRF, {serialize:",
+            self.client.get(reverse("my_plan")).content.decode(),
+        )
+
+    def test_each_surface_passes_the_serialisation_it_has(self):
+        """The dashboard has the #235 queue; /mein-plan/ has the one promise
+        its single background request needs. Same guarantee, two sizes — the
+        argument is what keeps the module out of that choice (#156)."""
+        self.assertIn(
+            "bindTaskAddRows(CSRF, {serialize: withSessionWriteLock});",
+            self.dashboard_html(),
+        )
+        self.assertIn(
+            "bindTaskAddRows(CSRF, {serialize: async fn => "
+            "{ await summarySettled(); return fn(); }});",
             self.client.get(reverse("my_plan")).content.decode(),
         )
 

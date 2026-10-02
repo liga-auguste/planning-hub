@@ -954,23 +954,43 @@ function bindToggleForms(root) {
         const taskId = form.dataset.taskId;
         const done = form.dataset.done !== 'true';
         const csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+        // #198's pending, which the toggle did without while it was the
+        // fastest write on the page: one Notion round trip, answered before
+        // anyone could wonder. Through the queue it can also *wait* — on the
+        // dashboard a plan was just created on, for the summary request
+        // holding the lock (#156). A dot that sits there doing nothing for
+        // two seconds is the thing that issue is about, one layer down, so
+        // the wait is visible here too. Set before the await, because the
+        // queue is half of what is being waited for.
+        const dot = form.querySelector('button');
+        form.classList.add('pending');
+        dot.setAttribute('aria-busy', 'true');
         let response;
         try {
-            response = await fetch(`/task/${taskId}/toggle/`, {
+            // withSessionWriteLock, like every other write here — it is
+            // defined with the queue further down, which is reached long
+            // before this handler can run (#156).
+            response = await withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                 body: JSON.stringify({done, week_start: browsedWeekStart()})
-            });
+            }));
         } catch {
             // A rejected fetch (offline, server unreachable) never reaches
             // the .ok check — same feedback as an error response (#159).
             response = null;
+        } finally {
+            // Both outcomes, and before the reload path below: an enabled
+            // dot is what the next state is read off, and a failed toggle
+            // has to be retryable.
+            form.classList.remove('pending');
+            dot.removeAttribute('aria-busy');
         }
         if (!response || !response.ok) {
             // Notion disagreed or the request never arrived — leave the
             // checkbox exactly as it was rather than claim a change that
             // didn't happen.
-            flashActionFailed(form.querySelector('button'));
+            flashActionFailed(dot);
             return;
         }
         const data = await response.json();
@@ -1259,6 +1279,41 @@ function promoteSessionTask(key) {
     if (index !== -1) priorityQueue.push(backgroundQueue.splice(index, 1)[0]);
 }
 
+// #156: the gate every write on this page goes through. The queue's docstring
+// above has always claimed "every session-writing fetch", and until now only
+// the Zeitreise fetches honoured it — the toggle, the reschedule, the rename,
+// the trash and the add all wrote the session outside it. That was survivable
+// while the only other writer was a preload starting 800 ms into a page that
+// had already finished loading. It is not survivable now: the summary request
+// starts at once and runs for seconds, and a write that lands inside it is
+// dropped by whichever response saves last. A toggle then answers 200, paints
+// the task done and rewrites the counters for a write that is gone by the next
+// load.
+//
+// Conditional rather than unconditional, because the cost is real. The
+// fragment writes the *session* only in a demo session; production and the
+// example catalog write the cache instead, and serialising there would make a
+// click wait out a 6–7 s Sonnet call for a race that cannot happen — the
+// opposite of what this issue is for. Which is also why it is exactly
+// has_session_plan: that is the one state in which /summary/,
+// /timelapse/moments/, /timelapse/preload/ and the five write endpoints all
+// touch the same session dict. Production's stale-card case is handled where
+// it actually lands, in syncSummaryToBoard.
+//
+// Per document, which is the limit of what a client-side queue can be: two
+// tabs on one demo session still overlap. Closing that needs the write to
+// move to the server side of the session — recorded in ANALYSEN.md rather
+// than attempted here, because it is a different decision from #235's.
+//
+// Priority, like the Zeitreise click: a write is the one thing on screen the
+// visitor is waiting for, so it takes the next free slot and the preloads
+// keep the ones behind it.
+const SESSION_WRITES = {{ has_session_plan|yesno:"true,false" }};
+
+function withSessionWriteLock(fn) {
+    return SESSION_WRITES ? withSessionLock(fn, {priority: true}) : fn();
+}
+
 // A click drops the preloads that have not started rather than deferring
 // them: the reload throws this page away regardless, preloadAll() starts
 // over 800 ms later, and precached_moments (views.py) keeps the preloads
@@ -1447,10 +1502,12 @@ async function loadTimelapseMoments() {
     buildTimelapseBar(moments);
 }
 
+// The moments this render already carries need no request, so they are built
+// here. The ones that have to be asked for are started further down, next to
+// loadSummary() — the order the two are registered in decides which one the
+// visitor waits for, so they belong side by side rather than 240 lines apart.
 if (TIMELAPSE_MOMENTS.length > 0) {
     buildTimelapseBar(TIMELAPSE_MOMENTS);
-} else if (TIMELAPSE_PENDING) {
-    loadTimelapseMoments();
 }
 
 // Every stage _annotate_tasks (views.py) can put on a task, minus `done`,
@@ -1520,11 +1577,11 @@ async function reschedulePersist(taskId, newDate) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/reschedule/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({date: newDate, week_start: browsedWeekStart()})
-        });
+        }));
     } catch {
         // A rejected fetch (offline, server unreachable) would otherwise
         // throw into the input's change handler and leave the date picker
@@ -1646,6 +1703,33 @@ function bindSummary(card) {
     bindTaskDatePickers(rescheduleFromSummary, {within: '.ai-card'});
 }
 
+// #156: the fragment is resolved against the projects as they stood when its
+// request opened, so a write that lands during the Claude call arrives inside
+// the card undone — and nothing re-renders the card afterwards, so the
+// disagreement outlives the request rather than flickering.
+//
+// A demo session cannot reach this from the tab it is looking at: every write
+// there goes through the queue (withSessionWriteLock). Production is
+// where it is live — the writes are not queued there, because the fragment
+// touches only the cache and making a toggle wait out a 6–7 s Sonnet call
+// would undo what this issue is for. So the reconciliation happens here
+// instead, once, against the one copy that was confirmed by a server answer:
+// the board below, which applyTaskDone already patched.
+//
+// Only a difference is written, and a difference can only have come from a
+// write inside that window — so `done` carries today's date and
+// applyTaskDone's done-this-week tautology (#211 part 2) holds here too.
+function syncSummaryToBoard(card) {
+    card.querySelectorAll('.toggle-form[data-task-id]').forEach(form => {
+        const taskId = form.dataset.taskId;
+        const confirmed = Array.from(
+            document.querySelectorAll(`.toggle-form[data-task-id="${taskId}"]`)
+        ).find(other => !card.contains(other));
+        if (!confirmed || confirmed.dataset.done === form.dataset.done) return;
+        applyTaskDone(taskId, confirmed.dataset.done === 'true');
+    });
+}
+
 // The request the loading state exists for. data-summary-url is both the
 // address and the condition: the server renders it only alongside the loading
 // state, so a page that already has its summary starts nothing and this
@@ -1655,8 +1739,14 @@ function bindSummary(card) {
 // session this writes the session, and two overlapping session writes mean
 // the later save silently drops the earlier one's (#235). In production it
 // writes only the cache, where the queue costs nothing — one path rather than
-// a branch on which mode this is. Priority because the visitor is looking at
-// the spinner: the preloads registered 800 ms from now queue behind it.
+// a branch on which mode this is.
+//
+// Priority buys the slot ahead of everything *queued*, not ahead of whatever
+// is already running — a running task is never preempted, by design. So this
+// has to be registered before the other request a fresh plan's dashboard
+// starts, which is why loadTimelapseMoments() sits below the call rather than
+// beside buildTimelapseBar above: registered first, its Haiku call would hold
+// the lock and the visitor would watch the spinner through both.
 async function loadSummary() {
     const card = document.getElementById('ai-summary');
     const url = card && card.dataset.summaryUrl;
@@ -1688,8 +1778,20 @@ async function loadSummary() {
     }
     card.innerHTML = await response.text();
     bindSummary(card);
+    syncSummaryToBoard(card);
 }
 loadSummary();
+
+// Registered after loadSummary, and that order is the point: both run on the
+// dashboard a plan was just created on, the queue starts whichever was
+// registered first, and a running task is never preempted — so this one going
+// first would make the spinner wait out a Haiku call nothing is waiting for
+// (#156). Background rather than priority for the same reason: nothing is on
+// screen waiting for the Zeitreise bar, and the summary above it is what the
+// visitor is reading.
+if (TIMELAPSE_PENDING && TIMELAPSE_MOMENTS.length === 0) {
+    loadTimelapseMoments();
+}
 
 // #148: the add row, one per project section. The module owns the whole
 // write, not just the asking — an add has one consequence everywhere, and
@@ -1700,7 +1802,11 @@ loadSummary();
 // No gate of its own: _task_add_row.html renders nothing under
 // viewing_demo_data or under a moment, which are exactly the two cases
 // add_task_view answers 404 for.
-bindTaskAddRows(CSRF);
+//
+// Serialised through the same lock as every other write on this page (#156).
+// The add is the one of them that is not written here, which is why the
+// module had to take the wrapper rather than reach for it.
+bindTaskAddRows(CSRF, {serialize: withSessionWriteLock});
 
 // #239: the row's actions menu. It adds no endpoint of its own — every
 // item drives a control the row already had, so there is exactly one
@@ -1802,11 +1908,11 @@ async function trashTask(taskId, trigger) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/trash/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/trash/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({})
-        });
+        }));
     } catch {
         response = null;
     }
@@ -1873,11 +1979,11 @@ async function commitRename(taskId, name, nameSpan) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
     try {
-        response = await fetch(`/task/${taskId}/rename/`, {
+        response = await withSessionWriteLock(() => fetch(`/task/${taskId}/rename/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
             body: JSON.stringify({name})
-        });
+        }));
     } catch {
         // A rejected fetch (offline, server unreachable) never reaches the
         // .ok check — same feedback as an error response (#159).
@@ -1983,11 +2089,11 @@ document.querySelectorAll('.day-column-body').forEach(column => {
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             let response;
             try {
-                response = await fetch(`/task/${taskId}/reschedule/`, {
+                response = await withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
                     body: JSON.stringify({date: newDate})
-                });
+                }));
             } catch {
                 response = null;
             }

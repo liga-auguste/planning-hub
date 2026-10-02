@@ -401,7 +401,12 @@ bindTaskDatePickers(reschedule);
 // re-renders the list, the counter, the bar and the summary box together.
 // The token is the argument because it is the one thing the two surfaces
 // genuinely get differently.
-bindTaskAddRows(CSRF);
+//
+// #156: and `serialize`, for the reason the toggle and the reschedule above
+// await summarySettled() — an add that overlaps the summary request is
+// dropped by whichever response saves last, so the task this row answered
+// 200 for would be gone from the plan the reload renders.
+bindTaskAddRows(CSRF, {serialize: async fn => { await summarySettled(); return fn(); }});
 
 function updateProgress() {
     const doneCount = document.querySelectorAll('.task-row.done').length;

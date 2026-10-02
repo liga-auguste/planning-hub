@@ -2,6 +2,7 @@
 and the caches in front of it."""
 
 import json
+import re
 from datetime import (
     date,
     timedelta,
@@ -1572,8 +1573,9 @@ class TheSummaryIsFetchedAndReboundTest(DemoModeTestCase):
 
     def test_the_fetch_is_serialised_with_the_other_session_writes(self):
         """Two overlapping session writes mean the later save drops the
-        earlier one's (#235). Priority because the visitor is watching the
-        spinner — the preloads registered 800 ms later queue behind it."""
+        earlier one's (#235). Priority buys the next free slot, not the one a
+        task is already in — see NoWriteOverlapsTheSummaryRequestTest for the
+        registration order that makes the flag mean anything."""
         js = self.dashboard_js()
         self.assertIn("response = await withSessionLock(() => fetch(url, {", js)
         self.assertIn("}), {priority: true});", js)
@@ -1620,8 +1622,17 @@ class TheSummaryIsFetchedAndReboundTest(DemoModeTestCase):
             "return summaryRequest ? summaryRequest.catch(() => {}) : Promise.resolve();",
             js,
         )
-        toggle = js[js.index("async function toggleTask(btn) {") :]
-        self.assertIn("await summarySettled();", toggle)
+        for write in ("async function toggleTask(btn) {", "async function reschedule("):
+            with self.subTest(write=write):
+                body = js[js.index(write) :]
+                self.assertLess(
+                    body.index("await summarySettled();"), body.index("await fetch(")
+                )
+        # The add row's fetch lives in js/task_add_row.js, so it takes the
+        # gate as an argument instead — see TheAddRowIsOneComponentTest.
+        self.assertIn(
+            "serialize: async fn => { await summarySettled(); return fn(); }", js
+        )
 
     def test_the_summary_sentence_lives_in_one_template(self):
         templates = Path(settings.BASE_DIR) / "projects/templates/projects"
@@ -1631,3 +1642,175 @@ class TheSummaryIsFetchedAndReboundTest(DemoModeTestCase):
             if "Die KI-Wochenübersicht ist gerade nicht verfügbar." in path.read_text()
         )
         self.assertEqual(carriers, ["_summary_unavailable.html"])
+
+
+class NoWriteOverlapsTheSummaryRequestTest(DemoModeTestCase):
+    """#156 review follow-up. The summary request writes the session and runs
+    for seconds, and Django saves the whole session dict per response — so a
+    write that lands inside that window is dropped by whichever response
+    saves last. Reproduced before the fix: `/task/<id>/toggle/` answered 200,
+    the stored session held done=True, and after summary_fragment() saved its
+    own snapshot the task was open again — with the dot already struck
+    through and the counters already rewritten by a 200 nobody could tell was
+    gone.
+
+    The queue (#235) is what this project answers that with, and its own
+    docstring has always claimed "every session-writing fetch". Until now
+    only the two Zeitreise fetches honoured it. These tests are the claim.
+    """
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    # The write endpoints the dashboard drives, and the shape each one is
+    # expected in. Every one of them writes request.session["demo_plan"] in a
+    # demo session (views.py).
+    WRITES = (
+        "withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`",
+        "withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`",
+        "withSessionWriteLock(() => fetch(`/task/${taskId}/trash/`",
+        "withSessionWriteLock(() => fetch(`/task/${taskId}/rename/`",
+    )
+
+    def dashboard_js(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_every_write_the_dashboard_drives_goes_through_the_lock(self):
+        source = (self.TEMPLATES / "dashboard.html").read_text()
+        for write in self.WRITES:
+            with self.subTest(write=write):
+                self.assertIn(write, source)
+
+    def test_the_reschedule_is_locked_on_both_of_its_routes(self):
+        """The date picker's and the day-column drag's — one endpoint, two
+        call sites, and a lock on only one of them is no lock."""
+        source = (self.TEMPLATES / "dashboard.html").read_text()
+        self.assertEqual(
+            source.count(
+                "withSessionWriteLock(() => fetch(`/task/${taskId}/reschedule/`"
+            ),
+            2,
+        )
+
+    def test_no_write_endpoint_is_fetched_outside_the_lock(self):
+        """The completeness half, so the next write added to this page cannot
+        quietly skip the lock: every `/task/…/` fetch in the template is
+        matched against the list above rather than counted."""
+        source = (self.TEMPLATES / "dashboard.html").read_text()
+        fetches = re.findall(
+            r"^(.*)fetch\(`(/(?:task|session-task)/[^`]*)`", source, re.MULTILINE
+        )
+        self.assertNotEqual(fetches, [], "the write fetches moved — retake this list")
+        for before, path in fetches:
+            with self.subTest(path=path):
+                self.assertIn("withSessionWriteLock", before)
+
+    def test_the_lock_is_the_queue_only_where_the_session_is_what_is_written(self):
+        """A demo session is the one state in which the fragment, the two
+        Zeitreise endpoints and the five writes all touch the same session
+        dict. The example catalog's fragment writes the day cache instead,
+        and serialising a click behind a 6–7 s Sonnet call there would undo
+        what this issue is for."""
+        self.assertIn("const SESSION_WRITES = true;", self.dashboard_js())
+        self.given_timelapse_moments()
+        catalog = self.client.get(reverse("dashboard") + "?mode=multi")
+        self.assertIn("const SESSION_WRITES = false;", catalog.content.decode())
+
+    def test_the_summary_is_registered_before_the_moments(self):
+        """Both fire on the dashboard a plan was just created on. The queue
+        runs whichever was registered first and never preempts a running
+        task, so registering the Haiku call first made the visitor watch the
+        spinner through both calls — ~5 s rather than ~2.3 s — and the
+        summary's own `priority: true` could not help, because priority is
+        about the queue and not about the slot in use."""
+        js = self.dashboard_js()
+        self.assertLess(js.index("loadSummary();"), js.index("loadTimelapseMoments();"))
+
+    def test_the_moments_request_is_still_made(self):
+        """Moving the call must not lose it: a fresh plan's dashboard is the
+        only page that asks for its moments at all."""
+        js = self.dashboard_js()
+        self.assertIn("if (TIMELAPSE_PENDING && TIMELAPSE_MOMENTS.length === 0) {", js)
+        self.assertIn("    loadTimelapseMoments();", js)
+
+    def test_moments_this_render_already_carries_need_no_request(self):
+        js = self.dashboard_js()
+        self.assertIn("if (TIMELAPSE_MOMENTS.length > 0) {", js)
+        self.assertIn("    buildTimelapseBar(TIMELAPSE_MOMENTS);", js)
+
+    def test_a_toggle_that_waits_for_the_lock_says_so(self):
+        """The queue means a write can wait, not only run — on the dashboard a
+        plan was just created on, for the summary holding the lock. A dot that
+        sits there doing nothing for two seconds is what #156 is about, one
+        layer down, so the toggle joined #198's pending look. Set before the
+        await, because the queue is half of what is waited for."""
+        js = self.dashboard_js()
+        handler = js[js.index("function bindToggleForms(root) {") :]
+        pending = handler.index("form.classList.add('pending');")
+        self.assertLess(pending, handler.index("await withSessionWriteLock"))
+        self.assertIn("dot.setAttribute('aria-busy', 'true');", handler)
+
+    def test_the_pending_dot_is_released_whatever_the_answer_is(self):
+        """A failed toggle has to be retryable, and applyTaskDone reads the
+        next state off the dot — so it comes back on both paths."""
+        js = self.dashboard_js()
+        handler = js[js.index("function bindToggleForms(root) {") :]
+        released = handler[handler.index("} finally {") :]
+        self.assertIn("form.classList.remove('pending');", released)
+        self.assertIn("dot.removeAttribute('aria-busy');", released)
+        self.assertLess(
+            handler.index("} finally {"),
+            handler.index("if (!response || !response.ok)"),
+        )
+
+    def test_the_pending_look_is_the_one_the_other_writes_use(self):
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".toggle-form.pending { opacity: 0.6; }", css)
+        self.assertIn(".task-due-input.pending { opacity: 0.6; }", css)
+        self.assertNotIn("toggle-form.pending", self.dashboard_js())
+
+
+class TheSummaryCardIsReconciledWithTheBoardTest(DemoModeTestCase):
+    """#156 review follow-up. The fragment is resolved against the projects as
+    they stood when its request opened, and nothing re-renders the card
+    afterwards — so a write that landed during the call left the card showing
+    that task open while the board below it was struck through, for the rest
+    of the page's life rather than for a moment.
+
+    A demo session cannot reach it any more (every write is queued). Production
+    can, deliberately: there the fragment writes only the cache, so a click
+    waiting out a 6–7 s Sonnet call would be a worse trade than a card that
+    corrects itself on arrival."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+
+    def dashboard_js(self):
+        self.given_session_plan()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_the_card_is_reconciled_after_the_swap(self):
+        js = self.dashboard_js()
+        swap = js[js.index("card.innerHTML = await response.text();") :]
+        self.assertIn("bindSummary(card);", swap)
+        self.assertIn("syncSummaryToBoard(card);", swap)
+
+    def test_the_board_is_the_authority_not_the_card(self):
+        """Every state the board shows was confirmed by a server answer and
+        applied by applyTaskDone; the card's came out of a snapshot."""
+        js = self.dashboard_js()
+        sync = js[js.index("function syncSummaryToBoard(card) {") :]
+        self.assertIn(".find(other => !card.contains(other));", sync)
+        self.assertIn("applyTaskDone(taskId, confirmed.dataset.done === 'true');", sync)
+
+    def test_only_a_difference_is_written(self):
+        """Which is also what keeps applyTaskDone's done-this-week tautology
+        (#211 part 2) true here: a difference can only have come from a write
+        inside that window, so `done` means today."""
+        js = self.dashboard_js()
+        sync = js[js.index("function syncSummaryToBoard(card) {") :]
+        self.assertIn(
+            "if (!confirmed || confirmed.dataset.done === form.dataset.done) return;",
+            sync,
+        )

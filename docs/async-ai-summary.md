@@ -109,17 +109,60 @@ elements. On `/mein-plan/` the load-time call has *no* scope, so its rebind is s
 
 Django saves the whole session dict per response, so two overlapping session-writing
 requests mean the later save silently drops the earlier one's write
-([#235](https://github.com/liga-auguste/planning-hub/issues/235)). The dashboard already
-serialises every such `fetch` through `withSessionLock`; the summary request joins it
-with `priority: true` (the visitor is watching the spinner) and the moments request in
-the background half (nothing on screen is waiting for the Zeitreise bar).
+([#235](https://github.com/liga-auguste/planning-hub/issues/235)). The summary request
+joins `withSessionLock` with `priority: true`; the moments request joins its background
+half, because nothing on screen is waiting for the Zeitreise bar.
 
-In production neither writes the session, only the cache — the queue costs nothing
-there, and one path is better than a branch on the mode.
+**The queue had to be completed for that to be enough.** Its docstring has always said
+"every session-writing fetch", and until this issue only the two Zeitreise fetches
+honoured it: the toggle, the reschedule (both routes), the rename, the trash and the add
+all wrote `request.session["demo_plan"]` outside it. That was survivable while the only
+other writer was a preload starting 800 ms into a page that had already finished
+loading. It stopped being survivable the moment the summary request started at once and
+ran for seconds — a toggle inside that window answered 200, painted the dot done and
+rewrote the counters for a write the summary's own save then threw away. All six now go
+through `withSessionWriteLock`.
 
-`/mein-plan/` has no such queue and needs none: it has exactly one background request,
-so one promise is the same guarantee at the size this page needs it. Its toggle and its
-reschedule `await summarySettled()` before writing.
+**And only where the session is what gets written.** `withSessionWriteLock` is the queue
+in a demo session and a bare call everywhere else. Production and the example catalog
+write the *cache*, so a race cannot happen there — and serialising a click behind a
+6–7 s Sonnet call to prevent it would undo exactly what this issue is for. The condition
+is `has_session_plan`, which is the one state in which `summary/`, `timelapse/moments/`,
+`timelapse/preload/` and the six writes all touch the same session dict.
+
+**Registration order is load-bearing.** `priority` buys the next free slot, not the one
+a task is already in — a running task is never preempted, by design, because aborting
+client-side does not stop Django from saving its snapshot. So on the dashboard a plan was
+just created on, where both background requests fire, `loadSummary()` has to be
+registered *before* `loadTimelapseMoments()`. Registered the other way round the spinner
+waited out the Haiku call first (~5 s instead of ~2.3 s) and the priority flag could not
+help.
+
+**A write can now wait, not only run.** Up to the length of one summary call, on the one
+page load that has a summary pending. So the toggle joined `#198`'s `pending` look —
+`.toggle-form.pending` dims the dot while the write is queued or in flight. A dot that
+sits there doing nothing for two seconds is the thing this issue is about, one layer
+down.
+
+`/mein-plan/` needs no queue: it has exactly one background request, so one promise is
+the same guarantee at the size this page needs it. Its toggle, its reschedule and its
+add row all `await summarySettled()` before writing — the add row through
+`bindTaskAddRows`' `serialize` argument, since that module owns the whole fetch and the
+two surfaces serialise differently.
+
+## The summary card can arrive older than the board
+
+The fragment is resolved against the projects as they stood when its request opened, and
+nothing re-renders the card afterwards — so in production, where the writes are
+deliberately *not* queued, a toggle that lands during the call left the card showing that
+task open while the board below it was struck through, for the rest of the page's life.
+
+`syncSummaryToBoard` reconciles it once, right after the swap: for every task the card
+carries, the board's copy is the authority, because every state the board shows was
+confirmed by a server answer and applied by `applyTaskDone`. Only a difference is
+written — and a difference can only have come from a write inside that window, which is
+what keeps `applyTaskDone`'s `done-this-week` tautology
+([#211](https://github.com/liga-auguste/planning-hub/issues/211) part 2) true here too.
 
 ## The moments
 
@@ -267,16 +310,12 @@ would flake and get raised until it meant nothing.
   it in the same pass would spoil this change's own before/after measurement. Same
   separation PR #276 drew for the model id.
 
-## Two residual risks
+## The residual risk
 
-- **The fragment and the page can disagree.** The fragment is rendered from the projects
-  live at fetch time; the task lists on the page come from page load. A toggle in between
-  leaves the summary on the new state and the list below it on the old one until the
-  next reload. The window is small, and it did not exist before — both used to come out
-  of one request.
-- **`/mein-plan/`'s add row.** Its write lives inside `js/task_add_row.js`, which owns
-  the whole fetch, so it cannot `await summarySettled()` the way the toggle and the
-  reschedule do. An add in the first seconds after load can therefore still lose the
-  race. The same window has existed on the dashboard since the preloader was written —
-  its toggle does not go through `withSessionLock` either — so this is a known shape
-  rather than a new one. Recorded in `ANALYSEN.md`.
+- **The serialisation is per tab.** Both guarantees — the dashboard's queue and
+  `/mein-plan/`'s promise — live in one document, so two tabs on the same demo session
+  can still overlap a write with a summary request and lose it. Closing that needs the
+  write to happen on the server side of the session, not on the client's: re-reading the
+  stored session after the Claude call and writing only the one key, rather than letting
+  the request save the snapshot it opened with. That is a different decision from #235's
+  and belongs in its own issue. Recorded in `ANALYSEN.md`.
