@@ -339,10 +339,14 @@ class PlanDateFilterTest(SimpleTestCase):
 
 
 class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
-    """#238: the abbreviated month is the task row's alone. Every other date
+    """#238: the abbreviated month belongs to the task list. Every other date
     surface keeps the spelled-out "long" form, and the only way that can
     drift is a template picking up the new role by copy-paste — so the
-    surfaces are counted against the templates themselves."""
+    surfaces are counted against the templates themselves.
+
+    Two templates since #279, both of them the list: the row and the add row
+    that closes it. A row asking for the same kind of value in a different
+    shape from the rows above it was the defect that issue was about."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
 
@@ -355,13 +359,16 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         lives in its own file now so the fragment endpoint can render it."""
         return self.read(name) + self.read(summary_partial)
 
-    def test_the_task_row_is_the_only_template_on_the_row_role(self):
+    def test_the_row_role_reaches_the_task_row_and_the_add_row_only(self):
+        # #279 added the second: the add row asks for the same kind of value
+        # the rows above it show, so it spells it the same way. Everything
+        # else on the page still keeps the "long" form.
         on_row_role = sorted(
             path.name
             for path in self.TEMPLATES.glob("*.html")
             if 'plan_date:"row"' in path.read_text()
         )
-        self.assertEqual(on_row_role, ["_task_row.html"])
+        self.assertEqual(on_row_role, ["_task_add_row.html", "_task_row.html"])
 
     def test_the_kanban_board_still_spells_the_month_out(self):
         # It has the width, and #238 stage 4 is about the row only.

@@ -58,6 +58,13 @@ _ROLE_FORMATTERS = {
     # role names its surface rather than its format. No trailing period on
     # the abbreviation — MONTHS_SHORT carries none and format_week_range has
     # read fine without one since it was written.
+    #
+    # The one role with a mirror in the client: task_add_row.js composes the
+    # same shape for the add row's date, because a pick there writes nothing
+    # and so has no server response to read a new label off (#279). The names
+    # still come from the tables above, rendered into the partial by
+    # planner_tags.date_names — so #192 changes this line and that literal,
+    # and a test pins the two against each other.
     "row": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_SHORT[d.month]}",
     # #214: the empty-summary note, where the date sits inside a sentence
     # ("Die nächste Aufgabe ist am 23. Dezember."). Not "long": the weekday

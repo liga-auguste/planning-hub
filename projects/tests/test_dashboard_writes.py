@@ -21,9 +21,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..ai import AIUnavailableError
-from ..date_format import format_date
+from ..date_format import (
+    MONTHS_SHORT,
+    WEEKDAYS_SHORT,
+    format_date,
+)
 from ..dates import iso_week_bounds
 from ..notion import NotionUnavailableError
+from ..templatetags.planner_tags import date_names
 from ..views import (
     _URGENCY_RANK,
     CACHE_DEADLINE_KEY,
@@ -767,8 +772,13 @@ class RescheduleReclassifiesTheWholeRowTest(DemoModeTestCase):
         self.assertIn("rowSelector = '.task-row'", picker)
         # The module hands both to the callback, which is what makes the
         # reading survive the swap regardless of which surface reacts to it.
+        # #279: the swap itself moved into openTaskDatePicker(), so it is the
+        # binding that closes over the row and the id. The reading is
+        # unchanged and still happens before the swap.
         self.assertIn(
-            "await onPick(dueEl.dataset.taskId, input.value, dueEl, row);", picker
+            "openTaskDatePicker(dueEl, iso => "
+            "onPick(dueEl.dataset.taskId, iso, dueEl, row));",
+            picker,
         )
         # #239 moved the second call site into the actions menu, which reads
         # the row off the clicked item rather than off a button in the row.
@@ -1772,6 +1782,263 @@ class TheAddRowIsOneComponentTest(DemoModeTestCase):
         self.assertIn("if (row.classList.contains('pending')) return;", source)
 
 
+class TheAddRowOpensOnTodayTest(DemoModeTestCase):
+    """#279: the row's date field was a bare <input type="date">. Empty, it
+    paints the browser's own format hint in the field's own grey, which beside
+    a placeholder-grey name field reads as a value that is already there — and
+    is not: the module refused the empty date before the fetch, so typing a
+    name and pressing Enter flashed a failure on the one field the eye had
+    ticked off.
+
+    Today rather than nothing, because that is the common case: a task typed
+    into a plan that is open right now is due today or within a few days.
+    Safe here only because the partial renders nothing under a Zeitreise
+    moment — so "today" can never be read against a simulated date and
+    #217's rule is inherited rather than restated."""
+
+    def surfaces(self):
+        self.given_session_plan()
+        return {
+            "dashboard": self.client.get(reverse("dashboard")).content.decode(),
+            "my_plan": self.client.get(reverse("my_plan")).content.decode(),
+        }
+
+    def add_row(self, html):
+        start = html.index('class="task-add-row"')
+        return html[start : html.index("</div>", start)]
+
+    def test_both_surfaces_render_today_as_the_value(self):
+        today = timezone.localdate()
+        for surface, html in self.surfaces().items():
+            with self.subTest(surface=surface):
+                self.assertIn(
+                    f'data-raw-date="{today.isoformat()}"', self.add_row(html)
+                )
+
+    def test_the_label_is_the_same_form_the_rows_above_it_use(self):
+        # #238's "row" role, not the browser's 10.12.2026 — the defect was a
+        # row asking for the same kind of value in a shape the app shows
+        # nowhere else.
+        label = format_date(timezone.localdate(), role="row")
+        for surface, html in self.surfaces().items():
+            with self.subTest(surface=surface):
+                row = self.add_row(html)
+                self.assertIn(f">{label}</button>", row)
+                self.assertIn(f'aria-label="Fällig am, aktuell {label}"', row)
+
+    def test_the_date_carries_no_urgency_stage(self):
+        # Urgency is a property of a task, and there is none yet. Painting one
+        # would also mean re-deriving _classify_due_urgency in the client on
+        # every pick, which #198 settled the other way.
+        for surface, html in self.surfaces().items():
+            with self.subTest(surface=surface):
+                self.assertIn(
+                    '<button type="button" class="task-due task-add-date"',
+                    self.add_row(html),
+                )
+
+    def test_the_date_carries_no_task_id(self):
+        # Asserted rather than assumed: data-task-id is the contract
+        # bindTaskDatePickers() binds on, and both surfaces call it. A row
+        # that grew one would be claimed by those calls and hand an undefined
+        # id to a reschedule.
+        for surface, html in self.surfaces().items():
+            with self.subTest(surface=surface):
+                row = self.add_row(html)
+                self.assertIn("task-add-date", row)
+                self.assertNotIn("data-task-id", row)
+
+    def test_an_untouched_row_creates_a_task_due_today(self):
+        # The whole point of the preselection, end to end: what the server
+        # rendered is what the endpoint accepts.
+        html = self.surfaces()["dashboard"]
+        raw = re.search(
+            r'class="task-due task-add-date" data-raw-date="([^"]+)"',
+            self.add_row(html),
+        )
+        self.assertIsNotNone(raw)
+        self.client.post(
+            reverse("add_task"),
+            data=json.dumps(
+                {
+                    "project_id": "session-plan",
+                    "name": "Noten kopieren",
+                    "date": raw.group(1),
+                }
+            ),
+            content_type="application/json",
+        )
+        added = [
+            task
+            for task in self.client.session["demo_plan"]["tasks"]
+            if task["name"] == "Noten kopieren"
+        ]
+        self.assertEqual(len(added), 1)
+        self.assertEqual(added[0]["date"], timezone.localdate().isoformat())
+
+
+class TheAddRowReusesThePickerTest(DemoModeTestCase):
+    """#279: the add row asks for a date the way every other surface does, by
+    calling task_date_picker.js rather than by growing a second swap.
+
+    It cannot be *bound* by bindTaskDatePickers() — that function's contract
+    is a task id and there is no task yet — so the swap became an entry point
+    of its own, openTaskDatePicker(), and the binding above it delegates. The
+    alternative, a smaller copy of the swap inside this module, is what every
+    assertion here exists to keep out: the keyboard handling, the focus
+    restoration and the modality tracking are the three things #200 and #257
+    took two attempts each to get right."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    PICKER = Path(settings.BASE_DIR) / "projects/static/projects/js/task_date_picker.js"
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
+
+    def test_the_swap_is_an_entry_point_of_its_own(self):
+        self.assertIn(
+            "function openTaskDatePicker(displayEl, onPick) {", self.PICKER.read_text()
+        )
+
+    def test_the_task_id_binding_delegates_to_it(self):
+        # One swap, two ways in — not two swaps. The binding's own job is
+        # reduced to reading the row and closing over the id.
+        picker = self.PICKER.read_text()
+        self.assertIn(
+            "openTaskDatePicker(dueEl, iso => "
+            "onPick(dueEl.dataset.taskId, iso, dueEl, row));",
+            picker,
+        )
+        self.assertEqual(picker.count("input.showPicker();"), 1)
+        self.assertEqual(picker.count("document.createElement('input')"), 1)
+
+    def test_the_add_row_calls_it_rather_than_repeating_it(self):
+        source = self.MODULE.read_text()
+        self.assertIn("openTaskDatePicker(dateEl, picked => {", source)
+        for copied in (
+            "createElement('input')",
+            "showPicker()",
+            "replaceWith(",
+            "lastInputWasKeyboard",
+        ):
+            with self.subTest(copied=copied):
+                self.assertNotIn(copied, source)
+
+    def test_the_picker_is_loaded_before_the_module_that_calls_it(self):
+        # True before #279 too, by the order the two scripts happened to be
+        # listed in. It is load-bearing now, so it gets asserted: both are
+        # plain scripts, so task_add_row.js's call site is resolved at call
+        # time, but a reversed order would still be a reader's trap.
+        base = (self.TEMPLATES / "base_dashboard.html").read_text()
+        self.assertLess(
+            base.index("task_date_picker.js"), base.index("task_add_row.js")
+        )
+
+
+class TheAddRowsLabelMirrorsTheRowRoleTest(DemoModeTestCase):
+    """#279: the one place a date format is composed twice, and the reason it
+    is allowed to be.
+
+    Every other surface gets its new label from the write's own response —
+    the dashboard's reschedule() reads due_display_row off it. A pick in the
+    add row writes nothing, so there is no response to read and the label has
+    to be composed in the client. What #198 declined was the larger half of
+    that: painting a rescheduled row's *stage*, which meant re-deriving
+    #169's calendar-week urgency rule in JavaScript. There is no urgency
+    here, and the names still come from date_format.py — rendered into the
+    partial by planner_tags.date_names, so #192 finds both halves."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
+    LITERAL = re.compile(r"return `([^`]+)`;")
+
+    def test_the_names_are_rendered_from_the_server(self):
+        self.given_session_plan()
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn('data-weekdays="Mo,Di,Mi,Do,Fr,Sa,So"', html)
+        self.assertIn(
+            'data-months="Jan,Feb,Mär,Apr,Mai,Jun,Jul,Aug,Sep,Okt,Nov,Dez"', html
+        )
+
+    def test_the_partial_reads_them_through_the_tag(self):
+        partial = (self.TEMPLATES / "_task_add_row.html").read_text()
+        self.assertIn("{% date_names 'weekdays' %}", partial)
+        self.assertIn("{% date_names 'months' %}", partial)
+
+    def test_the_module_carries_no_name_list_of_its_own(self):
+        # The duplication that would actually cost something: a second table
+        # drifts silently when #192 or a typo changes the first.
+        source = self.MODULE.read_text()
+        for name in ("'Jan'", "'Mo'", "'Dez'", "'So'"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
+    def test_the_composed_label_is_the_row_role(self):
+        # The template literal is read out of the module and composed in
+        # Python against the same tables, so the two formats cannot drift
+        # apart without this failing.
+        d = date(2026, 12, 15)
+        match = self.LITERAL.search(self.MODULE.read_text())
+        self.assertIsNotNone(match, "formatRowDate's template literal moved")
+        composed = match.group(1)
+        for placeholder, value in (
+            ("${WEEKDAYS[(d.getDay() + 6) % 7]}", WEEKDAYS_SHORT[d.weekday()]),
+            ("${d.getDate()}", str(d.day)),
+            ("${MONTHS[d.getMonth()]}", MONTHS_SHORT[d.month]),
+        ):
+            with self.subTest(placeholder=placeholder):
+                self.assertIn(placeholder, composed)
+            composed = composed.replace(placeholder, value)
+        self.assertNotIn("${", composed)
+        self.assertEqual(composed, format_date(d, role="row"))
+
+    def test_an_unknown_name_table_raises(self):
+        # format_date's reason: the table is named as a bare string from a
+        # template, so a typo has no other way of announcing itself — it
+        # would render an empty attribute and the client would compose
+        # `undefined` into a date.
+        with self.assertRaises(ValueError):
+            date_names("monate")
+
+
+class TheAddRowSendsIsoTest(DemoModeTestCase):
+    """#279 is a display change only: what travels to /task/add/ is still the
+    ISO date the server rendered, or the one the native picker answered with.
+
+    The value is kept in a local variable rather than read back off the
+    button, because the button now holds a formatted German label — parsing
+    "Mi, 10. Dez" back into a date is exactly the round trip this keeps out."""
+
+    MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
+
+    def test_the_iso_value_starts_from_the_rendered_attribute(self):
+        self.assertIn("let iso = dateEl.dataset.rawDate;", self.MODULE.read_text())
+
+    def test_nothing_reads_a_date_off_the_display_element(self):
+        source = self.MODULE.read_text()
+        self.assertNotIn("dateEl.value", source)
+        self.assertNotIn("dateEl.textContent.", source)
+
+    def test_a_pick_writes_the_iso_and_the_label_together(self):
+        # An aria-label overrides the element's own text as the accessible
+        # name, so writing only textContent would leave the button reading
+        # the new date and announcing the old one — reschedule() documents
+        # the same thing on the dashboard's rows.
+        source = self.MODULE.read_text()
+        self.assertIn("iso = picked;", source)
+        self.assertIn("dateEl.dataset.rawDate = picked;", source)
+        self.assertIn("dateEl.textContent = label;", source)
+        self.assertIn(
+            "dateEl.setAttribute('aria-label', `Fällig am, aktuell ${label}`);", source
+        )
+
+    def test_a_cleared_pick_is_dropped_rather_than_stored(self):
+        # An empty label would leave a button with nothing to click on, and
+        # the value the row needs is the one it already has.
+        self.assertIn("if (!picked) return false;", self.MODULE.read_text())
+
+    def test_the_post_still_carries_the_iso_date(self):
+        self.assertIn("name: name, date: iso}", self.MODULE.read_text())
+
+
 class TrashHappensBehindASecondClickTest(DemoModeTestCase):
     """The only action that reads as irreversible, so it asks — a two-step
     inside the menu rather than a modal, which would sit outside the page's
@@ -1833,15 +2100,21 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
     def picker_source(self):
         return self.PICKER.read_text()
 
-    def test_only_the_partial_writes_the_date_markup(self):
+    def test_only_the_two_partials_write_the_date_markup(self):
         # The assertion that keeps the next surface from re-typing it: any
         # other template spelling the class itself is the drift coming back.
+        #
+        # #279 added the second one, and it is the only kind of date that can
+        # earn a template of its own: the add row's date belongs to no task
+        # yet, so it can carry neither the task id nor the urgency stage
+        # _task_due.html renders from. What it does share is the class, the
+        # stylesheet and the picker — the three halves that drifted.
         writers = sorted(
             path.name
             for path in self.TEMPLATES.glob("*.html")
             if 'class="task-due' in path.read_text()
         )
-        self.assertEqual(writers, ["_task_due.html"])
+        self.assertEqual(writers, ["_task_add_row.html", "_task_due.html"])
 
     def test_the_reschedulable_date_is_a_focusable_button(self):
         self.given_session_plan()
@@ -1881,7 +2154,8 @@ class TheDateIsOneComponentTest(DemoModeTestCase):
         source = self.picker_source()
         self.assertIn("const cameFromKeyboard = lastInputWasKeyboard;", source)
         self.assertIn(
-            "const restore = () => { if (cameFromKeyboard) dueEl.focus(); };", source
+            "const restore = () => { if (cameFromKeyboard) displayEl.focus(); };",
+            source,
         )
 
     def test_the_device_is_tracked_from_the_events_themselves(self):
@@ -2203,9 +2477,9 @@ class ThePickerSaysItIsSavingTest(DemoModeTestCase):
         # the module exists so no surface has to know that.
         self.assertIn(
             "} finally {\n"
-            "                    input.classList.remove('pending');\n"
-            "                    input.removeAttribute('aria-busy');\n"
-            "                    swapBack();",
+            "            input.classList.remove('pending');\n"
+            "            input.removeAttribute('aria-busy');\n"
+            "            swapBack();",
             self.PICKER.read_text(),
         )
 
@@ -2219,8 +2493,10 @@ class ThePickerSaysItIsSavingTest(DemoModeTestCase):
 
 
 class TheDateAlwaysComesBackTest(DemoModeTestCase):
-    """The one promise the shared module makes to all four surfaces: a click
-    on a date can cost the picker, never the date. Swapping in an
+    """The one promise the shared module makes to all five surfaces: a click
+    on a date can cost the picker, never the date — the add row's included
+    since #279, which is the whole reason the swap is a function of its own
+    rather than something a second surface could reimplement. Swapping in an
     <input type="date"> puts the row in a state only this module knows how to
     leave, and a surface's onPick cannot be trusted to unwind it — each one is
     a different page's code, and the module exists so none of them has to know.
@@ -2242,9 +2518,9 @@ class TheDateAlwaysComesBackTest(DemoModeTestCase):
         source = self.source()
         self.assertIn(
             "} finally {\n"
-            "                    input.classList.remove('pending');\n"
-            "                    input.removeAttribute('aria-busy');\n"
-            "                    swapBack();",
+            "            input.classList.remove('pending');\n"
+            "            input.removeAttribute('aria-busy');\n"
+            "            swapBack();",
             source,
         )
         # Asserted before the index() below, so a module without the try at all
@@ -2267,7 +2543,7 @@ class TheDateAlwaysComesBackTest(DemoModeTestCase):
         # already a no-op, but a second restore() would drag a keyboard user's
         # focus off whatever they had just moved to. One call site, one guard.
         source = self.source()
-        self.assertEqual(source.count("input.replaceWith(dueEl);"), 1)
+        self.assertEqual(source.count("input.replaceWith(displayEl);"), 1)
         self.assertIn("if (swappedBack) return;", source)
         self.assertIn("input.addEventListener('blur', swapBack);", source)
 

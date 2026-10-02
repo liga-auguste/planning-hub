@@ -342,10 +342,14 @@ button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-
    here while it is still kept off the link's own colour. */
 button.ai-project-link { font: inherit; background: none; border: none; padding: 0; color: inherit; cursor: pointer; }
 button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
-/* The affordance follows the behaviour: only a date carrying data-task-id
-   is wired up for rescheduling (#10 §5). */
-.task-due[data-task-id] { cursor: pointer; }
-.task-due[data-task-id]:hover { text-decoration: underline; }
+/* The affordance follows the behaviour, and the element name is what says
+   so: _task_due.html renders a <button> exactly where the date can be
+   changed and a <span> where it cannot (#10 §5). Written as data-task-id
+   until #279 — that attribute was standing in for the same condition, and
+   stopped being able to once the add row got a date it offers to change
+   without having a task to hang an id on. */
+button.task-due { cursor: pointer; }
+button.task-due:hover { text-decoration: underline; }
 .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
 /* #198: the picker while its write runs. The row already shows the newly
    picked date in the input; this is what says it is being saved rather than
@@ -405,7 +409,13 @@ button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); o
 .task-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; flex-wrap: wrap; }
 .task-add-name { flex: 1 1 180px; min-width: 0; font-size: 13px; padding: 5px 8px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-primary); }
 .task-add-name::placeholder { color: var(--color-text-quaternary); }
-.task-add-date { font-size: 12px; padding: 4px 6px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-tertiary); }
+/* #279: the date is a button.task-due now, so its whole look comes from the
+   date rules above and .task-add-date carries nothing but the JS hook — the
+   control look it used to have (border, background, padding, font-size) was
+   half overridden by those rules on specificity anyway. Only the margin is
+   this row's business: the base rule's 16px is what a flex gap replaces, the
+   same override .task-row makes. */
+.task-add-row .task-due { margin-left: 0; }
 .task-add-submit { font-size: 13px; padding: 5px 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
 .task-add-submit:hover { background: var(--color-bg-secondary); }
 .task-add-submit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

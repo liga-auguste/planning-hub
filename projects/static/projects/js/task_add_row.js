@@ -31,6 +31,13 @@
  * before: a split invented for a second caller that does not exist yet is a
  * shape nobody can check.
  *
+ * The date is the one thing this module does not own end to end (#279): the
+ * swap, the picker and the way back are task_date_picker.js's
+ * openTaskDatePicker(), the same code every task row's date goes through.
+ * This file binds it rather than being bound by bindTaskDatePickers(),
+ * because that function's contract is a task id and the add row has no task
+ * yet — see the partial's comment on why it deliberately carries none.
+ *
  * Bound by the `.task-add-row[data-project-id]` contract
  * _task_add_row.html writes, which is also where the two conditions live
  * that decide whether a row is rendered at all.
@@ -41,15 +48,51 @@ function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {}) {
         const nameEl = row.querySelector('.task-add-name');
         const dateEl = row.querySelector('.task-add-date');
         const submitEl = row.querySelector('.task-add-submit');
+        // The server rendered today into the button; everything after a pick
+        // is kept here rather than read back off the display element, so the
+        // value that is sent is never parsed out of a formatted label.
+        let iso = dateEl.dataset.rawDate;
+
+        // The "row" role of date_format.py, in the client. The names come
+        // from the server (the partial's data-weekdays/data-months), so what
+        // is duplicated is this one template literal and nothing else — a
+        // test pins it against format_date(..., role="row"). getDay() counts
+        // from Sunday and WEEKDAYS_SHORT from Monday, hence the shift.
+        const WEEKDAYS = row.dataset.weekdays.split(',');
+        const MONTHS = row.dataset.months.split(',');
+        const formatRowDate = isoDate => {
+            // Noon, so a UTC-negative offset cannot land the parsed date on
+            // the previous day the way midnight would.
+            const d = new Date(isoDate + 'T12:00:00');
+            return `${WEEKDAYS[(d.getDay() + 6) % 7]}, ${d.getDate()}. ${MONTHS[d.getMonth()]}`;
+        };
+
+        dateEl.addEventListener('click', () => {
+            openTaskDatePicker(dateEl, picked => {
+                // A cleared picker answers with an empty string. Dropped
+                // rather than stored: an empty label would leave a button
+                // with nothing to click on, and the one value the row needs
+                // is the one it already has.
+                if (!picked) return false;
+                iso = picked;
+                const label = formatRowDate(picked);
+                dateEl.dataset.rawDate = picked;
+                // Both in one go, for reschedule()'s reason (dashboard.html):
+                // an aria-label overrides the element's own text as the
+                // accessible name, so writing only textContent would leave
+                // the button reading the new date and announcing the old one.
+                dateEl.textContent = label;
+                dateEl.setAttribute('aria-label', `Fällig am, aktuell ${label}`);
+                return true;
+            });
+        });
 
         const submit = async () => {
             const name = nameEl.value.trim();
-            const iso = dateEl.value;
-            // Refused here rather than sent and answered with a 400: the
-            // endpoint enforces the same two rules (add_task_view), this is
-            // what keeps an empty click from costing a round trip.
+            // Only the name can be empty now. The date is rendered as today
+            // and a cleared pick is dropped above, so #148's second refusal
+            // has nothing left to catch — add_task_view still enforces both.
             if (!name) { flashActionFailed(nameEl); nameEl.focus(); return; }
-            if (!iso) { flashActionFailed(dateEl); dateEl.focus(); return; }
             // #198: the write is visible while it runs, and the row cannot
             // be submitted twice in the meantime. The double-submit case is
             // the client's precisely because create_task does not
