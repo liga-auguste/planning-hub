@@ -117,8 +117,11 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    is ΔE2000 29.3 light / 28.8 dark, and the stroke clears the 3:1 non-text
    floor on every surface the ring sits on: 3.68:1 light / 3.82:1 dark on the
    sidebar card, 3.29:1 / 4.76:1 on #212's active-item tint, which did not
-   exist when this rule was last neutral. The today/urgent/ok ring classes
-   stay in the markup as classification (#173) and still get no rule. */
+   exist when this rule was last neutral — computed rather than trusted, by
+   SignalColorContrastTest's RING_STROKES/RING_SURFACES pair, which is kept
+   apart from the dot's surfaces because a dot never reaches the sidebar.
+   The today/urgent/ok ring classes stay in the markup as classification
+   (#173) and still get no rule. */
 .progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
 .progress-ring-fill.overdue { stroke: var(--color-overdue); }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar

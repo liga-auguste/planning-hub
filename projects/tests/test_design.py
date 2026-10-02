@@ -1537,13 +1537,14 @@ class SignalColorContrastTest(SimpleTestCase):
 
     FLOOR = 3.0
     # #212: the brand accent is not a signal color and never says what
-    # state a task is in — but it now paints the sidebar rings and both
-    # progress fills, which are non-text UI on the same two surfaces, so it
-    # answers to the same floor and is measured by the same helper. Its
-    # surfaces differ: a ring sits on the sidebar card
-    # (--color-bg-primary), a bar fill on its track
-    # (--color-bg-tertiary), which is why it is kept out of SIGNALS rather
-    # than added to it.
+    # state a task is in — but it paints non-text UI that answers to the
+    # same floor, so it is measured by the same helper. Its surfaces differ
+    # from a signal's, which is why it is kept out of SIGNALS rather than
+    # added to it: a bar fill sits on its track (--color-bg-tertiary), the
+    # sidebar item's focus outline on the sidebar card
+    # (--color-bg-primary). The ring stroke was the second reason for
+    # --color-bg-primary until #278 put it back on the neutral gray — the
+    # surface stays, its accent tenant changed.
     ACCENT_SURFACES = {
         "light": {"--color-bg-primary": "#fff", "--color-bg-tertiary": "#f4f2f4"},
         "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-tertiary": "#363638"},
@@ -1557,6 +1558,24 @@ class SignalColorContrastTest(SimpleTestCase):
     SURFACES = {
         "light": {"--color-bg-primary": "#fff", "--color-bg-secondary": "#f9f8f9"},
         "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-secondary": "#1e1e1e"},
+    }
+    # #278: the sidebar ring answers to the same floor, on two surfaces that
+    # are not a dot's — which is why this is its own pair rather than more
+    # keys in SURFACES above. A dot never reaches the sidebar, so measuring
+    # the amber and the green against the tinted item would fail on a
+    # pairing that does not exist (--color-done is 2.98:1 there).
+    #
+    # The strokes are the two the stylesheet actually renders: .progress-
+    # ring-fill is --color-text-quaternary with .overdue as its one
+    # override, and both are already pinned by value in SIGNALS. The
+    # surfaces are the bare sidebar card and the tinted item #212
+    # introduced, which an *active* project's ring sits on — the tighter of
+    # the two, and the pair this file would otherwise take on trust from a
+    # CSS comment.
+    RING_STROKES = ("--color-text-quaternary", "--color-overdue")
+    RING_SURFACES = {
+        "light": {"--color-bg-primary": "#fff", "--color-accent-tint": "#f1f1ff"},
+        "dark": {"--color-bg-primary": "#2c2c2e", "--color-accent-tint": "#18182f"},
     }
 
     def base_css(self):
@@ -1593,6 +1612,36 @@ class SignalColorContrastTest(SimpleTestCase):
                     with self.subTest(token=token, theme=theme, surface=surface):
                         self.assertGreaterEqual(
                             _wcag_contrast(signal, background), self.FLOOR
+                        )
+
+    def test_the_ring_stroke_clears_the_non_text_floor_on_both_its_surfaces(self):
+        # #278 took the ring off the brand accent and back to the neutral
+        # gray. What makes that worth measuring rather than assuming is the
+        # active item: #212 gave it a tinted background after this rule was
+        # last neutral, so the gray's tightest surface is one that did not
+        # exist the last time it was the ring's colour.
+        css = self.base_css()
+        ring = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        # Asserted before the ratios, so a ring that quietly moves to a
+        # third token is a failure here rather than a pass measuring a
+        # colour the stylesheet no longer uses.
+        self.assertIn(
+            ".progress-ring-fill { stroke: var(--color-text-quaternary); "
+            "stroke-linecap: round; }",
+            ring,
+        )
+        self.assertIn(
+            ".progress-ring-fill.overdue { stroke: var(--color-overdue)", ring
+        )
+        for token in self.RING_STROKES:
+            for theme, surfaces in self.RING_SURFACES.items():
+                stroke = self.declared_value(css, token, theme)
+                for surface, background in surfaces.items():
+                    with self.subTest(token=token, theme=theme, surface=surface):
+                        self.assertGreaterEqual(
+                            _wcag_contrast(stroke, background), self.FLOOR
                         )
 
     def test_the_accent_clears_the_non_text_floor_on_its_own_surfaces(self):
