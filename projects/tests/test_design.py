@@ -2459,6 +2459,17 @@ class RecentCompletionRendersGreenTest(DemoModeTestCase):
             Path(settings.BASE_DIR) / "projects/templates/projects/my_plan.html"
         ).read_text()
 
+    def my_plan_surfaces(self):
+        """The page plus the summary body it includes (#156) — both dots are
+        still rendered by this page, one of them from its own file now."""
+        return (
+            self.my_plan_template()
+            + (
+                Path(settings.BASE_DIR)
+                / "projects/templates/projects/_my_plan_summary_body.html"
+            ).read_text()
+        )
+
     def dashboard_template(self):
         return (
             Path(settings.BASE_DIR) / "projects/templates/projects/dashboard.html"
@@ -2475,7 +2486,7 @@ class RecentCompletionRendersGreenTest(DemoModeTestCase):
         # The summary box and the full task list. my_plan's list dot takes
         # its `done` class from {{ task.urgency }} rather than from a
         # separate {% if %}, which is why this is checked by count.
-        self.assertEqual(self.my_plan_template().count("task.done_this_week"), 2)
+        self.assertEqual(self.my_plan_surfaces().count("task.done_this_week"), 2)
 
     def test_the_dashboard_toggle_sets_the_class(self):
         self.assertIn(
