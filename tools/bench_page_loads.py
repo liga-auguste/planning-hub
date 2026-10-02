@@ -1,5 +1,7 @@
 """Time the three page loads #156 is about, n samples each.
 
+    pip install -r requirements-dev.txt     # httpx, which this needs
+
     # one terminal, from a checkout of the revision being measured:
     DEMO_MODE=true python manage.py runserver 8765 --noreload
 

@@ -26,3 +26,14 @@ ruff==0.16.2
 # is already the honest number and the same check CI runs. Both artefacts
 # (.coverage, htmlcov/) are gitignored.
 coverage==7.16.0
+
+# The #156 benchmark harness (tools/bench_page_loads.py) drives the running
+# server over HTTP. Declared here rather than left to chance: httpx is in the
+# venv anyway because anthropic depends on it, so the harness ran without ever
+# being installed on purpose — and a transitive pin is not a dependency, it is
+# a coincidence that holds until anthropic drops it.
+#
+# Unpinned on purpose, unlike the two above. Neither CI nor a measurement
+# depends on which version answers a GET: the harness times wall clock around
+# a request, and nothing it reports comes out of this library.
+httpx
