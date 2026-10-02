@@ -618,6 +618,32 @@ answer carries no figures at all, and there is nothing left for a surface to do 
 confirmed write but reload. The module therefore holds the whole write, and a surface is an
 include plus `bindTaskAddRows(csrfToken)`.
 
+Since #279 the add row shares the *asking* as well, and only the consequence stays its own.
+Its date is the same control the rows above it render and goes through the same swap — but
+it cannot be *bound* by `bindTaskDatePickers()`, whose contract is a task id, because there
+is no task until "Hinzufügen" is clicked. So the swap became a second entry point,
+`openTaskDatePicker(displayEl, onPick)`, and the task-id binding delegates to it. One
+implementation of the keyboard handling, the focus restoration and the modality tracking;
+two ways in.
+
+The one thing the add row composes for itself is the label after a pick. Every other
+surface reads its new label off the write's own response (`due_display_row`); this one
+writes nothing when a date is picked, so it has no response to read. The German names still
+come from `date_format.py`, handed to the partial by `planner_tags.date_names`, so what is
+duplicated is a single template literal — and a test composes it in Python against those
+tables and compares the result with `format_date()`.
+
+Which *form* it composes is the including surface's, passed as `date_role` beside
+`project_id`: #238 settled the display form per surface, so the dashboard's rows abbreviate
+the month and `/mein-plan/`'s list writes it out, and a row pinned to one of the two would
+be the odd date on the other page — the very defect #279 is about. It costs one include
+argument and nothing in the client, because the two roles differ in the month table and in
+nothing else: `date_names` hands over the table that role spells with, and the one template
+literal serves both.
+
+The stage class is *not* duplicated: urgency belongs to a task that exists, and re-deriving
+`_classify_due_urgency` in the client is the half of #198 that was settled the other way.
+
 The token is the argument because it is the one thing the two surfaces really do get
 differently — the dashboard from the hidden input the page owns (see "The page owns its
 CSRF token" above), `/mein-plan/` from the template variable. Two identical `fetch` calls in

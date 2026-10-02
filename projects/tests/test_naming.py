@@ -32,6 +32,7 @@ from ..views import (
 )
 from .base import (
     DemoModeTestCase,
+    SummaryFlowMixin,
     _fake_upcoming_project_with_task,
     _summary_data,
 )
@@ -341,12 +342,24 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
     """#238: the abbreviated month is the task row's alone. Every other date
     surface keeps the spelled-out "long" form, and the only way that can
     drift is a template picking up the new role by copy-paste — so the
-    surfaces are counted against the templates themselves."""
+    surfaces are counted against the templates themselves.
+
+    #279's add row does not change that count. It carries no role of its own:
+    the including surface passes one, because "a row asking for the same kind
+    of value in a shape nothing else on the page uses" was the defect that
+    issue was about, and the dashboard's list and /mein-plan/'s do not spell a
+    date the same way."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
 
     def read(self, name):
         return (self.TEMPLATES / name).read_text()
+
+    def read_with_summary(self, name, summary_partial):
+        """A page together with the summary body it includes (#156). Both
+        runs of tasks are still this page's surfaces; one of them simply
+        lives in its own file now so the fragment endpoint can render it."""
+        return self.read(name) + self.read(summary_partial)
 
     def test_the_task_row_is_the_only_template_on_the_row_role(self):
         on_row_role = sorted(
@@ -355,6 +368,29 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
             if 'plan_date:"row"' in path.read_text()
         )
         self.assertEqual(on_row_role, ["_task_row.html"])
+
+    def test_the_add_row_takes_the_role_of_the_list_it_closes(self):
+        # The pair this rests on, asserted rather than assumed: the
+        # dashboard's rows abbreviate the month, /mein-plan/'s list writes it
+        # out. The add row is included under each with that surface's role, so
+        # #279's fix is one include argument per surface and no third spelling.
+        self.assertIn('plan_date:"row"', self.read("_task_row.html"))
+        self.assertIn('plan_date:"long"', self.read("my_plan.html"))
+        for template, role in (("dashboard.html", "row"), ("my_plan.html", "long")):
+            with self.subTest(template=template):
+                self.assertIn(
+                    '{% include "projects/_task_add_row.html" '
+                    f'with project_id=project.id date_role="{role}" %}}',
+                    self.read(template),
+                )
+
+    def test_the_add_row_pins_no_role_of_its_own(self):
+        # The assertion the count above would otherwise let through: a
+        # default here would be one surface's form imposed on the other, which
+        # is the state #279 shipped first.
+        partial = self.read("_task_add_row.html")
+        self.assertIn("plan_date:date_role", partial)
+        self.assertNotIn('plan_date:"', partial)
 
     def test_the_kanban_board_still_spells_the_month_out(self):
         # It has the width, and #238 stage 4 is about the row only.
@@ -372,11 +408,16 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         self.assertIn(
             '{% include "projects/_task_due.html" '
             'with due_display=task.due|plan_date:"long" %}',
-            self.read("dashboard.html"),
+            self.read("_ai_summary_body.html"),
         )
 
     def test_my_plan_and_the_close_out_triage_are_untouched(self):
-        self.assertEqual(self.read("my_plan.html").count('plan_date:"long"'), 2)
+        self.assertEqual(
+            self.read_with_summary("my_plan.html", "_my_plan_summary_body.html").count(
+                'plan_date:"long"'
+            ),
+            2,
+        )
         self.assertIn('plan_date:"long"', self.read("close_week_start.html"))
 
 
@@ -447,7 +488,7 @@ class DashboardCacheHoldsNoFormattedDatesTest(TestCase):
 
 
 @override_settings(DEMO_MODE=False)
-class DashboardSummaryShowsTaskDatesTest(TestCase):
+class DashboardSummaryShowsTaskDatesTest(SummaryFlowMixin, TestCase):
     """#190: the projection is only half the fix — the KI-Wochenübersicht
     writes out its own task list, so the date has to be rendered there too.
     A page-wide assertContains would pass on the task rows further down,
@@ -484,7 +525,9 @@ class DashboardSummaryShowsTaskDatesTest(TestCase):
                 },
             ),
         ):
-            return self.client.get(reverse("dashboard"))
+            # #156: the card renders its summary inline once the fragment has
+            # filled the cache, which is the render this slices.
+            return self.dashboard_with_summary()
 
     def test_the_summary_lists_each_tasks_due_date(self):
         response = self._render()
@@ -517,7 +560,7 @@ class MyPlanSummaryShowsTaskDatesTest(DemoModeTestCase):
             ],
             "naechste_woche": [],
         }
-        response = self.client.get(reverse("my_plan"))
+        response = self.my_plan_with_summary()
         self.assertIn(
             format_date(date.today() + timedelta(days=7)),
             self._summary_box_html(response),

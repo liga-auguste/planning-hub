@@ -343,16 +343,25 @@ button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-
    here while it is still kept off the link's own colour. */
 button.ai-project-link { font: inherit; background: none; border: none; padding: 0; color: inherit; cursor: pointer; }
 button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
-/* The affordance follows the behaviour: only a date carrying data-task-id
-   is wired up for rescheduling (#10 §5). */
-.task-due[data-task-id] { cursor: pointer; }
-.task-due[data-task-id]:hover { text-decoration: underline; }
+/* The affordance follows the behaviour, and the element name is what says
+   so: _task_due.html renders a <button> exactly where the date can be
+   changed and a <span> where it cannot (#10 §5). Written as data-task-id
+   until #279 — that attribute was standing in for the same condition, and
+   stopped being able to once the add row got a date it offers to change
+   without having a task to hang an id on. */
+button.task-due { cursor: pointer; }
+button.task-due:hover { text-decoration: underline; }
 .task-due-input { font-size: 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; padding: 1px 4px; }
 /* #198: the picker while its write runs. The row already shows the newly
    picked date in the input; this is what says it is being saved rather than
    already saved. Not `disabled` — disabling blurs the input, and blur is
    what swaps the display element back (task_date_picker.js). */
 .task-due-input.pending { opacity: 0.6; }
+/* #156: the toggle joined #198's pending look, because through the session
+   queue it can now wait on the summary request rather than only on Notion.
+   The same 0.6 as the other two writes — the dot keeps its urgency colour
+   and its hover, so what reads as "running" is the dimming alone. */
+.toggle-form.pending { opacity: 0.6; }
 /* #233: a write that did not land, reported on the control that was clicked.
    Here rather than once per surface's own extra_css block, so everything
    extending base_dashboard.html can report a failure — the close-out triage
@@ -364,6 +373,30 @@ button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); o
    outline reads on the dot and on the text targets alike. */
 .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
 @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
+
+/* #156: the KI-Wochenübersicht while it is still being generated. Here
+   rather than in either page's extra_css for the reason the add row and the
+   date styling are here: the markup is one partial per surface, the wait is
+   the same wait, and both templates already load this file.
+
+   Wears .ai-error's quiet italic deliberately — "nicht verfügbar" and "wird
+   erstellt" are the same register, a line of prose standing in for the
+   summary rather than a widget of their own. The spinner is what separates
+   them, and it is the one the Zeitreise bar already uses.
+
+   No skeleton bars: the finished summary's height depends on how many
+   projects Claude found something to say about, so bars sized for a guess
+   would trade one reflow for a wrong one. The card is at the top of the
+   page, above the progress bar and the board, so what moves when it fills is
+   below the fold on a phone and unread on a desktop. */
+.ai-loading { display: flex; align-items: center; gap: 8px; color: var(--color-text-quaternary); font-style: italic; }
+.ai-loading-spinner { flex-shrink: 0; width: 9px; height: 9px; border: 2px solid var(--color-border-primary); border-top-color: var(--color-text-quaternary); border-radius: 50%; animation: spin 0.7s linear infinite; }
+/* The spinner is the only moving thing on the page that is not opt-in, and
+   it says nothing the copy beside it does not. */
+@media (prefers-reduced-motion: reduce) { .ai-loading-spinner { animation: none; } }
+/* Read by .ai-loading-spinner and by .timelapse-spinner (dashboard.html),
+   which is why it lives here rather than in one page's extra_css. */
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* The add-task row (#148). Here rather than in either surface's own
    extra_css for the same reason the date's styling moved here in #266: the
@@ -377,7 +410,13 @@ button.ai-project-link:focus-visible { outline: 2px solid var(--color-accent); o
 .task-add-row { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; flex-wrap: wrap; }
 .task-add-name { flex: 1 1 180px; min-width: 0; font-size: 13px; padding: 5px 8px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-primary); }
 .task-add-name::placeholder { color: var(--color-text-quaternary); }
-.task-add-date { font-size: 12px; padding: 4px 6px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-tertiary); }
+/* #279: the date is a button.task-due now, so its whole look comes from the
+   date rules above and .task-add-date carries nothing but the JS hook — the
+   control look it used to have (border, background, padding, font-size) was
+   half overridden by those rules on specificity anyway. Only the margin is
+   this row's business: the base rule's 16px is what a flex gap replaces, the
+   same override .task-row makes. */
+.task-add-row .task-due { margin-left: 0; }
 .task-add-submit { font-size: 13px; padding: 5px 12px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
 .task-add-submit:hover { background: var(--color-bg-secondary); }
 .task-add-submit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

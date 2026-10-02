@@ -49,6 +49,16 @@ WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 # One entry per surface. A dict rather than an if/elif chain so an
 # unrecognised role is a missing key — see format_date on why that has to
 # be an error rather than a fallback.
+#
+# "long" and "row" are the two with a mirror in the client (#279):
+# task_add_row.js composes the same shape for the add row's date, in whichever
+# of the two the surface including that row spells its own list in, because a
+# pick there writes nothing and so has no server response to read a new label
+# off. They differ in the month table and in nothing else, which is why one
+# template literal over there serves both — so #192 changes these two lines
+# and that literal, and a test pins them against each other. The names
+# themselves still come from the tables above, handed to the partial by
+# planner_tags.date_names.
 _ROLE_FORMATTERS = {
     "long": lambda d: f"{WEEKDAYS_SHORT[d.weekday()]}, {d.day}. {MONTHS_DE[d.month]}",
     "short": lambda d: f"{d.day:02d}.{d.month:02d}.",

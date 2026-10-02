@@ -275,7 +275,7 @@ class MultiViewSimDateTest(DemoModeTestCase):
         """A fix that only corrects the classification would leave the AI card
         narrating the simulated date — the contradiction the issue observed."""
         self.given_plan_in_the_future()
-        self.client.get(reverse("dashboard") + "?mode=multi")
+        self.fetch_summary("?mode=multi")
         call = self.ai_mocks["projects.views.generate_weekly_summary"].call_args
         self.assertEqual(call[0][1], date.today())
 
@@ -1364,7 +1364,7 @@ class TimelapseEmptySummaryTest(DemoModeTestCase):
 
     def test_the_note_measures_against_the_simulated_date(self):
         self.given_simulated_plan()
-        html = self._ai_card_html(self.client.get(reverse("dashboard")))
+        html = self._ai_card_html(self.dashboard_with_summary())
         # The task before the moment is forced done by the simulation, so
         # it is not the next one — the one after it is.
         self.assertIn(
@@ -1375,3 +1375,143 @@ class TimelapseEmptySummaryTest(DemoModeTestCase):
         self.assertNotIn(
             format_date(date.today() + timedelta(days=5), role="note"), html
         )
+
+
+class MomentsAreGeneratedAfterTheRedirectTest(DemoModeTestCase):
+    """#156 acceptance item 3: "Zum Dashboard" lands on the dashboard shell
+    immediately.
+
+    planner_create used to make the moments' Haiku call inside that request,
+    and the uncached dashboard it redirected to then made the summary call —
+    two waits in a row with nothing on screen for either."""
+
+    PLAN = {
+        "description": "Konzert am 5. September",
+        "project_name": "Sommerkonzert",
+        "event_date": (date.today() + timedelta(days=30)).isoformat(),
+        "task_name": ["Programm festlegen"],
+        "task_date": [(date.today() + timedelta(days=7)).isoformat()],
+        "task_kontext": ["Planung"],
+    }
+
+    @property
+    def moments_stub(self):
+        return self.ai_mocks["projects.views.generate_timelapse_moments"]
+
+    def create_plan(self):
+        return self.client.post(reverse("planner_create"), data=self.PLAN)
+
+    def request_moments(self):
+        return self.client.post(reverse("timelapse_moments"))
+
+    def test_creating_a_plan_reaches_no_claude_call_for_the_moments(self):
+        response = self.create_plan()
+        self.assertEqual(response.status_code, 302)
+        self.moments_stub.assert_not_called()
+
+    def test_the_plan_is_marked_as_still_owing_its_moments(self):
+        self.create_plan()
+        self.assertTrue(self.client.session.get("demo_timelapse_pending"))
+        self.assertNotIn("demo_timelapse_moments", self.client.session)
+
+    def test_the_endpoint_generates_stores_and_answers(self):
+        moments = [
+            {"date": date.today().isoformat(), "label": "Probe", "description": "x"}
+        ]
+        self.moments_stub.return_value = moments
+        self.create_plan()
+        response = self.request_moments()
+        self.assertEqual(response.json(), {"moments": moments})
+        self.assertEqual(self.client.session["demo_timelapse_moments"], moments)
+
+    def test_the_generated_dates_become_postable(self):
+        """The allowlist _parse_posted_date reads is the stored moments, so a
+        plan whose moments arrived late can still enter one."""
+        moment = (date.today() + timedelta(days=3)).isoformat()
+        self.moments_stub.return_value = [
+            {"date": moment, "label": "Probe", "description": "x"}
+        ]
+        self.create_plan()
+        self.request_moments()
+        response = self.client.post(
+            reverse("set_timelapse_date"),
+            json.dumps({"date": moment}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_one_plan_costs_one_attempt(self):
+        """The flag is cleared before the call, not after: a failure must not
+        be retried on every dashboard load — the budget planner_create's
+        try/except always bought."""
+        self.moments_stub.side_effect = AIUnavailableError("boom")
+        self.create_plan()
+        self.assertEqual(self.request_moments().json(), {"moments": []})
+        self.moments_stub.side_effect = None
+        self.moments_stub.return_value = [{"date": date.today().isoformat()}]
+        self.assertEqual(self.request_moments().json(), {"moments": []})
+        self.assertEqual(self.moments_stub.call_count, 1)
+
+    def test_a_malformed_answer_does_not_cost_the_plan(self):
+        """The broad except planner_create carried, moved with the call."""
+        self.moments_stub.side_effect = ValueError("kaputt")
+        self.create_plan()
+        self.assertEqual(self.request_moments().json(), {"moments": []})
+        self.assertIn("demo_plan", self.client.session)
+
+    def test_without_a_plan_it_asks_claude_nothing(self):
+        self.assertEqual(self.request_moments().json(), {"moments": []})
+        self.moments_stub.assert_not_called()
+
+    def test_a_get_is_refused(self):
+        self.assertEqual(self.client.get(reverse("timelapse_moments")).status_code, 405)
+
+    @override_settings(DEMO_MODE=False)
+    def test_production_has_no_such_thing(self):
+        self.assertEqual(self.request_moments().status_code, 404)
+
+
+class TheBarIsBuiltFromWhicheverMomentsArriveTest(DemoModeTestCase):
+    """#156, client half: the moments can land after the render, so the bar
+    is built by a function rather than by a block that only ever ran once."""
+
+    def dashboard_js(self, pending=False):
+        self.given_session_plan()
+        if pending:
+            session = self.client.session
+            session["demo_timelapse_pending"] = True
+            session.save()
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_a_plan_still_owing_its_moments_says_so_to_the_js(self):
+        self.assertIn(
+            "const TIMELAPSE_PENDING = true;", self.dashboard_js(pending=True)
+        )
+
+    def test_a_plan_that_has_them_asks_for_nothing(self):
+        self.given_timelapse_moments(date.today().isoformat())
+        self.assertIn("const TIMELAPSE_PENDING = false;", self.dashboard_js())
+
+    def test_the_bar_is_built_from_either_source(self):
+        js = self.dashboard_js(pending=True)
+        self.assertIn("function buildTimelapseBar(moments) {", js)
+        self.assertIn("buildTimelapseBar(TIMELAPSE_MOMENTS);", js)
+        self.assertIn("buildTimelapseBar(moments);", js)
+
+    def test_the_fetch_queues_behind_the_summary(self):
+        """Through the queue because it writes the session, and in the
+        background half of it rather than the priority half: nothing on
+        screen is waiting for the Zeitreise bar, and the summary above it is
+        what is being read."""
+        js = self.dashboard_js(pending=True)
+        body = js[js.index("async function loadTimelapseMoments() {") :]
+        body = body[: body.index("\n}")]
+        self.assertIn("withSessionLock(() => fetch('/timelapse/moments/', {", body)
+        self.assertNotIn("priority", body)
+
+    def test_the_preloads_start_once_the_moments_exist(self):
+        """#93: they used to begin 800 ms after a fully blocked load. The
+        timer now hangs off the bar being built, whenever that happens."""
+        js = self.dashboard_js(pending=True)
+        bar = js[js.index("function buildTimelapseBar(moments) {") :]
+        self.assertIn("setTimeout(() => preloadAll().catch(() => {}), 800);", bar)
