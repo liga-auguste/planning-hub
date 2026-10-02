@@ -1772,6 +1772,35 @@ class NoWriteOverlapsTheSummaryRequestTest(DemoModeTestCase):
         self.assertNotIn("toggle-form.pending", self.dashboard_js())
 
 
+class ProductionDoesNotQueueItsWritesTest(AiStubMixin, TestCase):
+    """The other half of withSessionWriteLock's condition, from the side that
+    pays for getting it wrong: in production the fragment writes the cache,
+    not the session, so there is no race to serialise — and a toggle waiting
+    out a 6-7 s Sonnet call to prevent one would undo what #156 is for."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        super().setUp()
+
+    def test_the_gate_is_a_bare_call_here(self):
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("const SESSION_WRITES = false;", page)
+        self.assertIn(
+            "return SESSION_WRITES ? withSessionLock(fn, {priority: true}) : fn();",
+            page,
+        )
+
+    def test_the_writes_still_go_through_the_gate(self):
+        """Not through the queue, but through the one place that decides — so
+        the decision stays server-rendered rather than copied into each
+        handler."""
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(
+            "withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`", page
+        )
+
+
 class TheSummaryCardIsReconciledWithTheBoardTest(DemoModeTestCase):
     """#156 review follow-up. The fragment is resolved against the projects as
     they stood when its request opened, and nothing re-renders the card

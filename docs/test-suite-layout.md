@@ -27,14 +27,14 @@ test was added, renamed or removed.
 | `test_timelapse.py` | 25 | 132 | Zeitreise: generated moments, the simulated date, the preloader |
 | `test_my_plan.py` | 8 | 24 | `/mein-plan/`, including the Markdown export |
 | `test_landing.py` | 2 | 7 | The landing page: what it renders, and where it sends a visitor |
-| `test_summary.py` | 27 | 131 | The AI weekly summary: prompt, parsing, resolution, caches |
+| `test_summary.py` | 28 | 133 | The AI weekly summary: prompt, parsing, resolution, caches |
 | `test_closeout.py` | 16 | 99 | Wochenabschluss: the ritual, its two backends, its summary |
 | `test_notion.py` | 16 | 59 | `notion.py` directly, against a mocked API |
 | `test_rules.py` | 7 | 51 | Planning rules: the page, both backends, seeding, the backfill migrations |
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
 | `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| **total** | **363** | **1572** | |
+| **total** | **364** | **1574** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-10-02 with #156 —
