@@ -161,45 +161,99 @@ rather than over whatever they are on.
 
 ## Measured
 
-Against the running demo stack on 2026-10-02, three runs each, `curl`'s `time_total` for
-the uncached case and the `claude_call` log lines ([#31](https://github.com/liga-auguste/planning-hub/issues/31))
-beside them. The cache is cleared before every run.
+### Method
 
-**Dashboard, example catalog, first uncached visit** — the load the issue measured at
-6–7 s:
+| | |
+|---|---|
+| When | 2026-10-02 |
+| Machine | Apple M3 Pro, 11 cores, macOS 15.5 |
+| Stack | Python 3.13.5, Django 6.0.7, `runserver --noreload`, demo SQLite, `DEMO_MODE=true` |
+| Harness | [`tools/bench_page_loads.py`](../tools/bench_page_loads.py) and [`tools/bench_report.py`](../tools/bench_report.py) — wall clock around each request, so connection setup is included |
+| Samples | n = 20 per cell, 2 warm-up runs discarded (they pay import and connection costs the rest do not) |
+| Isolation | the cache is cleared before every sample, so every run is a cold one |
+| Percentiles | nearest-rank, no interpolation — at n = 20 an interpolated p95 would invent a value between two real samples and read more precise than the data is |
 
-| | `main` | this branch |
-|---|---|---|
-| `GET /dashboard/?mode=multi` | 6.34 / 6.97 / 7.41 s | **0.0064 / 0.0067 / 0.0067 s** |
-| `POST /summary/?mode=multi` | — (inside the page) | 6.82 / 6.95 / 7.53 s |
-| `claude_call duration_ms` | 6309 / 6933 / 7377 | 6802 / 6915 / 7514 |
+Both sides were measured from their own `git worktree`, on the same machine, back to back.
 
-**Planner, "Plan speichern" to a painted dashboard** — a session plan of two tasks, so a
-much smaller prompt than the catalog above:
+**The one variable not under control is the Anthropic API's own latency.** Which is why
+the `claude_call` lines ([#31](https://github.com/liga-auguste/planning-hub/issues/31))
+are reported below as the control: if the two sides' call durations are
+indistinguishable, the difference in page time is about *where* the call sits and
+nothing else.
 
-| | `main` | this branch |
-|---|---|---|
-| `POST /planner/create/` | 2.64 / 2.83 / 3.16 s | **0.0022 / 0.0023 / 0.0030 s** |
-| `GET /dashboard/` right after | 2.30 / 2.50 / 2.66 s | **0.0024 / 0.0025 / 0.0028 s** |
-| what the visitor waits for before seeing anything | **5.1 – 5.8 s** | **~5 ms** |
-| `POST /summary/` afterwards | — | 2.24 / 2.44 s |
-| `POST /timelapse/moments/` afterwards | — | 2.67 / 2.71 s |
+### Dashboard, example catalog, first uncached visit
 
-Two readings:
+| Metric | Side | n | p50 | p95 | min | max |
+|---|---|---:|---:|---:|---:|---:|
+| `GET /dashboard/?mode=multi` | `main` | 20 | 6.76 s | 8.13 s | 6.00 s | 8.34 s |
+| `GET /dashboard/?mode=multi` | **branch** | 20 | **6.9 ms** | **11.9 ms** | 6.5 ms | 12.0 ms |
+| `POST /summary/?mode=multi` | branch | 20 | 6.69 s | 7.83 s | 6.11 s | 8.25 s |
 
-- **The page is roughly a thousand times faster to first byte** — 6–7 s to ~6 ms on the
-  catalog, 5.1–5.8 s to ~5 ms out of the planner. That is the whole of this change: the
-  browser gets a complete, usable page while the model is still being asked.
-- **The wait itself is unchanged**, as the issue predicted. The summary is readable at
-  about the same wall-clock moment either way. What moved is that the visitor spends
-  those seconds looking at their own projects and a labelled spinner rather than at a
-  blank tab.
+### Planner, "Plan speichern" to a painted dashboard
 
-The `claude_call` lines also answer the issue's latency question with a number: the
-summary runs 6.3–7.5 s on 1,714 input tokens for the five-project catalog, and 2.2–2.4 s
-on 529 for a two-task session plan. It is prompt size, not a constant — so "Sonnet costs
-~7 s" is only true of the largest surface, and the Haiku comparison the issue suggests
-has to be run per surface rather than once.
+A two-task session plan, so a much smaller prompt than the catalog above.
+
+| Metric | Side | n | p50 | p95 | min | max |
+|---|---|---:|---:|---:|---:|---:|
+| `POST /planner/create/` | `main` | 20 | 2.75 s | 3.00 s | 2.37 s | 3.19 s |
+| `POST /planner/create/` | **branch** | 20 | **2.3 ms** | **2.9 ms** | 2.1 ms | 3.1 ms |
+| `GET /dashboard/` right after | `main` | 20 | 2.47 s | 2.89 s | 2.31 s | 6.39 s |
+| `GET /dashboard/` right after | **branch** | 20 | **2.4 ms** | **3.5 ms** | 2.3 ms | 5.5 ms |
+| **waited for before seeing anything** | `main` | 20 | **5.32 s** | **5.71 s** | 4.75 s | 9.20 s |
+| **waited for before seeing anything** | **branch** | 20 | **4.8 ms** | **6.3 ms** | 4.3 ms | 8.6 ms |
+| `POST /summary/` afterwards | branch | 20 | 2.34 s | 2.67 s | 2.12 s | 2.85 s |
+| `POST /timelapse/moments/` afterwards | branch | 20 | 2.72 s | 3.10 s | 2.46 s | 3.15 s |
+
+### The control
+
+| Side | Call | Model | Input tokens | n | p50 | p95 |
+|---|---|---|---:|---:|---:|---:|
+| `main` | `generate_weekly_summary` | `claude-sonnet-4-6` | 1,714 | 22 | 6,780 ms | 8,087 ms |
+| branch | `generate_weekly_summary` | `claude-sonnet-4-6` | 1,714 | 22 | 6,674 ms | 7,814 ms |
+| `main` | `generate_weekly_summary` | `claude-sonnet-4-6` | 529 | 22 | 2,422 ms | 2,846 ms |
+| branch | `generate_weekly_summary` | `claude-sonnet-4-6` | 529 | 22 | 2,324 ms | 2,650 ms |
+| `main` | `generate_timelapse_moments` | `claude-haiku-4-5` | 360 | 22 | 2,716 ms | 2,979 ms |
+| branch | `generate_timelapse_moments` | `claude-haiku-4-5` | 360 | 22 | 2,660 ms | 3,067 ms |
+
+### Readings
+
+- **The page is ~980× faster to first byte at p50** (6.76 s → 6.9 ms) and ~680× at p95
+  (8.13 s → 11.9 ms). Out of the planner it is ~1,100× (5.32 s → 4.8 ms). That is the
+  whole of this change: the browser gets a complete, usable page while the model is
+  still being asked.
+- **The wait itself is unchanged**, as the issue predicted. `main`'s page and the
+  branch's fragment are the same distribution (p50 6.76 s against 6.69 s, p95 8.13 s
+  against 7.83 s). What moved is that those seconds are spent looking at your own
+  projects and a labelled spinner rather than at a blank tab.
+- **The tail went with the model.** `main`'s worst catalog load was 8.34 s and its worst
+  planner path 9.20 s, both of them the API having a slow minute. The branch's worst
+  page was 12.0 ms, because there is no model in that path to have a slow minute in.
+  A p95 that is 20 % worse than p50 rather than 1,700× worse is the practical difference.
+- **The control holds.** The six `claude_call` distributions are indistinguishable
+  between the two sides, so none of the above is the model behaving differently — it is
+  only the call's position in the request.
+- **Sonnet's latency is prompt size, not a constant:** 6.7 s at 1,714 input tokens for
+  the five-project catalog, 2.4 s at 529 for a two-task session plan. So "the summary
+  costs ~7 s" is only true of the largest surface, and the Haiku comparison the issue
+  suggests as a latency lever has to be run per surface rather than once.
+
+### What these numbers do *not* cover
+
+- **`runserver`, not gunicorn.** One process, one request at a time, no thread
+  contention — the production stack's concurrency is out of scope here.
+- **No Notion round trip.** The demo stack reads fixtures. In production the uncached
+  dashboard also waits on Notion, and #156 does not remove that wait — it only takes the
+  Claude call out from in front of it.
+- **n = 20 makes p95 the 19th of 20 samples.** Enough to see a tail, not enough to
+  characterise one.
+
+### What actually guards the result
+
+Not this table: numbers in a document go stale and nobody notices. The guard is
+`PagesDoNotWaitOnClaudeTest` (`projects/tests/test_summary.py`), which asserts that a
+page load reaches no Claude call at all. That is deterministic, runs in every CI run, and
+fails the moment the call is put back — where a timing threshold on a shared CI machine
+would flake and get raised until it meant nothing.
 
 ## What this does *not* change
 
