@@ -339,14 +339,16 @@ class PlanDateFilterTest(SimpleTestCase):
 
 
 class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
-    """#238: the abbreviated month belongs to the task list. Every other date
+    """#238: the abbreviated month is the task row's alone. Every other date
     surface keeps the spelled-out "long" form, and the only way that can
     drift is a template picking up the new role by copy-paste — so the
     surfaces are counted against the templates themselves.
 
-    Two templates since #279, both of them the list: the row and the add row
-    that closes it. A row asking for the same kind of value in a different
-    shape from the rows above it was the defect that issue was about."""
+    #279's add row does not change that count. It carries no role of its own:
+    the including surface passes one, because "a row asking for the same kind
+    of value in a shape nothing else on the page uses" was the defect that
+    issue was about, and the dashboard's list and /mein-plan/'s do not spell a
+    date the same way."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
 
@@ -359,16 +361,36 @@ class ShortRowDateReachesOnlyTheRowTest(SimpleTestCase):
         lives in its own file now so the fragment endpoint can render it."""
         return self.read(name) + self.read(summary_partial)
 
-    def test_the_row_role_reaches_the_task_row_and_the_add_row_only(self):
-        # #279 added the second: the add row asks for the same kind of value
-        # the rows above it show, so it spells it the same way. Everything
-        # else on the page still keeps the "long" form.
+    def test_the_task_row_is_the_only_template_on_the_row_role(self):
         on_row_role = sorted(
             path.name
             for path in self.TEMPLATES.glob("*.html")
             if 'plan_date:"row"' in path.read_text()
         )
-        self.assertEqual(on_row_role, ["_task_add_row.html", "_task_row.html"])
+        self.assertEqual(on_row_role, ["_task_row.html"])
+
+    def test_the_add_row_takes_the_role_of_the_list_it_closes(self):
+        # The pair this rests on, asserted rather than assumed: the
+        # dashboard's rows abbreviate the month, /mein-plan/'s list writes it
+        # out. The add row is included under each with that surface's role, so
+        # #279's fix is one include argument per surface and no third spelling.
+        self.assertIn('plan_date:"row"', self.read("_task_row.html"))
+        self.assertIn('plan_date:"long"', self.read("my_plan.html"))
+        for template, role in (("dashboard.html", "row"), ("my_plan.html", "long")):
+            with self.subTest(template=template):
+                self.assertIn(
+                    '{% include "projects/_task_add_row.html" '
+                    f'with project_id=project.id date_role="{role}" %}}',
+                    self.read(template),
+                )
+
+    def test_the_add_row_pins_no_role_of_its_own(self):
+        # The assertion the count above would otherwise let through: a
+        # default here would be one surface's form imposed on the other, which
+        # is the state #279 shipped first.
+        partial = self.read("_task_add_row.html")
+        self.assertIn("plan_date:date_role", partial)
+        self.assertNotIn('plan_date:"', partial)
 
     def test_the_kanban_board_still_spells_the_month_out(self):
         # It has the width, and #238 stage 4 is about the row only.

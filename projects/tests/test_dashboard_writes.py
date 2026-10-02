@@ -21,11 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..ai import AIUnavailableError
-from ..date_format import (
-    MONTHS_SHORT,
-    WEEKDAYS_SHORT,
-    format_date,
-)
+from ..date_format import format_date
 from ..dates import iso_week_bounds
 from ..notion import NotionUnavailableError
 from ..templatetags.planner_tags import date_names
@@ -1796,6 +1792,11 @@ class TheAddRowOpensOnTodayTest(DemoModeTestCase):
     moment — so "today" can never be read against a simulated date and
     #217's rule is inherited rather than restated."""
 
+    # The role each surface includes the row under, which is the role its own
+    # list spells dates in — asserted against the templates themselves in
+    # test_naming.ShortRowDateReachesOnlyTheRowTest.
+    ROLES = {"dashboard": "row", "my_plan": "long"}
+
     def surfaces(self):
         self.given_session_plan()
         return {
@@ -1816,15 +1817,32 @@ class TheAddRowOpensOnTodayTest(DemoModeTestCase):
                 )
 
     def test_the_label_is_the_same_form_the_rows_above_it_use(self):
-        # #238's "row" role, not the browser's 10.12.2026 — the defect was a
-        # row asking for the same kind of value in a shape the app shows
-        # nowhere else.
-        label = format_date(timezone.localdate(), role="row")
+        # Not the browser's 10.12.2026 — the defect was a row asking for the
+        # same kind of value in a shape the app shows nowhere else. Which
+        # shape that is, is the surface's own: #238 settled the display form
+        # per surface, so the dashboard's list abbreviates the month and
+        # /mein-plan/'s writes it out, and the add row follows whichever list
+        # it closes rather than pinning one and being the odd date on the
+        # other page.
+        today = timezone.localdate()
         for surface, html in self.surfaces().items():
             with self.subTest(surface=surface):
+                label = format_date(today, role=self.ROLES[surface])
                 row = self.add_row(html)
                 self.assertIn(f">{label}</button>", row)
                 self.assertIn(f'aria-label="Fällig am, aktuell {label}"', row)
+
+    def test_each_surface_hands_over_its_own_month_table(self):
+        # The assertion that keeps the one above honest. Not a comparison of
+        # the two rendered labels: in May the abbreviation and the full name
+        # are both "Mai", so a label test alone would pass for a month a year
+        # with both surfaces pinned to one role — the state this fixed. The
+        # tables differ in every month, so they are what gets compared.
+        rows = {
+            surface: self.add_row(html) for surface, html in self.surfaces().items()
+        }
+        self.assertIn('data-months="Jan,Feb,Mär,', rows["dashboard"])
+        self.assertIn('data-months="Januar,Februar,März,', rows["my_plan"])
 
     def test_the_date_carries_no_urgency_stage(self):
         # Urgency is a property of a task, and there is none yet. Painting one
@@ -1933,7 +1951,7 @@ class TheAddRowReusesThePickerTest(DemoModeTestCase):
         )
 
 
-class TheAddRowsLabelMirrorsTheRowRoleTest(DemoModeTestCase):
+class TheAddRowsLabelMirrorsItsSurfacesRoleTest(DemoModeTestCase):
     """#279: the one place a date format is composed twice, and the reason it
     is allowed to be.
 
@@ -1943,8 +1961,14 @@ class TheAddRowsLabelMirrorsTheRowRoleTest(DemoModeTestCase):
     to be composed in the client. What #198 declined was the larger half of
     that: painting a rescheduled row's *stage*, which meant re-deriving
     #169's calendar-week urgency rule in JavaScript. There is no urgency
-    here, and the names still come from date_format.py — rendered into the
-    partial by planner_tags.date_names, so #192 finds both halves."""
+    here, and the names still come from date_format.py — handed to the
+    partial by planner_tags.date_names, so #192 finds both halves.
+
+    One literal, two roles. "long" and "row" differ in the month table and in
+    nothing else, so the surface's role decides which table travels and the
+    composition in the client is the same either way — which is what lets the
+    add row follow the list it closes instead of being the odd date on one of
+    the two pages."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
     MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
@@ -1952,51 +1976,79 @@ class TheAddRowsLabelMirrorsTheRowRoleTest(DemoModeTestCase):
 
     def test_the_names_are_rendered_from_the_server(self):
         self.given_session_plan()
-        html = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn('data-weekdays="Mo,Di,Mi,Do,Fr,Sa,So"', html)
-        self.assertIn(
-            'data-months="Jan,Feb,Mär,Apr,Mai,Jun,Jul,Aug,Sep,Okt,Nov,Dez"', html
-        )
+        for surface, months in (
+            ("dashboard", "Jan,Feb,Mär,Apr,Mai,Jun,Jul,Aug,Sep,Okt,Nov,Dez"),
+            (
+                "my_plan",
+                (
+                    "Januar,Februar,März,April,Mai,Juni,"
+                    "Juli,August,September,Oktober,November,Dezember"
+                ),
+            ),
+        ):
+            with self.subTest(surface=surface):
+                html = self.client.get(reverse(surface)).content.decode()
+                # Shared by both roles — the two differ in the month table
+                # alone, which is the whole reason one literal serves both.
+                self.assertIn('data-weekdays="Mo,Di,Mi,Do,Fr,Sa,So"', html)
+                self.assertIn(f'data-months="{months}"', html)
 
     def test_the_partial_reads_them_through_the_tag(self):
         partial = (self.TEMPLATES / "_task_add_row.html").read_text()
-        self.assertIn("{% date_names 'weekdays' %}", partial)
-        self.assertIn("{% date_names 'months' %}", partial)
+        self.assertIn("{% date_names 'weekdays' date_role %}", partial)
+        self.assertIn("{% date_names 'months' date_role %}", partial)
 
     def test_the_module_carries_no_name_list_of_its_own(self):
         # The duplication that would actually cost something: a second table
-        # drifts silently when #192 or a typo changes the first.
+        # drifts silently when #192 or a typo changes the first. Both months
+        # tables, since either role's can be the one handed over.
         source = self.MODULE.read_text()
-        for name in ("'Jan'", "'Mo'", "'Dez'", "'So'"):
+        for name in ("'Jan'", "'Mo'", "'Dez'", "'So'", "'Januar'", "'Dezember'"):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
-    def test_the_composed_label_is_the_row_role(self):
+    def test_the_composed_label_is_the_role_the_surface_passed(self):
         # The template literal is read out of the module and composed in
-        # Python against the same tables, so the two formats cannot drift
-        # apart without this failing.
+        # Python against the tables the tag hands over, so the client's
+        # format, date_names and format_date cannot drift apart without this
+        # failing — for either role the add row can be included under.
         d = date(2026, 12, 15)
         match = self.LITERAL.search(self.MODULE.read_text())
         self.assertIsNotNone(match, "formatRowDate's template literal moved")
-        composed = match.group(1)
-        for placeholder, value in (
-            ("${WEEKDAYS[(d.getDay() + 6) % 7]}", WEEKDAYS_SHORT[d.weekday()]),
-            ("${d.getDate()}", str(d.day)),
-            ("${MONTHS[d.getMonth()]}", MONTHS_SHORT[d.month]),
-        ):
-            with self.subTest(placeholder=placeholder):
-                self.assertIn(placeholder, composed)
-            composed = composed.replace(placeholder, value)
-        self.assertNotIn("${", composed)
-        self.assertEqual(composed, format_date(d, role="row"))
+        for role in ("row", "long"):
+            with self.subTest(role=role):
+                weekdays = date_names("weekdays", role).split(",")
+                months = date_names("months", role).split(",")
+                composed = match.group(1)
+                for placeholder, value in (
+                    ("${WEEKDAYS[(d.getDay() + 6) % 7]}", weekdays[d.weekday()]),
+                    ("${d.getDate()}", str(d.day)),
+                    ("${MONTHS[d.getMonth()]}", months[d.month - 1]),
+                ):
+                    self.assertIn(placeholder, composed)
+                    composed = composed.replace(placeholder, value)
+                self.assertNotIn("${", composed)
+                self.assertEqual(composed, format_date(d, role=role))
 
-    def test_an_unknown_name_table_raises(self):
-        # format_date's reason: the table is named as a bare string from a
+    def test_an_unknown_name_table_or_role_raises(self):
+        # format_date's reason: both are named as bare strings from a
         # template, so a typo has no other way of announcing itself — it
         # would render an empty attribute and the client would compose
         # `undefined` into a date.
-        with self.assertRaises(ValueError):
-            date_names("monate")
+        for table, role in (("monate", "row"), ("months", "zeile")):
+            with self.subTest(table=table, role=role), self.assertRaises(ValueError):
+                date_names(table, role)
+
+    def test_a_role_format_date_knows_is_not_automatically_offered(self):
+        # "short" and "note" are real roles (date_format._ROLE_FORMATTERS)
+        # that this tag deliberately does not serve: neither is a shape the
+        # client's one literal composes, so handing over tables for them
+        # would promise a format task_add_row.js cannot produce.
+        for role in ("short", "note"):
+            with self.subTest(role=role):
+                format_date(date(2026, 12, 15), role=role)
+            with self.subTest(role=role), self.assertRaises(ValueError):
+                date_names("months", role)
 
 
 class TheAddRowSendsIsoTest(DemoModeTestCase):

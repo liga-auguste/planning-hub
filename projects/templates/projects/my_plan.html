@@ -233,7 +233,7 @@ is gone; the sidebar already covers that.
     project is always the session plan here — my_plan() redirects without
     one — so the id is the one _build_session_project gives it.
     {% endcomment %}
-    {% include "projects/_task_add_row.html" with project_id=project.id %}
+    {% include "projects/_task_add_row.html" with project_id=project.id date_role="long" %}
 
     <div style="margin-top: 48px; margin-bottom: 40px; padding-top: 32px; border-top: 1px solid var(--color-border-primary);">
         <div style="font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 12px;">Wie geht's weiter?</div>
