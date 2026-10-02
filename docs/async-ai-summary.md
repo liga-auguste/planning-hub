@@ -159,10 +159,53 @@ The card renders `aria-live="polite"` and, while pending, `aria-busy="true"`: th
 content arrives without a navigation, and a summary belongs at the reader's next pause
 rather than over whatever they are on.
 
+## Measured
+
+Against the running demo stack on 2026-10-02, three runs each, `curl`'s `time_total` for
+the uncached case and the `claude_call` log lines ([#31](https://github.com/liga-auguste/planning-hub/issues/31))
+beside them. The cache is cleared before every run.
+
+**Dashboard, example catalog, first uncached visit** — the load the issue measured at
+6–7 s:
+
+| | `main` | this branch |
+|---|---|---|
+| `GET /dashboard/?mode=multi` | 6.34 / 6.97 / 7.41 s | **0.0064 / 0.0067 / 0.0067 s** |
+| `POST /summary/?mode=multi` | — (inside the page) | 6.82 / 6.95 / 7.53 s |
+| `claude_call duration_ms` | 6309 / 6933 / 7377 | 6802 / 6915 / 7514 |
+
+**Planner, "Plan speichern" to a painted dashboard** — a session plan of two tasks, so a
+much smaller prompt than the catalog above:
+
+| | `main` | this branch |
+|---|---|---|
+| `POST /planner/create/` | 2.64 / 2.83 / 3.16 s | **0.0022 / 0.0023 / 0.0030 s** |
+| `GET /dashboard/` right after | 2.30 / 2.50 / 2.66 s | **0.0024 / 0.0025 / 0.0028 s** |
+| what the visitor waits for before seeing anything | **5.1 – 5.8 s** | **~5 ms** |
+| `POST /summary/` afterwards | — | 2.24 / 2.44 s |
+| `POST /timelapse/moments/` afterwards | — | 2.67 / 2.71 s |
+
+Two readings:
+
+- **The page is roughly a thousand times faster to first byte** — 6–7 s to ~6 ms on the
+  catalog, 5.1–5.8 s to ~5 ms out of the planner. That is the whole of this change: the
+  browser gets a complete, usable page while the model is still being asked.
+- **The wait itself is unchanged**, as the issue predicted. The summary is readable at
+  about the same wall-clock moment either way. What moved is that the visitor spends
+  those seconds looking at their own projects and a labelled spinner rather than at a
+  blank tab.
+
+The `claude_call` lines also answer the issue's latency question with a number: the
+summary runs 6.3–7.5 s on 1,714 input tokens for the five-project catalog, and 2.2–2.4 s
+on 529 for a two-task session plan. It is prompt size, not a constant — so "Sonnet costs
+~7 s" is only true of the largest surface, and the Haiku comparison the issue suggests
+has to be run per surface rather than once.
+
 ## What this does *not* change
 
-- **The wait itself.** It shrinks only slightly. What changes is that it is visible,
-  labelled and non-blocking — perceived performance is the point.
+- **The wait itself.** It shrinks only slightly — measured above, not at all. What
+  changes is that it is visible, labelled and non-blocking; perceived performance is the
+  point.
 - **Caching behaviour.** A visitor who already has a summary gets it inline, with no
   loading flash.
 - **The model.** The summary still runs on `claude-sonnet-4-6`; the Haiku-instead-of-
