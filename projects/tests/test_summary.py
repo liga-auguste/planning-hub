@@ -1772,11 +1772,19 @@ class NoWriteOverlapsTheSummaryRequestTest(DemoModeTestCase):
         self.assertNotIn("toggle-form.pending", self.dashboard_js())
 
 
+@override_settings(DEMO_MODE=False)
 class ProductionDoesNotQueueItsWritesTest(AiStubMixin, TestCase):
     """The other half of withSessionWriteLock's condition, from the side that
     pays for getting it wrong: in production the fragment writes the cache,
     not the session, so there is no race to serialise — and a toggle waiting
-    out a 6-7 s Sonnet call to prevent one would undo what #156 is for."""
+    out a 6-7 s Sonnet call to prevent one would undo what #156 is for.
+
+    DEMO_MODE pinned off rather than inherited from the environment: a
+    maintainer's .env has DEMO_MODE=TRUE and CI has nothing, so without this
+    the class is a demo test locally and a production test in CI — two
+    different subjects under one name, which is how it first went green here
+    and red there.
+    """
 
     def setUp(self):
         cache.clear()
