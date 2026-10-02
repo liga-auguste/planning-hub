@@ -798,7 +798,7 @@
         that decide whether it renders at all, so this include is only about
         which project the row belongs to.
         {% endcomment %}
-        {% include "projects/_task_add_row.html" with project_id=project.id %}
+        {% include "projects/_task_add_row.html" with project_id=project.id date_role="row" %}
     </div>
     {% endfor %}
     {% endfor %}

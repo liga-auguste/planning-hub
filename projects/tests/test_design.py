@@ -181,8 +181,13 @@ class TheDateStylingLivesWithTheDateTest(DemoModeTestCase):
     RULES = (
         "button.task-due {",
         "button.task-due:focus-visible {",
-        ".task-due[data-task-id] {",
-        ".task-due[data-task-id]:hover {",
+        # #279: the affordance hangs off the element name rather than off
+        # data-task-id. _task_due.html renders a <button> exactly where the
+        # date can be changed, so the name already says what the attribute
+        # was standing in for — and it has to, now that the add row offers a
+        # date it can change without having a task id to carry.
+        "button.task-due:hover {",
+        ".task-add-row .task-due {",
         ".task-due-input {",
     )
 

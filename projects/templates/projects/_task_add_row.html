@@ -31,10 +31,48 @@ durations will reopen this row's shape anyway. The accepted consequence is
 named in notion.py create_task: a task added here carries no kontext, so it
 is invisible to the cross-project batching hint the summary prompt derives
 from one (#145).
-{% endcomment %}{% if not viewing_demo_data and not sim_date %}
-<div class="task-add-row" data-project-id="{{ project_id }}">
+
+The date starts on today and is asked for the way every other date in the
+app is asked for (#279). Three things about it that look like omissions and
+are not:
+
+  Today is safe here precisely because of the two conditions above. A
+  Zeitreise moment renders nothing of this row, so "today" can never be
+  read against a simulated date — #217's rule is inherited, not restated.
+
+  No stage class. .task-due carries `today`, `urgent` or `overdue` on a
+  task row, and urgency is a property of a task that exists; there is none
+  yet. Painting one would also mean re-deriving _classify_due_urgency in
+  JavaScript on every pick, which #198 settled the other way.
+
+  No data-task-id, deliberately. That attribute is the contract
+  bindTaskDatePickers() binds on (task_date_picker.js), and a row with no
+  task would hand it an undefined id to reschedule. The add row calls the
+  module's other entry point itself instead, so what it shares is the
+  asking and not the contract.
+
+date_role is required rather than defaulted, and it is the including
+surface's rather than this partial's. The defect #279 was about was a row
+asking for the same kind of value in a spelling nothing else on the page
+uses — so pinning one role here would have carried that defect onto
+/mein-plan/, whose list writes the month out (the "long" role) where the
+dashboard's rows abbreviate it (the "row" one). Same reasoning as the
+due_display _task_due.html takes in: which form a date is spelled in is a
+statement about the surface, settled per surface by #238. An include that
+forgets it fails loudly in date_names rather than rendering a shape at
+random.
+
+The two name tables travel as data attributes because the label has to be
+recomposed in the client after a pick: every other surface gets its new
+label from the write's own response, and this row's pick writes nothing.
+date_format.py stays the one source of the names (planner_tags.date_names),
+which hands over the tables that role spells with; what task_add_row.js owns
+is the composition alone, and that is one template literal for both roles
+because they differ in the month table and in nothing else.
+{% endcomment %}{% load planner_tags %}{% if not viewing_demo_data and not sim_date %}
+<div class="task-add-row" data-project-id="{{ project_id }}" data-weekdays="{% date_names 'weekdays' date_role %}" data-months="{% date_names 'months' date_role %}">
     <input type="text" class="task-add-name" placeholder="Neue Aufgabe" aria-label="Neue Aufgabe">
-    <input type="date" class="task-add-date" aria-label="Fällig am">
+    {% with today_display=today|plan_date:date_role %}<button type="button" class="task-due task-add-date" data-raw-date="{{ today|date:'Y-m-d' }}" title="Fälligkeitsdatum wählen" aria-label="Fällig am, aktuell {{ today_display }}">{{ today_display }}</button>{% endwith %}
     <button type="button" class="task-add-submit">Hinzufügen</button>
 </div>
 {% endif %}
