@@ -107,18 +107,22 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
 .progress-ring { flex-shrink: 0; }
 .progress-ring-track, .progress-ring-fill { fill: none; }
 .progress-ring-track { stroke: var(--color-border-primary); }
-/* #212: the brand accent is the base stroke and overdue red is still the
-   only override — six identical grey rings become the app's own colour
-   without any of them becoming a status stage. That an accent ring reads
-   as "progress" rather than as "on track" rests on the accent being the
-   *absence* of the override: the today/urgent/ok ring classes stay in the
-   markup as classification (#173) and none of them gets a rule, so there
-   is no stage for the accent to name. Separation is not the risk here —
-   accent to red is ΔE2000 41.9 light / 39.2 dark, and accent to the grey
-   it replaces 25.9 / 22.3, so the change is plainly visible rather than a
-   repaint nobody notices. The stroke clears the 3:1 non-text floor on the
-   sidebar card at 3.85:1 light and 3.63:1 dark. */
-.progress-ring-fill { stroke: var(--color-accent); stroke-linecap: round; }
+/* Neutral by default, overdue red the only override — the state #173 left
+   this in. #212 made the base stroke the brand accent on the reasoning that
+   the accent is the *absence* of the override and so names no stage; in use
+   it reads as one anyway, because a saturated colour next to a saturated red
+   is taken as the other half of a two-colour scale rather than as chrome. A
+   ring already carries its statement in how far it is filled, so the stroke
+   only has to stay legible and stay out of the signal set. Grey against red
+   is ΔE2000 29.3 light / 28.8 dark, and the stroke clears the 3:1 non-text
+   floor on every surface the ring sits on: 3.68:1 light / 3.82:1 dark on the
+   sidebar card, 3.29:1 / 4.76:1 on #212's active-item tint, which did not
+   exist when this rule was last neutral — computed rather than trusted, by
+   SignalColorContrastTest's RING_STROKES/RING_SURFACES pair, which is kept
+   apart from the dot's surfaces because a dot never reaches the sidebar.
+   The today/urgent/ok ring classes stay in the markup as classification
+   (#173) and still get no rule. */
+.progress-ring-fill { stroke: var(--color-text-quaternary); stroke-linecap: round; }
 .progress-ring-fill.overdue { stroke: var(--color-overdue); }
 /* Sibling of .sidebar-content, not inside it, so collapsing the sidebar
    above doesn't take the toggle down with it (#12). */

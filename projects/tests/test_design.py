@@ -1537,13 +1537,14 @@ class SignalColorContrastTest(SimpleTestCase):
 
     FLOOR = 3.0
     # #212: the brand accent is not a signal color and never says what
-    # state a task is in — but it now paints the sidebar rings and both
-    # progress fills, which are non-text UI on the same two surfaces, so it
-    # answers to the same floor and is measured by the same helper. Its
-    # surfaces differ: a ring sits on the sidebar card
-    # (--color-bg-primary), a bar fill on its track
-    # (--color-bg-tertiary), which is why it is kept out of SIGNALS rather
-    # than added to it.
+    # state a task is in — but it paints non-text UI that answers to the
+    # same floor, so it is measured by the same helper. Its surfaces differ
+    # from a signal's, which is why it is kept out of SIGNALS rather than
+    # added to it: a bar fill sits on its track (--color-bg-tertiary), the
+    # sidebar item's focus outline on the sidebar card
+    # (--color-bg-primary). The ring stroke was the second reason for
+    # --color-bg-primary until #278 put it back on the neutral gray — the
+    # surface stays, its accent tenant changed.
     ACCENT_SURFACES = {
         "light": {"--color-bg-primary": "#fff", "--color-bg-tertiary": "#f4f2f4"},
         "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-tertiary": "#363638"},
@@ -1557,6 +1558,24 @@ class SignalColorContrastTest(SimpleTestCase):
     SURFACES = {
         "light": {"--color-bg-primary": "#fff", "--color-bg-secondary": "#f9f8f9"},
         "dark": {"--color-bg-primary": "#2c2c2e", "--color-bg-secondary": "#1e1e1e"},
+    }
+    # #278: the sidebar ring answers to the same floor, on two surfaces that
+    # are not a dot's — which is why this is its own pair rather than more
+    # keys in SURFACES above. A dot never reaches the sidebar, so measuring
+    # the amber and the green against the tinted item would fail on a
+    # pairing that does not exist (--color-done is 2.98:1 there).
+    #
+    # The strokes are the two the stylesheet actually renders: .progress-
+    # ring-fill is --color-text-quaternary with .overdue as its one
+    # override, and both are already pinned by value in SIGNALS. The
+    # surfaces are the bare sidebar card and the tinted item #212
+    # introduced, which an *active* project's ring sits on — the tighter of
+    # the two, and the pair this file would otherwise take on trust from a
+    # CSS comment.
+    RING_STROKES = ("--color-text-quaternary", "--color-overdue")
+    RING_SURFACES = {
+        "light": {"--color-bg-primary": "#fff", "--color-accent-tint": "#f1f1ff"},
+        "dark": {"--color-bg-primary": "#2c2c2e", "--color-accent-tint": "#18182f"},
     }
 
     def base_css(self):
@@ -1595,10 +1614,42 @@ class SignalColorContrastTest(SimpleTestCase):
                             _wcag_contrast(signal, background), self.FLOOR
                         )
 
+    def test_the_ring_stroke_clears_the_non_text_floor_on_both_its_surfaces(self):
+        # #278 took the ring off the brand accent and back to the neutral
+        # gray. What makes that worth measuring rather than assuming is the
+        # active item: #212 gave it a tinted background after this rule was
+        # last neutral, so the gray's tightest surface is one that did not
+        # exist the last time it was the ring's colour.
+        css = self.base_css()
+        ring = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        # Asserted before the ratios, so a ring that quietly moves to a
+        # third token is a failure here rather than a pass measuring a
+        # colour the stylesheet no longer uses.
+        self.assertIn(
+            ".progress-ring-fill { stroke: var(--color-text-quaternary); "
+            "stroke-linecap: round; }",
+            ring,
+        )
+        self.assertIn(
+            ".progress-ring-fill.overdue { stroke: var(--color-overdue)", ring
+        )
+        for token in self.RING_STROKES:
+            for theme, surfaces in self.RING_SURFACES.items():
+                stroke = self.declared_value(css, token, theme)
+                for surface, background in surfaces.items():
+                    with self.subTest(token=token, theme=theme, surface=surface):
+                        self.assertGreaterEqual(
+                            _wcag_contrast(stroke, background), self.FLOOR
+                        )
+
     def test_the_accent_clears_the_non_text_floor_on_its_own_surfaces(self):
-        # #212: the ring stroke against the sidebar card, the bar fill
-        # against its track. The second is why my_plan's track moved off
-        # --color-border-primary, where the dark accent reached 2.95:1.
+        # #212: the bar fill against its track, which is why my_plan's track
+        # moved off --color-border-primary, where the dark accent reached
+        # 2.95:1 — and the focus outline against the sidebar card, which is
+        # what still puts the accent on --color-bg-primary now that the
+        # progress ring has gone back to the neutral gray.
         css = self.base_css()
         accent = self.declared_value(css, "--color-accent", "light")
         self.assertEqual(accent.lower(), "#7070ff")
@@ -1620,11 +1671,20 @@ class SignalColorContrastTest(SimpleTestCase):
 class BrandAccentPlacementTest(DemoModeTestCase):
     """#212: the brand accent carried the landing page and appeared inside
     the product only on hover, while --color-accent-tint was declared and
-    used nowhere at all. Three placements fix that — the sidebar rings, the
-    active sidebar item, both progress bars — and all three are chrome or
-    self-reporting, never a task state. That separation is the constraint
+    used nowhere at all. Three placements fixed that — the sidebar rings,
+    the active sidebar item, both progress bars — and all three are chrome
+    or self-reporting, never a task state. That separation is the constraint
     the issue is built on: red, amber and green say what state a task is
     in, the accent says whose product this is.
+
+    Two of the three are left. The rings went back to the neutral gray,
+    because the separation that holds in theory did not survive contact: a
+    saturated stroke sitting beside the saturated overdue red is read as the
+    other half of a two-colour scale, whatever the stylesheet means by it.
+    Nothing about the constraint changed — a surface that cannot be told
+    apart from a status is simply not one of the surfaces the accent can
+    have (which is the same reasoning that kept it off .ai-project-link,
+    there on a measured number rather than on how it reads).
 
     The fourth candidate, .ai-project-link, was rejected on a measured
     number: WCAG 1.4.3 wants 4.5:1 for 11-13px text and the accent reaches
