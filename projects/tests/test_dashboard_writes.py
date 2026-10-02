@@ -1967,11 +1967,15 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
 
     def test_one_listener_covers_both_sites(self):
         # .task-project.ai-project-link is a subset of this selector, so the
-        # row and the summary need one binding between them.
+        # row and the summary need one binding between them. #156 gave the
+        # binding a root so the summary can be rebound after the fragment
+        # endpoint swaps it in; the selector it binds by is unchanged.
+        page = self.client.get(reverse("dashboard"))
         self.assertContains(
-            self.client.get(reverse("dashboard")),
-            "document.querySelectorAll('button.ai-project-link[data-project-id]')",
+            page,
+            "root.querySelectorAll('button.ai-project-link[data-project-id]')",
         )
+        self.assertContains(page, "bindProjectLinks(document);")
 
     def test_the_reset_and_the_ring_live_in_the_stylesheet(self):
         css = self.CSS.read_text()

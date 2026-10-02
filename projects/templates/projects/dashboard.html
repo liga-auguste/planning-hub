@@ -909,16 +909,30 @@ the wording either way.
     });
     // Both in-content sites at once: .task-project.ai-project-link is a
     // subset of this selector, so the row's label and the summary's heading
-    // need one binding between them. Bound once on load rather than
-    // rebound after a write, because neither list is rebuilt from markup —
-    // the row is moved as the element it already is, and the summary
-    // reloads the page.
-    document.querySelectorAll('button.ai-project-link[data-project-id]').forEach(link => {
-        link.addEventListener('click', () => showProject(link.dataset.projectId));
-    });
+    // need one binding between them.
+    //
+    // Takes a root rather than reaching for `document` itself (#156). Every
+    // binding on this page is direct, not delegated, and the comment that
+    // used to stand here said why that was safe: neither list is rebuilt
+    // from markup, the row is moved as the element it already is, and the
+    // summary reloads the page. The summary is markup now — the fragment
+    // endpoint swaps it in — so the function has to be callable a second
+    // time against just the region that changed. Called with `document` on
+    // load, which is what it did before.
+    function bindProjectLinks(root) {
+        root.querySelectorAll('button.ai-project-link[data-project-id]').forEach(link => {
+            link.addEventListener('click', () => showProject(link.dataset.projectId));
+        });
+    }
+    bindProjectLinks(document);
 </script>
 <script>
-document.querySelectorAll('.toggle-form').forEach(form => {
+// Root-scopeable for the same reason as bindProjectLinks (#156): the
+// summary's dots arrive as markup from the fragment endpoint, and a form
+// nothing bound submits as a GET to the current URL — a silent reload that
+// looks exactly like a toggle that did not take.
+function bindToggleForms(root) {
+    root.querySelectorAll('.toggle-form').forEach(form => {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const taskId = form.dataset.taskId;
@@ -947,7 +961,9 @@ document.querySelectorAll('.toggle-form').forEach(form => {
         applyTaskDone(taskId, done);
         if (!applyToggleFigures(taskId, data)) window.location.reload();
     });
-});
+    });
+}
+bindToggleForms(document);
 
 // The same task renders in more than one place — update every copy, not
 // just the clicked one. #122 wrote this for the two shapes that existed
