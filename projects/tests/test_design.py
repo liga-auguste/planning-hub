@@ -1587,9 +1587,11 @@ class SignalColorContrastTest(SimpleTestCase):
                         )
 
     def test_the_accent_clears_the_non_text_floor_on_its_own_surfaces(self):
-        # #212: the ring stroke against the sidebar card, the bar fill
-        # against its track. The second is why my_plan's track moved off
-        # --color-border-primary, where the dark accent reached 2.95:1.
+        # #212: the bar fill against its track, which is why my_plan's track
+        # moved off --color-border-primary, where the dark accent reached
+        # 2.95:1 — and the focus outline against the sidebar card, which is
+        # what still puts the accent on --color-bg-primary now that the
+        # progress ring has gone back to the neutral gray.
         css = self.base_css()
         accent = self.declared_value(css, "--color-accent", "light")
         self.assertEqual(accent.lower(), "#7070ff")
@@ -1611,11 +1613,20 @@ class SignalColorContrastTest(SimpleTestCase):
 class BrandAccentPlacementTest(DemoModeTestCase):
     """#212: the brand accent carried the landing page and appeared inside
     the product only on hover, while --color-accent-tint was declared and
-    used nowhere at all. Three placements fix that — the sidebar rings, the
-    active sidebar item, both progress bars — and all three are chrome or
-    self-reporting, never a task state. That separation is the constraint
+    used nowhere at all. Three placements fixed that — the sidebar rings,
+    the active sidebar item, both progress bars — and all three are chrome
+    or self-reporting, never a task state. That separation is the constraint
     the issue is built on: red, amber and green say what state a task is
     in, the accent says whose product this is.
+
+    Two of the three are left. The rings went back to the neutral gray,
+    because the separation that holds in theory did not survive contact: a
+    saturated stroke sitting beside the saturated overdue red is read as the
+    other half of a two-colour scale, whatever the stylesheet means by it.
+    Nothing about the constraint changed — a surface that cannot be told
+    apart from a status is simply not one of the surfaces the accent can
+    have (which is the same reasoning that kept it off .ai-project-link,
+    there on a measured number rather than on how it reads).
 
     The fourth candidate, .ai-project-link, was rejected on a measured
     number: WCAG 1.4.3 wants 4.5:1 for 11-13px text and the accent reaches
