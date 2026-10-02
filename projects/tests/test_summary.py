@@ -1783,8 +1783,21 @@ class ProductionDoesNotQueueItsWritesTest(AiStubMixin, TestCase):
         self.addCleanup(cache.clear)
         super().setUp()
 
+    def dashboard(self):
+        """Notion stubbed, not merely cached: a production dashboard with a
+        cold cache reads Notion, and the first version of this test reached
+        the real API — green on a machine with a key in .env, red in CI with
+        a KeyError. #215's reason for AiStubMixin, one API over."""
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[]) as notion,
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+        ):
+            page = self.client.get(reverse("dashboard")).content.decode()
+        notion.assert_called_once()
+        return page
+
     def test_the_gate_is_a_bare_call_here(self):
-        page = self.client.get(reverse("dashboard")).content.decode()
+        page = self.dashboard()
         self.assertIn("const SESSION_WRITES = false;", page)
         self.assertIn(
             "return SESSION_WRITES ? withSessionLock(fn, {priority: true}) : fn();",
@@ -1795,9 +1808,9 @@ class ProductionDoesNotQueueItsWritesTest(AiStubMixin, TestCase):
         """Not through the queue, but through the one place that decides — so
         the decision stays server-rendered rather than copied into each
         handler."""
-        page = self.client.get(reverse("dashboard")).content.decode()
         self.assertIn(
-            "withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`", page
+            "withSessionWriteLock(() => fetch(`/task/${taskId}/toggle/`",
+            self.dashboard(),
         )
 
 
