@@ -772,13 +772,17 @@
         <div class="project-header" tabindex="-1">
             <span class="project-name">{{ project.display_name }}</span>
             {% comment %}
-            Production project names carry the event date already (own Notion
-            habit) — the separate badge would just repeat it. Demo names don't,
-            example data and a session plan alike (has_session_plan only ever
-            true inside DEMO_MODE — see views.dashboard), so demo_mode alone
-            is the right switch, no has_session_plan check needed here.
+            #282: unconditional. The badge used to render under demo_mode
+            alone, because production project names carried the event date
+            themselves (own Notion habit) and the badge would have repeated
+            it. #134 ended that four days later: _strip_trailing_date takes
+            the date out of the displayed name, so the premise of the switch
+            was gone and the switch was not — leaving production with no
+            event date anywhere on the page. It renders nowhere else: the
+            sidebar, the Kanban cards and the month groups carry no project
+            date, and a month group names the month, not the day.
             {% endcomment %}
-            {% if demo_mode %}<span class="project-date">{{ project.event_date_display }}</span>{% endif %}
+            <span class="project-date">{{ project.event_date_display }}</span>
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
         </div>
         {% comment %}
