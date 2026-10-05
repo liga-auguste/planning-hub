@@ -335,11 +335,13 @@ button.task-due:focus-visible { outline: 2px solid var(--color-accent); outline-
    because the partial renders on all four pages that load this sheet. */
 #about-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 4px; }
 /* #200: opening a project is a <button> too, on both surfaces that offer
-   it — the task row's label and the AI summary's heading. Same reset as the
-   date above, minus the font-size: the two surfaces render the label at
-   different sizes, so the size stays with each of them (dashboard.html) and
-   this rule must not be the one that decides it. color: inherit keeps the
-   label reading as the text it replaced rather than as a control.
+   it — the task row's label and, since #49, the AI summary's task rows.
+   Same reset as the date above, minus the font-size: the label's size
+   belongs to .task-project, which is what both surfaces spell, and a reset
+   of (0,1,1) would beat that (0,1,0) rule — so the size is restated where
+   it is owned (button.task-project.ai-project-link, dashboard.html) rather
+   than being decided here. color: inherit keeps the label reading as the
+   text it replaced rather than as a control.
 
    The ring is an outline, which WCAG counts as non-text UI (1.4.11, 3:1)
    rather than as text (1.4.3, 4.5:1) — the reason the accent is allowed

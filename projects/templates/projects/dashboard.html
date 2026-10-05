@@ -925,8 +925,10 @@ the wording either way.
         item.addEventListener('click', () => showProject(item.dataset.projectId));
     });
     // Both in-content sites at once: .task-project.ai-project-link is a
-    // subset of this selector, so the row's label and the summary's heading
-    // need one binding between them.
+    // subset of this selector, so the task rows' labels and the summary's
+    // own rows need one binding between them. One shape rather than two
+    // since #49: the link sat on the summary's block heading until the
+    // attribution moved down to the task row.
     //
     // Takes a root rather than reaching for `document` itself (#156). Every
     // binding on this page is direct, not delegated, and the comment that
