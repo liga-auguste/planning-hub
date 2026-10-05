@@ -379,6 +379,79 @@ def trash_task(task_id: str) -> None:
         _client().pages.update(page_id=task_id, archived=True)
 
 
+def get_exclusive_task_ids(project_id: str) -> list[str]:
+    """#284: the tasks that go into the trash with their project — read now,
+    and only the ones no other project holds.
+
+    Read now, because the dashboard cache is not a source of truth for this.
+    CACHE_KEY lives up to eight hours, and a task created in Notion's own UI
+    inside that window is not in it; archiving the project around such a task
+    leaves exactly the orphan trash_project refuses to leave — pointing at a
+    trashed page, so get_upcoming_projects cannot reach it, and not
+    relation.is_empty, so get_unassigned_tasks (#53) cannot either. One read
+    is what makes that contract true rather than probable.
+
+    Only the exclusive ones, and that is the same rule rather than an
+    exception to it: a project's tasks cannot stay behind because nothing
+    would reach them, and a task that also relates to another project is
+    still reached under that one — _tasks_by_project groups a task onto every
+    project it relates to, deliberately. Archiving it would empty a slot in a
+    project nobody asked about.
+
+    "Another project" is taken at its word, without looking up whether that
+    project is itself still open — so a task shared by two projects that both
+    end up in the trash does become unreachable, by the second removal. The
+    bound is deliberate: checking costs a retrieve per relation, and
+    "reachable" would then have to mean the status filter get_upcoming_projects
+    applies, which is a question about what a closed project's tasks are, not
+    one this write gets to answer.
+
+    Pages, like every read that can outgrow Notion's 100 rows
+    (_query_all_pages). The relation is read off the page rather than off a
+    parsed task: _parse_task_page does not carry it, and giving it one would
+    change the shape of every cached dashboard entry (#19's lockstep) for a
+    value only this write needs.
+    """
+    with translate_notion_errors():
+        pages = _query_all_pages(
+            _client(),
+            database_id=TASKS_DB,
+            filter={
+                "property": "Related to Projekte",
+                "relation": {"contains": project_id},
+            },
+        )
+    exclusive = []
+    for page in pages:
+        relation = page["properties"].get("Related to Projekte", {}).get("relation", [])
+        # Found by relation.contains, so one of those entries is this project.
+        if len(relation) <= 1:
+            exclusive.append(page["id"])
+    return exclusive
+
+
+def trash_project(project_id: str) -> None:
+    """#284: the project page to Notion's trash, where it stays restorable —
+    the same pages.update(archived=True) trash_task makes, and the same
+    reason the UI says "In den Papierkorb" rather than "Löschen".
+
+    Its tasks do not follow by themselves, and leaving them is the one
+    answer that must not be chosen: get_unassigned_tasks finds project-less
+    tasks by relation.is_empty (#53), and a task whose project page is in
+    the trash still points at that page. Neither read would find it — not
+    get_upcoming_projects, whose project is gone, and not the "Ohne Projekt"
+    one — so it would vanish from the app while living on in Notion. The
+    caller asks get_exclusive_task_ids above which ones those are, trashes
+    them first and this page after; see trash_project_view (views.py) for
+    what a partial failure means.
+
+    The `archived` vs `in_trash` note on trash_task applies here word for
+    word: an SDK or API-version bump has to come past both calls.
+    """
+    with translate_notion_errors():
+        _client().pages.update(page_id=project_id, archived=True)
+
+
 def increment_postpone_count(task_id: str) -> int:
     """Read-then-write, since Notion has no atomic increment. Deliberately
     not folded into update_task_date (#171): two calls instead of one costs

@@ -43,6 +43,7 @@ from .models import DemoEvent
 from .notion import (
     NotionUnavailableError,
     create_task,
+    get_exclusive_task_ids,
     get_tasks_completed_in_range,
     get_tasks_created_in_range,
     get_unassigned_tasks,
@@ -50,6 +51,7 @@ from .notion import (
     increment_postpone_count,
     rename_task,
     toggle_task,
+    trash_project,
     trash_task,
     update_task_date,
 )
@@ -137,11 +139,31 @@ UNASSIGNED_CACHE_DEADLINE_KEY = "dashboard_unassigned_deadline"
 
 def _bust_dashboard_cache():
     """Called after every confirmed Notion write, so a completed task or a
-    freshly saved project never hides behind CACHE_TTL or the stale fallback."""
-    cache.delete(CACHE_KEY)
+    freshly saved project never hides behind CACHE_TTL or the stale fallback.
+
+    The stale pair goes too, which is what makes this the *confirmed*-write
+    answer: a last-known-good copy that contradicts a write that happened is
+    worse than no copy at all. A write that failed is the other case, and
+    _drop_fresh_dashboard_cache below is its answer."""
+    _drop_fresh_dashboard_cache()
     cache.delete(STALE_CACHE_KEY)
-    cache.delete(UNASSIGNED_CACHE_KEY)
     cache.delete(STALE_UNASSIGNED_CACHE_KEY)
+
+
+def _drop_fresh_dashboard_cache():
+    """The fresh entries only, with the last-known-good pair left standing.
+
+    #284: trash_project_view reaches this after a *partial* failure, where
+    the entry it read no longer describes Notion — but it reaches it because
+    Notion is unreachable, and STALE_CACHE_KEY is precisely what dashboard()
+    serves in that situation. Dropping it there would answer a half-finished
+    removal with an empty dashboard (data_unavailable), and the next load
+    cannot read Notion either, so there would be nothing to look at and
+    nothing to repeat the action from. A stale copy carrying its own notice
+    is the lesser wrong, and it corrects itself on the first read that
+    succeeds."""
+    cache.delete(CACHE_KEY)
+    cache.delete(UNASSIGNED_CACHE_KEY)
     cache.delete(CACHE_DEADLINE_KEY)
     cache.delete(UNASSIGNED_CACHE_DEADLINE_KEY)
 
@@ -1912,6 +1934,84 @@ def trash_task_view(request, task_id):
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
         _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
+
+
+def trash_project_view(request, project_id):
+    """#284: the project and its tasks to Notion's trash, together.
+
+    Production only, and that is what the write is rather than a gate on
+    top of it. A demo visitor sees two kinds of project and neither has a
+    page to archive: the example projects are in no session (#10 §5), and a
+    session plan is not one project among several but the sitting itself —
+    discarding it is a different action from archiving a Notion page, and
+    one this endpoint would answer wrongly by doing half of it.
+
+    The tasks go first. trash_project's docstring says why they cannot be
+    left: a task whose project page is in the trash still points at that
+    page, so get_unassigned_tasks (relation.is_empty, #53) does not find it
+    either — it would be invisible in the app and alive in Notion, the
+    silent write #217 refuses in the other direction.
+
+    *Which* tasks is asked of Notion rather than of the cache, and
+    get_exclusive_task_ids owns both halves of that answer: the cached entry
+    can be eight hours old, and a task that also belongs to another project
+    is reachable there and stays.
+
+    A partial failure therefore errs toward visible rather than tidy. Tasks
+    that are already trashed stay trashed and the project stays live, so the
+    project is still on the dashboard with fewer tasks under it and the
+    action can simply be repeated. The reverse order would leave the
+    opposite: a vanished project and tasks no read can reach.
+
+    The cache is busted rather than patched, the answer trash_task_view
+    gives for the same reason one level down — a removal shifts every count
+    and every cached task_ref, and _patch_cached_tasks has no removal path.
+    Here it is not even close: the projects list itself is shorter, which
+    moves the month groups, the sidebar and every figure derived from them.
+    The client reloads.
+
+    How much is busted follows whether the write landed. A confirmed removal
+    takes the stale copy with it; a partial failure drops the fresh entries
+    and leaves the fallback, because this endpoint only fails that way when
+    Notion is unreachable and that copy is what an unreachable Notion gets
+    rendered from (_drop_fresh_dashboard_cache).
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    _, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        return JsonResponse({"error": "not available"}, status=404)
+    cached = cache.get(CACHE_KEY)
+    projects = cached[0] if cached else []
+    if not any(project["id"] == project_id for project in projects):
+        # The entry is asked whether the app knows this project, and nothing
+        # else — the task list comes from Notion below. The page that offered
+        # the control rendered from this entry and from no other (the menu is
+        # not in a stale render, dashboard.html), so a miss means the entry
+        # went cold or the project is already gone. Either way the next load
+        # is right, and archiving a page the app cannot currently see is the
+        # one thing this endpoint must not do on a guess.
+        return JsonResponse({"error": "unknown project"}, status=404)
+    try:
+        task_ids = get_exclusive_task_ids(project_id)
+    except NotionUnavailableError:
+        # Nothing has been written, so the cached entry is still true — the
+        # one failure on this path that costs the cache nothing.
+        return JsonResponse({"error": "notion unavailable"}, status=502)
+    try:
+        for task_id in task_ids:
+            trash_task(task_id)
+        trash_project(project_id)
+    except NotionUnavailableError:
+        # Whatever landed before the failure stays landed, so the fresh
+        # entries are dropped on the way out — the stale pair stays, since an
+        # unreachable Notion is what this failure is made of.
+        _drop_fresh_dashboard_cache()
+        return JsonResponse({"error": "notion unavailable"}, status=502)
+    _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 

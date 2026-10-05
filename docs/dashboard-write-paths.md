@@ -60,6 +60,7 @@ read falls back to.
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
 | Move a task to the trash | full bust | full bust | — |
+| Move a project to the trash | full bust | full bust | — |
 | Add a task to a plan | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
@@ -229,6 +230,59 @@ either way, so a click never has to be interpreted.
 | A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) | no — in no session, 404 (#10 §5) |
 | A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes | no — read-only, 404 (#217) |
 | A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes | no — the moment is in the same session, and the endpoint reads it (#217) |
+
+### The project level, since #284
+
+The table above is about tasks, which is what every write was until #284 added
+`project/<id>/trash/`. That one is production-only, and not as a gate on top of the write
+but as what the write *is*: a demo visitor sees two kinds of project and neither has a
+Notion page to archive. The example projects are in no session (#10 §5), and a session
+plan is the sitting itself rather than one project among several — discarding it is a
+different action, and this endpoint would answer it wrongly by doing half of it. The menu
+is not rendered there either, so the rule reads the same from both sides.
+
+**The tasks go with the project, and the order is the failure contract.** A task whose
+project page is in the trash still *points* at that page, so `get_unassigned_tasks` —
+which finds project-less tasks by `relation.is_empty` (#53) — does not find it, and
+neither does `get_upcoming_projects`, whose project is gone. Left behind, it would be
+invisible in the app and alive in Notion: the silent write #217 refuses from the other
+direction. So the tasks are trashed first and the project after. A failure in between
+leaves the project standing with fewer tasks under it — visible, and the action simply
+repeats. The reverse order would leave a vanished project and tasks no read can reach.
+
+**Which** tasks is a Notion read of its own (`get_exclusive_task_ids`), not a walk of the
+cached entry, and that is what makes the paragraph above true rather than probable: a
+cached entry lives up to `CACHE_TTL` (eight hours), and a task created in Notion's own UI
+inside that window is not in it — archiving the project around such a task would leave
+precisely the orphan this write exists to prevent. The same read answers the other half: a
+task that also relates to another project stays, because the reason the others cannot stay
+is that nothing would reach them, and this one is still reached under its other project
+(`_tasks_by_project` groups a task onto every relation it has, deliberately). The armed
+label counts the rendered tasks instead, which is the honest number for a page but not
+always the number the write touches.
+
+`CACHE_KEY` still decides *whether* the project is one the app knows, and a miss is a 404
+rather than a fetch: the page that offered the control rendered from that entry and from no
+other — the menu is not in a stale render — so a cold cache means the next load is right
+anyway, and archiving a page the app cannot currently see is the one thing this endpoint
+must not do on a guess.
+
+How much of the cache goes depends on whether the write landed, which is the one place
+this write parts with `_bust_dashboard_cache`'s all-four habit. A confirmed removal busts
+everything, stale copies included. A *partial* failure drops only the fresh entries
+(`_drop_fresh_dashboard_cache`) and leaves the last-known-good pair standing, because this
+endpoint only fails that way when Notion is unreachable — the single situation
+`dashboard()` renders that pair for. Taking it along would answer a half-finished removal
+with an empty dashboard that the next load cannot fill either.
+
+The control is not rendered on a stale page for the same reason it is not rendered in demo
+mode: the last Notion read failed there, so the write behind it cannot land. And one Notion
+call per task, serially, is what the API gives — there is no batch archive — which is why
+`nginx.conf` states a `proxy_read_timeout` rather than living with the 60s default: a long
+project would otherwise hand the browser a failure for a write the server then completes.
+
+Changing a project's event date ([#283](https://github.com/liga-auguste/planning-hub/issues/283))
+is the other half of the project level and is not built.
 
 The add column follows the toggle rather than the reschedule, and for the toggle's own
 reason. A new date visibly moves a task, so a reschedule under a moment is neither
