@@ -328,6 +328,28 @@ def _safe_judge(texts: list, strict_structure: bool) -> JudgeResult | None:
         return JudgeResult(None, None, None, None, f"Judge call failed: {exc}")
 
 
+def _summary_texts(blocks: list, hint: str = "") -> tuple[list, list]:
+    """The weekly summary's two kinds of text, kept apart for the one check
+    that cares which kind it is reading.
+
+    Since #49 the block heading is Claude's own text in both cases — and in
+    the multi-project card the most prominent string on screen — so it
+    belongs under the formal checks: an emoji is an emoji and an anglicism
+    an anglicism wherever it stands. In single-project mode the heading was
+    model-authored before #49 and went unreviewed just the same; the merged
+    format is what made the gap worth closing once for both.
+
+    It is not prose, though. The prompt asks for 2-3 words in a heading,
+    while "one sentence" is the rule the assessment and the hint carry, so
+    counting sentences in a heading would measure it against a rule it was
+    never given. That is the split (d) already makes between its moment
+    labels and their descriptions.
+    """
+    headings = [block["heading"] for block in blocks]
+    prose = [block["assessment"] for block in blocks] + ([hint] if hint else [])
+    return headings, prose
+
+
 def _eval_a():
     today = timezone.localdate()
     # The one case that runs on the decorated fixture: (a) is the
@@ -345,12 +367,13 @@ def _eval_a():
     # (#145): a week with no cluster yields "", and that empty string is not
     # a text to review.
     hint = resolve_kontext_hint(data)
-    texts = [block["assessment"] for block in blocks] + ([hint] if hint else [])
+    headings, prose = _summary_texts(blocks, hint)
+    texts = headings + prose
     checks = [
         check_du_form(texts),
         check_date_format(texts),
         check_no_emoji(texts),
-        check_sentence_count(texts, max_sentences=1),
+        check_sentence_count(prose, max_sentences=1),
         check_no_anglicisms(texts),
         _check_no_project_name_repeat(blocks, projects),
     ]
@@ -363,12 +386,13 @@ def _eval_b():
     data = generate_weekly_summary(projects, today, single_project_demo=True)
     sections = resolve_weekly_summary(data, projects, single_project_demo=True)
     blocks = [block for section in sections for block in section["blocks"]]
-    texts = [block["assessment"] for block in blocks]
+    headings, prose = _summary_texts(blocks)
+    texts = headings + prose
     checks = [
         check_du_form(texts),
         check_date_format(texts),
         check_no_emoji(texts),
-        check_sentence_count(texts, max_sentences=1),
+        check_sentence_count(prose, max_sentences=1),
         check_no_anglicisms(texts),
         # No project-name check here, even though #49 made the rule shared:
         # the single-project prompt heads its one project "Dein Projekt" and

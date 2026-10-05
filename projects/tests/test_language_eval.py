@@ -12,6 +12,7 @@ from projects.language_eval import (
     JudgeResult,
     _check_no_project_name_repeat,
     _eval_a,
+    _eval_b,
     _format_calls,
     _format_texts,
     _projects_with_kontext,
@@ -345,3 +346,63 @@ class EvalACollectsTheKontextHintTest(SimpleTestCase):
         summary = {key: value for key, value in self.SUMMARY.items()}
         del summary["kontext_hinweis"]
         self.assertNotIn("", self._texts(summary))
+
+
+class SummaryHeadingsAreReviewedTest(SimpleTestCase):
+    """#49 made the block heading Claude's own text in both cases, and the
+    card renders it in <strong> straight above the assessment. Collecting
+    only the assessments left the formal checks blind to the most prominent
+    string on the surface — the same blind spot #262 found for the kontext
+    hint, one field over.
+
+    The one check the heading stays out of is "Length": the prompt asks for
+    2-3 words there and for a single sentence in the assessment, so counting
+    sentences in a heading would measure it against a rule it was never
+    given. That is the split (d) already makes between its moment labels
+    and their descriptions."""
+
+    def _run(self, runner, heading="Programm offen", assessment="Plakate müssen raus."):
+        summary = {
+            "jetzt_faellig": [
+                {"heading": heading, "assessment": assessment, "task_refs": []}
+            ],
+            "naechste_woche": [],
+        }
+        with patch(
+            "projects.language_eval.generate_weekly_summary", return_value=summary
+        ):
+            return runner()
+
+    def _check(self, checks, name):
+        [check] = [check for check in checks if check.name == name]
+        return check
+
+    def test_both_cases_review_the_heading(self):
+        for runner in (_eval_a, _eval_b):
+            with self.subTest(case=runner.__name__):
+                texts, _ = self._run(runner)
+                self.assertIn("Programm offen", texts)
+
+    def test_an_anglicism_in_the_heading_is_caught(self):
+        for runner in (_eval_a, _eval_b):
+            with self.subTest(case=runner.__name__):
+                _, checks = self._run(runner, heading="Content und Plakate")
+                self.assertFalse(self._check(checks, "Anglicisms").passed)
+
+    def test_an_emoji_in_the_heading_is_caught(self):
+        for runner in (_eval_a, _eval_b):
+            with self.subTest(case=runner.__name__):
+                _, checks = self._run(runner, heading="Alles im Plan 🎉")
+                self.assertFalse(self._check(checks, "No emoji").passed)
+
+    def test_the_formal_address_check_reads_the_heading_too(self):
+        for runner in (_eval_a, _eval_b):
+            with self.subTest(case=runner.__name__):
+                _, checks = self._run(runner, heading="Ihre Plakate")
+                self.assertFalse(self._check(checks, "Du-Form").passed)
+
+    def test_the_one_sentence_rule_is_about_the_prose(self):
+        _, checks = self._run(_eval_a, heading="Erst das. Dann das.")
+        self.assertTrue(self._check(checks, "Length").passed)
+        _, checks = self._run(_eval_a, assessment="Erst das. Dann das.")
+        self.assertFalse(self._check(checks, "Length").passed)
