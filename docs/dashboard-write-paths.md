@@ -60,6 +60,7 @@ read falls back to.
 | Reschedule a task | patched and re-sorted | dropped | full bust |
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
 | Move a task to the trash | full bust | full bust | — |
+| Move a project to the trash | full bust | full bust | — |
 | Add a task to a plan | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
@@ -229,6 +230,33 @@ either way, so a click never has to be interpreted.
 | A demo example project | no — in no session, 404 (#61) | no — in no session, 404 (#10 §5) | no — in no session, 404 (#10 §5) |
 | A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes | no — read-only, 404 (#217) |
 | A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes | no — the moment is in the same session, and the endpoint reads it (#217) |
+
+### The project level, since #284
+
+The table above is about tasks, which is what every write was until #284 added
+`project/<id>/trash/`. That one is production-only, and not as a gate on top of the write
+but as what the write *is*: a demo visitor sees two kinds of project and neither has a
+Notion page to archive. The example projects are in no session (#10 §5), and a session
+plan is the sitting itself rather than one project among several — discarding it is a
+different action, and this endpoint would answer it wrongly by doing half of it. The menu
+is not rendered there either, so the rule reads the same from both sides.
+
+**The tasks go with the project, and the order is the failure contract.** A task whose
+project page is in the trash still *points* at that page, so `get_unassigned_tasks` —
+which finds project-less tasks by `relation.is_empty` (#53) — does not find it, and
+neither does `get_upcoming_projects`, whose project is gone. Left behind, it would be
+invisible in the app and alive in Notion: the silent write #217 refuses from the other
+direction. So the tasks are trashed first and the project after. A failure in between
+leaves the project standing with fewer tasks under it — visible, and the action simply
+repeats. The reverse order would leave a vanished project and tasks no read can reach.
+
+The project to trash is read out of `CACHE_KEY` rather than from Notion, and a miss is a
+404 rather than a fetch: the page that offered the control rendered from that entry, so a
+cold cache means the next load is right anyway — and archiving a page the app cannot
+currently see is the one thing this endpoint must not do on a guess.
+
+Changing a project's event date ([#283](https://github.com/liga-auguste/planning-hub/issues/283))
+is the other half of the project level and is not built.
 
 The add column follows the toggle rather than the reschedule, and for the toggle's own
 reason. A new date visibly moves a task, so a reschedule under a moment is neither

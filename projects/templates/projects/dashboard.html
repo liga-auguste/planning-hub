@@ -102,6 +102,11 @@
         .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
         .project-section { margin-bottom: 8px; padding: 0; }
         .project-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--color-border-primary); }
+        /* #284: against the right edge, and off the baseline the rest of the
+           header sits on — a bordered button aligned by the text inside it
+           rides up out of the row. align-self is the one property that can
+           say so for a single child of a baseline flex row. */
+        .project-menu { margin-left: auto; align-self: center; }
         .project-name { font-size: 14px; font-weight: 600; }
         /* #200: the header is not a control, so it carries no ring of its
            own until showProject() hands it focus — and then it needs one,
@@ -784,6 +789,32 @@
             {% endcomment %}
             <span class="project-date">{{ project.event_date_display }}</span>
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
+            {% comment %}
+            #284: the project level's first action, in the menu shape #239
+            gave the task row — same classes, so the open/close, the keyboard
+            handling and the two-click arming are inherited rather than
+            written a second time.
+
+            Production only, and the server says the same thing
+            (trash_project_view): a demo visitor's two kinds of project have
+            no Notion page to archive. The example projects are in no
+            session (#10 §5), and a session plan is the sitting itself
+            rather than one project among several — discarding it is a
+            different action from archiving a page.
+
+            The count is in the label before the click, not in a warning
+            after it: this is the first write in the app that touches more
+            than one page, and how many it touches is the part worth
+            knowing.
+            {% endcomment %}
+            {% if not demo_mode %}
+            <span class="task-menu project-menu">
+                <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen für dieses Projekt" title="Aktionen">⋮</button>
+                <div class="task-menu-items" role="menu" hidden>
+                    <button type="button" class="task-menu-item task-menu-item-danger" role="menuitem" data-action="trash-project" data-project-id="{{ project.id }}" data-task-count="{{ project.tasks|length }}">In den Papierkorb</button>
+                </div>
+            </span>
+            {% endif %}
         </div>
         {% comment %}
         The same partial the Heute view renders (#238). The copy that used to
@@ -1830,7 +1861,7 @@ function closeTaskMenu({focusTrigger = false} = {}) {
     const {trigger, items} = openTaskMenu;
     // A destructive item that was armed but not confirmed goes back to
     // asking, so reopening the menu never starts one click from a removal.
-    items.querySelectorAll('.task-menu-item[data-action="trash"]').forEach(disarmTrash);
+    items.querySelectorAll('.task-menu-item[data-action^="trash"]').forEach(disarmTrash);
     items.hidden = true;
     trigger.setAttribute('aria-expanded', 'false');
     openTaskMenu = null;
@@ -1911,6 +1942,19 @@ function disarmTrash(item) {
     item.textContent = TRASH_LABEL;
 }
 
+// #284: the project's armed label names what the click takes with it, which
+// the task's cannot — a task is one page and a project is itself plus every
+// task under it. Built here rather than written into the template, because
+// the disarm above puts the plain label back and the armed one has to be
+// reachable a second time.
+function armedTrashLabel(item) {
+    if (item.dataset.action !== 'trash-project') return TRASH_ARMED_LABEL;
+    const count = Number(item.dataset.taskCount) || 0;
+    if (count === 0) return 'Projekt wirklich in den Papierkorb?';
+    const tasks = count === 1 ? '1 Aufgabe' : `${count} Aufgaben`;
+    return `Projekt und ${tasks} in den Papierkorb?`;
+}
+
 async function trashTask(taskId, trigger) {
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
     let response;
@@ -1931,6 +1975,31 @@ async function trashTask(taskId, trigger) {
     // server has no warm cache left to derive figures from — so the page is
     // re-rendered rather than reconciled by hand. Which is #210's rule in
     // its strongest form: nothing on the page is left to guess.
+    window.location.reload();
+}
+
+// #284: the project and its tasks, in one request — the endpoint owns the
+// order (tasks first) because a half-done removal has to leave the project
+// visible rather than its tasks unreachable. Same shape as trashTask above,
+// and the same reload for a stronger version of its reason: the projects
+// list itself is shorter, so the month groups, the sidebar and every figure
+// derived from them move.
+async function trashProject(projectId, trigger) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let response;
+    try {
+        response = await withSessionWriteLock(() => fetch(`/project/${projectId}/trash/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({})
+        }));
+    } catch {
+        response = null;
+    }
+    if (!response || !response.ok) {
+        flashActionFailed(trigger);
+        return;
+    }
     window.location.reload();
 }
 
@@ -2023,11 +2092,11 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         e.stopPropagation();
         const row = item.closest('.task-row');
         const action = item.dataset.action;
-        if (action === 'trash' && !item.classList.contains('armed')) {
+        if (action.startsWith('trash') && !item.classList.contains('armed')) {
             // First click arms, and the menu stays open so the second one
             // lands on a label that says what it will do.
             item.classList.add('armed');
-            item.textContent = TRASH_ARMED_LABEL;
+            item.textContent = armedTrashLabel(item);
             return;
         }
         // Read before the close, which clears it — a failed write flashes
@@ -2042,6 +2111,10 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         }
         if (action === 'trash') {
             await trashTask(item.dataset.taskId, trigger || item);
+            return;
+        }
+        if (action === 'trash-project') {
+            await trashProject(item.dataset.projectId, trigger || item);
             return;
         }
         if (action === 'rename') {

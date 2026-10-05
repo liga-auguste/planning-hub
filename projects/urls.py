@@ -15,6 +15,13 @@ urlpatterns = [
     path("task/<str:task_id>/toggle/", views.toggle_task_view, name="toggle_task"),
     path("task/<str:task_id>/rename/", views.rename_task_view, name="rename_task"),
     path("task/<str:task_id>/trash/", views.trash_task_view, name="trash_task"),
+    # #284: the project level's first write beyond create_project. English
+    # path like every other technical route a visitor never reads as a word.
+    path(
+        "project/<str:project_id>/trash/",
+        views.trash_project_view,
+        name="trash_project",
+    ),
     path(
         "task/<str:task_id>/reschedule/",
         views.reschedule_task_view,

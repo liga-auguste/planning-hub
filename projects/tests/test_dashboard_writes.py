@@ -305,13 +305,13 @@ class FetchRejectionHandlingTest(DemoModeTestCase):
     def test_dashboard_toggle_and_reschedule_catch(self):
         self.given_session_plan()
         response = self.client.get(reverse("dashboard"))
-        # All seven handlers — the toggle listener, reschedule(), #180's
-        # day-column drag handler, #239's rename and trash, #233's
-        # setSimDate and #156's loadSummary — carry the widened guard; their
-        # error paths (flash / return false / revert the drag / take the
-        # Zeitreise paint back / show the summary's own unavailable state)
-        # stay.
-        self.assertContains(response, self.GUARD, count=7)
+        # All eight handlers — the toggle listener, reschedule(), #180's
+        # day-column drag handler, #239's rename and trash, #284's project
+        # trash, #233's setSimDate and #156's loadSummary — carry the widened
+        # guard; their error paths (flash / return false / revert the drag /
+        # take the Zeitreise paint back / show the summary's own unavailable
+        # state) stay. The count is what makes a new handler say so.
+        self.assertContains(response, self.GUARD, count=8)
         self.assertContains(response, "flashActionFailed(dueSpan);")
         self.assertContains(response, "flashActionFailed(nameSpan);")
 
@@ -1327,6 +1327,202 @@ class TrashTaskProductionTest(TestCase):
         self.assertNotContains(response, "Programm festlegen")
 
 
+@override_settings(DEMO_MODE=False)
+class TrashProjectProductionTest(TestCase):
+    """#284: the project level's first write beyond create_project.
+
+    The tasks go with it, and that is not a convenience — a task whose
+    project page is in the trash still points at that page, so
+    get_unassigned_tasks (relation.is_empty, #53) does not find it either.
+    Left behind it would be invisible in the app and alive in Notion."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def warm_cache(self, project=None):
+        project = project or _fake_upcoming_project_with_task()
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            self.client.get(reverse("dashboard"))
+        return project
+
+    def post_trash(self, project_id="p1"):
+        return self.client.post(
+            reverse("trash_project", args=[project_id]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+
+    def test_the_project_and_its_tasks_reach_notion(self):
+        self.warm_cache()
+        with (
+            patch("projects.views.trash_task") as mock_task,
+            patch("projects.views.trash_project") as mock_project,
+        ):
+            response = self.post_trash()
+        mock_task.assert_called_once_with("task-1")
+        mock_project.assert_called_once_with("p1")
+        self.assertEqual(response.json(), {"ok": True})
+
+    def test_the_tasks_are_trashed_before_the_project(self):
+        # The order is the whole failure contract: a project archived first
+        # would leave its tasks reachable by no read at all, while tasks
+        # first leaves the project on the dashboard with fewer rows under
+        # it — visible, and repeatable.
+        self.warm_cache()
+        calls = []
+        with (
+            patch(
+                "projects.views.trash_task",
+                side_effect=lambda task_id: calls.append(("task", task_id)),
+            ),
+            patch(
+                "projects.views.trash_project",
+                side_effect=lambda project_id: calls.append(("project", project_id)),
+            ),
+        ):
+            self.post_trash()
+        self.assertEqual(calls, [("task", "task-1"), ("project", "p1")])
+
+    def test_an_unknown_project_is_a_404_and_writes_nothing(self):
+        self.warm_cache()
+        with (
+            patch("projects.views.trash_task") as mock_task,
+            patch("projects.views.trash_project") as mock_project,
+        ):
+            response = self.post_trash("does-not-exist")
+        self.assertEqual(response.status_code, 404)
+        mock_task.assert_not_called()
+        mock_project.assert_not_called()
+
+    def test_a_cold_cache_is_a_404_rather_than_a_guess(self):
+        # Archiving a page the app cannot currently see is the one thing
+        # this endpoint must not do on a guess — the next load is right.
+        with (
+            patch("projects.views.trash_task") as mock_task,
+            patch("projects.views.trash_project") as mock_project,
+        ):
+            response = self.post_trash()
+        self.assertEqual(response.status_code, 404)
+        mock_task.assert_not_called()
+        mock_project.assert_not_called()
+
+    def test_a_notion_failure_is_a_502_and_busts_the_cache(self):
+        # Unlike trash_task_view, which leaves the entry alone: there the
+        # write either happened or did not, here the tasks before the
+        # failure are already gone and the cached entry still lists them.
+        self.warm_cache()
+        with (
+            patch(
+                "projects.views.trash_task",
+                side_effect=NotionUnavailableError("boom"),
+            ),
+            patch("projects.views.trash_project"),
+        ):
+            self.assertEqual(self.post_trash().status_code, 502)
+        self.assertIsNone(cache.get(CACHE_KEY))
+
+    def test_a_confirmed_removal_busts_every_cached_copy(self):
+        self.warm_cache()
+        with (
+            patch("projects.views.trash_task"),
+            patch("projects.views.trash_project"),
+        ):
+            self.post_trash()
+        for key in (
+            CACHE_KEY,
+            STALE_CACHE_KEY,
+            UNASSIGNED_CACHE_KEY,
+            STALE_UNASSIGNED_CACHE_KEY,
+        ):
+            with self.subTest(key=key):
+                self.assertIsNone(cache.get(key))
+
+    def test_get_is_not_a_removal(self):
+        self.assertEqual(
+            self.client.get(reverse("trash_project", args=["p1"])).status_code, 405
+        )
+
+
+class TrashProjectIsProductionOnlyTest(DemoModeTestCase):
+    """A demo visitor's two kinds of project have no Notion page to archive:
+    the example projects are in no session (#10 §5), and a session plan is
+    the sitting itself rather than one project among several. The endpoint
+    refuses and the menu is not rendered — the same rule on both sides, so a
+    click never has to be interpreted."""
+
+    def test_the_endpoint_refuses(self):
+        response = self.client.post(
+            reverse("trash_project", args=["demo-1"]),
+            data=json.dumps({}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_the_menu_is_not_offered(self):
+        self.assertNotContains(
+            self.client.get(reverse("dashboard")), 'data-action="trash-project"'
+        )
+
+
+@override_settings(DEMO_MODE=False)
+class TrashProjectMenuTest(TestCase):
+    """The control, in the menu shape #239 gave the task row — same classes,
+    so the open/close, the keyboard handling and the two-click arming are
+    inherited rather than written a second time."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def dashboard(self):
+        with (
+            patch(
+                "projects.views.get_upcoming_projects",
+                return_value=[_fake_upcoming_project_with_task()],
+            ),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            return self.client.get(reverse("dashboard"))
+
+    def test_the_header_offers_the_action(self):
+        self.assertContains(
+            self.dashboard(),
+            'data-action="trash-project" data-project-id="p1" data-task-count="1"',
+        )
+
+    def test_it_reuses_the_row_menu_markup(self):
+        page = self.dashboard()
+        self.assertContains(page, '<span class="task-menu project-menu">')
+        self.assertContains(page, 'class="task-menu-item task-menu-item-danger"')
+
+    def test_the_armed_label_is_built_from_the_task_count(self):
+        # The count sits in the label before the click rather than in a
+        # warning after it: this is the app's first write touching more than
+        # one page, and how many is the part worth knowing.
+        page = self.dashboard()
+        self.assertContains(page, "function armedTrashLabel(item)")
+        self.assertContains(page, "Projekt und ${tasks} in den Papierkorb?")
+
+    def test_disarming_covers_both_trash_actions(self):
+        # The selector has to reach data-action="trash-project" too, or a
+        # reopened project menu starts one click from a removal.
+        # Inside a <script>, so Django escapes nothing — the selector is in
+        # the page exactly as it is written.
+        self.assertContains(
+            self.dashboard(), '.task-menu-item[data-action^="trash"]', html=False
+        )
+
+
 class AddTaskDemoModeTest(DemoModeTestCase):
     """#148 in a demo session: the task lands in session['demo_plan'], the
     same place every other demo write does."""
@@ -2108,17 +2304,22 @@ class TrashHappensBehindASecondClickTest(DemoModeTestCase):
         self.assertNotIn(">Löschen</button>", html)
 
     def test_the_first_click_only_arms_it(self):
+        # #284 widened the branch to every trash action rather than adding a
+        # second one beside it: the project's removal asks the same way, and
+        # a prefix test is what keeps the two from drifting apart.
         html = self.dashboard_html()
         self.assertIn(
-            "if (action === 'trash' && !item.classList.contains('armed')) {", html
+            "if (action.startsWith('trash') && !item.classList.contains('armed')) {",
+            html,
         )
-        self.assertIn("item.textContent = TRASH_ARMED_LABEL;", html)
+        self.assertIn("item.textContent = armedTrashLabel(item);", html)
 
     def test_closing_the_menu_disarms_it(self):
-        # Reopening never starts one click away from a removal.
+        # Reopening never starts one click away from a removal — for the
+        # project's item too, which is what the ^= reaches (#284).
         html = self.dashboard_html()
         self.assertIn(
-            "items.querySelectorAll('.task-menu-item[data-action=\"trash\"]')"
+            "items.querySelectorAll('.task-menu-item[data-action^=\"trash\"]')"
             ".forEach(disarmTrash);",
             html,
         )

@@ -50,6 +50,7 @@ from .notion import (
     increment_postpone_count,
     rename_task,
     toggle_task,
+    trash_project,
     trash_task,
     update_task_date,
 )
@@ -1912,6 +1913,66 @@ def trash_task_view(request, task_id):
         except NotionUnavailableError:
             return JsonResponse({"error": "notion unavailable"}, status=502)
         _bust_dashboard_cache()
+    return JsonResponse({"ok": True})
+
+
+def trash_project_view(request, project_id):
+    """#284: the project and its tasks to Notion's trash, together.
+
+    Production only, and that is what the write is rather than a gate on
+    top of it. A demo visitor sees two kinds of project and neither has a
+    page to archive: the example projects are in no session (#10 §5), and a
+    session plan is not one project among several but the sitting itself —
+    discarding it is a different action from archiving a Notion page, and
+    one this endpoint would answer wrongly by doing half of it.
+
+    The tasks go first. trash_project's docstring says why they cannot be
+    left: a task whose project page is in the trash still points at that
+    page, so get_unassigned_tasks (relation.is_empty, #53) does not find it
+    either — it would be invisible in the app and alive in Notion, the
+    silent write #217 refuses in the other direction.
+
+    A partial failure therefore errs toward visible rather than tidy. Tasks
+    that are already trashed stay trashed and the project stays live, so the
+    project is still on the dashboard with fewer tasks under it and the
+    action can simply be repeated. The reverse order would leave the
+    opposite: a vanished project and tasks no read can reach.
+
+    The cache is busted rather than patched, the answer trash_task_view
+    gives for the same reason one level down — a removal shifts every count
+    and every cached task_ref, and _patch_cached_tasks has no removal path.
+    Here it is not even close: the projects list itself is shorter, which
+    moves the month groups, the sidebar and every figure derived from them.
+    The client reloads.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    _, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    if settings.DEMO_MODE:
+        return JsonResponse({"error": "not available"}, status=404)
+    cached = cache.get(CACHE_KEY)
+    projects = cached[0] if cached else []
+    project = next((p for p in projects if p["id"] == project_id), None)
+    if project is None:
+        # Not a Notion read of its own: the page that offered this control
+        # rendered from this entry, so a miss means the entry went cold or
+        # the project is already gone. Either way the next load is right,
+        # and archiving a page the app cannot currently see is the one thing
+        # this endpoint must not do on a guess.
+        return JsonResponse({"error": "unknown project"}, status=404)
+    try:
+        for task in project["tasks"]:
+            trash_task(task["id"])
+        trash_project(project_id)
+    except NotionUnavailableError:
+        # Whatever landed before the failure stays landed, and the cache is
+        # busted on the way out so the page reflects it rather than the
+        # entry this request read.
+        _bust_dashboard_cache()
+        return JsonResponse({"error": "notion unavailable"}, status=502)
+    _bust_dashboard_cache()
     return JsonResponse({"ok": True})
 
 

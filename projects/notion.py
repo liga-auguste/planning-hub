@@ -379,6 +379,27 @@ def trash_task(task_id: str) -> None:
         _client().pages.update(page_id=task_id, archived=True)
 
 
+def trash_project(project_id: str) -> None:
+    """#284: the project page to Notion's trash, where it stays restorable —
+    the same pages.update(archived=True) trash_task makes, and the same
+    reason the UI says "In den Papierkorb" rather than "Löschen".
+
+    Its tasks do not follow by themselves, and leaving them is the one
+    answer that must not be chosen: get_unassigned_tasks finds project-less
+    tasks by relation.is_empty (#53), and a task whose project page is in
+    the trash still points at that page. Neither read would find it — not
+    get_upcoming_projects, whose project is gone, and not the "Ohne Projekt"
+    one — so it would vanish from the app while living on in Notion. The
+    caller trashes the tasks first and this page after; see
+    trash_project_view (views.py) for what a partial failure means.
+
+    The `archived` vs `in_trash` note on trash_task applies here word for
+    word: an SDK or API-version bump has to come past both calls.
+    """
+    with translate_notion_errors():
+        _client().pages.update(page_id=project_id, archived=True)
+
+
 def increment_postpone_count(task_id: str) -> int:
     """Read-then-write, since Notion has no atomic increment. Deliberately
     not folded into update_task_date (#171): two calls instead of one costs
