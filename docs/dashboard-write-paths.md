@@ -332,8 +332,8 @@ that is thinner than it looks, because `.task-menu-note` is a plain `<div>` insi
 
 That is a decision, not a loose end, and it is now the only span left standing where a
 control would be. #200 turned every other one into a real `<button>` — the date, the
-project label in a task row, the AI summary's project heading and the sidebar's in-page
-entries (see "Opening a project" below). The locked dot is the exception because
+project label in a task row (the AI summary's rows included since #49) and the sidebar's
+in-page entries (see "Opening a project" below). The locked dot is the exception because
 focusability is the affordance here: making it reachable would hand back exactly what
 #217 removed. The whole row this section is about — a demo session
 under a Zeitreise moment — exists only in demo mode: `sim_date` is read in one place,
@@ -669,27 +669,30 @@ navigates. The standalone pages (`my_plan`, `close_week_start`, `week_review`) r
 | Site | Element | Bound by |
 |---|---|---|
 | Task row label | `button.task-project.ai-project-link` | `button.ai-project-link[data-project-id]` |
-| AI summary heading | `button.ai-project-link` inside the `<strong>` | the same one selector |
+| AI summary task row | the same markup, from `_ai_summary_body.html` | the same one selector |
 | Sidebar project entry | `button.sidebar-item` | `button.sidebar-item[data-project-id]` |
 | Sidebar Dashboard/Heute | `button.sidebar-item#nav-overview` / `#nav-today` | by id |
 
-The summary's button sits *inside* the `<strong>` rather than replacing it, so the bold
-weight is inherited instead of restated in CSS — and the `›` affordance's selector moves
-down with the class it decorates. The row's own 11px is restated as
+There is one in-content shape rather than two. Until #49 the summary carried a project
+link on its block heading, inside the `<strong>`, and a `›` affordance written for that
+one selector. The heading is a theme now, so it is plain text and takes no click, and the
+attribution moved down to the summary's own task rows — where it renders the markup the
+task rows already had, down to the class pair. The row's own 11px is restated as
 `button.task-project.ai-project-link`, because the shared reset in `dashboard.css` is
 `(0,1,1)` and would otherwise beat the `(0,1,0)` `.task-project` that sets it.
 
-**The accessible name contains the visible one.** Both buttons carry an `aria-label`, and
+**The accessible name contains the visible one.** The button carries an `aria-label`, and
 WCAG 2.5.3 (Label in Name, Level A) asks that such a name contain the text the control
 displays — otherwise speech input has nothing to match when the visitor reads the label
-aloud. The task row's label is the project name and nothing else, so `Projekt <name>
-öffnen` satisfies it directly. The summary's heading also shows the event date, and
-assembling name and date separately in the template is how the label lost it: the heading
-read *"Orgelkonzert zum Reformationstag, 31. Oktober 2026"* while the name said only
-*"Projekt Orgelkonzert zum Reformationstag öffnen"*. `resolve_weekly_summary` now derives
-`heading_display` once (`ai.py`) and the template spends it twice, so the two cannot drift
-apart again. A future field added to that heading belongs in `heading_display`, not beside
-it in the template.
+aloud. The label is the project name and nothing else, so `Projekt <name> öffnen`
+satisfies it directly.
+
+That was the harder half before #49. The summary's heading also showed the event date,
+and assembling name and date separately in the template is how the label lost it: the
+heading read *"Orgelkonzert zum Reformationstag, 31. Oktober 2026"* while the name said
+only *"Projekt Orgelkonzert zum Reformationstag öffnen"*. `resolve_weekly_summary`
+derived a single `heading_display` for both. The field is gone with the link, and the
+problem with it: one name, one visible string, nothing to assemble twice.
 
 Binding once on load is enough because neither list is rebuilt from markup: a rescheduled
 row is *moved* as the element it already is (`insertBefore`), and the summary reloads.

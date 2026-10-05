@@ -2390,6 +2390,7 @@ class PictographicEmojiTest(DemoModeTestCase):
 
     def test_the_summary_prompt_carries_no_pictographic_emoji(self):
         project = {
+            "id": "p-sommerkonzert",
             "name": "Sommerkonzert",
             "event_date": date.today() + timedelta(days=10),
             "performers": "",

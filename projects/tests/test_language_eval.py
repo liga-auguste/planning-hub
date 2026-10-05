@@ -102,21 +102,42 @@ class CheckNoAnglicismsTest(SimpleTestCase):
 
 
 class CheckNoProjectNameRepeatTest(SimpleTestCase):
-    def test_passes_without_project_name(self):
-        blocks = [
-            {"project_name": "Adventskonzert", "assessment": "Plakat muss noch raus."}
-        ]
-        result = _check_no_project_name_repeat(blocks)
+    """#49: the names come from the project list now, not from the block.
+    A block carried `project_name` only while its heading *was* a project;
+    reading it off the block after that change would have made the check
+    pass without comparing anything."""
+
+    PROJECTS = [{"name": "Adventskonzert"}]
+
+    def check(self, **block):
+        return _check_no_project_name_repeat([block], self.PROJECTS)
+
+    def test_passes_when_no_field_names_the_project(self):
+        result = self.check(
+            heading="Plakate offen", assessment="Plakat muss noch raus."
+        )
         self.assertTrue(result.passed)
 
-    def test_fails_when_name_repeated(self):
-        blocks = [
-            {
-                "project_name": "Adventskonzert",
-                "assessment": "Das Adventskonzert braucht noch ein Plakat.",
-            }
-        ]
-        result = _check_no_project_name_repeat(blocks)
+    def test_fails_when_the_assessment_names_the_project(self):
+        result = self.check(
+            heading="Plakate offen",
+            assessment="Das Adventskonzert braucht noch ein Plakat.",
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("assessment", result.detail)
+
+    def test_fails_when_the_heading_names_the_project(self):
+        # The heading is Claude's own text since #49, so it is under the
+        # same rule the assessment has always been under.
+        result = self.check(heading="Adventskonzert", assessment="Plakat muss raus.")
+        self.assertFalse(result.passed)
+        self.assertIn("heading", result.detail)
+
+    def test_a_display_name_is_what_gets_compared(self):
+        result = _check_no_project_name_repeat(
+            [{"heading": "Thema", "assessment": "Die Reihe läuft."}],
+            [{"name": "Adventskonzert", "display_name": "Die Reihe"}],
+        )
         self.assertFalse(result.passed)
 
 
@@ -304,7 +325,7 @@ class EvalACollectsTheKontextHintTest(SimpleTestCase):
 
     SUMMARY = {
         "jetzt_faellig": [
-            {"project_ref": 1, "assessment": "Alles im Plan.", "task_refs": []}
+            {"heading": "Alles ruhig", "assessment": "Alles im Plan.", "task_refs": []}
         ],
         "naechste_woche": [],
         "kontext_hinweis": "Wenn du ohnehin im Büro bist: beide Pressetexte in einem Rutsch.",

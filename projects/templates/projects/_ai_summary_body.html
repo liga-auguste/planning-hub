@@ -49,13 +49,8 @@ JS unhides this and drops the line above it.
 <ul>
     {% for block in section.blocks %}
     <li>
-        {% if block.project_id %}
-        {# #200: the button sits inside the <strong>, so the bold weight is inherited rather than rebuilt in CSS — and the › selector below moves down with the class. #}
-        {# heading_display carries the name and its date as one string (ai.py), so the accessible name contains the visible text rather than assembling its own version of it. #}
-        <strong><button type="button" class="ai-project-link" data-project-id="{{ block.project_id }}" aria-label="Projekt {{ block.heading_display }} öffnen">{{ block.heading_display }}</button></strong>
-        {% else %}
+        {# #49: a theme in both modes, so the heading is plain text — no link and no event date. A theme may span projects, so there is no one project to head it with; the date stays where it belongs to a single thing (sidebar, kanban card, month group, and each task's own due date below). #}
         <strong>{{ block.heading }}</strong>
-        {% endif %}
         {% if block.assessment %}— {{ block.assessment }}{% endif %}
         {% if block.tasks %}
         <ul>
@@ -63,6 +58,18 @@ JS unhides this and drops the line above it.
             <li>
                 {% include "projects/_task_dot.html" %}
                 <span class="task-name {% if task.done %}done{% endif %}">{{ task.name }}</span>
+                {% comment %}
+                #49: the attribution the heading used to carry. Only
+                multi-project mode resolves it (ai.py), so the single
+                guard is the one condition — a session plan's own
+                summary names its project in the card header instead.
+
+                The same markup _task_row.html renders, down to the
+                class pair: one binding (bindProjectLinks) and one set
+                of rules cover both surfaces, and the accessible name
+                carries the project rather than a title attribute (#200).
+                {% endcomment %}
+                {% if task.project_name %}<button type="button" class="task-project ai-project-link" data-project-id="{{ task.project_id }}" aria-label="Projekt {{ task.project_name }} öffnen">{{ task.project_name }}</button>{% endif %}
                 {% comment %}
                 #193: the readonly flag is gone — the summary
                 offers the date like every other surface now.
@@ -87,10 +94,11 @@ JS unhides this and drops the line above it.
 {% endif %}
 {% comment %}
 #145: the one thing kontext is for — work that can be batched
-across projects. Below the blocks rather than inside one: the
-blocks are per project, and a statement about two of them would
-be attributed to whichever one happened to hold it. Absent
-whenever Claude found no cluster, which is most weeks.
+across projects. Below the blocks rather than inside one, and
+absent whenever Claude found no cluster, which is most weeks.
+(#49 retired the original reason for keeping it out of a block —
+blocks are themes now and may span projects — but not the one
+below, which is what the placement actually rests on.)
 
 Outside the three-state chain, not inside the resolved arm:
 build_prompt asks for "kontext_hinweis" over every open task

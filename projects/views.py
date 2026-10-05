@@ -78,6 +78,14 @@ logger = logging.getLogger(__name__)
 # cannot keep serving a shape no code writes any more — and because a
 # formatted date living in this cache was the bug in the first place.
 #
+# #49 (v12) is correctness-critical again: a stored block keys its heading
+# on project_ref, which the resolver no longer reads — every block would be
+# dropped for want of a heading and the card would render its empty state
+# over a summary that exists. Under a new key the entry is simply not found
+# instead, and the page falls into #156's loading state. The price is one
+# extra Notion read after the deploy, because CACHE_KEY holds projects and
+# summary as one tuple.
+#
 # #145 (v10) is the same kind: the cached summary_data gained an optional
 # kontext_hinweis field, and an entry written before it simply renders
 # without the hint. Bumped for the same STALE_CACHE_KEY reason, and so the
@@ -86,12 +94,12 @@ logger = logging.getLogger(__name__)
 # it by the #19 lockstep even though its own shape is unchanged — the two
 # are counted across each other everywhere, and a half-refreshed pair is the
 # state _patch_cached_tasks refuses to work with anyway.
-CACHE_KEY = "dashboard_data_v11"
+CACHE_KEY = "dashboard_data_v12"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v11"
+STALE_CACHE_KEY = "dashboard_data_stale_v12"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -102,9 +110,12 @@ STALE_CACHE_KEY = "dashboard_data_stale_v11"
 # with CACHE_KEY as #19 established.
 # #210: v4 — and they gained kanban_column, bumped in the same lockstep.
 # #211: v6 — and done_this_week, bumped in the same lockstep again.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v6"
+# #49: v7 — the summary half of CACHE_KEY's tuple changed shape, not this
+# one, which is the #145 case exactly; the lockstep is applied for the same
+# reason it was there.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v7"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v6"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v7"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -159,10 +170,14 @@ def _remaining_ttl(deadline_key):
 
 
 def _summary_ref_order(projects):
-    """The identity sequence a summary's project_ref / task_refs are
-    positions in. Read through _number_projects_and_tasks (ai.py) rather
-    than rebuilt here, so the check cannot drift from the numbering it is
-    checking."""
+    """The identity sequence a summary's task_refs are positions in, plus
+    the project list those positions were drawn from. Read through
+    _number_projects_and_tasks (ai.py) rather than rebuilt here, so the
+    check cannot drift from the numbering it is checking.
+
+    Since #49 nothing refers to a project by number, so the project half is
+    no longer a ref order of its own — it stays in the comparison because a
+    changed project set is a changed task numbering."""
     numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
     return [p["id"] for p in numbered_projects], [t["id"] for t in numbered_tasks]
 
@@ -182,10 +197,8 @@ def _remap_summary_refs(summary_data, before, after):
     dashboard that has to regenerate takes ~8.8 s, one that finds a summary
     in the cache ~0.2 s. Every reschedule paid that, one after the other.
 
-    Only tasks are renumbered here. Project positions come from the same
-    numbering, but the writes that reach this are task writes:
-    _annotate_tasks re-sorts the tasks inside each project and leaves the
-    project list alone, so project_ref means what it meant before.
+    Only tasks are renumbered here, and since #49 they are the only
+    positions a block carries at all — its heading is free text.
 
     A ref whose task is gone from `after` is dropped, the same answer
     resolve_weekly_summary gives one it cannot resolve. A ref that is not a
@@ -397,7 +410,7 @@ SUMMARY_KEY = "demo_plan_summary_v7"
 # itself and the TTL only bounds how long one day's entry lives. The cache is
 # shared across both gunicorn workers (DatabaseCache, settings.py CACHES, #52),
 # so expect up to one call per day rather than one per worker.
-DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v4"
+DEMO_MULTI_SUMMARY_KEY = "demo_multi_summary_v5"
 DEMO_MULTI_SUMMARY_TTL = 60 * 60 * 24
 
 # The sidebar progress ring's geometry (#76): radius never varies, so the

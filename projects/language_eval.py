@@ -241,14 +241,27 @@ def check_no_anglicisms(texts: list) -> CheckResult:
     return CheckResult("Anglicisms", True)
 
 
-def _check_no_project_name_repeat(blocks: list) -> CheckResult:
+def _check_no_project_name_repeat(blocks: list, projects: list) -> CheckResult:
+    """The output format forbids naming a project (#49) — the page carries
+    the attribution, in the card header in single-project mode and on each
+    task row in multi-project mode.
+
+    Takes the project list rather than reading a name off the block. It used
+    to read block["project_name"], which #49 removed: the check would have
+    gone on passing without ever comparing anything. Heading and assessment
+    are both tested, because the heading is now Claude's own text too.
+    """
+    names = [p.get("display_name") or p["name"] for p in projects]
     for block in blocks:
-        name = block.get("project_name", "")
-        assessment = block.get("assessment", "")
-        if name and name.lower() in assessment.lower():
-            return CheckResult(
-                "No repeated project name", False, f'"{name}" found in: "{assessment}"'
-            )
+        for key in ("heading", "assessment"):
+            text = block.get(key, "")
+            for name in names:
+                if name and name.lower() in text.lower():
+                    return CheckResult(
+                        "No repeated project name",
+                        False,
+                        f'"{name}" found in {key}: "{text}"',
+                    )
     return CheckResult("No repeated project name", True)
 
 
@@ -339,7 +352,7 @@ def _eval_a():
         check_no_emoji(texts),
         check_sentence_count(texts, max_sentences=1),
         check_no_anglicisms(texts),
-        _check_no_project_name_repeat(blocks),
+        _check_no_project_name_repeat(blocks, projects),
     ]
     return texts, checks
 
@@ -357,6 +370,10 @@ def _eval_b():
         check_no_emoji(texts),
         check_sentence_count(texts, max_sentences=1),
         check_no_anglicisms(texts),
+        # No project-name check here, even though #49 made the rule shared:
+        # the single-project prompt heads its one project "Dein Projekt" and
+        # never states the real name, so there is nothing for the check to
+        # catch. It belongs to (a), where the names are in the input.
     ]
     return texts, checks
 

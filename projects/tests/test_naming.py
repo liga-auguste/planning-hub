@@ -516,7 +516,7 @@ class DashboardSummaryShowsTaskDatesTest(SummaryFlowMixin, TestCase):
                 return_value={
                     "jetzt_faellig": [
                         {
-                            "project_ref": 1,
+                            "heading": "Programm offen",
                             "assessment": "Programm ist der Engpass",
                             "task_refs": list(task_refs),
                         }

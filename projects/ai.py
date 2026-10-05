@@ -156,8 +156,10 @@ def system_instruction(json_only: bool = True) -> str:
 
 def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
     """The single source of the reference numbering shared by build_prompt
-    and resolve_weekly_summary (#122): a 1-based position in these two lists
-    is what project_ref / task_refs mean.
+    and resolve_weekly_summary (#122): a 1-based position in the task list
+    is what task_refs means. The project list is what the prompt renders
+    and what the task list is drawn from — since #49 nothing refers to a
+    project by number any more.
 
     Every task occupies a number, done ones included, even though the prompt
     only ever shows open tasks: numbering by openness would shift every later
@@ -166,9 +168,23 @@ def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
     only on task order, which is stable across a toggle. That order is the
     chronological one _annotate_tasks (views.py) establishes before every
     prompt build and every resolve, so both sides number the same list (#140).
+
+    Each numbered task carries the project it came from (#49). A theme may
+    hold tasks from two projects, so the resolver attributes the row rather
+    than the heading, and this flattening is the one place that still knows
+    which project a position belongs to. A copy, not a mutation — these
+    dicts come straight out of the dashboard's cache.
     """
     numbered_projects = [p for p in projects if p["event_date"]]
-    numbered_tasks = [t for p in numbered_projects for t in p["tasks"]]
+    numbered_tasks = [
+        {
+            **task,
+            "project_id": project["id"],
+            "project_name": project.get("display_name") or project["name"],
+        }
+        for project in numbered_projects
+        for task in project["tasks"]
+    ]
     return numbered_projects, numbered_tasks
 
 
@@ -183,12 +199,14 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
     ]
 
     task_no = 0
-    for project_no, p in enumerate(numbered_projects, start=1):
+    for p in numbered_projects:
         done_count = len([t for t in p["tasks"] if t["done"]])
 
+        # The project name stays in the *input* even though #49 took it out
+        # of the output: a theme that bundles work across projects can only
+        # be found by something that knows which project a task is in. The
+        # number that used to follow it is gone with project_ref.
         lines.append(f"## {'Dein Projekt' if single_project_demo else p['name']}")
-        if not single_project_demo:
-            lines.append(f"Projekt-Nr.: {project_no}")
         # #262: the date alone. The "(in N Tagen)" suffix that used to follow
         # it was arithmetic over two figures the prompt already carries —
         # this date and the "Heute ist der …" line above.
@@ -244,40 +262,38 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         lines += kontext_lines
         lines.append("")
 
-    if single_project_demo:
-        lines += [
-            "---",
-            "",
-            "Erstelle eine Übersicht für dieses einzelne Projekt.",
-            "Nur Infos aus den Daten.",
-            "",
-            "Format:",
-            '{"jetzt_faellig": [{"heading": "Jetzt kritisch", "assessment": "die Buchung muss heute raus, sonst wird der Termin knapp", "task_refs": [1, 2]}], "naechste_woche": []}',
-            "",
-            '- "heading": Status oder Kontext als kurzes Thema (2–3 Wörter). Nenne den Projektnamen NICHT — er ist bereits im Header sichtbar.',
-            '- "assessment": ein Satz mit Einschätzung und echtem Assistenzwert: Was ist kritisch? Was läuft gut?',
-            '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
-            "",
-            "Zuordnung der Blöcke:",
-            '- "jetzt_faellig": überfällige und diese Woche fällige Aufgaben.',
-            '- "naechste_woche": Aufgaben in den kommenden 7–14 Tagen.',
-        ]
-    else:
-        lines += [
-            "---",
-            "",
-            "Erstelle mir eine Wochenübersicht.",
-            "Nur Infos aus den Daten.",
-            "",
-            "Format:",
-            '{"jetzt_faellig": [{"project_ref": 1, "assessment": "übermorgen, alles läuft, nur Aufbau noch offen", "task_refs": [1, 2]}], "naechste_woche": []}',
-            "",
-            '- "project_ref": die Projekt-Nr. des Projekts (steht bei jedem Projekt oben).',
-            '- "assessment": ein einziger Satz mit Einschätzung/Kontext und echtem Assistenzwert: Was ist der Status? Was ist kritisch?',
-            "  Nicht: 'Tasks offen'. Sondern: 'Plakate müssen heute raus' oder 'noch gut im Zeitplan'.",
-            "  Nenne den Projektnamen NICHT im Satz — er wird aus den Daten ergänzt.",
-            '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
-        ]
+    # #49: one output format for both modes. The two branches used to ask
+    # for the same thing in two copies bar the block key — single mode for a
+    # thematic "heading", multi mode for a "project_ref" — which is what
+    # made the multi-project summary structurally unable to bundle work
+    # across projects: one bullet per project, by instruction. Both now ask
+    # for a theme, and the project a task belongs to is rendered on its own
+    # row instead of in the heading.
+    #
+    # What still differs is the task sentence and the cross-project hint, so
+    # that is all that sits outside the shared block. Continuing #262 one
+    # level down: four of these lines already stood here verbatim twice.
+    lines += [
+        "---",
+        "",
+        (
+            "Erstelle eine Übersicht für dieses einzelne Projekt."
+            if single_project_demo
+            else "Erstelle mir eine Wochenübersicht."
+        ),
+        "Nur Infos aus den Daten.",
+        "",
+        "Format:",
+        '{"jetzt_faellig": [{"heading": "Programm offen", "assessment": "die Buchung muss heute raus, sonst wird der Termin knapp", "task_refs": [1, 2]}], "naechste_woche": []}',
+        "",
+        '- "heading": das gemeinsame Thema der Aufgaben im Block, kurz (2–3 Wörter). Nenne keine Projektnamen — die Zuordnung steht bereits auf der Seite.',
+        '- "assessment": ein Satz mit Einschätzung und echtem Assistenzwert: Was ist kritisch? Was läuft gut? Nicht "Tasks offen", sondern "Plakate müssen heute raus" oder "noch gut im Zeitplan".',
+        '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
+    ]
+    if not single_project_demo:
+        lines.append(
+            "- Ein Thema darf Aufgaben aus verschiedenen Projekten zusammenfassen — genau dafür ist diese Übersicht da."
+        )
         # Asked for only where the Kontext-Übersicht above was actually
         # emitted. The hint is a statement *about* that block, so requesting
         # it over data the prompt does not carry invites a sentence about
@@ -289,12 +305,17 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
             lines.append(
                 '- "kontext_hinweis" (optional, oberste Ebene, kein Block): Wenn zwei oder mehr offene Aufgaben aus VERSCHIEDENEN Projekten denselben Kontext teilen und im selben Zeitraum liegen, nenne die Gelegenheit, sie zusammen zu erledigen — ein einziger Satz, z. B. "Wenn du ohnehin im Büro bist: GEMA-Meldung und Musikervertrag in einem Rutsch." Gibt es keine solche Häufung über Projektgrenzen hinweg, lass das Feld weg.'
             )
-        lines += [
-            "",
-            "Zuordnung der Blöcke:",
-            '- "jetzt_faellig": überfällige und diese Woche fällige Projekte.',
-            '- "naechste_woche": Projekte mit Aufgaben in den kommenden 7–14 Tagen.',
-        ]
+    lines += [
+        "",
+        # #49 opens with "harder to scan", and a per-project listing of five
+        # projects is exactly that. A cap is the established answer here —
+        # task_refs has carried "max. 4" since #122.
+        "Pro Abschnitt max. 3 Themen — lieber bündeln als auflisten.",
+        "",
+        "Zuordnung der Blöcke:",
+        '- "jetzt_faellig": überfällige und diese Woche fällige Aufgaben.',
+        '- "naechste_woche": Aufgaben in den kommenden 7–14 Tagen.',
+    ]
 
     return "\n".join(lines)
 
@@ -370,7 +391,8 @@ def generate_weekly_summary(
     projects: list, today: date, single_project_demo: bool = False
 ) -> dict:
     """Returns Claude's raw reference dict (#122): section keys mapping to
-    blocks of {project_ref | heading, assessment, task_refs}. The refs are
+    blocks of {heading, assessment, task_refs} — one shape for both modes
+    since #49, plus an optional top-level kontext_hinweis. The refs are
     resolved against live data by resolve_weekly_summary at render time —
     this raw dict is what the caches store, never the resolved result.
 
@@ -539,10 +561,17 @@ def resolve_kontext_hint(data: dict) -> str:
 
     #145: kontext exists to batch work *across* projects, and until now
     nothing in the app did that — the prompt carried the data and never
-    asked for anything to be done with it. A separate top-level field
-    rather than a sentence inside an assessment: the blocks are per project
-    (project_ref), so a statement about two of them placed inside one would
-    be attributed to a project it does not belong to.
+    asked for anything to be done with it.
+
+    Still a separate top-level field after #49, for a different reason than
+    the one originally written here. That reason was that blocks are per
+    project, so a statement about two of them would be attributed to one —
+    and a thematic block *can* span projects, so it no longer holds. What
+    does hold is the horizon: build_prompt asks for the hint over every
+    open task with no date limit, while the blocks are scoped to "this
+    week" and "7–14 days". A clear week is exactly when the hint can be the
+    only thing the card has to say, which is why it also renders outside
+    the resolved state (_ai_summary_body.html).
 
     Optional by design. A week with no cluster gets no hint, and so does a
     summary cached before this field existed — the same robustness rule
@@ -551,6 +580,39 @@ def resolve_kontext_hint(data: dict) -> str:
     """
     hint = data.get("kontext_hinweis")
     return hint if isinstance(hint, str) else ""
+
+
+def _summary_task(task: dict, with_project: bool) -> dict:
+    """The projection a summary task row renders from — deliberately not
+    the annotated task itself, so every field a template reads has to be
+    named here.
+
+    with_project adds the attribution #49 moved out of the block heading:
+    a theme may hold tasks from two projects, so the project name belongs
+    on the row, in the project_id / project_name shape _task_row.html
+    already renders. Off in single-project mode, where the one project is
+    named in the card's own header and a label per row would repeat it as
+    many times as the block has tasks.
+    """
+    projected = {
+        "id": task["id"],
+        "name": task["name"],
+        "done": task["done"],
+        "urgency": task.get("urgency", "ok"),
+        # #211: the summary's dot renders from this dict, not from the
+        # annotated task, so a field the dot reads has to be copied across
+        # or the same task renders one colour in the summary and another in
+        # the list below.
+        "done_this_week": task.get("done_this_week", False),
+        # #190: the raw date, not a formatted string — both summary
+        # templates run it through plan_date, so they share one format with
+        # the task rows (#189).
+        "due": task.get("due"),
+    }
+    if with_project:
+        projected["project_id"] = task["project_id"]
+        projected["project_name"] = task["project_name"]
+    return projected
 
 
 def resolve_weekly_summary(
@@ -562,11 +624,13 @@ def resolve_weekly_summary(
     summary's cache layers (#122).
 
     Robustness over completeness: an unresolvable task ref is dropped and
-    the rest of its block stays; a block with no usable heading (bad
-    project_ref, or a missing heading in single-project mode) is dropped
-    whole — there is nothing to head it with.
+    the rest of its block stays; a block with no usable heading is dropped
+    whole — there is nothing to head it with. One rule for both modes since
+    #49, where the multi-project branch's heading stopped being a resolved
+    project and became the same free-text theme the single-project branch
+    already asked for.
     """
-    numbered_projects, numbered_tasks = _number_projects_and_tasks(projects)
+    _, numbered_tasks = _number_projects_and_tasks(projects)
     sections = []
     for key, title in SUMMARY_SECTIONS:
         raw_blocks = data.get(key)
@@ -574,51 +638,22 @@ def resolve_weekly_summary(
         for raw_block in raw_blocks if isinstance(raw_blocks, list) else []:
             if not isinstance(raw_block, dict):
                 continue
+            heading = raw_block.get("heading")
+            if not isinstance(heading, str) or not heading.strip():
+                continue
             assessment = raw_block.get("assessment")
-            block = {"assessment": assessment if isinstance(assessment, str) else ""}
-            if single_project_demo:
-                heading = raw_block.get("heading")
-                if not isinstance(heading, str) or not heading.strip():
-                    continue
-                block["heading"] = heading
-            else:
-                project = _resolve_ref(raw_block.get("project_ref"), numbered_projects)
-                if project is None:
-                    continue
-                block["project_id"] = project["id"]
-                block["project_name"] = project.get("display_name") or project["name"]
-                # One string for both the visible heading and the button's
-                # accessible name (#200). They were assembled separately in the
-                # template, and the label lost the date the heading showed —
-                # WCAG 2.5.3 asks that the name contain the visible text, so
-                # the two cannot be allowed to drift apart again.
-                date_display = project.get("event_date_display", "")
-                block["heading_display"] = (
-                    f"{block['project_name']}, {date_display}"
-                    if date_display
-                    else block["project_name"]
-                )
             refs = raw_block.get("task_refs")
-            block["tasks"] = [
+            blocks.append(
                 {
-                    "id": task["id"],
-                    "name": task["name"],
-                    "done": task["done"],
-                    "urgency": task.get("urgency", "ok"),
-                    # #211: the summary's dot renders from this dict, not
-                    # from the annotated task, so a field the dot reads has
-                    # to be copied across or the same task renders one
-                    # colour in the summary and another in the list below.
-                    "done_this_week": task.get("done_this_week", False),
-                    # #190: the raw date, not a formatted string — both
-                    # summary templates run it through plan_date, so they
-                    # share one format with the task rows (#189).
-                    "due": task.get("due"),
+                    "heading": heading,
+                    "assessment": assessment if isinstance(assessment, str) else "",
+                    "tasks": [
+                        _summary_task(task, with_project=not single_project_demo)
+                        for ref in (refs if isinstance(refs, list) else [])
+                        if (task := _resolve_ref(ref, numbered_tasks)) is not None
+                    ],
                 }
-                for ref in (refs if isinstance(refs, list) else [])
-                if (task := _resolve_ref(ref, numbered_tasks)) is not None
-            ]
-            blocks.append(block)
+            )
         sections.append({"title": title, "blocks": blocks})
     return sections
 

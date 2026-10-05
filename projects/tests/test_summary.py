@@ -135,6 +135,7 @@ class BuildPromptKontextUebersichtTest(SimpleTestCase):
 
     def test_single_project_demo_with_no_kontext_omits_the_heading(self):
         project = {
+            "id": "p-sommerkonzert",
             "name": "Sommerkonzert",
             "event_date": date.today() + timedelta(days=10),
             "performers": "",
@@ -152,6 +153,7 @@ class BuildPromptKontextUebersichtTest(SimpleTestCase):
 
     def test_production_prompt_with_kontext_keeps_the_heading(self):
         project = {
+            "id": "p-sommerkonzert",
             "name": "Sommerkonzert",
             "event_date": date.today() + timedelta(days=10),
             "performers": "",
@@ -180,6 +182,7 @@ class KontextBatchInstructionTest(SimpleTestCase):
 
     def project(self, **overrides):
         project = {
+            "id": "p-sommerkonzert",
             "name": "Sommerkonzert",
             "event_date": date.today() + timedelta(days=10),
             "performers": "",
@@ -232,10 +235,11 @@ class KontextBatchInstructionTest(SimpleTestCase):
 
 
 class KontextHintResolutionTest(SimpleTestCase):
-    """The hint is a new optional top-level field rather than a sentence
-    inside an assessment: blocks are per project (project_ref), and a
-    statement about two projects placed in one of them would be attributed
-    to a project it does not belong to."""
+    """The hint is an optional top-level field rather than a sentence inside
+    an assessment: build_prompt asks for it over every open task with no
+    date horizon, while the blocks are scoped to "this week" and "7-14
+    days", so a clear week can carry a hint and no block at all (#49
+    replaced the original per-project reason — a theme may span projects)."""
 
     def test_a_present_hint_is_passed_through(self):
         self.assertEqual(
@@ -764,19 +768,62 @@ class NumberingAndPromptTest(SimpleTestCase):
         prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
         self.assertNotIn("Ensemble anfragen", prompt)
 
-    def test_multi_mode_states_each_projects_ref(self):
-        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
-        self.assertIn("Projekt-Nr.: 1", prompt)
-        self.assertIn("Projekt-Nr.: 2", prompt)
-        self.assertIn('"project_ref"', prompt)
+    def test_both_modes_ask_for_a_thematic_heading(self):
+        """#49: the multi-project branch asked for one block per project, so
+        it structurally could not bundle work across projects — the prompt
+        instructed the opposite. Both branches now ask for the same thematic
+        heading, and project attribution moved to the task row."""
+        for single in (False, True):
+            with self.subTest(single_project_demo=single):
+                prompt = build_prompt(
+                    _summary_projects(), date(2026, 9, 1), single_project_demo=single
+                )
+                self.assertIn('"heading"', prompt)
+                self.assertNotIn('"project_ref"', prompt)
 
-    def test_single_project_demo_mode_has_no_project_refs(self):
+    def test_no_mode_numbers_the_projects_any_more(self):
+        # The Projekt-Nr. line existed for project_ref alone (#49). A prompt
+        # line nothing reads is the dead input #262 removed everywhere else.
+        for single in (False, True):
+            with self.subTest(single_project_demo=single):
+                prompt = build_prompt(
+                    _summary_projects(), date(2026, 9, 1), single_project_demo=single
+                )
+                self.assertNotIn("Projekt-Nr.", prompt)
+
+    def test_multi_mode_still_names_the_projects_it_groups_over(self):
+        # Attribution leaves the *output*, not the input: Claude cannot
+        # bundle across projects without seeing which project a task is in.
+        prompt = build_prompt(_summary_projects(), date(2026, 9, 1))
+        self.assertIn("## Konzert Alpha", prompt)
+        self.assertIn("## Konzert Beta", prompt)
+
+    def test_single_project_demo_mode_names_no_project(self):
         prompt = build_prompt(
             _summary_projects()[:1], date(2026, 9, 1), single_project_demo=True
         )
-        self.assertNotIn("Projekt-Nr.", prompt)
-        self.assertNotIn('"project_ref"', prompt)
-        self.assertIn('"heading"', prompt)
+        self.assertIn("## Dein Projekt", prompt)
+        self.assertNotIn("Konzert Alpha", prompt)
+
+    def test_both_modes_forbid_naming_a_project_in_the_answer(self):
+        # The page carries the attribution now — the heading in single mode,
+        # the task row's own button in multi mode.
+        for single in (False, True):
+            with self.subTest(single_project_demo=single):
+                prompt = build_prompt(
+                    _summary_projects(), date(2026, 9, 1), single_project_demo=single
+                )
+                self.assertIn("Nenne keine Projektnamen", prompt)
+
+    def test_both_modes_cap_the_number_of_themes(self):
+        # #49 opens with "harder to scan". A cap is the established answer
+        # here — task_refs has carried "max. 4" since #122.
+        for single in (False, True):
+            with self.subTest(single_project_demo=single):
+                prompt = build_prompt(
+                    _summary_projects(), date(2026, 9, 1), single_project_demo=single
+                )
+                self.assertIn("max. 3 Themen", prompt)
 
     def test_prompt_states_the_json_shape_it_expects(self):
         """#262 moved the "answer in JSON only" rule into the shared `system`
@@ -800,19 +847,19 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
             data, projects if projects is not None else _summary_projects(), **kwargs
         )
 
-    def test_valid_refs_resolve_to_projects_and_tasks(self):
+    def test_valid_refs_resolve_to_themes_and_tasks(self):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
                     {
-                        "project_ref": 1,
+                        "heading": "Programm offen",
                         "assessment": "Programm ist der Engpass",
                         "task_refs": [1],
                     }
                 ],
                 "naechste_woche": [
                     {
-                        "project_ref": 2,
+                        "heading": "Druck und Technik",
                         "assessment": "noch gut im Zeitplan",
                         "task_refs": [3, 4],
                     }
@@ -822,12 +869,81 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         self.assertEqual(sections[0]["title"], "Jetzt fällig")
         self.assertEqual(sections[1]["title"], "Nächste Woche")
         [block] = sections[0]["blocks"]
-        self.assertEqual(block["project_id"], "p-alpha")
-        self.assertEqual(block["project_name"], "Konzert Alpha")
+        self.assertEqual(block["heading"], "Programm offen")
         self.assertEqual(block["assessment"], "Programm ist der Engpass")
         self.assertEqual([t["id"] for t in block["tasks"]], ["t-programm"])
         [block2] = sections[1]["blocks"]
         self.assertEqual([t["id"] for t in block2["tasks"]], ["t-plakate", "t-technik"])
+
+    def test_a_block_carries_no_project_of_its_own_any_more(self):
+        # #49: a theme can span projects, so there is no one project to head
+        # it with. Attribution sits on the task row instead.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"heading": "Programm offen", "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [block] = sections[0]["blocks"]
+        for key in ("project_id", "project_name", "heading_display"):
+            with self.subTest(key=key):
+                self.assertNotIn(key, block)
+
+    def test_a_multi_mode_theme_attributes_each_task_to_its_own_project(self):
+        # The point of #49: one block, two projects. Each task carries the
+        # project it belongs to, in the shape _task_row.html already renders.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {
+                        "heading": "Diese Woche fällig",
+                        "assessment": "beides liegt zusammen",
+                        "task_refs": [1, 3],
+                    }
+                ],
+                "naechste_woche": [],
+            }
+        )
+        [block] = sections[0]["blocks"]
+        self.assertEqual(
+            [(t["project_id"], t["project_name"]) for t in block["tasks"]],
+            [("p-alpha", "Konzert Alpha"), ("p-beta", "Konzert Beta")],
+        )
+
+    def test_a_task_attribution_prefers_the_display_name(self):
+        # The same fallback the heading used before it: display_name is what
+        # every other surface shows, name is what Notion stores.
+        projects = _summary_projects()
+        projects[0]["display_name"] = "Konzert Alpha (Reihe)"
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"heading": "Thema", "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            },
+            projects=projects,
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertEqual(task["project_name"], "Konzert Alpha (Reihe)")
+
+    def test_single_project_mode_attributes_no_task_to_a_project(self):
+        # One project, named in the card's own header — a label on every row
+        # would repeat it as many times as the block has tasks.
+        sections = self.resolve(
+            {
+                "jetzt_faellig": [
+                    {"heading": "Jetzt kritisch", "assessment": "x", "task_refs": [1]}
+                ],
+                "naechste_woche": [],
+            },
+            single_project_demo=True,
+        )
+        [task] = sections[0]["blocks"][0]["tasks"]
+        self.assertNotIn("project_id", task)
+        self.assertNotIn("project_name", task)
 
     def test_the_projection_carries_the_tasks_due_date(self):
         # #190: the summary listed a name and a status dot but no date,
@@ -836,7 +952,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [1]}
                 ],
                 "naechste_woche": [],
             }
@@ -850,7 +966,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [1]}
                 ],
                 "naechste_woche": [],
             }
@@ -866,7 +982,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [1]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [1]}
                 ],
                 "naechste_woche": [],
             },
@@ -880,7 +996,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [1, 99, 3]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [1, 99, 3]}
                 ],
                 "naechste_woche": [],
             }
@@ -888,18 +1004,25 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         [block] = sections[0]["blocks"]
         self.assertEqual([t["id"] for t in block["tasks"]], ["t-programm", "t-plakate"])
 
-    def test_an_invalid_project_ref_drops_the_whole_block(self):
-        sections = self.resolve(
-            {
-                "jetzt_faellig": [
-                    {"project_ref": 99, "assessment": "x", "task_refs": [1]},
-                    {"project_ref": 2, "assessment": "y", "task_refs": []},
-                ],
-                "naechste_woche": [],
-            }
-        )
-        self.assertEqual(len(sections[0]["blocks"]), 1)
-        self.assertEqual(sections[0]["blocks"][0]["project_id"], "p-beta")
+    def test_a_block_without_a_usable_heading_is_dropped_in_both_modes(self):
+        # One rule for both branches since #49 — there is nothing to head
+        # the block with, and a blank <strong> is not an answer.
+        for single in (False, True):
+            with self.subTest(single_project_demo=single):
+                sections = self.resolve(
+                    {
+                        "jetzt_faellig": [
+                            {"assessment": "x", "task_refs": [1]},
+                            {"heading": "   ", "assessment": "y", "task_refs": []},
+                            {"heading": "Trägt", "assessment": "z", "task_refs": []},
+                        ],
+                        "naechste_woche": [],
+                    },
+                    single_project_demo=single,
+                )
+                self.assertEqual(
+                    [b["heading"] for b in sections[0]["blocks"]], ["Trägt"]
+                )
 
     def test_a_bool_ref_does_not_resolve_as_an_integer(self):
         # True is an int subclass — without the explicit check it would
@@ -907,36 +1030,12 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [True]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [True]}
                 ],
                 "naechste_woche": [],
             }
         )
         self.assertEqual(sections[0]["blocks"][0]["tasks"], [])
-
-    def test_single_project_demo_uses_the_free_text_heading(self):
-        sections = self.resolve(
-            {
-                "jetzt_faellig": [
-                    {"heading": "Jetzt kritisch", "assessment": "x", "task_refs": [1]}
-                ],
-                "naechste_woche": [],
-            },
-            single_project_demo=True,
-        )
-        [block] = sections[0]["blocks"]
-        self.assertEqual(block["heading"], "Jetzt kritisch")
-        self.assertNotIn("project_id", block)
-
-    def test_single_project_demo_drops_a_block_without_heading(self):
-        sections = self.resolve(
-            {
-                "jetzt_faellig": [{"assessment": "x", "task_refs": [1]}],
-                "naechste_woche": [],
-            },
-            single_project_demo=True,
-        )
-        self.assertEqual(sections[0]["blocks"], [])
 
     def test_a_done_task_resolves_as_done_regardless_of_the_cached_refs(self):
         # The core regression case: the raw dict was cached while the task
@@ -945,7 +1044,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
         sections = self.resolve(
             {
                 "jetzt_faellig": [
-                    {"project_ref": 1, "assessment": "x", "task_refs": [2]}
+                    {"heading": "Thema", "assessment": "x", "task_refs": [2]}
                 ],
                 "naechste_woche": [],
             }
@@ -957,7 +1056,7 @@ class ResolveWeeklySummaryTest(SimpleTestCase):
     def test_garbage_blocks_and_missing_keys_are_tolerated(self):
         sections = self.resolve(
             {
-                "jetzt_faellig": ["kein dict", 42, {"project_ref": 1}],
+                "jetzt_faellig": ["kein dict", 42, {"heading": "Thema"}],
                 "naechste_woche": "gar keine Liste",
             }
         )
@@ -1150,6 +1249,20 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
             "naechste_woche": [],
         }
 
+    def multi_project_summary(self, task_refs):
+        """The same shape in multi mode since #49 — one thematic heading,
+        task_refs that may cross project boundaries."""
+        return {
+            "jetzt_faellig": [
+                {
+                    "heading": "Diese Woche fällig",
+                    "assessment": "läuft",
+                    "task_refs": task_refs,
+                }
+            ],
+            "naechste_woche": [],
+        }
+
     def test_dashboard_summary_renders_a_checkbox_for_a_referenced_task(self):
         self.given_session_plan()
         self.summary_stub().return_value = self.single_project_summary([1])
@@ -1191,29 +1304,27 @@ class AiSummaryCheckboxViewTest(DemoModeTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Jetzt kritisch")
 
-    def test_multi_project_summary_links_the_project_by_id(self):
-        # Demo multi mode (no session plan): headings come from project_ref,
-        # resolved server-side — no PROJECT_MAP substring matching anywhere.
-        self.summary_stub().return_value = {
-            "jetzt_faellig": [
-                {"project_ref": 1, "assessment": "läuft", "task_refs": []}
-            ],
-            "naechste_woche": [],
-        }
+    def test_a_multi_project_summary_heads_its_block_with_a_plain_theme(self):
+        # #49: the heading is a theme, not a project, so it carries no link
+        # and no event date — the attribution moved to the task row below.
+        self.summary_stub().return_value = self.multi_project_summary([])
         response = self.dashboard_with_summary()
-        # #200: a <button> inside the <strong>, so the heading keeps its
-        # bold weight by inheritance and the link takes focus. The id it
-        # opens travels as data-project-id rather than in an onclick.
-        # Pinned to the closing quote, not just the prefix: the accessible
-        # name has to contain the visible heading (WCAG 2.5.3), and the two
-        # drifted apart once already when the template assembled each of them
-        # on its own. heading_display is now the single source of both.
-        heading = escape(response.context["summary"][0]["blocks"][0]["heading_display"])
+        self.assertContains(response, "<strong>Diese Woche fällig</strong>")
+
+    def test_a_multi_project_summary_links_each_task_to_its_own_project(self):
+        # The same button _task_row.html renders, so one binding and one set
+        # of rules cover both sites. The id travels as data-project-id
+        # rather than in an onclick, and the accessible name contains the
+        # visible text (WCAG 2.5.3) — here that is the project name alone.
+        self.summary_stub().return_value = self.multi_project_summary([1])
+        response = self.dashboard_with_summary()
+        [task] = response.context["summary"][0]["blocks"][0]["tasks"]
+        name = escape(task["project_name"])
         self.assertContains(
             response,
-            f'<strong><button type="button" class="ai-project-link" '
-            f'data-project-id="demo-1" aria-label="Projekt {heading} öffnen">'
-            f"{heading}</button></strong>",
+            f'<button type="button" class="task-project ai-project-link" '
+            f'data-project-id="{task["project_id"]}" '
+            f'aria-label="Projekt {name} öffnen">{name}</button>',
         )
         self.assertNotContains(response, "showProject('demo-1')")
         self.assertNotContains(response, "PROJECT_MAP")
@@ -1247,10 +1358,8 @@ class SummaryFragmentTest(DemoModeTestCase):
         return self.ai_mocks["projects.views.generate_weekly_summary"]
 
     def single_project_summary(self, marker="Alles im Plan"):
-        """A session plan's summary heads its blocks with free text rather
-        than a project_ref — single_project_demo mode has no refs to resolve
-        (see ResolveWeeklySummaryTest), so _summary_data's shape would be
-        dropped here rather than rendered."""
+        """A session plan's summary, with the marker in the assessment so a
+        test can tell this block apart from _summary_data's."""
         return {
             "jetzt_faellig": [
                 {"heading": "Jetzt kritisch", "assessment": marker, "task_refs": []}
