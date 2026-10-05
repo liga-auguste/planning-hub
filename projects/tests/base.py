@@ -50,11 +50,12 @@ AI_STUBS = {
 
 def _summary_data(marker="Zusammenfassung läuft"):
     """A minimal raw reference dict (#122) whose assessment carries a
-    recognisable marker; project_ref 1 resolves against whatever project the
-    test's get_upcoming_projects stub returns first (and the block is simply
-    dropped when there is none)."""
+    recognisable marker. The heading is a theme in both modes since #49, so
+    the block resolves without any project having to be numbered."""
     return {
-        "jetzt_faellig": [{"project_ref": 1, "assessment": marker, "task_refs": []}],
+        "jetzt_faellig": [
+            {"heading": "Diese Woche", "assessment": marker, "task_refs": []}
+        ],
         "naechste_woche": [],
     }
 

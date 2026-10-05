@@ -290,6 +290,20 @@ class SharedRulesAreStatedOnceInTheSourceTest(SimpleTestCase):
         # itself legitimately appears in each touchpoint's own format block.
         self.assertEqual(self.source.count("Antworte NUR mit JSON"), 1)
 
+    def test_the_summarys_output_format_is_stated_once_for_both_modes(self):
+        # #49 continued what #262 started, one level down. The two branches
+        # of build_prompt carried these lines verbatim in two copies, which
+        # is how the single-project branch could ask for a theme while the
+        # multi-project one asked for a project without anyone noticing.
+        for fragment in (
+            "Nur Infos aus den Daten.",
+            "Nenne keine Projektnamen",
+            "die Nummern (in eckigen Klammern",
+            "max. 3 Themen",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertEqual(self.source.count(fragment), 1)
+
 
 class ModelIdsAreWrittenUndatedTest(SimpleTestCase):
     """#262: one call carried `claude-haiku-4-5-20251001` while the five

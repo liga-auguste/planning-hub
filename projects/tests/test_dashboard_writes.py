@@ -2257,11 +2257,11 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
     a real <button>, and give it an accessible name that carries the
     context rather than leaning on a title attribute.
 
-    In the summary the button sits *inside* the <strong> rather than
-    replacing it, so the bold weight is inherited instead of rebuilt in
-    CSS — and the › affordance's selector moves down with the class. That
-    markup is asserted in test_summary, where the generator is stubbed and
-    the block renders at all."""
+    #49 left one in-content shape instead of two: the summary's heading is
+    a theme now and carries no link, while its task rows render the same
+    button.task-project.ai-project-link the task rows do. That markup is
+    asserted in test_summary, where the generator is stubbed and the block
+    renders at all."""
 
     CSS = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
 
@@ -2273,12 +2273,12 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
             r'data-project-id="[^"]+" aria-label="Projekt [^"]+ öffnen">',
         )
 
-    def test_the_chevron_follows_the_class_down(self):
-        # The › decorates the click-through only, so the selector has to
-        # move with the element that now carries it (#122).
-        self.assertContains(
+    def test_no_rule_decorates_a_summary_heading_as_a_link(self):
+        # #49: the heading is a theme, so the › affordance it carried would
+        # promise a click-through that is no longer there.
+        self.assertNotContains(
             self.client.get(reverse("dashboard")),
-            ".ai-card ul > li > strong > button.ai-project-link::after",
+            "strong > button.ai-project-link",
         )
 
     def test_no_rendered_page_opens_a_project_from_an_onclick(self):
@@ -2320,11 +2320,11 @@ class ProjectLinksAreButtonsTest(DemoModeTestCase):
             ).read_text(),
         )
 
-    def test_one_listener_covers_both_sites(self):
+    def test_one_listener_covers_every_project_label(self):
         # .task-project.ai-project-link is a subset of this selector, so the
-        # row and the summary need one binding between them. #156 gave the
-        # binding a root so the summary can be rebound after the fragment
-        # endpoint swaps it in; the selector it binds by is unchanged.
+        # task rows and the summary's rows need one binding between them.
+        # #156 gave the binding a root so the summary can be rebound after
+        # the fragment endpoint swaps it in; the selector is unchanged.
         page = self.client.get(reverse("dashboard"))
         self.assertContains(
             page,
@@ -2791,7 +2791,7 @@ def _summary_with_refs(task_refs):
     return {
         "jetzt_faellig": [
             {
-                "project_ref": 1,
+                "heading": "Diese Woche",
                 "assessment": "Zusammenfassung läuft",
                 "task_refs": list(task_refs),
             }
@@ -3647,19 +3647,19 @@ class RemapSummaryRefsTest(TestCase):
 
     def test_a_block_without_task_refs_survives_untouched(self):
         data = _remap_summary_refs(
-            {"jetzt_faellig": [{"project_ref": 1, "assessment": "ohne refs"}]},
+            {"jetzt_faellig": [{"heading": "Thema", "assessment": "ohne refs"}]},
             self.BEFORE,
             self.AFTER,
         )
         self.assertEqual(
-            data["jetzt_faellig"], [{"project_ref": 1, "assessment": "ohne refs"}]
+            data["jetzt_faellig"], [{"heading": "Thema", "assessment": "ohne refs"}]
         )
 
-    def test_the_project_ref_is_left_alone(self):
-        # Only the tasks are renumbered: _annotate_tasks re-sorts inside each
-        # project and never reorders the project list itself.
+    def test_everything_but_the_task_refs_is_left_alone(self):
+        # task_refs are the only positions this rewrites. Since #49 the
+        # block's heading is free text and carries no numbering at all.
         data = _remap_summary_refs(_summary_with_refs([1]), self.BEFORE, self.AFTER)
-        self.assertEqual(data["jetzt_faellig"][0]["project_ref"], 1)
+        self.assertEqual(data["jetzt_faellig"][0]["heading"], "Diese Woche")
 
 
 @override_settings(DEMO_MODE=False)

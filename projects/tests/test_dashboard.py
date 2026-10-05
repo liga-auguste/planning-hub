@@ -962,13 +962,19 @@ class DashboardCacheVersionTest(SimpleTestCase):
     done_this_week, and on a cache hit the dashboard renders the annotation
     it stored rather than recomputing it. A pre-deploy entry would carry no
     flag at all, so every completed dot would render gray until the entry
-    expired — and never, from STALE_CACHE_KEY."""
+    expired — and never, from STALE_CACHE_KEY.
+
+    #49 (v12) is the hard kind too: a stored summary block keys its heading
+    on a project_ref the resolver no longer reads, so every block would be
+    dropped for want of a heading and the card would render its empty state
+    over a summary that is right there. Under a new key the entry is not
+    found instead, and the page falls into #156's loading state."""
 
     def test_both_key_pairs_are_bumped_together(self):
-        self.assertEqual(CACHE_KEY, "dashboard_data_v11")
-        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v11")
-        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v6")
-        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v6")
+        self.assertEqual(CACHE_KEY, "dashboard_data_v12")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v12")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v7")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v7")
 
 
 @override_settings(DEMO_MODE=False)

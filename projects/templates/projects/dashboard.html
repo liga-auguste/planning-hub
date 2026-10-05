@@ -84,9 +84,10 @@
         .ai-card p { margin: 0 0 8px; }
         .ai-project-link { cursor: pointer; }
         .ai-project-link:hover { text-decoration: underline; }
-        /* The › affordance belongs to the click-through, so it only decorates
-           real project links — single-project headings carry none (#122). */
-        .ai-card ul > li > strong > button.ai-project-link::after { content: " ›"; color: var(--color-text-quaternary); font-weight: 400; font-size: 11px; }
+        /* #49: the › that decorated the summary's heading is gone with the
+           link under it. The heading is a theme now, and the click-through
+           moved to the task row's own .task-project button, which has never
+           carried the arrow on any other surface either. */
         .ai-card .toggle-form { display: inline; margin-right: 2px; }
         /* #217: during a moment the dot renders as a bare span with no
            form around it, so the form's own 2px has to live on the dot
@@ -924,8 +925,10 @@ the wording either way.
         item.addEventListener('click', () => showProject(item.dataset.projectId));
     });
     // Both in-content sites at once: .task-project.ai-project-link is a
-    // subset of this selector, so the row's label and the summary's heading
-    // need one binding between them.
+    // subset of this selector, so the task rows' labels and the summary's
+    // own rows need one binding between them. One shape rather than two
+    // since #49: the link sat on the summary's block heading until the
+    // attribution moved down to the task row.
     //
     // Takes a root rather than reaching for `document` itself (#156). Every
     // binding on this page is direct, not delegated, and the comment that
