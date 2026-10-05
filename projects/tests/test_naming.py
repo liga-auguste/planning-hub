@@ -162,6 +162,39 @@ class StripTrailingDateTest(SimpleTestCase):
             _strip_trailing_date("Konzert am 3. Advent"), "Konzert am 3. Advent"
         )
 
+    # #282: the habit also writes a weekday before the date, which used to
+    # survive the strip and read as part of the name ("… am Do").
+
+    def test_strips_a_short_weekday_before_the_date(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventssingen am Do, 17. Dezember 2026"),
+            "Adventssingen",
+        )
+
+    def test_strips_a_long_weekday_before_the_date(self):
+        self.assertEqual(
+            _strip_trailing_date("Adventssingen am Donnerstag, 17. Dezember 2026"),
+            "Adventssingen",
+        )
+
+    def test_strips_an_abbreviated_weekday_before_a_numeric_date(self):
+        self.assertEqual(_strip_trailing_date("Konzert am Do. 17.12.2026"), "Konzert")
+
+    def test_strips_a_weekday_without_am(self):
+        self.assertEqual(_strip_trailing_date("Konzert, Sa 5. Dezember"), "Konzert")
+
+    def test_a_weekday_inside_a_word_is_not_a_weekday(self):
+        # The separator before it is what makes it one — without it
+        # "Sonntagskonzert" would lose its first half to the "So" branch.
+        self.assertEqual(
+            _strip_trailing_date("Sonntagskonzert 2026"), "Sonntagskonzert"
+        )
+
+    def test_a_weekday_with_no_date_after_it_is_kept(self):
+        self.assertEqual(
+            _strip_trailing_date("Matinee am Sonntag"), "Matinee am Sonntag"
+        )
+
 
 class MyPlanDisplayNameTest(DemoModeTestCase):
     """#134: my_plan.html rendered the raw project.name in the page title and
