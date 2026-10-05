@@ -893,12 +893,33 @@ def _sidebar_projects(request, today, projects=None):
     return month_groups, years
 
 
+# The long weekday names, which date_format.py has no constant for — it
+# formats dates and never spells a weekday out, while this reads what a
+# Notion name may *contain*. Listed beside WEEKDAYS_SHORT rather than
+# derived from it: "Mo" to "Montag" is a lookup, not a suffix.
+_WEEKDAYS_LONG = (
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+    "Sonnabend",
+    "Sonntag",
+)
+
 # A trailing German date or bare year, with an optional comma/dash separator
 # and an optional "am" — the maintainer's Notion naming habit (#134). Covers
 # the numeric forms (12.09.2026, 1.9.) and the spelled-out ones the live
 # Notion data actually uses ("am 5. September", "15. November 2026").
+#
+# #282: and an optional weekday between the two. "am Do, 17. Dezember 2026"
+# used to strip from the comma on and leave "… am Do" standing — a weekday
+# with nothing after it, which reads as part of the name. The long forms go
+# first so that "Sonntag" cannot be matched as "So" with "nntag" left over.
 _TRAILING_DATE_RE = re.compile(
     r"[\s,–—-]+(?:am\s+)?"
+    r"(?:(?:" + "|".join(_WEEKDAYS_LONG + tuple(WEEKDAYS_SHORT)) + r")\.?,?\s*)?"
     r"(?:\d{1,2}\.\d{1,2}\.(?:\d{4})?"
     r"|\d{1,2}\.\s*(?:" + "|".join(MONTHS_DE.values()) + r")(?:\s+\d{4})?"
     r"|\d{4})$"

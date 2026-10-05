@@ -81,19 +81,20 @@ class ProjectSectionDeboxTest(DemoModeTestCase):
 
 
 class ProjectDateBadgeTest(DemoModeTestCase):
-    """The project-header's separate date badge duplicates what's already in
-    the project name for real Notion data — the maintainer's own habit is to
-    write the event date into the name itself. Demo names carry no such
-    date, example projects and a session plan alike (has_session_plan is
-    only ever true inside DEMO_MODE — see views.dashboard), so demo_mode
-    alone decides it; no has_session_plan check needed here."""
+    """#282: the project header's date badge renders on both stacks.
+
+    It used to be gated on demo_mode, because a production project name
+    carried the event date itself (the maintainer's Notion habit) and the
+    badge would have repeated it. #134 landed four days later and took that
+    date out of the displayed name — which left production with the date in
+    neither place, and nowhere else on the page to read it from."""
 
     def test_date_badge_shows_in_demo_mode(self):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, 'class="project-date"')
 
     @override_settings(DEMO_MODE=False)
-    def test_date_badge_is_hidden_in_production(self):
+    def test_date_badge_shows_in_production_too(self):
         project = _fake_upcoming_project_with_task()
         with (
             patch("projects.views.get_upcoming_projects", return_value=[project]),
@@ -103,8 +104,27 @@ class ProjectDateBadgeTest(DemoModeTestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertNotContains(response, 'class="project-date"')
+        self.assertContains(response, 'class="project-date"')
         self.assertContains(response, project["name"])
+
+    @override_settings(DEMO_MODE=False)
+    def test_a_production_name_with_its_date_stripped_still_shows_one(self):
+        # The case the gate hid: the name arrives carrying the date, the
+        # display strips it, and the badge is what is left to say when the
+        # event is.
+        project = _fake_upcoming_project_with_task()
+        project["name"] = "Adventssingen am Do, 17. Dezember 2026"
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ">Adventssingen<")
+        self.assertNotContains(response, "Adventssingen am Do")
+        self.assertContains(response, 'class="project-date"')
 
 
 class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
