@@ -22,12 +22,14 @@ from ..notion import (
     create_task,
     create_tasks,
     find_project,
+    get_exclusive_task_ids,
     get_historical_projects,
     get_unassigned_tasks,
     get_upcoming_projects,
     increment_postpone_count,
     rename_task,
     toggle_task,
+    trash_project,
     trash_task,
     update_task_date,
 )
@@ -105,6 +107,20 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 trash_task("task-id")
+
+    def test_trash_project_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                trash_project("project-id")
+
+    def test_get_exclusive_task_ids_translates_a_failure(self):
+        # #284: the view's first try block hangs off this one — a read that
+        # failed must not be mistaken for a project with no tasks.
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                get_exclusive_task_ids("project-id")
 
     def test_rename_task_translates_a_failure(self):
         with patch("projects.notion.Client") as MockClient:
@@ -280,6 +296,62 @@ class TrashTaskTest(SimpleTestCase):
         self.assertEqual(ClientOptions.notion_version, "2022-06-28")
 
 
+class ExclusiveTaskIdsTest(SimpleTestCase):
+    """#284: which tasks go into the trash with their project.
+
+    Asked of Notion rather than taken off the dashboard cache, which can be
+    eight hours old — and only the tasks no other project holds, because the
+    reason a project's tasks cannot stay behind is that nothing would reach
+    them, and a shared one is still reached under its other project."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_it_asks_notion_for_the_projects_own_tasks(self):
+        with patch("projects.notion.Client") as MockClient:
+            query = MockClient.return_value.databases.query
+            query.return_value = _query_response([])
+            get_exclusive_task_ids("p1")
+        self.assertEqual(query.call_args.kwargs["database_id"], TASKS_DB)
+        self.assertEqual(
+            query.call_args.kwargs["filter"],
+            {"property": "Related to Projekte", "relation": {"contains": "p1"}},
+        )
+
+    def test_a_task_shared_with_another_project_stays(self):
+        # Archiving it would empty a slot in a project nobody asked about,
+        # and leaving it orphans nothing: get_upcoming_projects still reaches
+        # it under p2 (_tasks_by_project groups onto every relation).
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [
+                    _fake_task_page("Programm", "2026-08-20", ["p1"], page_id="own"),
+                    _fake_task_page(
+                        "Noten kopieren", "2026-08-21", ["p1", "p2"], page_id="shared"
+                    ),
+                ]
+            )
+            self.assertEqual(get_exclusive_task_ids("p1"), ["own"])
+
+    def test_it_pages_through_every_task(self):
+        # A project past 100 tasks would otherwise keep the rest, which is
+        # the orphan this read exists to prevent, one page further down.
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.side_effect = [
+                _query_response(
+                    [_fake_task_page("Erste", "2026-08-20", ["p1"], page_id="t1")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response(
+                    [_fake_task_page("Zweite", "2026-08-21", ["p1"], page_id="t2")]
+                ),
+            ]
+            self.assertEqual(get_exclusive_task_ids("p1"), ["t1", "t2"])
+
+
 class GetUnassignedTasksTest(SimpleTestCase):
     """#53: get_upcoming_projects only ever queries TASKS_DB per project via
     a relation.contains filter — a task with an empty "Related to Projekte"
@@ -433,10 +505,10 @@ def _query_response(results, has_more=False, next_cursor=None):
     return {"results": results, "has_more": has_more, "next_cursor": next_cursor}
 
 
-def _fake_task_page(name, iso_date, project_ids=()):
+def _fake_task_page(name, iso_date, project_ids=(), page_id="task-1"):
     # Shaped the way _get_tasks parses a Notion task page.
     return {
-        "id": "task-1",
+        "id": page_id,
         "properties": {
             "Aufgabe": {"title": [{"plain_text": name}]},
             "Wann?": {"date": {"start": iso_date}},

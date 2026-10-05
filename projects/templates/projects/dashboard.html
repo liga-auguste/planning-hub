@@ -805,9 +805,18 @@
             The count is in the label before the click, not in a warning
             after it: this is the first write in the app that touches more
             than one page, and how many it touches is the part worth
-            knowing.
+            knowing. It counts the tasks rendered below it, which is the
+            honest number for a page: the write itself asks Notion again
+            (get_exclusive_task_ids), so a task added in Notion since this
+            entry was read is trashed without having been counted, and one
+            shared with another project is counted without being trashed.
+
+            Not under `stale` either, and for the same reason as demo_mode
+            rather than a second one: a stale render means the last Notion
+            read failed, so the write behind this control cannot land. A
+            control that is offered has to be able to work.
             {% endcomment %}
-            {% if not demo_mode %}
+            {% if not demo_mode and not stale %}
             <span class="task-menu project-menu">
                 <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen für dieses Projekt" title="Aktionen">⋮</button>
                 <div class="task-menu-items" role="menu" hidden>

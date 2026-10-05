@@ -94,6 +94,30 @@ class StaticCacheHeadersConfTest(SimpleTestCase):
                 self.assertIn("expires 1y;", conf)
 
 
+class ProxyReadTimeoutConfTest(SimpleTestCase):
+    """#284: trashing a project is one Notion call per task, serially, because
+    the API has no batch archive — and gunicorn has no request budget to put
+    a ceiling on that, since under gthread --timeout only kills a worker that
+    stopped communicating (entrypoint.sh says so at the flag). nginx's
+    proxy_read_timeout is therefore the one limit a long request actually
+    meets, and the 60s default would hand the browser a failure for a write
+    the server then goes on to finish — the page would claim the project is
+    still there. Pinned against gunicorn's own number so the two cannot drift
+    into disagreeing about how long is too long.
+
+    Production only, unlike the static headers above: the demo stack's
+    longest request is a Claude call of a few seconds, and it has no Notion
+    write at all."""
+
+    def test_production_states_a_proxy_read_timeout(self):
+        conf = (settings.BASE_DIR / "nginx.conf").read_text()
+        self.assertIn("proxy_read_timeout 120s;", conf)
+
+    def test_it_agrees_with_gunicorns_own_timeout(self):
+        entrypoint = (settings.BASE_DIR / "entrypoint.sh").read_text()
+        self.assertIn("--timeout 120", entrypoint)
+
+
 class EntrypointConfTest(SimpleTestCase):
     """#24: entrypoint.sh ran migrate and collectstatic but never seed_rules,
     so a stack built from scratch starts with an empty PlannerRule table —

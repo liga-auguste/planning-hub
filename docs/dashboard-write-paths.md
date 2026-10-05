@@ -250,10 +250,36 @@ direction. So the tasks are trashed first and the project after. A failure in be
 leaves the project standing with fewer tasks under it — visible, and the action simply
 repeats. The reverse order would leave a vanished project and tasks no read can reach.
 
-The project to trash is read out of `CACHE_KEY` rather than from Notion, and a miss is a
-404 rather than a fetch: the page that offered the control rendered from that entry, so a
-cold cache means the next load is right anyway — and archiving a page the app cannot
-currently see is the one thing this endpoint must not do on a guess.
+**Which** tasks is a Notion read of its own (`get_exclusive_task_ids`), not a walk of the
+cached entry, and that is what makes the paragraph above true rather than probable: a
+cached entry lives up to `CACHE_TTL` (eight hours), and a task created in Notion's own UI
+inside that window is not in it — archiving the project around such a task would leave
+precisely the orphan this write exists to prevent. The same read answers the other half: a
+task that also relates to another project stays, because the reason the others cannot stay
+is that nothing would reach them, and this one is still reached under its other project
+(`_tasks_by_project` groups a task onto every relation it has, deliberately). The armed
+label counts the rendered tasks instead, which is the honest number for a page but not
+always the number the write touches.
+
+`CACHE_KEY` still decides *whether* the project is one the app knows, and a miss is a 404
+rather than a fetch: the page that offered the control rendered from that entry and from no
+other — the menu is not in a stale render — so a cold cache means the next load is right
+anyway, and archiving a page the app cannot currently see is the one thing this endpoint
+must not do on a guess.
+
+How much of the cache goes depends on whether the write landed, which is the one place
+this write parts with `_bust_dashboard_cache`'s all-four habit. A confirmed removal busts
+everything, stale copies included. A *partial* failure drops only the fresh entries
+(`_drop_fresh_dashboard_cache`) and leaves the last-known-good pair standing, because this
+endpoint only fails that way when Notion is unreachable — the single situation
+`dashboard()` renders that pair for. Taking it along would answer a half-finished removal
+with an empty dashboard that the next load cannot fill either.
+
+The control is not rendered on a stale page for the same reason it is not rendered in demo
+mode: the last Notion read failed there, so the write behind it cannot land. And one Notion
+call per task, serially, is what the API gives — there is no batch archive — which is why
+`nginx.conf` states a `proxy_read_timeout` rather than living with the 60s default: a long
+project would otherwise hand the browser a failure for a write the server then completes.
 
 Changing a project's event date ([#283](https://github.com/liga-auguste/planning-hub/issues/283))
 is the other half of the project level and is not built.
