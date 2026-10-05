@@ -286,9 +286,16 @@ def build_prompt(projects: list, today: date, single_project_demo: bool = False)
         "Format:",
         '{"jetzt_faellig": [{"heading": "Programm offen", "assessment": "die Buchung muss heute raus, sonst wird der Termin knapp", "task_refs": [1, 2]}], "naechste_woche": []}',
         "",
-        '- "heading": das gemeinsame Thema der Aufgaben im Block, kurz (2–3 Wörter). Nenne keine Projektnamen — die Zuordnung steht bereits auf der Seite.',
+        '- "heading": das gemeinsame Thema der Aufgaben im Block, kurz (2–3 Wörter).',
         '- "assessment": ein Satz mit Einschätzung und echtem Assistenzwert: Was ist kritisch? Was läuft gut? Nicht "Tasks offen", sondern "Plakate müssen heute raus" oder "noch gut im Zeitplan".',
         '- "task_refs": die Nummern (in eckigen Klammern bei jeder offenen Aufgabe oben) der relevantesten Aufgaben, max. 4.',
+        # Its own line, not a clause on "heading". It was one until the eval
+        # measured the merged prompt (#49): with a theme spanning two
+        # projects Claude has a reason to name them that it never had under
+        # project_ref, and read as a heading rule the sentence did not stop
+        # it. The name is already on the row directly below, so naming it
+        # again is the same word twice in two lines.
+        "Nenne keine Projektnamen — weder im Thema noch im Satz. Welche Aufgabe zu welchem Projekt gehört, steht auf der Seite neben der Aufgabe.",
     ]
     if not single_project_demo:
         lines.append(
