@@ -1544,7 +1544,7 @@ class TrashProjectMenuTest(TestCase):
         cache.clear()
         self.addCleanup(cache.clear)
 
-    def dashboard(self):
+    def dashboard(self, with_fallback=False):
         with (
             patch(
                 "projects.views.get_upcoming_projects",
@@ -1555,7 +1555,13 @@ class TrashProjectMenuTest(TestCase):
                 "projects.views.generate_weekly_summary", return_value=_summary_data()
             ),
         ):
-            return self.client.get(reverse("dashboard"))
+            page = self.client.get(reverse("dashboard"))
+            if with_fallback:
+                # STALE_CACHE_KEY is written when the summary arrives, not by
+                # the read itself (#156) — and inside this block, or the Claude
+                # call would be a real one.
+                self.client.post(reverse("summary_fragment"))
+            return page
 
     def test_the_header_offers_the_action(self):
         self.assertContains(
@@ -1591,8 +1597,7 @@ class TrashProjectMenuTest(TestCase):
         # which that page did not render from. The same rule as demo_mode,
         # from the other side: a control that is offered has to be able to
         # work.
-        self.dashboard()
-        self.client.post(reverse("summary_fragment"))  # writes the stale copy
+        self.dashboard(with_fallback=True)  # the stale copy comes with it
         cache.delete(CACHE_KEY)
         with (
             patch(
