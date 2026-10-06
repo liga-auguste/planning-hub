@@ -125,6 +125,36 @@ keeps that from being silent.
 
 Leave the wrapper off for any stack whose `hosts.md` entry has no `Shell`.
 
+**A changed nginx config needs a reload of its own.** `up --build -d` rebuilds
+the `web` image, and nothing else: the nginx service runs an unchanged
+`nginx:alpine` and takes its config from a bind mount
+(`./nginx.conf:/etc/nginx/conf.d/default.conf:ro`, `./nginx-demo.conf` on
+demo). Compose compares images, volumes, ports and environment — not the
+*contents* of a mounted file — so it finds nothing to do and the container
+keeps running with the config it read at startup. The new file is inside the
+container and not in effect, which is the sort of half-landed change that
+reads as done: step 5 answers `200`/`401` off the old config just as happily.
+
+The tell is in Compose's own output — `Container <stack>-nginx-1 Running`
+where the web container says `Recreated`. So after a deploy whose commits
+touched `nginx.conf` or `nginx-demo.conf`, check the mount, test the config
+and reload it:
+
+```bash
+ssh <host> 'cd <path> && docker compose -f <compose-file> exec nginx nginx -t'
+ssh <host> 'cd <path> && docker compose -f <compose-file> exec nginx nginx -s reload'
+```
+
+On a stack with a `Shell`, both lines go through it the way the docker half
+above does. Confirm the mount carries the change first — `exec nginx grep
+<the-new-directive> /etc/nginx/conf.d/default.conf` — or a clean `nginx -t`
+only proves the *old* file is still valid.
+
+Reload rather than `restart` or `--force-recreate`: nginx finishes the
+requests it is serving and the listener never drops, so there is no window.
+On demo that window would be the one thing worth avoiding — a dropped
+listener is also a failed ACME challenge (step 4).
+
 ### 4. Stack-specific gotchas
 
 - **demo**: HTTPS certificate renewal **needs the stack running**, which is
@@ -163,6 +193,11 @@ enforced, not that the app itself is healthy.
 An unexpected code is one of step 2's stops. Reached after demo, it means
 production never starts and keeps serving its previous build — which is
 where you want it while a bad build is still unexplained.
+
+What the expected code does *not* confirm is the nginx config: the old one
+answers identically, so a missed reload (step 3) passes this check. When the
+deploy carried a config change, the reload is the evidence, not the status
+code.
 
 ### 6. Rollback
 
