@@ -549,9 +549,11 @@
         .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
         .task-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
         .task-row:last-child { border-bottom: none; }
-        .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; background: var(--color-text-quaternary); }
-        .dot.overdue { background: var(--color-overdue); }
-        .dot.today { background: var(--color-today); }
+        /* #289: the mock shows open tasks only, so every dot here is a ring.
+           Same geometry as the app's, minus the done state it never renders. */
+        .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; color: var(--color-text-quaternary); background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
+        .dot.overdue { color: var(--color-overdue); }
+        .dot.today { color: var(--color-today); }
         .task-name { flex: 1; line-height: 1.4; }
         .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
         .task-date.today { color: var(--color-today); }

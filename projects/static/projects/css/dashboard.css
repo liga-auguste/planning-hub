@@ -373,9 +373,11 @@ button.task-due:hover { text-decoration: underline; }
    list had the handler's shape and none of this, which is why it reported
    nothing at all.
 
-   outline, not color: .dot buttons carry no text and fill entirely via
-   background, so a color animation is invisible on them (#83 review) —
-   outline reads on the dot and on the text targets alike. */
+   outline, not color: .dot buttons carry no text, so a color animation would
+   have to reach their ring or their fill (#83 review) — and the ring is the
+   one thing an open dot has, so animating it would say "open" as loudly as
+   it says "failed". Outline sits outside the shape and reads the same on the
+   dot and on the text targets alike. */
 .action-failed { animation: flash-failed 0.4s ease-in-out 2; }
 @keyframes flash-failed { 50% { outline: 2px solid var(--color-overdue); outline-offset: 2px; } }
 

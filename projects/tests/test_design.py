@@ -2444,13 +2444,18 @@ class SignalDotColorTest(DemoModeTestCase):
     covers all three signal dots — overdue red, today amber, done green —
     and still forbids a dot rule for the retired urgent stage."""
 
-    OVERDUE_RULE = ".dot.overdue { background: var(--color-overdue); }"
-    TODAY_RULE = ".dot.today { background: var(--color-today); }"
+    # #289: the signal colour moved from `background` to `color`, so one
+    # declaration per state reaches both the ring an open dot draws and the
+    # fill a done one draws — both read currentColor.
+    OVERDUE_RULE = ".dot.overdue { color: var(--color-overdue); }"
+    TODAY_RULE = ".dot.today { color: var(--color-today); }"
     # #211 part 2: green is the recent rule, not the done rule. A completed
     # task keeps its strike-through and its dimming forever; only the dot
     # goes quiet once the week turns.
-    DONE_RULE = ".dot.done { background: var(--color-text-quaternary); }"
-    RECENT_RULE = ".dot.done.done-this-week { background: var(--color-done); }"
+    DONE_RULE = (
+        ".dot.done { color: var(--color-text-quaternary); background: currentColor; }"
+    )
+    RECENT_RULE = ".dot.done.done-this-week { color: var(--color-done); }"
 
     def pages(self):
         self.given_session_plan()
@@ -2509,10 +2514,35 @@ class SignalDotColorTest(DemoModeTestCase):
                 html = pages[name].content.decode()
                 self.assertLess(html.index(self.TODAY_RULE), html.index(self.DONE_RULE))
 
+    # #289: open-vs-done is a difference in shape, not only in colour. An
+    # open dot is a ring — nothing inside, 2px of currentColor around it —
+    # and the done rule is the one thing that fills it in. Before this, an
+    # open task with no urgency and a task completed before this week drew
+    # the same disc in the same token, and only the strike-through beside
+    # it said which was which.
+    RING = "background: transparent; box-shadow: inset 0 0 0 2px currentColor;"
+    FILL = "background: currentColor"
+
+    def test_every_surface_draws_an_open_dot_as_a_ring(self):
+        for name, response in self.pages().items():
+            with self.subTest(page=name):
+                self.assertContains(response, self.RING)
+
+    def test_the_done_rule_is_the_only_thing_that_fills_a_dot(self):
+        # Not on index: the landing mockup renders no done rows, so it
+        # serves no fill at all.
+        pages = self.pages()
+        self.assertNotContains(pages["index"], self.FILL)
+        for name in ("dashboard", "my_plan"):
+            with self.subTest(page=name):
+                html = pages[name].content.decode()
+                self.assertEqual(html.count(self.FILL), 1)
+                self.assertIn(self.FILL, self.DONE_RULE)
+
     def test_no_surface_serves_an_urgent_dot_rule(self):
         for name, response in self.pages().items():
             with self.subTest(page=name):
-                self.assertNotContains(response, ".dot.urgent { background")
+                self.assertNotContains(response, ".dot.urgent {")
 
     def test_every_surface_serves_the_amber_today_date_label(self):
         # #266: the dashboard and /mein-plan/ share one rule now, in the
