@@ -308,6 +308,41 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
     .page-footer { padding: 20px 20px 32px; }
 }
 
+/* The task status dot's interactive half (#289 part 4). The shape, the size
+   and the four state colours are in base.css, because the landing page draws
+   the dot too and never loads this sheet; what is left here is everything
+   only the app's dots have — they are <button>s, and a button brings its own
+   border, padding and cursor and inherits none of them.
+
+   The margin is the app's as well, not the dot's: the landing mock lays its
+   rows out with a 12px gap and would get 8px on top of it. Same division as
+   .task-due below, and the same override — every surface that spaces its row
+   with a flex gap drops the margin back to 0, and .task-row is spelled by
+   the dashboard and by /mein-plan/ alike, so that one lives here rather than
+   twice (#266). The summaries and the day card keep their own, in their own
+   blocks.
+
+   :hover fills the ring instead of outlining it (#289 part 2). An outline on
+   a ring renders as two concentric circles, which is the shape the dot
+   itself now uses to mean "open" — so the hover moved inside the shape,
+   where it doubles as a preview of what the click does: the open ring fills
+   in, and a done dot's fill fades back toward the ring it is about to
+   become. The rare failure case keeps its outline on purpose (see
+   .action-failed below). color-mix needs Chrome 111+ / Safari 16.2+ /
+   Firefox 113+; where it is missing the declaration is dropped and the dot
+   simply looks unhovered.
+
+   :focus-visible is the one place an outline on this shape is still right:
+   with the hover outline gone a keyboard user would be left with the UA
+   default, and the accent is not a signal colour, so two circles here cannot
+   be mistaken for a state. Same ring as every other control #200 made
+   reachable. */
+button.dot { border: none; padding: 0; cursor: pointer; transition: background 0.15s, color 0.15s; }
+button.dot:hover { background: color-mix(in srgb, currentColor 22%, transparent); }
+button.dot:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.dot { margin-right: 8px; }
+.task-row .dot { margin-right: 0; }
+
 /* The task date (#266). Here rather than in dashboard.html because the
    markup is one partial (_task_due.html) and the behaviour is one module
    (js/task_date_picker.js) — a surface that includes the one and calls the

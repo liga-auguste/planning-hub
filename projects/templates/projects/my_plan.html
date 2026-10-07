@@ -44,25 +44,13 @@
     .task-row { display: flex; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
     .task-row:last-child { border-bottom: none; }
     .task-row.done .task-name { color: var(--color-text-quaternary); text-decoration: line-through; }
-    /* #289: open is a ring, done is a filled disc — see dashboard.html for
-       why the signal colour sits on `color`. */
-    .dot { width: 14px; height: 14px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0; color: var(--color-text-quaternary); background: transparent; box-shadow: inset 0 0 0 2px currentColor; transition: background 0.15s, color 0.15s; }
-    /* Kept above the done rule: equal specificity, and toggling only adds
-       the done class — the later rule has to win on a checked-off task. */
-    .dot.overdue { color: var(--color-overdue); }
-    .dot.today { color: var(--color-today); }
-    /* #211 part 2: green means "cleared this week", so the base done
-       rule is the neutral grey and the week carries the override. A
-       completed task keeps its strike-through and its dimming for good
-       — only the dot goes quiet once the week turns, which is what
-       keeps the green dots and the "Diese Woche" bar above them saying
-       one thing rather than two. The override is (0,3,0) and wins on
-       specificity, so its position here is for reading, not cascade.
-       The uneven dwell is the accepted price: checked off on Monday is
-       seven days green, on Sunday one. */
-    .dot.done { color: var(--color-text-quaternary); background: currentColor; }
-    .dot.done.done-this-week { color: var(--color-done); }
-    .dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
+    /* #289 part 4: the dot was a second copy of the dashboard's rule here,
+       identical but for the margin and the transition. Shape, size and state
+       colours come from base.css now, the button reset and the hover from
+       dashboard.css — including .task-row .dot, which drops the margin back
+       to 0 for the gap this page's rows use just as it does for the
+       dashboard's. .summary-box .dot below is this page's own surface and
+       stays. */
     .task-name { font-size: 14px; flex: 1; line-height: 1.4; }
     /* #266: .task-date is gone — this page renders _task_due.html now, so
        the size, the colours and the button reset all come from dashboard.css

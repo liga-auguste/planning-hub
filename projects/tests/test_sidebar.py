@@ -1343,13 +1343,16 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
 
     def test_the_base_dot_rule_still_carries_its_own_margin(self):
         """The task-completion checkbox reuses .dot outside the sidebar and
-        relies on this rule for its spacing before the task name."""
-        response = self.client.get("/dashboard/")
-        self.assertContains(
-            response,
-            ".dot { display: inline-block; width: 14px; height: 14px; "
-            "border-radius: 50%; margin-right: 8px;",
-        )
+        relies on this rule for its spacing before the task name.
+
+        #289 part 4 split the dot in two: the geometry sits in base.css,
+        which the landing page loads as well, and the margin stayed here
+        because only the app's surfaces want it. The margin is still the
+        thing this test is about, so it followed it."""
+        css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+        self.assertIn(".dot { margin-right: 8px; }", css)
 
     @patch("django.utils.timezone.localdate")
     def test_the_checkbox_dot_still_renders_outside_the_sidebar_icon_wrapper(
