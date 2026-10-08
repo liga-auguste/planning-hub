@@ -119,8 +119,16 @@ on both sides of it:
 
 | Half | File | Why |
 |---|---|---|
-| Shape, size, the four state colours | `base.css` | `landing.html`'s mock renders the dot too, and `base_public.html` never loads `dashboard.css` |
-| Button reset, `:hover`, `:focus-visible`, `margin-right` | `dashboard.css` | Only the app's dots are `<button>`s, and only its rows want the margin — the landing mock spaces its rows with a flex `gap` |
+| Shape, size, `border`, the four state colours, the `forced-colors` block | `base.css` | `landing.html`'s mock renders the dot too, and `base_public.html` never loads `dashboard.css` |
+| `padding`/`cursor` reset, `:hover`, `:focus-visible`, `margin-right` | `dashboard.css` | Only the app's dots are `<button>`s, and only its rows want the margin — the landing mock spaces its rows with a flex `gap` |
+
+The `border` sits on the shape side for a reason worth generalising: a later sheet wins
+on source order at equal specificity, so a property a `forced-colors` block in `base.css`
+depends on cannot also be reset in `dashboard.css`. `button.dot` carried `border: none`
+until [#289](https://github.com/liga-auguste/planning-hub/issues/289)'s forced-colors
+point made the border the one thing that still draws the ring in high contrast; it moved
+to `.dot`, where an author declaration strips the UA button border just as well. **If a
+rule in the shared sheet is load-bearing, the reset for it belongs there too.**
 
 Before that, the dot's full rule was written three times — once per template — which is
 the duplication [#195](https://github.com/liga-auguste/planning-hub/issues/195) set out
