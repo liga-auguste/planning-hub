@@ -2664,6 +2664,55 @@ class SignalDotColorTest(DemoModeTestCase):
         self.assertNotIn("margin", dot_rule)
         self.assertIn(".dot { margin-right: 8px; }", self.dashboard_css())
 
+    # #289, the point its first comment parked. box-shadow computes to `none`
+    # under forced-colors: active and a background is forced to the system
+    # surface, so neither property that draws this dot survives there — the
+    # ring is redrawn as a border, which is forced to a *visible* system
+    # colour, and the done fill is spelled out as a system colour keyword,
+    # which inside the query is kept rather than forced.
+    FORCED_QUERY = "@media (forced-colors: active) {"
+    FORCED_RING = ".dot { border: 2px solid currentColor; }"
+    FORCED_FILL = ".dot.done { background: CanvasText; }"
+
+    def test_the_ring_is_redrawn_as_a_border_in_forced_colors(self):
+        css = self.base_css()
+        self.assertIn(self.FORCED_QUERY, css)
+        # Up to the media query's own closing brace, which is the only one
+        # at the start of a line.
+        block = css.split(self.FORCED_QUERY, 1)[1].split("\n}", 1)[0]
+        self.assertIn(self.FORCED_RING, block)
+
+    def test_a_done_dot_keeps_a_fill_in_forced_colors(self):
+        # Without this the forced palette leaves open and done as the same
+        # ring: it collapses the four signal colours into one, so shape is
+        # the only thing left to tell them apart.
+        self.assertIn(self.FORCED_FILL, self.base_css())
+
+    def test_the_forced_colors_rule_lives_where_all_three_surfaces_see_it(self):
+        # Same split as the shape it belongs to: the landing page draws the
+        # dot and never loads dashboard.css.
+        self.assertNotIn(self.FORCED_RING, self.dashboard_css())
+
+    def test_nothing_resets_the_border_after_the_forced_colors_block(self):
+        # The trap #289 named for the templates, one file further along.
+        # dashboard.css loads after base.css, so `border: none` there would
+        # win over the forced-colors block on source order whatever it is
+        # selected with — which is why the reset sits on .dot in base.css
+        # instead, where an author declaration still beats the UA sheet.
+        self.assertIn("border: none;", self.base_css().split(".dot {", 1)[1])
+        self.assertNotIn(
+            "border", self.dashboard_css().split("button.dot {", 1)[1].split("}", 1)[0]
+        )
+
+    def test_the_hover_does_not_paint_an_open_dot_solid_in_forced_colors(self):
+        # A background is forced to an opaque system colour there, so the 50%
+        # fill would read as done. Dropped rather than translated, and the
+        # done fill restated because the hover beats it on specificity.
+        css = self.dashboard_css()
+        self.assertIn(self.FORCED_QUERY, css)
+        self.assertIn("button.dot:hover { background: transparent; }", css)
+        self.assertIn("button.dot.done:hover { background: CanvasText; }", css)
+
     def test_the_row_gap_still_replaces_the_margin_on_both_lists(self):
         # .task-row is spelled by the dashboard and by /mein-plan/ alike, so
         # the override moved to the sheet both of them load rather than being

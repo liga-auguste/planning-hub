@@ -233,7 +233,7 @@ body {
    background) follow it. No box-sizing needed: the `*` rule above is
    border-box, so the inset shadow stays inside the 18px. */
 .dot { display: inline-block; width: 18px; height: 18px; border-radius: 50%;
-       flex-shrink: 0; color: var(--color-text-quaternary);
+       flex-shrink: 0; border: none; color: var(--color-text-quaternary);
        background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
 /* Kept above the done rule: equal specificity, and toggling only adds the
    done class — the later rule has to win on a checked-off task. */
@@ -254,3 +254,34 @@ body {
    be the same duplication under another name. */
 .dot.done { color: var(--color-text-quaternary); background: currentColor; }
 .dot.done.done-this-week { color: var(--color-done); }
+/* Forced colors (#289, the point its first comment parked). Under
+   forced-colors: active a box-shadow computes to `none` and a background is
+   forced to the system surface, so everything that draws this dot above
+   stops drawing it: an open dot becomes an 18px transparent box with no mark
+   in it, and a done one a fill in the colour it sits on. On four surfaces
+   where the dot is the control you click. It regresses nothing — before #290
+   every dot was a background and was forced the same way — but the ring is
+   the first version of it that *can* be made right here, because
+   border-color is forced to a visible system colour where the other two are
+   not.
+
+   Which is why `border: none` sits on .dot above rather than on button.dot
+   in dashboard.css, where the rest of the button reset lives. That sheet
+   loads after this one, so a border reset there would win over this block on
+   source order whatever it is selected with — the trap #289 described for
+   the templates, one file further along. The border belongs to the shape
+   now, and the shape is this file's half of the split.
+
+   The done state is the one place a system colour keyword is spelled out.
+   Inside a forced-colors query those are kept rather than forced, which is
+   the documented way to say "fill this one in". Without it both states would
+   be the same ring: the forced palette already collapses the four signal
+   colours into one, so shape is all that is left to tell open from done.
+
+   Not verified on a real high-contrast screen. This follows from
+   css-color-adjust-1; what the suite checks is the cascade half — that
+   nothing later re-resets the border. */
+@media (forced-colors: active) {
+    .dot { border: 2px solid currentColor; }
+    .dot.done { background: CanvasText; }
+}

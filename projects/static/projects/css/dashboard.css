@@ -317,7 +317,13 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    and the four state colours are in base.css, because the landing page draws
    the dot too and never loads this sheet; what is left here is everything
    only the app's dots have — they are <button>s, and a button brings its own
-   border, padding and cursor and inherits none of them.
+   padding and cursor and inherits neither.
+
+   The border is the exception, and it went back to base.css with the shape
+   (#289, forced colors): a reset here would load after the forced-colors
+   block there and undo the one property that still draws the ring in high
+   contrast. `border: none` on .dot strips the UA button border just as well
+   — an author declaration beats the UA sheet whatever its specificity.
 
    The margin is the app's as well, not the dot's: the landing mock lays its
    rows out with a 12px gap and would get 8px on top of it. Same division as
@@ -358,9 +364,22 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    default, and the accent is not a signal colour, so two circles here cannot
    be mistaken for a state. Same ring as every other control #200 made
    reachable. */
-button.dot { border: none; padding: 0; cursor: pointer; transition: background 0.15s, color 0.15s; }
+button.dot { padding: 0; cursor: pointer; transition: background 0.15s, color 0.15s; }
 button.dot:hover { background: color-mix(in srgb, currentColor 50%, transparent); }
 button.dot:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* The hover is dropped under forced colors rather than translated (#289).
+   A background is forced to an opaque system colour there, so the 50% fill
+   above would paint an open dot solid — which is the one thing that reads as
+   done once the palette has collapsed the four signal colours into one — and
+   on a done dot it would replace the CanvasText fill base.css spells out to
+   keep the two apart. The affordance that survives is the focus ring and the
+   cursor; `transparent` is preserved rather than forced, so an open dot
+   simply stays open. The done rule restates the fill because this one would
+   otherwise beat it on specificity. */
+@media (forced-colors: active) {
+    button.dot:hover { background: transparent; }
+    button.dot.done:hover { background: CanvasText; }
+}
 .dot { margin-right: 8px; }
 .task-row .dot { margin-right: 0; }
 

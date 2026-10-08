@@ -975,7 +975,7 @@ class NoToggleDuringAMomentTest(MomentFixtureMixin, DemoModeTestCase):
     def test_the_dot_still_renders_with_its_urgency(self):
         """Only the affordance goes. The status indicator is what the whole
         moment exists to show, so it stays — as a span, which .dot styles
-        identically (only button.dot carries cursor, border and :hover)."""
+        identically (only button.dot carries cursor and :hover)."""
         self.given_active_moment()
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, '<span class="dot done')
@@ -1288,8 +1288,9 @@ class AMomentSaysWhatItLocksTest(MomentFixtureMixin, DemoModeTestCase):
 
     def test_the_dot_gains_no_affordance(self):
         """The explanation is added, the affordance is not given back (#217).
-        The span is a click target and still not a control: cursor, border
-        and :hover stay on button.dot alone."""
+        The span is a click target and still not a control: cursor and
+        :hover stay on button.dot alone. The border moved back to .dot with
+        the shape in #289 (forced colors); a span has none to reset."""
         self.given_active_moment()
         response = self.dashboard()
         self.assertNotContains(response, 'class="toggle-form"')
