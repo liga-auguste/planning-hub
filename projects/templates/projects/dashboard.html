@@ -95,6 +95,37 @@
            or a keyboard user is told nothing about where focus went. */
         .project-header:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; border-radius: 4px; }
         .project-date { font-size: 12px; color: var(--color-text-quaternary); }
+        /* #283: the date is a control now, the move #200 made for the task
+           row's date one level up. The reset restates what a <span> gave
+           for free, and the rules live here rather than in dashboard.css
+           because exactly one surface renders a project's date — which is
+           what TheDateStylingLivesWithTheDateTest's rule actually says:
+           styling lives with the thing, and button.task-due moved into the
+           stylesheet because four surfaces render a task's. */
+        button.project-date { font: inherit; font-size: 12px; background: none; border: none; padding: 0; text-align: inherit; cursor: pointer; }
+        button.project-date:hover { text-decoration: underline; }
+        button.project-date:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+        /* The three-way answer, as a bar under the header rather than a
+           modal — #239 rejected modals for this page outright ("would sit
+           outside the page's own language and block everything behind it"),
+           and the ⋮ menu's two-click arming cannot express three answers.
+           It names the difference, not the new date: a date would mean a
+           second German date formatter in JavaScript, and task_add_row.js
+           already carries the one date_format.py exists to keep single.
+           [hidden] has to be stated for display: flex, the same answer
+           .task-menu-items[hidden] and .sim-lock-notice[hidden] needed. */
+        .project-date-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; margin: -4px 0 12px; }
+        .project-date-confirm[hidden] { display: none; }
+        .project-date-confirm-text { color: var(--color-text-secondary); flex: 1 1 200px; }
+        .project-date-confirm button { font-size: 12px; padding: 4px 10px; border: 1px solid var(--color-border-primary); border-radius: 4px; background: var(--color-bg-primary); color: var(--color-text-secondary); cursor: pointer; white-space: nowrap; }
+        .project-date-confirm button:hover { background: var(--color-bg-secondary); }
+        .project-date-confirm button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+        /* The × is the way out, not a third answer — no box around it. */
+        .project-date-confirm-cancel { border-color: transparent !important; color: var(--color-text-quaternary) !important; }
+        /* #198: the write is visible while it runs, and cannot be asked for
+           twice in the meantime. Same mark the add row wears. */
+        .project-date-confirm.pending { opacity: 0.6; }
+        .project-date-confirm button:disabled { cursor: default; }
         .badge-neutral, .date-uncertain-badge { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); background: var(--color-bg-tertiary); border-radius: 4px; padding: 1px 8px; white-space: nowrap; }
         /* #171: right of the date, same neutral chip as .date-uncertain-badge. */
         .postpone-badge { margin-left: 6px; }
@@ -769,7 +800,31 @@
             sidebar, the Kanban cards and the month groups carry no project
             date, and a month group names the month, not the day.
             {% endcomment %}
-            <span class="project-date">{{ project.event_date_display }}</span>
+            {% comment %}
+            #283: a <button> wherever the change persists, the move #200 made
+            for the task row's date one level up — a span takes no focus,
+            announces nothing to a screen reader and answers no key, and
+            changing a date is one of the two things this app is for.
+
+            Both stacks, unlike the trash beside it. The two writes genuinely
+            differ for a demo visitor's own plan: a session plan has no
+            Notion page to archive, but it does have an event_date to
+            change — and a session plan is exactly where "Termin unsicher"
+            turns up most, because the planner's fallback lead time is
+            reachable whenever the description held no date.
+
+            A <span> under `viewing_demo_data` and under `stale`, though,
+            and both for _task_due.html's reason: the demo example projects
+            are in no session (#10 §5) and a stale page's last Notion read
+            failed, so in neither case can the write land. A control that is
+            offered has to be able to work.
+
+            open_count rather than tasks|length: the bar asks about the
+            tasks that would move, and a completed one does not (see
+            reschedule_project_view). Counted by the server like every other
+            number on this page (#210).
+            {% endcomment %}
+            {% if stale or viewing_demo_data %}<span class="project-date">{{ project.event_date_display }}</span>{% else %}<button type="button" class="project-date" data-project-id="{{ project.id }}" data-raw-date="{{ project.event_date|date:'Y-m-d' }}" data-open-count="{{ project.open_count }}" title="Termin ändern" aria-label="Termin ändern, aktuell {{ project.event_date_display }}">{{ project.event_date_display }}</button>{% endif %}
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
             {% comment %}
             #284: the project level's first action, in the menu shape #239
@@ -798,14 +853,47 @@
             read failed, so the write behind this control cannot land. A
             control that is offered has to be able to work.
             {% endcomment %}
-            {% if not demo_mode and not stale %}
+            {% comment %}
+            #283 opened this wrapper from `not demo_mode and not stale` to
+            `not stale and not viewing_demo_data`, and moved the demo-mode
+            condition onto the trash item itself: the menu now holds two
+            project writes whose answer for a demo visitor's own plan
+            differs. "Termin ändern" works there, the trash does not — see
+            the date button above and trash_project_view. The example
+            projects keep no menu at all, because neither write reaches
+            them.
+            {% endcomment %}
+            {% if not stale and not viewing_demo_data %}
             <span class="task-menu project-menu">
                 <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen für dieses Projekt" title="Aktionen">⋮</button>
                 <div class="task-menu-items" role="menu" hidden>
+                    {# The keyboard's way to the date, the way the row's "Datum ändern" reaches its own: it clicks the control rather than opening a second picker. #}
+                    <button type="button" class="task-menu-item" role="menuitem" data-action="reschedule-project" data-project-id="{{ project.id }}">Termin ändern</button>
+                    {% if not demo_mode %}
                     <button type="button" class="task-menu-item task-menu-item-danger" role="menuitem" data-action="trash-project" data-project-id="{{ project.id }}" data-task-count="{{ project.tasks|length }}">In den Papierkorb</button>
+                    {% endif %}
                 </div>
             </span>
             {% endif %}
+        </div>
+        {% comment %}
+        #283: the three-way answer the write needs, where the date it is
+        about sits. Hidden until a pick, and only filled in by the client —
+        the text names a difference the server has no part in composing,
+        because the picked date never reaches it until an answer is given.
+
+        Rendered wherever the section is, with nothing to open it where the
+        write cannot land: the condition that matters is on the control (the
+        date above is a span under `stale` and for the demo example
+        projects), and a hidden element with no trigger costs nothing while
+        a second copy of that condition here would be a second place to get
+        it wrong.
+        {% endcomment %}
+        <div class="project-date-confirm" hidden>
+            <span class="project-date-confirm-text"></span>
+            <button type="button" class="project-date-confirm-move">Mit Aufgaben</button>
+            <button type="button" class="project-date-confirm-only">Nur Termin</button>
+            <button type="button" class="project-date-confirm-cancel" title="Abbrechen" aria-label="Abbrechen">×</button>
         </div>
         {% comment %}
         The same partial the Heute view renders (#238). The copy that used to
@@ -1994,6 +2082,155 @@ async function trashProject(projectId, trigger) {
     window.location.reload();
 }
 
+// #283: the project's event date, asked for with the same picker every task
+// date on the page goes through (openTaskDatePicker, task_date_picker.js) —
+// the second caller with no task id, after the add row. Nothing in that
+// module changes for it.
+//
+// The pick does not write. It opens the confirmation bar instead, because
+// the answer decides what the write *is*: shifting a concert by a week
+// shifts its posters and its GEMA filing by a week too, while correcting a
+// date that was a day off must touch nothing. onPick returns right away
+// rather than awaiting the answer, so the date input swaps back instead of
+// sitting in the header marked `pending` while the visitor reads the bar.
+function bindProjectDatePickers() {
+    document.querySelectorAll('button.project-date[data-project-id]').forEach(dateEl => {
+        // The bar is looked up here rather than inside the callback, for
+        // the reason bindTaskDatePickers() hands its row in: the picker
+        // replaces the display element with the input before onPick runs,
+        // so closest() called on it in there walks up from a detached node
+        // and finds nothing at all.
+        const bar = dateEl.closest('.project-section').querySelector('.project-date-confirm');
+        dateEl.addEventListener('click', () => {
+            openTaskDatePicker(dateEl, iso => openProjectDateConfirm(dateEl, bar, iso));
+        });
+    });
+}
+
+// The label, built here for armedTrashLabel's reason: the bar is reopened
+// for every pick, so the text has to be reachable more than once.
+//
+// It names the difference rather than the new date, which is #283's own
+// wording ("Alle 15 Aufgaben um 7 Tage mitverschieben?"). A date would mean
+// a second German date formatter in JavaScript — task_add_row.js already
+// carries the one date_format.py exists to keep single, and a third is the
+// duplication that module's comment is about.
+function projectShiftLabel(openCount, days) {
+    const span = Math.abs(days) === 1 ? '1 Tag' : `${Math.abs(days)} Tage`;
+    const verb = days > 0 ? 'mitverschieben' : 'vorziehen';
+    const tasks = openCount === 1 ? 'Die offene Aufgabe' : `Alle ${openCount} offenen Aufgaben`;
+    return `${tasks} um ${span} ${verb}?`;
+}
+
+function openProjectDateConfirm(dateEl, bar, iso) {
+    const previous = dateEl.dataset.rawDate;
+    // A cleared picker answers with an empty string, and a project with no
+    // Termin at all has no previous date to measure against. Neither can
+    // name a difference, so neither opens the bar — and the endpoint
+    // refuses the second case for the same reason (400, "no previous date").
+    if (!iso || !previous) return false;
+    // Noon on both sides, so a DST change inside the span cannot land the
+    // difference on 6.96 days — the same reason task_add_row.js parses at
+    // noon rather than at midnight.
+    const days = Math.round((Date.parse(`${iso}T12:00:00`) - Date.parse(`${previous}T12:00:00`)) / 86400000);
+    if (!days) return false;
+    const openCount = Number(dateEl.dataset.openCount) || 0;
+    // No bar with nothing to move: the question would have no second
+    // answer, and "Nur Termin" is what every answer would mean. Straight to
+    // the write instead, which is also the "corrected a date that was a day
+    // off" case on a plan that is already done.
+    if (openCount === 0) {
+        commitProjectDate(dateEl, iso, false, dateEl);
+        return true;
+    }
+    bar.querySelector('.project-date-confirm-text').textContent = projectShiftLabel(openCount, days);
+    bar.dataset.pendingDate = iso;
+    bar.hidden = false;
+    return true;
+}
+
+function closeProjectDateConfirm(bar) {
+    bar.hidden = true;
+    delete bar.dataset.pendingDate;
+}
+
+// #283: one request, whichever answer it carries — the endpoint owns the
+// order (project first) because no order makes a retry safe, and it is the
+// write that was asked for. Same shape as trashProject above, and the same
+// reload for the same reason in a stronger form: a new event date can move
+// the project between month groups and re-orders the project list itself,
+// which no other write on this page does.
+async function commitProjectDate(dateEl, iso, moveTasks, trigger, bar = null) {
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    // #198: the answer cannot be given twice while the write runs. The
+    // request is one project write plus one per task, in sequence, so this
+    // is the slowest write on the page by some distance.
+    const buttons = bar ? [...bar.querySelectorAll('button')] : [];
+    if (bar) {
+        if (bar.classList.contains('pending')) return;
+        bar.classList.add('pending');
+        bar.setAttribute('aria-busy', 'true');
+        buttons.forEach(b => { b.disabled = true; });
+    }
+    let response;
+    try {
+        response = await withSessionWriteLock(() => fetch(`/project/${dateEl.dataset.projectId}/reschedule/`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
+            body: JSON.stringify({date: iso, move_tasks: moveTasks})
+        }));
+    } catch {
+        // A rejected fetch (offline, server unreachable) never reaches the
+        // .ok check — same feedback as an error response (#159).
+        response = null;
+    }
+    if (!response || !response.ok) {
+        // The bar stays open with its question intact, so the answer can be
+        // given again rather than the pick being repeated. A partial failure
+        // is reported the same way: it is still a failure, and the tasks
+        // that were left behind are each fixable from their own row.
+        if (bar) {
+            bar.classList.remove('pending');
+            bar.removeAttribute('aria-busy');
+            buttons.forEach(b => { b.disabled = false; });
+        }
+        flashActionFailed(trigger);
+        return;
+    }
+    // Deliberately left pending: the reload clears it, and an enabled
+    // button between the confirmed write and the new page is a second
+    // answer nothing would catch.
+    window.location.reload();
+}
+
+function bindProjectDateConfirmBars() {
+    document.querySelectorAll('.project-date-confirm').forEach(bar => {
+        const dateEl = bar.closest('.project-section').querySelector('button.project-date');
+        // Nothing to answer where the date is a span: the bar renders in
+        // every section and is opened only by the control above it.
+        if (!dateEl) return;
+        const answer = moveTasks => {
+            const iso = bar.dataset.pendingDate;
+            if (!iso) return;
+            commitProjectDate(dateEl, iso, moveTasks, bar.querySelector('.project-date-confirm-text'), bar);
+        };
+        bar.querySelector('.project-date-confirm-move').addEventListener('click', () => answer(true));
+        bar.querySelector('.project-date-confirm-only').addEventListener('click', () => answer(false));
+        bar.querySelector('.project-date-confirm-cancel').addEventListener('click', () => closeProjectDateConfirm(bar));
+        // Escape is the way out of an armed question everywhere else on this
+        // page (the actions menu), so it is the way out of this one too.
+        bar.addEventListener('keydown', e => {
+            if (e.key === 'Escape' && !bar.classList.contains('pending')) {
+                e.preventDefault();
+                closeProjectDateConfirm(bar);
+            }
+        });
+    });
+}
+
+bindProjectDatePickers();
+bindProjectDateConfirmBars();
+
 // #239 stage 2: the row's name, edited where it stands — the same
 // swap-the-element-out shape the date has used since #10, rather than a
 // browser prompt() that would sit outside the page's own visual language.
@@ -2095,7 +2332,7 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         const trigger = openTaskMenu && openTaskMenu.trigger;
         // "Datum ändern" and "Umbenennen" both hand focus to the input they
         // open in the row, and the menu must not take it straight back.
-        closeTaskMenu({focusTrigger: !['reschedule', 'rename'].includes(action)});
+        closeTaskMenu({focusTrigger: !['reschedule', 'reschedule-project', 'rename'].includes(action)});
         if (action === 'project') {
             showProject(item.dataset.projectId);
             return;
@@ -2106,6 +2343,15 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         }
         if (action === 'trash-project') {
             await trashProject(item.dataset.projectId, trigger || item);
+            return;
+        }
+        if (action === 'reschedule-project') {
+            // The same click a mouse makes on the date in the header, so
+            // the picker and the confirmation bar behind it are not written
+            // a second time — the row's "Datum ändern" reaches its own date
+            // exactly this way. closest() rather than the id, because the
+            // item carries the project id for the trash either way.
+            item.closest('.project-section').querySelector('button.project-date')?.click();
             return;
         }
         if (action === 'rename') {
