@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
+from django.templatetags.static import static
 from django.test import (
     SimpleTestCase,
     override_settings,
@@ -1430,6 +1431,15 @@ class DesignTokenTest(DemoModeTestCase):
     )
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
+    # The sheets this module and the rest of the suite assert against by
+    # reading them off disk, and the response each one has to be linked from.
+    # bootstrap.min.css is left out: no test reads it, so nothing depends on
+    # the link being there.
+    LINKED_SHEETS = {
+        "/": ("projects/css/base.css", "projects/css/public.css"),
+        "/dashboard/": ("projects/css/base.css", "projects/css/dashboard.css"),
+    }
+
     def test_both_bases_serve_the_design_tokens(self):
         # #32 moved the :root block out of the inline <style> both base
         # templates used to render and into the linked base.css, so the
@@ -1439,6 +1449,25 @@ class DesignTokenTest(DemoModeTestCase):
         ).read_text()
         for token in self.TOKENS:
             self.assertIn(token, css)
+
+    def test_both_bases_link_the_sheets_the_suite_reads_off_disk(self):
+        """#291 review: the link is the step the file-reading tests skip.
+
+        Checking a declaration at its source proves it exists, not that any
+        page serves it — and between the two sits one <link> per sheet that
+        nothing asserted. Deleting base.css's from base_public.html left the
+        whole suite green while the landing page lost its dots, its tokens
+        and the dark palette. Every assertion that reads a stylesheet rather
+        than a response — the tokens above, the dark palette, the dot since
+        #289 part 4, the sidebar, the planner — stands on one of these three
+        links, so they are checked once here instead of per test."""
+        for url, sheets in self.LINKED_SHEETS.items():
+            response = self.client.get(url)
+            for sheet in sheets:
+                with self.subTest(url=url, sheet=sheet):
+                    self.assertContains(
+                        response, f'href="{static(sheet)}" rel="stylesheet"'
+                    )
 
     def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
         response = self.client.get("/dashboard/")
@@ -2533,10 +2562,22 @@ class SignalDotColorTest(DemoModeTestCase):
     # #289 part 4: .dot was written three times — dashboard.html, my_plan.html
     # and landing.html each with their own copy, which is what made the ring
     # a three-file edit and the size below a three-file edit after it.
-    # Anchored at the start of a line: the surfaces keep their own
-    # `.ai-card span.dot`/`.summary-box .dot` margin overrides, and a
-    # bare substring would count those as the rule coming back.
-    BARE_DOT_RULE = re.compile(r"^\s*(?:button)?\.dot(?:\.[\w-]+)*\s*\{", re.MULTILINE)
+    #
+    # Anchored at the start of a line *or* just after a comma — the two
+    # places a selector can begin — and tolerant of an element prefix and of
+    # pseudo-classes, because a copy coming back is as likely to arrive as
+    # `.dot:hover`, `span.dot` or the second half of a selector list as it is
+    # on its own (#291 review). The first version only caught `.dot {`,
+    # `button.dot {` and `.dot.done {`, so `.dot:hover { background: … }`
+    # could have come back into a template and won the cascade unseen.
+    #
+    # Still deliberately blind to a descendant selector: the surfaces keep
+    # their own `.ai-card span.dot`, `.summary-box .dot` and
+    # `.day-task-card .dot` margin overrides, and those are the override
+    # rather than the rule coming back.
+    BARE_DOT_RULE = re.compile(
+        r"(?:^|,)\s*[\w-]*\.dot(?:[.:][\w-]+)*\s*(?=[,{])", re.MULTILINE
+    )
 
     def test_no_template_defines_its_own_dot_rule(self):
         for name in self.DOT_TEMPLATES:
@@ -2581,8 +2622,15 @@ class SignalDotColorTest(DemoModeTestCase):
     # dashboard.css and test_dashboard_writes): a colour on the ring would
     # say "open" as loudly as it says "failed", and that case is rare enough
     # to want the louder, outside-the-shape signal.
+    #
+    # 50%, not the 22% this started at: #291's review measured that mix at
+    # 1.27:1 against the card in the light theme, on the state most dots are
+    # in and with no .task-row:hover behind it to carry any of the signal.
+    # Half reads as half way to done (1.78:1 light, 1.99:1 dark) without
+    # reaching the solid fill a done dot carries, and makes the two
+    # directions symmetric — open goes 0 → 50%, done goes 100% → 50%.
     HOVER_RULE = (
-        "button.dot:hover { background: color-mix(in srgb, currentColor 22%, "
+        "button.dot:hover { background: color-mix(in srgb, currentColor 50%, "
         "transparent); }"
     )
 
