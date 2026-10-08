@@ -106,6 +106,42 @@ including the ones inside the mobile block — converting one half of a pair and
 other would change its specificity and silently kill the override that cascade order,
 not specificity, was deciding.
 
+## Where a component rule lives
+
+Not a token question, but the one the tokens' own history answers: `base.css` is loaded
+by **both** base templates, `public.css` only by `base_public.html` and `dashboard.css`
+only by `base_dashboard.html`. So a rule for a component that the public pages render as
+well belongs in `base.css`; one only the app needs belongs in `dashboard.css`.
+
+[#289](https://github.com/liga-auguste/planning-hub/issues/289) split the task status dot
+along exactly that line, and it is the clearest example of the rule because the dot sits
+on both sides of it:
+
+| Half | File | Why |
+|---|---|---|
+| Shape, size, the four state colours | `base.css` | `landing.html`'s mock renders the dot too, and `base_public.html` never loads `dashboard.css` |
+| Button reset, `:hover`, `:focus-visible`, `margin-right` | `dashboard.css` | Only the app's dots are `<button>`s, and only its rows want the margin — the landing mock spaces its rows with a flex `gap` |
+
+Before that, the dot's full rule was written three times — once per template — which is
+the duplication [#195](https://github.com/liga-auguste/planning-hub/issues/195) set out
+to end and [#266](https://github.com/liga-auguste/planning-hub/issues/266) ended for
+`.task-due` by the same move. Two things make the merge worth doing deliberately rather
+than opportunistically:
+
+- **`{% block extra_css %}` renders after the linked stylesheets.** A copy left in one
+  template keeps winning the cascade, so moving a rule only takes effect once *every*
+  copy is gone. `SignalDotColorTest` asserts that none of the three templates defines a
+  `.dot` rule again.
+- **The shared half reaches surfaces that do not use all of it.** The landing mock
+  renders no completed task, so `.dot.done` is dead weight there. That is the accepted
+  price of one rule — a separate sheet for the one state the marketing page skips would
+  be the same duplication under another name.
+
+The surface-specific overrides stay with their surface (`.ai-card span.dot`,
+`.day-task-card .dot`, `.summary-box .dot`), with one exception on the same reasoning as
+`.task-due`'s: `.task-row .dot` lives in `dashboard.css`, because `.task-row` is spelled
+by the dashboard and by `/mein-plan/` alike and would otherwise be typed out twice.
+
 ## Rule
 
 **No new hex literals in templates.** If a color isn't one of the tokens above, either

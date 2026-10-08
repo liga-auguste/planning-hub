@@ -498,7 +498,11 @@
         .seq-skel-row:nth-child(2) { animation-delay: 0.15s; }
         .seq-skel-row:nth-child(3) { animation-delay: 0.30s; }
         .seq-skel-row:nth-child(4) { animation-delay: 0.45s; }
-        .seq-skel-circle { width: 14px; height: 14px; border-radius: 50%; background: var(--color-border-secondary); flex-shrink: 0; }
+        /* The dot's size, not its own (#289 part 1): .seq-skel-row and the
+           .task-row it becomes at step 3 share their padding and their gap,
+           so a circle that stayed at 14px would make the list jump as the
+           plan replaces the skeleton. */
+        .seq-skel-circle { width: 18px; height: 18px; border-radius: 50%; background: var(--color-border-secondary); flex-shrink: 0; }
         .seq-skel-bar { height: 9px; background: var(--color-border-primary); border-radius: 4px; }
         .seq-skel-tail { margin-left: auto; width: 42px; height: 9px; background: var(--color-bg-tertiary); border-radius: 4px; }
 
@@ -516,7 +520,6 @@
            nothing left to protect against, so it shrinks back down. */
         .seq-plan-secondary { display: block; text-align: center; width: 100%; padding: 14px 20px; border: 1px solid var(--color-border-primary); border-radius: var(--radius-pill); background: var(--color-bg-primary); font-size: 15px; font-weight: 600; color: var(--color-text-primary); text-decoration: none; margin: 20px 0 90px; box-sizing: border-box; }
         .landing:has(.seq-cta.is-released) .seq-plan-secondary { margin-bottom: 12px; }
-        .seq .dot { cursor: default; }
 
         /* An auto top margin claims whatever height .landing's measured
            min-height (see above) leaves unclaimed, landing the button at
@@ -549,11 +552,12 @@
         .task-list { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; overflow: hidden; }
         .task-row { display: flex; align-items: center; padding: 11px 16px; border-bottom: 1px solid var(--color-border-primary); gap: 12px; }
         .task-row:last-child { border-bottom: none; }
-        /* #289: the mock shows open tasks only, so every dot here is a ring.
-           Same geometry as the app's, minus the done state it never renders. */
-        .dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; color: var(--color-text-quaternary); background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
-        .dot.overdue { color: var(--color-overdue); }
-        .dot.today { color: var(--color-today); }
+        /* #289 part 4: the dot was a third copy of the app's rule here, minus
+           the done state this mock never renders. It comes from base.css now,
+           which this page loads through base_public.html — including that done
+           state, which is the price of one rule instead of three. The margin
+           and the button reset are dashboard.css's and do not reach this
+           page, which is why the split runs where it does. */
         .task-name { flex: 1; line-height: 1.4; }
         .task-date { font-size: 12px; color: var(--color-text-quaternary); white-space: nowrap; }
         .task-date.today { color: var(--color-today); }

@@ -199,3 +199,58 @@ body {
     fill: none; stroke: currentColor; stroke-width: 2;
     stroke-linecap: round; stroke-linejoin: round;
 }
+/* The task status dot (#289 part 4). In base.css rather than in
+   dashboard.css because the landing page draws it too, and base_public.html
+   never loads that sheet — so the geometry and the four state colours, which
+   all three surfaces share, live here, and the interaction (cursor, hover,
+   focus, the outer margin) is dashboard.css's half. That is the split this
+   change establishes, and the rule it generalises to: a component rule the
+   public pages need as well belongs here; one only the app needs belongs
+   there (see docs/design-tokens.md).
+
+   Before this the whole thing was written three times — dashboard.html,
+   my_plan.html and landing.html each with their own copy — which is the
+   duplication #195 set out to end and #266 ended for .task-due. #290 had to
+   write the ring into all three, and the size below would have been a
+   three-file edit after it. Each template's extra_css renders after the
+   linked stylesheets, so a copy that comes back wins the cascade silently;
+   SignalDotColorTest asserts none of the three has one.
+
+   18px, not the 14px the ring inherited: an open dot is a ring now, so only
+   the 2px stroke carries the signal, and at 14px that read worse than the
+   filled disc it replaced. It also takes the pointer target out of its
+   neighbours' hands — WCAG 2.2 SC 2.5.8 asks for 24x24 and 14px cleared it
+   only through the spacing exception, which is evaluated against whatever
+   sits next to the dot (the day card tightens that gap to 3px, and to 0
+   below 769px). 18px does not meet 24px either; it stops the question from
+   depending on how tightly each surface happens to be packed. Meeting it
+   outright would mean an invisible hit area around the dot, which is a
+   change of its own.
+
+   Open is a ring, done is a filled disc (#290). The signal colour lives on
+   `color`, so every state rule below swaps one property and both the ring
+   (currentColor in the inset shadow) and the fill (currentColor as the
+   background) follow it. No box-sizing needed: the `*` rule above is
+   border-box, so the inset shadow stays inside the 18px. */
+.dot { display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+       flex-shrink: 0; color: var(--color-text-quaternary);
+       background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
+/* Kept above the done rule: equal specificity, and toggling only adds the
+   done class — the later rule has to win on a checked-off task. */
+.dot.overdue { color: var(--color-overdue); }
+.dot.today { color: var(--color-today); }
+/* #211 part 2: green means "cleared this week", so the base done rule is
+   the neutral grey and the week carries the override. A completed task keeps
+   its strike-through and its dimming for good — only the dot goes quiet once
+   the week turns, which is what keeps the green dots and the "Diese Woche"
+   bar above them saying one thing rather than two. The override is (0,3,0)
+   and wins on specificity, so its position here is for reading, not cascade.
+   The uneven dwell is the accepted price: checked off on Monday is seven
+   days green, on Sunday one.
+
+   The landing mock renders no completed task, so these two rules reach a
+   surface that never uses them. That is the price of one rule instead of
+   three — a second sheet for the one state the marketing page skips would
+   be the same duplication under another name. */
+.dot.done { color: var(--color-text-quaternary); background: currentColor; }
+.dot.done.done-this-week { color: var(--color-done); }

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
+from django.templatetags.static import static
 from django.test import (
     SimpleTestCase,
     override_settings,
@@ -292,9 +293,13 @@ class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
     had grown its own scale. The same task read as two different things
     depending on which page you were on.
 
-    One set, and it is the larger one: a 14px dot, a 14px name (the app's
+    One set, and it is the larger one: an 18px dot, a 14px name (the app's
     own base size, per base.css) and a 13px date one step below it. The 7px
-    dot in particular read as a bullet rather than as the control it is."""
+    dot in particular read as a bullet rather than as the control it is.
+
+    The dot started at 14px here and grew to 18px in #289, once it became a
+    ring whose 2px stroke is the whole signal; its size is checked in
+    SignalDotColorTest, beside the rule that now holds it."""
 
     NAME = "font-size: 14px"
     DATE = "font-size: 13px"
@@ -338,16 +343,15 @@ class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
         # scale and is the one the include replaced.
         self.assertNotContains(response, ".triage-task-due {")
 
-    def test_one_dot_size_on_both_pages(self):
-        dashboard = self.client.get(reverse("dashboard"))
-        self.assertContains(
-            dashboard,
-            ".dot { display: inline-block; width: 14px; height: 14px;",
-        )
-        self.given_session_plan()
-        self.assertContains(
-            self.client.get(reverse("my_plan")),
-            ".dot { width: 14px; height: 14px;",
+    def test_one_dot_size_for_every_surface(self):
+        # #289 part 4: this used to be two rules that happened to agree, one
+        # per template, and a third in landing.html that this class never
+        # covered. It is one rule in base.css now, so "one size" is a
+        # property of the stylesheet rather than something to compare.
+        css = (settings.BASE_DIR / "projects/static/projects/css/base.css").read_text()
+        self.assertIn(
+            ".dot { display: inline-block; width: 18px; height: 18px;",
+            css,
         )
 
     def test_the_day_card_follows_the_same_scale(self):
@@ -1427,6 +1431,15 @@ class DesignTokenTest(DemoModeTestCase):
     )
     RETIRED_LITERALS = ("#c0392b", "#e74c3c", "#e87200", "#e86600")
 
+    # The sheets this module and the rest of the suite assert against by
+    # reading them off disk, and the response each one has to be linked from.
+    # bootstrap.min.css is left out: no test reads it, so nothing depends on
+    # the link being there.
+    LINKED_SHEETS = {
+        "/": ("projects/css/base.css", "projects/css/public.css"),
+        "/dashboard/": ("projects/css/base.css", "projects/css/dashboard.css"),
+    }
+
     def test_both_bases_serve_the_design_tokens(self):
         # #32 moved the :root block out of the inline <style> both base
         # templates used to render and into the linked base.css, so the
@@ -1436,6 +1449,25 @@ class DesignTokenTest(DemoModeTestCase):
         ).read_text()
         for token in self.TOKENS:
             self.assertIn(token, css)
+
+    def test_both_bases_link_the_sheets_the_suite_reads_off_disk(self):
+        """#291 review: the link is the step the file-reading tests skip.
+
+        Checking a declaration at its source proves it exists, not that any
+        page serves it — and between the two sits one <link> per sheet that
+        nothing asserted. Deleting base.css's from base_public.html left the
+        whole suite green while the landing page lost its dots, its tokens
+        and the dark palette. Every assertion that reads a stylesheet rather
+        than a response — the tokens above, the dark palette, the dot since
+        #289 part 4, the sidebar, the planner — stands on one of these three
+        links, so they are checked once here instead of per test."""
+        for url, sheets in self.LINKED_SHEETS.items():
+            response = self.client.get(url)
+            for sheet in sheets:
+                with self.subTest(url=url, sheet=sheet):
+                    self.assertContains(
+                        response, f'href="{static(sheet)}" rel="stylesheet"'
+                    )
 
     def test_the_retired_duplicate_literals_are_gone_from_the_dashboard(self):
         response = self.client.get("/dashboard/")
@@ -2442,7 +2474,15 @@ class SignalDotColorTest(DemoModeTestCase):
     """Descendant of the #161 drift guard, same purpose after #211: if the
     palettes split across surfaces again, the suite should say. It now
     covers all three signal dots — overdue red, today amber, done green —
-    and still forbids a dot rule for the retired urgent stage."""
+    and still forbids a dot rule for the retired urgent stage.
+
+    Since #289 part 4 there is nothing left to drift *between*: the dot is
+    one rule in base.css, which all three surfaces load. So the assertions
+    read the stylesheet rather than every response, the way #32's token
+    block has been checked since it moved out of the templates (see
+    DesignTokensTest.test_both_bases_serve_the_design_tokens) — and the
+    drift guard this class is becomes a guard against a template taking its
+    own copy back."""
 
     # #289: the signal colour moved from `background` to `color`, so one
     # declaration per state reaches both the ring an open dot draws and the
@@ -2457,6 +2497,27 @@ class SignalDotColorTest(DemoModeTestCase):
     )
     RECENT_RULE = ".dot.done.done-this-week { color: var(--color-done); }"
 
+    # The three templates that each used to carry their own copy of all of
+    # the above. None of them may define a .dot rule again: extra_css renders
+    # after the linked stylesheets, so a copy that comes back wins the
+    # cascade silently rather than conflicting visibly.
+    DOT_TEMPLATES = ("dashboard.html", "my_plan.html", "landing.html")
+
+    def base_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+
+    def dashboard_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def template(self, name):
+        return (
+            Path(settings.BASE_DIR) / "projects/templates/projects" / name
+        ).read_text()
+
     def pages(self):
         self.given_session_plan()
         return {
@@ -2465,54 +2526,152 @@ class SignalDotColorTest(DemoModeTestCase):
             "index": self.client.get(reverse("index")),
         }
 
-    def test_every_surface_serves_the_red_overdue_dot(self):
-        for name, response in self.pages().items():
-            with self.subTest(page=name):
-                self.assertContains(response, self.OVERDUE_RULE)
+    def test_the_shared_sheet_carries_the_red_overdue_dot(self):
+        self.assertEqual(self.base_css().count(self.OVERDUE_RULE), 1)
 
-    def test_every_surface_serves_the_amber_today_dot(self):
-        for name, response in self.pages().items():
-            with self.subTest(page=name):
-                self.assertContains(response, self.TODAY_RULE)
+    def test_the_shared_sheet_carries_the_amber_today_dot(self):
+        self.assertEqual(self.base_css().count(self.TODAY_RULE), 1)
 
     def test_a_done_dot_goes_neutral_once_the_week_has_turned(self):
-        # Not on index: the landing mockup renders no done rows, so it
-        # serves no done rule to drift.
-        pages = self.pages()
-        for name in ("dashboard", "my_plan"):
-            with self.subTest(page=name):
-                self.assertContains(pages[name], self.DONE_RULE)
+        # The landing mockup renders no done rows, so this rule reaches a
+        # surface that never uses it. That is the accepted price of one rule
+        # instead of three — a second sheet for the one state the marketing
+        # page skips would be the duplication back under another name.
+        self.assertEqual(self.base_css().count(self.DONE_RULE), 1)
 
     def test_a_task_completed_this_week_carries_the_completion_green(self):
-        pages = self.pages()
-        for name in ("dashboard", "my_plan"):
-            with self.subTest(page=name):
-                self.assertContains(pages[name], self.RECENT_RULE)
+        self.assertEqual(self.base_css().count(self.RECENT_RULE), 1)
 
     def test_the_recent_rule_stays_after_the_done_rule(self):
         # (0,3,0) beats (0,2,0), so this one does not actually depend on
         # source order — pinned anyway because the pair reads as a
         # base-plus-override and a reader who reorders them should find out
         # here rather than by shipping the reordering.
-        pages = self.pages()
-        for name in ("dashboard", "my_plan"):
-            with self.subTest(page=name):
-                html = pages[name].content.decode()
-                self.assertLess(
-                    html.index(self.DONE_RULE), html.index(self.RECENT_RULE)
-                )
+        css = self.base_css()
+        self.assertLess(css.index(self.DONE_RULE), css.index(self.RECENT_RULE))
 
     def test_the_done_rule_stays_after_the_today_rule(self):
         # applyDone() toggles the done class on without stripping the
         # urgency class, so a task due today becomes class="dot today done".
         # Equal specificity means source order decides: if .dot.today ever
         # drifted below .dot.done, checking off a today task would leave the
-        # dot amber. The templates say this in a comment; this pins it.
-        pages = self.pages()
-        for name in ("dashboard", "my_plan"):
-            with self.subTest(page=name):
-                html = pages[name].content.decode()
-                self.assertLess(html.index(self.TODAY_RULE), html.index(self.DONE_RULE))
+        # dot amber. The stylesheet says this in a comment; this pins it.
+        css = self.base_css()
+        self.assertLess(css.index(self.TODAY_RULE), css.index(self.DONE_RULE))
+
+    # #289 part 4: .dot was written three times — dashboard.html, my_plan.html
+    # and landing.html each with their own copy, which is what made the ring
+    # a three-file edit and the size below a three-file edit after it.
+    #
+    # Anchored at the start of a line *or* just after a comma — the two
+    # places a selector can begin — and tolerant of an element prefix and of
+    # pseudo-classes, because a copy coming back is as likely to arrive as
+    # `.dot:hover`, `span.dot` or the second half of a selector list as it is
+    # on its own (#291 review). The first version only caught `.dot {`,
+    # `button.dot {` and `.dot.done {`, so `.dot:hover { background: … }`
+    # could have come back into a template and won the cascade unseen.
+    #
+    # Still deliberately blind to a descendant selector: the surfaces keep
+    # their own `.ai-card span.dot`, `.summary-box .dot` and
+    # `.day-task-card .dot` margin overrides, and those are the override
+    # rather than the rule coming back.
+    BARE_DOT_RULE = re.compile(
+        r"(?:^|,)\s*[\w-]*\.dot(?:[.:][\w-]+)*\s*(?=[,{])", re.MULTILINE
+    )
+
+    def test_no_template_defines_its_own_dot_rule(self):
+        for name in self.DOT_TEMPLATES:
+            with self.subTest(template=name):
+                self.assertIsNone(self.BARE_DOT_RULE.search(self.template(name)))
+
+    def test_no_template_defines_its_own_dot_state_rule(self):
+        for name in self.DOT_TEMPLATES:
+            with self.subTest(template=name):
+                source = self.template(name)
+                for rule in (
+                    self.OVERDUE_RULE,
+                    self.TODAY_RULE,
+                    self.DONE_RULE,
+                    self.RECENT_RULE,
+                ):
+                    self.assertNotIn(rule, source)
+
+    # #289 part 1: 18px, not the 14px the ring inherited. Only the 2px
+    # stroke carries the signal now, so the dot reads smaller than the
+    # filled disc it replaced at the same box size — and 14px met WCAG 2.2
+    # SC 2.5.8 only through the spacing exception, which is evaluated
+    # against each surface's neighbours and so was the day card's 3px
+    # margin's business as much as the dot's.
+    def test_the_dot_is_eighteen_px_in_exactly_one_place(self):
+        self.assertEqual(self.base_css().count("width: 18px; height: 18px;"), 1)
+
+    def test_the_landing_skeleton_circle_follows_the_dot(self):
+        # .seq-skel-circle is the placeholder the landing animation shows
+        # where a dot will be, in a row with the same padding and gap as the
+        # .task-row that replaces it at step 3 — so it shares the dot's size
+        # or the list jumps when the plan arrives.
+        self.assertIn(
+            ".seq-skel-circle { width: 18px; height: 18px;",
+            self.template("landing.html"),
+        )
+
+    # #289 part 2: on a ring an outline renders as two concentric circles —
+    # the shape the dot itself now uses to mean "open". So hover moves
+    # inside the shape and fills it, which is also a preview of what the
+    # click does. The failure animation keeps its outline deliberately (see
+    # dashboard.css and test_dashboard_writes): a colour on the ring would
+    # say "open" as loudly as it says "failed", and that case is rare enough
+    # to want the louder, outside-the-shape signal.
+    #
+    # 50%, not the 22% this started at: #291's review measured that mix at
+    # 1.27:1 against the card in the light theme, on the state most dots are
+    # in and with no .task-row:hover behind it to carry any of the signal.
+    # Half reads as half way to done (1.78:1 light, 1.99:1 dark) without
+    # reaching the solid fill a done dot carries, and makes the two
+    # directions symmetric — open goes 0 → 50%, done goes 100% → 50%.
+    HOVER_RULE = (
+        "button.dot:hover { background: color-mix(in srgb, currentColor 50%, "
+        "transparent); }"
+    )
+
+    def test_hover_fills_the_ring_instead_of_outlining_it(self):
+        self.assertIn(self.HOVER_RULE, self.dashboard_css())
+
+    def test_no_dot_rule_draws_an_outline_on_hover(self):
+        self.assertNotIn(".dot:hover { outline", self.dashboard_css())
+        self.assertNotIn(".dot:hover { outline", self.base_css())
+        for name in self.DOT_TEMPLATES:
+            with self.subTest(template=name):
+                self.assertNotIn(".dot:hover { outline", self.template(name))
+
+    def test_the_keyboard_keeps_a_focus_ring(self):
+        # With the hover outline gone the dot would be left with the UA
+        # default, which is the one place an outline on this shape is still
+        # right: it is the accent, not a signal colour, and a keyboard user
+        # has nothing else to go on. Same ring as every other control #200
+        # made reachable.
+        self.assertIn(
+            "button.dot:focus-visible { outline: 2px solid var(--color-accent); "
+            "outline-offset: 2px; }",
+            self.dashboard_css(),
+        )
+
+    def test_the_shared_rule_carries_no_outer_margin(self):
+        # The margin is the app's, not the dot's: the landing mock lays its
+        # rows out with a 12px gap and would get 8px on top of it. Same split
+        # as .task-due, whose margin lives beside it in dashboard.css (#266).
+        dot_rule = self.base_css().split(".dot {", 1)[1].split("}", 1)[0]
+        self.assertNotIn("margin", dot_rule)
+        self.assertIn(".dot { margin-right: 8px; }", self.dashboard_css())
+
+    def test_the_row_gap_still_replaces_the_margin_on_both_lists(self):
+        # .task-row is spelled by the dashboard and by /mein-plan/ alike, so
+        # the override moved to the sheet both of them load rather than being
+        # typed out twice — the same reason #266 moved .task-row .task-due.
+        self.assertIn(".task-row .dot { margin-right: 0; }", self.dashboard_css())
+        self.assertNotIn(
+            ".task-row .dot { margin-right: 0; }", self.template("dashboard.html")
+        )
 
     # #289: open-vs-done is a difference in shape, not only in colour. An
     # open dot is a ring — nothing inside, 2px of currentColor around it —
@@ -2523,23 +2682,17 @@ class SignalDotColorTest(DemoModeTestCase):
     RING = "background: transparent; box-shadow: inset 0 0 0 2px currentColor;"
     FILL = "background: currentColor"
 
-    def test_every_surface_draws_an_open_dot_as_a_ring(self):
-        for name, response in self.pages().items():
-            with self.subTest(page=name):
-                self.assertContains(response, self.RING)
+    def test_an_open_dot_is_drawn_as_a_ring(self):
+        self.assertIn(self.RING, self.base_css())
 
     def test_the_done_rule_is_the_only_thing_that_fills_a_dot(self):
-        # Not on index: the landing mockup renders no done rows, so it
-        # serves no fill at all.
-        pages = self.pages()
-        self.assertNotContains(pages["index"], self.FILL)
-        for name in ("dashboard", "my_plan"):
-            with self.subTest(page=name):
-                html = pages[name].content.decode()
-                self.assertEqual(html.count(self.FILL), 1)
-                self.assertIn(self.FILL, self.DONE_RULE)
+        css = self.base_css()
+        self.assertEqual(css.count(self.FILL), 1)
+        self.assertIn(self.FILL, self.DONE_RULE)
 
     def test_no_surface_serves_an_urgent_dot_rule(self):
+        self.assertNotIn(".dot.urgent {", self.base_css())
+        self.assertNotIn(".dot.urgent {", self.dashboard_css())
         for name, response in self.pages().items():
             with self.subTest(page=name):
                 self.assertNotContains(response, ".dot.urgent {")
@@ -2548,11 +2701,9 @@ class SignalDotColorTest(DemoModeTestCase):
         # #266: the dashboard and /mein-plan/ share one rule now, in the
         # stylesheet both of them load. The landing page keeps its own — its
         # task list is a static mock-up, not a rendering of real tasks.
-        css = (
-            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
-        ).read_text()
         self.assertIn(
-            ".task-due.today { color: var(--color-today); font-weight: 500; }", css
+            ".task-due.today { color: var(--color-today); font-weight: 500; }",
+            self.dashboard_css(),
         )
         self.assertContains(
             self.pages()["index"], ".task-date.today { color: var(--color-today); }"

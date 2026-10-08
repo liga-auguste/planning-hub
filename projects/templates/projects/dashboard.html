@@ -4,33 +4,11 @@
 {% block title %}Planning Hub{% endblock %}
 
 {% block extra_css %}
-        /* One dot size across the app: 14px, the one /mein-plan/ has
-           always drawn. The 7px version read as a bullet rather than as
-           the control it is, and put the same task under two different
-           markers depending on which page you were looking at. */
-        /* #289: open is a ring, done is a filled disc. The signal colour
-           lives on `color`, so every state rule below swaps one property and
-           both the ring (currentColor in the inset shadow) and the fill
-           (currentColor as the background) follow it. */
-        .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; color: var(--color-text-quaternary); background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
-        button.dot { border: none; padding: 0; cursor: pointer; background: transparent; }
-        button.dot:hover { outline: 2px solid var(--color-text-quaternary); outline-offset: 2px; }
-        /* Kept above the done rule: equal specificity, and toggling only
-           adds the done class — the later rule has to win on a checked-off
-           task. */
-        .dot.overdue { color: var(--color-overdue); }
-        .dot.today { color: var(--color-today); }
-        /* #211 part 2: green means "cleared this week", so the base done
-           rule is the neutral grey and the week carries the override. A
-           completed task keeps its strike-through and its dimming for good
-           — only the dot goes quiet once the week turns, which is what
-           keeps the green dots and the "Diese Woche" bar above them saying
-           one thing rather than two. The override is (0,3,0) and wins on
-           specificity, so its position here is for reading, not cascade.
-           The uneven dwell is the accepted price: checked off on Monday is
-           seven days green, on Sunday one. */
-        .dot.done { color: var(--color-text-quaternary); background: currentColor; }
-        .dot.done.done-this-week { color: var(--color-done); }
+        /* #289 part 4: the dot's shape, size and state colours are in
+           base.css and its button reset, hover, focus ring and margin are in
+           dashboard.css — this page had the original copy of all of it. The
+           surface-specific margins below stay here, because the surfaces are
+           this page's. */
         .ai-card { padding: 0; margin-bottom: 40px; font-size: 13px; line-height: 1.6; }
         .ai-card-label { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 20px; }
         /* The heading row, shared by the overview and the Heute view
@@ -138,11 +116,11 @@
         /* The gap is the row's only horizontal spacing now, so the elements'
            own margins have to give way to it. Scoped rather than removed:
            .dot and .task-due both also render inside the AI summary, which
-           lays its items out inline and still needs them. #266 moved the
-           .task-row .task-due half of this pair to dashboard.css, beside the
-           rule it overrides — /mein-plan/ spells .task-row too and needs the
-           same override. */
-        .task-row .dot { margin-right: 0; }
+           lays its items out inline and still needs them. Both halves of the
+           pair live in dashboard.css now, beside the rules they override —
+           .task-row .task-due since #266, .task-row .dot since #289 part 4,
+           for the same reason: /mein-plan/ spells .task-row too and needs
+           the same override. */
         .task-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
         /* #238: the one item in the row that gives way. Without a flex of
            its own it shrank to min-content — the longest single word — which

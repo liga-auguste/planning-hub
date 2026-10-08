@@ -408,11 +408,10 @@ class UndatedAndTodayUrgencyRenderingTest(DemoModeTestCase):
     def test_the_overdue_dot_rule_precedes_the_done_rule(self):
         # Equal specificity — the later rule wins, and a checked-off task
         # must turn gray even while the JS leaves the overdue class in place.
-        self.given_mixed_plan()
-        for url in ("dashboard", "my_plan"):
-            with self.subTest(url=url):
-                html = self.client.get(reverse(url)).content.decode()
-                self.assertLess(html.index(".dot.overdue"), html.index(".dot.done"))
+        # One file to check since #289 part 4: both pages took their copy of
+        # these rules out and read them from base.css now.
+        css = (settings.BASE_DIR / "projects/static/projects/css/base.css").read_text()
+        self.assertLess(css.index(".dot.overdue"), css.index(".dot.done"))
 
     def test_my_plan_undated_dot_is_not_done(self):
         self.given_mixed_plan()
