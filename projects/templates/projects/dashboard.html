@@ -819,12 +819,29 @@
             failed, so in neither case can the write land. A control that is
             offered has to be able to work.
 
-            open_count rather than tasks|length: the bar asks about the
-            tasks that would move, and a completed one does not (see
-            reschedule_project_view). Counted by the server like every other
-            number on this page (#210).
+            A <span> under `sim_date` too, and that is the add row's answer
+            rather than the reschedule's: the bar's question carries a
+            count, a moment renders every task due by then as done, and the
+            write cannot depend on which moment somebody is looking at
+            (#217). So the number the page could name and the number the
+            write would move are different under a moment, and the control
+            is not offered rather than asked with the wrong one —
+            reschedule_project_view refuses the same case server-side.
+
+            And a <span> with no event_date at all: there is no difference
+            to measure a shift against, so the pick could only be dropped
+            on the floor. A project Notion holds with no Termin is reachable
+            — get_upcoming_projects filters on Status/Aufgaben alone — and
+            its display date is the empty string, so the button would be an
+            invisible but tab-reachable control that answers nothing.
+
+            shiftable_count rather than tasks|length: the bar asks about the
+            tasks that would move, and neither a completed one nor an
+            undated one does (see reschedule_project_view). Counted by the
+            server like every other number on this page (#210), and checked
+            against the write before it runs.
             {% endcomment %}
-            {% if stale or viewing_demo_data %}<span class="project-date">{{ project.event_date_display }}</span>{% else %}<button type="button" class="project-date" data-project-id="{{ project.id }}" data-raw-date="{{ project.event_date|date:'Y-m-d' }}" data-open-count="{{ project.open_count }}" title="Termin ändern" aria-label="Termin ändern, aktuell {{ project.event_date_display }}">{{ project.event_date_display }}</button>{% endif %}
+            {% if stale or viewing_demo_data or sim_date or not project.event_date %}<span class="project-date">{{ project.event_date_display }}</span>{% else %}<button type="button" class="project-date" data-project-id="{{ project.id }}" data-raw-date="{{ project.event_date|date:'Y-m-d' }}" data-shift-count="{{ project.shiftable_count }}" title="Termin ändern" aria-label="Termin ändern, aktuell {{ project.event_date_display }}">{{ project.event_date_display }}</button>{% endif %}
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
             {% comment %}
             #284: the project level's first action, in the menu shape #239
@@ -867,8 +884,19 @@
             <span class="task-menu project-menu">
                 <button type="button" class="task-menu-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Aktionen für dieses Projekt" title="Aktionen">⋮</button>
                 <div class="task-menu-items" role="menu" hidden>
-                    {# The keyboard's way to the date, the way the row's "Datum ändern" reaches its own: it clicks the control rather than opening a second picker. #}
+                    {% comment %}
+                    The keyboard's way to the date, the way the row's "Datum
+                    ändern" reaches its own: it clicks the control rather
+                    than opening a second picker. So it goes exactly where
+                    the control goes — including away under a moment, named
+                    rather than silently dropped, which is #244's rule in
+                    _task_actions_menu.html.
+                    {% endcomment %}
+                    {% if sim_date %}
+                    <div class="task-menu-note">Im simulierten Zeitpunkt nicht verfügbar: Termin ändern.</div>
+                    {% else %}
                     <button type="button" class="task-menu-item" role="menuitem" data-action="reschedule-project" data-project-id="{{ project.id }}">Termin ändern</button>
+                    {% endif %}
                     {% if not demo_mode %}
                     <button type="button" class="task-menu-item task-menu-item-danger" role="menuitem" data-action="trash-project" data-project-id="{{ project.id }}" data-task-count="{{ project.tasks|length }}">In den Papierkorb</button>
                     {% endif %}
@@ -884,12 +912,19 @@
 
         Rendered wherever the section is, with nothing to open it where the
         write cannot land: the condition that matters is on the control (the
-        date above is a span under `stale` and for the demo example
-        projects), and a hidden element with no trigger costs nothing while
-        a second copy of that condition here would be a second place to get
-        it wrong.
+        date above is a span under `stale`, under a moment, for the demo
+        example projects and for a project with no date at all), and a
+        hidden element with no trigger costs nothing while a second copy of
+        that condition here would be a second place to get it wrong.
+
+        role="status" on the container, which is .sim-lock-notice's own
+        shape — a notice that appears, so un-hiding it is the change a
+        screen reader has to hear. Focus stays on the date button the pick
+        was made from (the picker restores it, task_date_picker.js), so the
+        Escape handler is bound to the section rather than to this bar: the
+        way out has to answer from where the focus actually is.
         {% endcomment %}
-        <div class="project-date-confirm" hidden>
+        <div class="project-date-confirm" role="status" hidden>
             <span class="project-date-confirm-text"></span>
             <button type="button" class="project-date-confirm-move">Mit Aufgaben</button>
             <button type="button" class="project-date-confirm-only">Nur Termin</button>
@@ -2111,39 +2146,54 @@ function bindProjectDatePickers() {
 // for every pick, so the text has to be reachable more than once.
 //
 // It names the difference rather than the new date, which is #283's own
-// wording ("Alle 15 Aufgaben um 7 Tage mitverschieben?"). A date would mean
-// a second German date formatter in JavaScript — task_add_row.js already
-// carries the one date_format.py exists to keep single, and a third is the
-// duplication that module's comment is about.
-function projectShiftLabel(openCount, days) {
+// wording. A date would mean a second German date formatter in JavaScript —
+// task_add_row.js already carries the one date_format.py exists to keep
+// single, and a third is the duplication that module's comment is about.
+//
+// No "Alle", which the issue's own wording had: the count is the open tasks
+// that carry a date (shiftable_count, _annotate_tasks), and a plan holding
+// an undated task alongside them has open tasks this move does not reach.
+// "3 offene Aufgaben" is true of the ones that move; "alle 3 offenen
+// Aufgaben" would not have been.
+function projectShiftLabel(shiftCount, days) {
     const span = Math.abs(days) === 1 ? '1 Tag' : `${Math.abs(days)} Tage`;
     const verb = days > 0 ? 'mitverschieben' : 'vorziehen';
-    const tasks = openCount === 1 ? 'Die offene Aufgabe' : `Alle ${openCount} offenen Aufgaben`;
+    const tasks = shiftCount === 1 ? '1 offene Aufgabe' : `${shiftCount} offene Aufgaben`;
     return `${tasks} um ${span} ${verb}?`;
+}
+
+// Read off the two dates rather than kept, because the 409 below re-asks
+// the same question with a corrected count and needs the same difference a
+// second time.
+//
+// Noon on both sides, so a DST change inside the span cannot land the
+// difference on 6.96 days — the same reason task_add_row.js parses at noon
+// rather than at midnight.
+function projectShiftDays(previous, iso) {
+    return Math.round((Date.parse(`${iso}T12:00:00`) - Date.parse(`${previous}T12:00:00`)) / 86400000);
 }
 
 function openProjectDateConfirm(dateEl, bar, iso) {
     const previous = dateEl.dataset.rawDate;
-    // A cleared picker answers with an empty string, and a project with no
-    // Termin at all has no previous date to measure against. Neither can
-    // name a difference, so neither opens the bar — and the endpoint
-    // refuses the second case for the same reason (400, "no previous date").
+    // A cleared picker answers with an empty string. A project with no
+    // Termin at all renders the span rather than this control, so there is
+    // no pick to reach here without one — the guard is the endpoint's own
+    // (400, "no previous date") rather than a second rule.
     if (!iso || !previous) return false;
-    // Noon on both sides, so a DST change inside the span cannot land the
-    // difference on 6.96 days — the same reason task_add_row.js parses at
-    // noon rather than at midnight.
-    const days = Math.round((Date.parse(`${iso}T12:00:00`) - Date.parse(`${previous}T12:00:00`)) / 86400000);
+    const days = projectShiftDays(previous, iso);
     if (!days) return false;
-    const openCount = Number(dateEl.dataset.openCount) || 0;
+    const shiftCount = Number(dateEl.dataset.shiftCount) || 0;
     // No bar with nothing to move: the question would have no second
     // answer, and "Nur Termin" is what every answer would mean. Straight to
     // the write instead, which is also the "corrected a date that was a day
-    // off" case on a plan that is already done.
-    if (openCount === 0) {
+    // off" case on a plan that is already done. Closed first, because the
+    // 409 path reaches this with the bar standing open.
+    if (shiftCount === 0) {
+        closeProjectDateConfirm(bar);
         commitProjectDate(dateEl, iso, false, dateEl);
         return true;
     }
-    bar.querySelector('.project-date-confirm-text').textContent = projectShiftLabel(openCount, days);
+    bar.querySelector('.project-date-confirm-text').textContent = projectShiftLabel(shiftCount, days);
     bar.dataset.pendingDate = iso;
     bar.hidden = false;
     return true;
@@ -2172,12 +2222,22 @@ async function commitProjectDate(dateEl, iso, moveTasks, trigger, bar = null) {
         bar.setAttribute('aria-busy', 'true');
         buttons.forEach(b => { b.disabled = true; });
     }
+    const answerable = () => {
+        if (!bar) return;
+        bar.classList.remove('pending');
+        bar.removeAttribute('aria-busy');
+        buttons.forEach(b => { b.disabled = false; });
+    };
     let response;
     try {
         response = await withSessionWriteLock(() => fetch(`/project/${dateEl.dataset.projectId}/reschedule/`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrfToken},
-            body: JSON.stringify({date: iso, move_tasks: moveTasks})
+            // The count the bar named travels with the answer it was given
+            // for, so the server can refuse a write the figure no longer
+            // describes (409 below) instead of moving more tasks than were
+            // agreed to.
+            body: JSON.stringify({date: iso, move_tasks: moveTasks, shift_count: Number(dateEl.dataset.shiftCount) || 0})
         }));
     } catch {
         // A rejected fetch (offline, server unreachable) never reaches the
@@ -2185,15 +2245,45 @@ async function commitProjectDate(dateEl, iso, moveTasks, trigger, bar = null) {
         response = null;
     }
     if (!response || !response.ok) {
-        // The bar stays open with its question intact, so the answer can be
-        // given again rather than the pick being repeated. A partial failure
-        // is reported the same way: it is still a failure, and the tasks
-        // that were left behind are each fixable from their own row.
-        if (bar) {
-            bar.classList.remove('pending');
-            bar.removeAttribute('aria-busy');
-            buttons.forEach(b => { b.disabled = false; });
+        // Three different situations, not three degrees of one, so the body
+        // is read before deciding which. An unparseable one is the plain
+        // failure at the bottom.
+        let body = null;
+        if (response) {
+            try {
+                body = await response.json();
+            } catch {
+                body = null;
+            }
         }
+        // Nothing was written: Notion holds a different number of movable
+        // tasks than the bar named, because the figure came off a cache
+        // entry up to eight hours old. The question is asked again with the
+        // true number — the flash points at the text that changed, which is
+        // action_feedback.js' rule about where an answer belongs.
+        if (response && response.status === 409 && typeof body?.shift_count === 'number') {
+            dateEl.dataset.shiftCount = String(body.shift_count);
+            answerable();
+            if (bar) openProjectDateConfirm(dateEl, bar, iso);
+            flashActionFailed(trigger);
+            return;
+        }
+        // The project date is already in Notion and some tasks with it, and
+        // the server dropped the entry this request read the delta off
+        // (_drop_fresh_dashboard_cache) — so the answer the bar still shows
+        // cannot be given a second time: it would find no cached project
+        // and answer 404. Reloaded instead, once the flash has been seen,
+        // so the page and Notion agree again and every task left behind is
+        // where its own row's date control can reach it. The buttons stay
+        // disabled in the meantime, for the reason they were disabled.
+        if (body?.partial) {
+            flashActionFailed(trigger);
+            setTimeout(() => window.location.reload(), ACTION_FAILED_MS);
+            return;
+        }
+        // Nothing landed. The bar stays open with its question intact, so
+        // the answer can be given again rather than the pick repeated.
+        answerable();
         flashActionFailed(trigger);
         return;
     }
@@ -2219,7 +2309,13 @@ function bindProjectDateConfirmBars() {
         bar.querySelector('.project-date-confirm-cancel').addEventListener('click', () => closeProjectDateConfirm(bar));
         // Escape is the way out of an armed question everywhere else on this
         // page (the actions menu), so it is the way out of this one too.
-        bar.addEventListener('keydown', e => {
+        //
+        // Bound to the section rather than to the bar: the pick is made on
+        // the date button in the header and the picker hands focus straight
+        // back to it (task_date_picker.js), so a keyboard user reading the
+        // question is standing outside the bar. A handler on the bar would
+        // answer only after a Tab into it.
+        bar.closest('.project-section').addEventListener('keydown', e => {
             if (e.key === 'Escape' && !bar.classList.contains('pending')) {
                 e.preventDefault();
                 closeProjectDateConfirm(bar);

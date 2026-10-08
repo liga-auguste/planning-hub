@@ -2740,8 +2740,13 @@ class TheFailureFlashIsOneModuleTest(DemoModeTestCase):
         self.assertIn("function flashActionFailed(el)", source)
         self.assertIn("el.classList.add('action-failed');", source)
         self.assertIn(
-            "setTimeout(() => el.classList.remove('action-failed'), 1500);", source
+            "setTimeout(() => el.classList.remove('action-failed'), ACTION_FAILED_MS);",
+            source,
         )
+        # Named rather than written twice: #283's project date reloads the
+        # page once the flash has been seen, and the reload has to outlast
+        # the feedback or there would be nothing to see.
+        self.assertIn("const ACTION_FAILED_MS = 1500;", source)
 
     def test_no_template_holds_a_copy_of_it(self):
         holders = sorted(
@@ -4465,7 +4470,9 @@ class ProjectDateReachesNotionTest(TestCase):
             ),
             patch("projects.views.update_task_date") as mock_task,
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
         mock_task.assert_called_once_with(
             "t-1", (date.today() + timedelta(days=10)).isoformat()
         )
@@ -4486,7 +4493,7 @@ class ProjectDateReachesNotionTest(TestCase):
             ),
             patch("projects.views.update_task_date") as mock_task,
         ):
-            self.post({"date": self.NEW_DATE, "move_tasks": True})
+            self.post({"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1})
         mock_task.assert_called_once_with(
             "t-1", (date.today() + timedelta(days=12)).isoformat()
         )
@@ -4494,7 +4501,9 @@ class ProjectDateReachesNotionTest(TestCase):
     def test_only_open_dated_tasks_move(self):
         # A completed task's date records when the work was due and met;
         # moving it rewrites the plan's own history. A dateless task has
-        # nothing to shift from.
+        # nothing to shift from. Which is also why the count the bar names
+        # is neither tasks|length nor total - done: it is this set, and the
+        # request below consents to exactly its size.
         self.warm()
         notion_tasks = [
             _cached_task("t-open", date.today() + timedelta(days=3)),
@@ -4511,7 +4520,9 @@ class ProjectDateReachesNotionTest(TestCase):
             patch("projects.views.get_exclusive_tasks", return_value=notion_tasks),
             patch("projects.views.update_task_date") as mock_task,
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
         self.assertEqual(
             [call.args[0] for call in mock_task.call_args_list], ["t-open"]
         )
@@ -4538,7 +4549,7 @@ class ProjectDateReachesNotionTest(TestCase):
                 side_effect=lambda tid, d: calls.append(("task", tid)),
             ),
         ):
-            self.post({"date": self.NEW_DATE, "move_tasks": True})
+            self.post({"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1})
         self.assertEqual(calls, [("project", "p1"), ("task", "t-1")])
 
     def test_the_project_only_answer_reads_no_tasks_at_all(self):
@@ -4563,7 +4574,7 @@ class ProjectDateReachesNotionTest(TestCase):
             patch("projects.views.update_project_date"),
             patch("projects.views.get_exclusive_tasks", return_value=[]),
         ):
-            self.post({"date": self.NEW_DATE, "move_tasks": True})
+            self.post({"date": self.NEW_DATE, "move_tasks": True, "shift_count": 0})
         for key in (
             CACHE_KEY,
             STALE_CACHE_KEY,
@@ -4606,7 +4617,9 @@ class ProjectDateFailureTest(TestCase):
             patch("projects.views.get_exclusive_tasks", return_value=[]),
             patch("projects.views.update_task_date") as mock_task,
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 0}
+            )
         self.assertEqual(response.status_code, 502)
         self.assertIs(response.json()["partial"], False)
         mock_task.assert_not_called()
@@ -4621,7 +4634,9 @@ class ProjectDateFailureTest(TestCase):
             ),
             patch("projects.views.update_project_date") as mock_project,
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
         self.assertEqual(response.status_code, 502)
         mock_project.assert_not_called()
         self.assertIsNotNone(cache.get(CACHE_KEY))
@@ -4646,7 +4661,9 @@ class ProjectDateFailureTest(TestCase):
                 side_effect=[None, NotionUnavailableError("boom")],
             ),
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 2}
+            )
         self.assertEqual(response.status_code, 502)
         body = response.json()
         # The answer names how many landed: every task left behind is
@@ -4665,7 +4682,9 @@ class ProjectDateFailureTest(TestCase):
             patch("projects.views.update_project_date") as mock_project,
             patch("projects.views.get_exclusive_tasks") as mock_read,
         ):
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
         self.assertEqual(response.status_code, 404)
         mock_project.assert_not_called()
         mock_read.assert_not_called()
@@ -4674,7 +4693,8 @@ class ProjectDateFailureTest(TestCase):
         _warm_dashboard_cache([])
         with patch("projects.views.update_project_date") as mock_project:
             response = self.post(
-                {"date": self.NEW_DATE, "move_tasks": True}, project_id="nope"
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1},
+                project_id="nope",
             )
         self.assertEqual(response.status_code, 404)
         mock_project.assert_not_called()
@@ -4714,8 +4734,8 @@ class ProjectDateFailureTest(TestCase):
 
     def test_a_project_with_no_date_cannot_shift_its_tasks(self):
         # There is no difference to shift by. Unreachable from the page —
-        # the button carries no raw date, so the bar never opens — so this
-        # is the direct POST rather than the page.
+        # a project with no event_date renders the span rather than the
+        # control (dashboard.html) — so this is the direct POST.
         project = _fake_upcoming_project()
         project["event_date"] = None
         project["tasks"] = [_cached_task("t-1", date.today() + timedelta(days=3))]
@@ -4726,7 +4746,9 @@ class ProjectDateFailureTest(TestCase):
             60,
         )
         with patch("projects.views.update_project_date") as mock_project:
-            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
         self.assertEqual(response.status_code, 400)
         mock_project.assert_not_called()
 
@@ -4735,6 +4757,127 @@ class ProjectDateFailureTest(TestCase):
             self.client.get(reverse("reschedule_project", args=["p1"])).status_code,
             405,
         )
+
+
+@override_settings(DEMO_MODE=False)
+class ProjectDateCountIsCheckedTest(TestCase):
+    """The figure the bar named, held against what the write is about to do.
+
+    The bar reads `shiftable_count` off a CACHE_KEY entry up to eight hours
+    old; the tasks come from a read taken now. So the two can genuinely
+    disagree — a task created in Notion's own UI inside that window would be
+    shifted without ever having been counted, and a visitor who agreed to
+    three would have had five moved. The check turns the number from a guess
+    into a promise."""
+
+    EVENT_DATE = date.today() + timedelta(days=10)
+    NEW_DATE = (EVENT_DATE + timedelta(days=7)).isoformat()
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def post(self, body, project_id="p1"):
+        return self.client.post(
+            reverse("reschedule_project", args=[project_id]),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_a_count_notion_no_longer_matches_is_a_409_before_any_write(self):
+        _warm_dashboard_cache([_cached_task("t-1", date.today() + timedelta(days=3))])
+        with (
+            patch("projects.views.update_project_date") as mock_project,
+            patch(
+                "projects.views.get_exclusive_tasks",
+                # One more than the page counted: added in Notion's own UI
+                # since the entry was read.
+                return_value=[
+                    _cached_task("t-1", date.today() + timedelta(days=3)),
+                    _cached_task("t-new", date.today() + timedelta(days=4)),
+                ],
+            ),
+            patch("projects.views.update_task_date") as mock_task,
+        ):
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
+        self.assertEqual(response.status_code, 409)
+        # The true figure travels back, so the question can be asked again
+        # with a number that is right rather than repeated with the wrong one.
+        self.assertEqual(response.json()["shift_count"], 2)
+        mock_project.assert_not_called()
+        mock_task.assert_not_called()
+
+    def test_the_count_is_of_the_tasks_that_would_move_and_no_others(self):
+        # Same rule _annotate_tasks counts by: open and dated. A done task
+        # and an undated one are in neither figure, so a plan holding them
+        # does not 409 on its own shape.
+        _warm_dashboard_cache(
+            [_cached_task("t-open", date.today() + timedelta(days=3))]
+        )
+        with (
+            patch("projects.views.update_project_date") as mock_project,
+            patch(
+                "projects.views.get_exclusive_tasks",
+                return_value=[
+                    _cached_task("t-open", date.today() + timedelta(days=3)),
+                    _cached_task(
+                        "t-done",
+                        date.today() + timedelta(days=4),
+                        done=True,
+                        completed_date=date.today(),
+                    ),
+                    _cached_task("t-undated", None),
+                ],
+            ),
+            patch("projects.views.update_task_date") as mock_task,
+        ):
+            response = self.post(
+                {"date": self.NEW_DATE, "move_tasks": True, "shift_count": 1}
+            )
+        self.assertEqual(response.status_code, 200)
+        mock_project.assert_called_once()
+        self.assertEqual(
+            [call.args[0] for call in mock_task.call_args_list], ["t-open"]
+        )
+
+    def test_a_missing_shift_count_is_a_400_when_tasks_would_move(self):
+        # move_tasks' own rule: the figure is not defaulted, because a
+        # default would be a consent nobody gave.
+        _warm_dashboard_cache([])
+        with patch("projects.views.update_project_date") as mock_project:
+            response = self.post({"date": self.NEW_DATE, "move_tasks": True})
+        self.assertEqual(response.status_code, 400)
+        mock_project.assert_not_called()
+
+    def test_a_shift_count_that_is_not_a_whole_number_is_a_400(self):
+        _warm_dashboard_cache([])
+        for value in ("1", 1.5, -1, None, True):
+            with self.subTest(value=value):
+                with patch("projects.views.update_project_date") as mock_project:
+                    response = self.post(
+                        {
+                            "date": self.NEW_DATE,
+                            "move_tasks": True,
+                            "shift_count": value,
+                        }
+                    )
+                self.assertEqual(response.status_code, 400)
+                mock_project.assert_not_called()
+
+    def test_the_project_only_answer_needs_no_count(self):
+        # Nothing moves, so there is no count to consent to — and no read
+        # to check one against either.
+        _warm_dashboard_cache([_cached_task("t-1", date.today() + timedelta(days=3))])
+        with (
+            patch("projects.views.update_project_date") as mock_project,
+            patch("projects.views.get_exclusive_tasks") as mock_read,
+        ):
+            response = self.post({"date": self.NEW_DATE, "move_tasks": False})
+        self.assertEqual(response.status_code, 200)
+        mock_project.assert_called_once()
+        mock_read.assert_not_called()
 
 
 class ProjectDateDemoModeTest(DemoModeTestCase):
@@ -4806,11 +4949,15 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
         self.assertNotContains(self.client.get(reverse("dashboard")), "Termin unsicher")
 
     def test_the_open_tasks_shift_and_the_rest_stay(self):
+        # One of the three is open *and* dated, which is the figure the bar
+        # names and the one the request consents to — the done task and the
+        # undated one are in neither.
         self.given_plan()
         self.post(
             {
                 "date": (date.today() + timedelta(days=37)).isoformat(),
                 "move_tasks": True,
+                "shift_count": 1,
             }
         )
         self.assertEqual(
@@ -4845,6 +4992,7 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
             {
                 "date": (date.today() + timedelta(days=10)).isoformat(),
                 "move_tasks": True,
+                "shift_count": 1,
             }
         )
         self.assertEqual(
@@ -4873,6 +5021,7 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
             {
                 "date": (date.today() + timedelta(days=37)).isoformat(),
                 "move_tasks": True,
+                "shift_count": 1,
             }
         )
         self.assertIn(f"{SUMMARY_KEY}_today", self.client.session)
@@ -4883,19 +5032,68 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
             [1],
         )
 
-    def test_it_is_allowed_under_a_zeitreise_moment(self):
-        # reschedule_task_view's rule: a moved date visibly moves the tasks
-        # in or out of the forced-done range, so it is neither invisible nor
-        # lost — unlike a toggle, which the render would overwrite (#217).
-        self.given_plan()
+    def test_it_is_refused_under_a_zeitreise_moment(self):
+        # add_task_view's answer rather than reschedule_task_view's, and the
+        # count in the question is what decides it. A moment renders every
+        # task due by sim_date as done (_simulated_project), so the page's
+        # shiftable_count is the count at that moment — while the write
+        # moves every open dated task the plan holds, because a moment is a
+        # view and must not change what a write does (#217). Asking with one
+        # number and moving by the other is the bug; the question is not
+        # asked there instead. A single task's reschedule carries no such
+        # number, which is why it stays available.
+        plan = self.given_plan()
         self.given_timelapse_moments("2026-09-01")
         session = self.client.session
         session["demo_sim_date"] = "2026-09-01"
         session.save()
-        new_date = (date.today() + timedelta(days=37)).isoformat()
-        response = self.post({"date": new_date, "move_tasks": True})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.stored()["event_date"], new_date)
+        response = self.post(
+            {
+                "date": (date.today() + timedelta(days=37)).isoformat(),
+                "move_tasks": True,
+                "shift_count": 1,
+            }
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.stored()["event_date"], plan["event_date"])
+
+    def test_the_moment_refuses_the_date_only_answer_too(self):
+        # The refusal is about the write, not about the task shift: the
+        # event date is what a moment is a rendering of, so changing it
+        # under one would re-date the picture from inside it.
+        plan = self.given_plan()
+        self.given_timelapse_moments("2026-09-01")
+        session = self.client.session
+        session["demo_sim_date"] = "2026-09-01"
+        session.save()
+        response = self.post(
+            {
+                "date": (date.today() + timedelta(days=37)).isoformat(),
+                "move_tasks": False,
+            }
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.stored()["event_date"], plan["event_date"])
+
+    def test_a_count_the_plan_no_longer_matches_is_a_409(self):
+        # Production's check, in both worlds for one write: the page this
+        # answer was given on can have been rendered before another tab
+        # added or checked off a task.
+        plan = self.given_plan()
+        response = self.post(
+            {
+                "date": (date.today() + timedelta(days=37)).isoformat(),
+                "move_tasks": True,
+                "shift_count": 3,
+            }
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["shift_count"], 1)
+        self.assertEqual(self.stored()["event_date"], plan["event_date"])
+        self.assertEqual(
+            [t["date"] for t in self.stored()["tasks"]],
+            [t["date"] for t in plan["tasks"]],
+        )
 
     def test_an_example_project_is_a_404(self):
         # The demo example projects come from get_demo_projects() and are in
@@ -4906,6 +5104,7 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
             {
                 "date": (date.today() + timedelta(days=37)).isoformat(),
                 "move_tasks": True,
+                "shift_count": 1,
             },
             project_id="demo-1",
         )
@@ -4917,6 +5116,7 @@ class ProjectDateDemoModeTest(DemoModeTestCase):
             {
                 "date": (date.today() + timedelta(days=37)).isoformat(),
                 "move_tasks": True,
+                "shift_count": 1,
             }
         )
         self.assertEqual(response.status_code, 404)
@@ -5066,6 +5266,47 @@ class ProjectDateIsOfferedWhereItPersistsTest(DemoModeTestCase):
             "!['reschedule', 'reschedule-project', 'rename'].includes(action)",
         )
 
+    def test_a_moment_keeps_the_span_and_names_what_it_removed(self):
+        # The add row's answer rather than the reschedule's, because the
+        # question carries a count: a moment renders every task due by then
+        # as done, so the number the page could name is not the number the
+        # write would move (reschedule_project_view). Named rather than
+        # silently dropped, which is #244's rule in _task_actions_menu.html.
+        self.given_session_plan()
+        self.given_timelapse_moments("2026-09-01")
+        session = self.client.session
+        session["demo_sim_date"] = "2026-09-01"
+        session.save()
+        page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, '<span class="project-date">')
+        self.assertNotContains(page, '<button type="button" class="project-date"')
+        self.assertNotContains(page, 'data-action="reschedule-project"')
+        self.assertContains(
+            page, "Im simulierten Zeitpunkt nicht verfügbar: Termin ändern."
+        )
+
+    @override_settings(DEMO_MODE=False)
+    def test_a_project_with_no_date_keeps_the_span(self):
+        # get_upcoming_projects filters on Status/Aufgaben alone, so a
+        # project Notion holds with no Termin reaches the page — and its
+        # display date is the empty string. A button there would be an
+        # invisible but tab-reachable control with no difference to measure
+        # a shift against, so every pick could only be dropped.
+        cache.clear()
+        self.addCleanup(cache.clear)
+        project = _fake_upcoming_project_with_task()
+        project["event_date"] = None
+        with (
+            patch("projects.views.get_upcoming_projects", return_value=[project]),
+            patch("projects.views.get_unassigned_tasks", return_value=[]),
+            patch(
+                "projects.views.generate_weekly_summary", return_value=_summary_data()
+            ),
+        ):
+            page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, '<span class="project-date">')
+        self.assertNotContains(page, '<button type="button" class="project-date"')
+
 
 class ProjectDateConfirmsTheShiftTest(DemoModeTestCase):
     """The confirmation is a bar under the header, not a modal — #239
@@ -5093,16 +5334,39 @@ class ProjectDateConfirmsTheShiftTest(DemoModeTestCase):
             ]
         )
         page = self.client.get(reverse("dashboard"))
-        self.assertContains(page, 'data-open-count="1"')
+        self.assertContains(page, 'data-shift-count="1"')
         # Not counted off the rendered rows in JavaScript — the bar reads
         # the attribute the server wrote.
         self.assertNotContains(page, ".task-row:not(.done)")
+
+    def test_an_undated_open_task_is_not_in_the_count(self):
+        # It is open and it will not move, so naming it would make the bar
+        # promise a shift the write cannot perform — which is why the count
+        # is not total_count - done_count (_annotate_tasks).
+        self.given_session_plan(
+            tasks=[
+                {
+                    "id": "demo-session-0",
+                    "name": "Mit Termin",
+                    "date": (date.today() + timedelta(days=7)).isoformat(),
+                    "done": False,
+                },
+                {
+                    "id": "demo-session-1",
+                    "name": "Ohne Termin",
+                    "date": None,
+                    "done": False,
+                },
+            ]
+        )
+        page = self.client.get(reverse("dashboard"))
+        self.assertContains(page, 'data-shift-count="1"')
 
     def test_the_bar_offers_both_answers_and_a_way_out(self):
         self.given_session_plan()
         page = self.client.get(reverse("dashboard"))
         for marker in (
-            '<div class="project-date-confirm" hidden>',
+            '<div class="project-date-confirm" role="status" hidden>',
             'class="project-date-confirm-move">Mit Aufgaben<',
             'class="project-date-confirm-only">Nur Termin<',
             'class="project-date-confirm-cancel"',
@@ -5115,23 +5379,68 @@ class ProjectDateConfirmsTheShiftTest(DemoModeTestCase):
         # and task_add_row.js already carries the one date_format.py exists
         # to keep single.
         page = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("function projectShiftLabel(openCount, days) {", page)
+        self.assertIn("function projectShiftLabel(shiftCount, days) {", page)
         self.assertIn("${tasks} um ${span} ${verb}?", page)
         self.assertIn("'mitverschieben' : 'vorziehen'", page)
 
     def test_the_label_pluralises_both_halves(self):
         page = self.client.get(reverse("dashboard")).content.decode()
         self.assertIn("'1 Tag' : `${Math.abs(days)} Tage`", page)
-        self.assertIn(
-            "'Die offene Aufgabe' : `Alle ${openCount} offenen Aufgaben`", page
-        )
+        # No "alle": the count is the open tasks that carry a date, and a
+        # plan holding an undated one alongside them has open tasks this
+        # move does not reach.
+        self.assertIn("'1 offene Aufgabe' : `${shiftCount} offene Aufgaben`", page)
+        self.assertNotIn("Alle ${shiftCount}", page)
 
     def test_a_plan_with_nothing_open_asks_nothing(self):
         # The question would have no second answer: "Nur Termin" is what
         # every answer would mean.
         page = self.client.get(reverse("dashboard")).content.decode()
-        self.assertIn("if (openCount === 0) {", page)
+        self.assertIn("if (shiftCount === 0) {", page)
         self.assertIn("commitProjectDate(dateEl, iso, false, dateEl);", page)
+
+    def test_the_answer_carries_the_count_it_was_given_for(self):
+        # So the server can refuse a write the figure no longer describes
+        # rather than moving more tasks than were agreed to.
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("shift_count: Number(dateEl.dataset.shiftCount) || 0", page)
+
+    def test_a_stale_count_re_asks_instead_of_writing(self):
+        # 409: nothing was written, and the question goes back up with the
+        # figure the server found. The flash points at the text that
+        # changed, which is where action_feedback.js says an answer belongs.
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("response.status === 409", page)
+        self.assertIn("dateEl.dataset.shiftCount = String(body.shift_count);", page)
+        self.assertIn("if (bar) openProjectDateConfirm(dateEl, bar, iso);", page)
+
+    def test_a_partial_failure_reloads_rather_than_offering_the_answer_again(self):
+        # The project date is already in Notion and the server dropped the
+        # entry the delta is read off, so a second answer could only 404.
+        # Reloaded once the flash has been seen instead, so the page and
+        # Notion agree again.
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn("if (body?.partial) {", page)
+        self.assertIn(
+            "setTimeout(() => window.location.reload(), ACTION_FAILED_MS);", page
+        )
+
+    def test_escape_answers_from_where_the_focus_is(self):
+        # The pick is made on the date button in the header and the picker
+        # hands focus straight back to it, so a handler on the bar itself
+        # would only answer after a Tab into it.
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(
+            "bar.closest('.project-section').addEventListener('keydown'", page
+        )
+
+    def test_the_bar_announces_itself(self):
+        # .sim-lock-notice's own shape: a notice that appears, so un-hiding
+        # it is the change a screen reader has to hear.
+        self.assertContains(
+            self.client.get(reverse("dashboard")),
+            '<div class="project-date-confirm" role="status" hidden>',
+        )
 
     def test_the_bar_says_it_is_saving(self):
         # #198: one project write plus one per task, in sequence — the

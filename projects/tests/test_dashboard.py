@@ -970,7 +970,7 @@ class DashboardCacheVersionTest(SimpleTestCase):
     found instead, and the page falls into #156's loading state.
 
     #283 (v13) is the hard kind one level up: every cached *project* gained
-    an open_count, and the confirmation bar the new project-date write asks
+    a shiftable_count, and the confirmation bar the new project-date write asks
     through reads it off the rendered page. A pre-deploy entry carries no
     such key, `Number('')` is 0, and a bar reading 0 offers no shift at all
     — so the write would silently move nothing, indefinitely from

@@ -330,9 +330,24 @@ its own offset either way. One difference is deliberate: the review clamps to to
 past is overdue, and `_classify_due_urgency` has an honest state for that; clamping would
 silently collapse several tasks onto one date.
 
-**Only open tasks move.** A completed task's date records when the work was due and met,
-and moving it rewrites the plan's own history. The green dots are unaffected either way —
-"done this week" hangs off `completed_date`, not off the due date.
+**Only open, dated tasks move.** A completed task's date records when the work was due and
+met, and moving it rewrites the plan's own history; an undated task has no date to shift
+from. The green dots are unaffected either way — "done this week" hangs off
+`completed_date`, not off the due date.
+
+That set is also what the bar's number is, which is why `shiftable_count` is not
+`total_count - done_count`: a plan holding one undated task would otherwise name a task the
+write cannot touch, and the bar's number is a promise rather than an estimate.
+
+**The number the bar named comes back and is checked.** `shift_count` travels with the
+answer it was given for, required exactly when `move_tasks` is true — "Nur Termin" moves
+nothing and so consents to no count. The bar read it off a `CACHE_KEY` entry up to eight
+hours old while the tasks come from a read taken now, so the two can genuinely disagree: a
+task created in Notion's own UI inside that window would be shifted without ever having
+been counted. A mismatch is a **409** carrying the true figure, before any write, and the
+client re-words the bar and leaves it standing. Asking again with a number that is right
+beats carrying out a write against a consent for a different one. The demo branch makes the
+same check against the session plan, so one write has one answer in both worlds.
 
 **Project first, and no order is repeatable.** Notion has no batch update (the official
 reference for *Update a page* takes one page id, and there is no bulk endpoint), so this is
@@ -355,6 +370,12 @@ exactly as it does for the trash: a confirmed write takes the stale copy with it
 failure drops the fresh entries (`_drop_fresh_dashboard_cache`) and leaves the fallback,
 because an unreachable Notion is what `dashboard()` renders that copy for.
 
+Which is also why a partial failure is the one answer the client does **not** re-offer: the
+entry it dropped is the entry the delta is read off, so a second answer would find no
+cached project and get a 404. The page reloads once the flash has been seen
+(`ACTION_FAILED_MS`, `action_feedback.js`) instead, so it and Notion agree again and the
+tasks left behind are where their own rows can reach them.
+
 **The uncertainty flag goes with the date**, in the same `pages.update`, the way
 `toggle_task` writes `Done` and `Erledigt am` together. A date somebody has just picked is a
 date somebody has looked at, which is exactly what the checkbox asks about ("Kein Termin
@@ -375,6 +396,16 @@ The pick itself writes nothing, which is why `onPick` returns immediately instea
 awaiting the answer — otherwise the date input would sit in the header wearing #198's
 `pending` mark while the visitor reads the question. The bar carries that mark instead,
 while the write runs.
+
+**The project date follows the toggle too, and the count is why.** A moment renders every
+task due by `sim_date` as done (`_simulated_project`), so the `shiftable_count` the page can
+name is the count *at that moment*, while the write moves every open dated task the plan
+holds — it has to, because a moment is a view and must not change what a write does. The
+two cannot both be right, and a question whose number contradicts the dots beside it is
+worse than a question that is not asked. So the date renders as a `<span>` under a moment,
+the menu names what it removed (#244), and `reschedule_project_view` refuses the same case
+server-side for both answers. A single task's reschedule stays available because it asks no
+such question.
 
 The add column follows the toggle rather than the reschedule, and for the toggle's own
 reason. A new date visibly moves a task, so a reschedule under a moment is neither
@@ -749,7 +780,7 @@ as much as the four above do:
 | Surface | After a pick |
 |---|---|
 | The add row (#279) | keeps the answer and writes nothing until "Hinzufügen" |
-| The project header's event date (#283) | opens the confirmation bar, because the reach of the move is the visitor's to decide; the write follows an answer, not the pick |
+| The project header's event date (#283) | opens the confirmation bar, because the reach of the move is the visitor's to decide; the write follows an answer, not the pick, and carries the count that answer was given for |
 
 `lastInputWasKeyboard` is the module's other export in practice. It is a top-level `let`
 rather than a parameter because two things outside the picker need the same answer —
@@ -984,8 +1015,8 @@ a hit, so a pre-deploy entry would render an empty board — and the `STALE_*` e
 expire, so they would serve that shape indefinitely. A new derived field is a format
 change, and the bump is mandatory rather than cosmetic.
 
-`v13` / `v8` with #283, for the same reason one level up: every cached *project* gained an
-`open_count`, and the confirmation bar the new write asks through reads it off the rendered
+`v13` / `v8` with #283, for the same reason one level up: every cached *project* gained a
+`shiftable_count`, and the confirmation bar the new write asks through reads it off the rendered
 page. A pre-deploy entry carries no such key, `Number('')` is 0, and a bar reading 0 offers
 no shift at all — so the write would silently move nothing, indefinitely from
 `STALE_CACHE_KEY`. The project-less pair gains nothing of its own and is bumped all the
@@ -1064,19 +1095,27 @@ entries are counted across each other everywhere, and a half-refreshed pair is t
   502 on a task write answering `partial: true` with `moved` and dropping only the fresh
   entries, a cold cache and an unknown project as 404s, a missing or non-boolean
   `move_tasks` as a 400, a project Notion holds with no `Termin` at all, and the 405
+- `ProjectDateCountIsCheckedTest` — the figure the bar named held against the read taken
+  now: a 409 carrying the true count before any write, the count being of open *and* dated
+  tasks and no others, a missing or non-whole `shift_count` as a 400, and `move_tasks:
+  false` needing none
 - `ProjectDateDemoModeTest` — the session plan's `event_date` written and
   `event_date_uncertain` cleared, open tasks shifting while a done and a dateless one stay,
   a backwards shift deliberately not clamped to today, the cached summaries following the
-  move rather than being swept, the write allowed under a Zeitreise moment, and the two
-  404s
+  move rather than being swept, both answers refused under a Zeitreise moment, a 409 on a
+  count the plan no longer matches, and the two 404s
 - `ProjectDateIsOfferedWhereItPersistsTest` — the date as a `<button>` in demo **and**
-  production and as a `<span>` under `stale`, the menu offering the date in demo mode where
-  it does not offer the trash, both items in production, neither on a stale render, and the
-  menu item driving the control rather than a second picker
-- `ProjectDateConfirmsTheShiftTest` — `open_count` coming from the server rather than from a
-  JavaScript count (`KanbanCountsComeFromTheServerTest`'s rule one level up), both answers
-  and the way out, the label naming the difference and pluralising both halves of it, no
-  bar at `open_count == 0`, and #198's mark on the bar while the write runs
+  production and as a `<span>` under `stale`, under a moment and for a project with no
+  `Termin`, the moment naming what it removed from the menu, the menu offering the date in
+  demo mode where it does not offer the trash, both items in production, neither on a stale
+  render, and the menu item driving the control rather than a second picker
+- `ProjectDateConfirmsTheShiftTest` — `shiftable_count` coming from the server rather than
+  from a JavaScript count (`KanbanCountsComeFromTheServerTest`'s rule one level up), an
+  undated open task staying out of it, both answers and the way out, the label naming the
+  difference and pluralising both halves of it, no bar at a count of 0, the count travelling
+  back with the answer, a 409 re-asking instead of writing, a partial failure reloading
+  rather than re-offering the answer, Escape answering from where the focus is, the bar
+  announcing itself, and #198's mark on it while the write runs
 - `ProjectDateReusesThePickerTest` — the page calling `openTaskDatePicker` and defining no
   second swap (the date input, `showPicker()` and the modality flag each asserted absent),
   the module still holding exactly one swap, and the project date staying outside the
