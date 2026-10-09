@@ -422,6 +422,144 @@ class TaskLineScaleIsOneScaleTest(DemoModeTestCase):
         self.assertContains(response, ".kanban-card-meta { font-size: 11px;")
 
 
+class SummaryRanksRunOutsideInTest(DemoModeTestCase):
+    """#288: the summary's type hierarchy ran backwards. Each step down the
+    structure — card label, section, block heading, task — was a step up in
+    size, and section and block shared 13px/600 with colour as the only
+    thing between them, the section taking the lighter one. "Jetzt fällig"
+    read as a caption under "Heute erledigen" rather than the heading over
+    it.
+
+    The ranking now: section 16px/600/primary, block heading 14px/600,
+    task 14px/400. Size and weight never rise with depth and colour
+    reinforces the steps rather than carrying one alone. The task stays at
+    14px (TaskLineScaleIsOneScaleTest pins it), so the ranking is built
+    from above. The card label stays in the 11px uppercase label key: it
+    names the card, the section names the time window.
+
+    The bolder trap: Reboot sets `strong { font-weight: bolder }`, which
+    resolves relative to the parent. Under a 600 li that is 900; under a
+    400 li it is 700. Neither is the 600 the block heading should have, so
+    the weight is stated outright — the rule /mein-plan/ already carried."""
+
+    TONES = ["primary", "secondary", "tertiary", "quaternary"]
+
+    SECTION = {
+        "font-size": "16px",
+        "font-weight": "600",
+        "color": "var(--color-text-primary)",
+    }
+
+    def declarations(self, html, selector):
+        """The declarations of the first rule whose selector list ends in
+        `selector`, as a property -> value dict."""
+        match = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", html)
+        self.assertIsNotNone(match, f"no rule for {selector}")
+        return {
+            prop.strip(): value.strip()
+            for prop, value in (
+                decl.split(":", 1) for decl in match.group(1).split(";") if ":" in decl
+            )
+        }
+
+    @staticmethod
+    def px(value):
+        return int(value.removesuffix("px"))
+
+    def tone(self, value):
+        """0 for primary … 3 for quaternary, so 'darker' sorts lower."""
+        return self.TONES.index(
+            re.fullmatch(r"var\(--color-text-(\w+)\)", value).group(1)
+        )
+
+    def assert_ranks(self, section, block, task):
+        """Each level is (font-size px, weight, tone). Size and weight must
+        never rise with depth, the tone must never darken with it."""
+        sizes = [section[0], block[0], task[0]]
+        self.assertEqual(sizes, sorted(sizes, reverse=True))
+        self.assertGreater(section[0], block[0])
+        weights = [section[1], block[1], task[1]]
+        self.assertEqual(weights, sorted(weights, reverse=True))
+        self.assertGreater(block[1], task[1])
+        tones = [section[2], block[2], task[2]]
+        self.assertEqual(tones, sorted(tones))
+
+    def dashboard(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def my_plan(self):
+        self.given_session_plan()
+        return self.client.get(reverse("my_plan")).content.decode()
+
+    def test_the_dashboard_runs_outside_in(self):
+        html = self.dashboard()
+        section = self.declarations(html, ".ai-card h6")
+        block = self.declarations(html, ".ai-card ul > li")
+        strong = self.declarations(html, ".ai-card strong")
+        task = self.declarations(html, ".ai-card ul ul li")
+        self.assert_ranks(
+            (
+                self.px(section["font-size"]),
+                int(section["font-weight"]),
+                self.tone(section["color"]),
+            ),
+            (
+                self.px(block["font-size"]),
+                int(strong["font-weight"]),
+                self.tone(block["color"]),
+            ),
+            (
+                self.px(task["font-size"]),
+                int(task["font-weight"]),
+                self.tone(task["color"]),
+            ),
+        )
+
+    def test_the_block_heading_states_its_weight(self):
+        # Without this rule Reboot's `bolder` lands the heading at 700 under
+        # the 400 li — and at 900 under the 600 it used to be.
+        html = self.dashboard()
+        self.assertIn(".ai-card strong { font-weight: 600; }", html)
+        self.assertEqual(
+            self.declarations(html, ".ai-card ul > li")["font-weight"], "400"
+        )
+
+    def test_mein_plan_runs_outside_in(self):
+        html = self.my_plan()
+        section = self.declarations(html, ".summary-box h6")
+        # Block and task inherit the 14px and the body colour from the box.
+        box = self.declarations(html, ".summary-box")
+        strong = self.declarations(html, ".summary-box strong")
+        self.assertNotIn("color", box)
+        self.assert_ranks(
+            (
+                self.px(section["font-size"]),
+                int(section["font-weight"]),
+                self.tone(section["color"]),
+            ),
+            (self.px(box["font-size"]), int(strong["font-weight"]), 0),
+            (self.px(box["font-size"]), 400, 0),
+        )
+
+    def test_both_surfaces_agree_on_the_section(self):
+        # #92 should inherit one ranking, not two.
+        for html, selector in (
+            (self.dashboard(), ".ai-card h6"),
+            (self.my_plan(), ".summary-box h6"),
+        ):
+            rule = self.declarations(html, selector)
+            self.assertEqual({k: rule[k] for k in self.SECTION}, self.SECTION, selector)
+            self.assertNotIn("text-transform", rule, selector)
+            self.assertNotIn("letter-spacing", rule, selector)
+
+    def test_the_card_label_keeps_its_key(self):
+        # The inversion is fixed by promoting the section, not the label.
+        label = self.declarations(self.dashboard(), ".ai-card-label")
+        self.assertEqual(label["font-size"], "11px")
+        self.assertEqual(label["text-transform"], "uppercase")
+        self.assertEqual(label["color"], "var(--color-text-quaternary)")
+
+
 class KanbanStacksBelowTheBreakpointTest(DemoModeTestCase):
     """Three columns with a 220px floor do not fit a phone, so the board
     scrolled sideways and cut its second column down the middle — the same
