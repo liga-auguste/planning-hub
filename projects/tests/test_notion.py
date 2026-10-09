@@ -23,6 +23,7 @@ from ..notion import (
     create_tasks,
     find_project,
     get_exclusive_task_ids,
+    get_exclusive_tasks,
     get_historical_projects,
     get_unassigned_tasks,
     get_upcoming_projects,
@@ -31,6 +32,7 @@ from ..notion import (
     toggle_task,
     trash_project,
     trash_task,
+    update_project_date,
     update_task_date,
 )
 
@@ -121,6 +123,12 @@ class NotionFailureTranslationTest(SimpleTestCase):
             self._stub_every_call(MockClient, RequestTimeoutError())
             with self.assertRaises(NotionUnavailableError):
                 get_exclusive_task_ids("project-id")
+
+    def test_update_project_date_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            self._stub_every_call(MockClient, RequestTimeoutError())
+            with self.assertRaises(NotionUnavailableError):
+                update_project_date("project-id", "2026-12-17")
 
     def test_rename_task_translates_a_failure(self):
         with patch("projects.notion.Client") as MockClient:
@@ -350,6 +358,125 @@ class ExclusiveTaskIdsTest(SimpleTestCase):
                 ),
             ]
             self.assertEqual(get_exclusive_task_ids("p1"), ["t1", "t2"])
+
+
+class UpdateProjectDateTest(SimpleTestCase):
+    """#283: a project's event date, changed from the app. The project level
+    had no update at all before this — create_project wrote Termin and
+    nothing ever rewrote it."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_it_writes_the_date_and_clears_the_uncertainty_together(self):
+        # Together, the way toggle_task writes Done and "Erledigt am"
+        # together: a date somebody has just picked is a date somebody has
+        # looked at, which is exactly what the checkbox asks about. The
+        # planner review settled the same question the same way
+        # (clearDateUncertain).
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            update_project_date("p1", "2026-12-17")
+        instance.pages.update.assert_called_once_with(
+            page_id="p1",
+            properties={
+                "Termin": {"date": {"start": "2026-12-17"}},
+                "Termin unsicher": {"checkbox": False},
+            },
+        )
+
+    def test_it_writes_nothing_else(self):
+        # In particular not the name, which carries the old date as text in
+        # the maintainer's own Notion habit — rewriting it would mean parsing
+        # and re-composing a property this app deliberately does not own.
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            update_project_date("p1", "2026-12-17")
+        self.assertEqual(
+            list(instance.pages.update.call_args.kwargs["properties"]),
+            ["Termin", "Termin unsicher"],
+        )
+
+    def test_it_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.pages.update.side_effect = RequestTimeoutError()
+            with self.assertRaises(NotionUnavailableError):
+                update_project_date("p1", "2026-12-17")
+
+
+class ExclusiveTasksCarryTheirDatesTest(SimpleTestCase):
+    """#283: the same read #284 made, asked for the whole task rather than
+    for the id alone — a date shift needs each task's own `due` to shift
+    from, and its `done` to know whether it shifts at all.
+
+    get_exclusive_task_ids stays as the id-only view of it, so #284's call
+    site and its patch targets are untouched."""
+
+    def setUp(self):
+        patcher = patch.dict(os.environ, {"NOTION_API_KEY": "testkey"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_each_task_carries_its_id_date_and_completion(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [_fake_task_page("Programm", "2026-08-20", ["p1"], page_id="own")]
+            )
+            tasks = get_exclusive_tasks("p1")
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["id"], "own")
+        self.assertEqual(tasks[0]["due"], date(2026, 8, 20))
+        self.assertIs(tasks[0]["done"], False)
+
+    def test_the_exclusivity_rule_is_unchanged(self):
+        # The reason has not moved with the shape: a task that also relates
+        # to another project is reached under that one, and a date change
+        # driven from here would move it out from under a project nobody
+        # asked about.
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [
+                    _fake_task_page("Programm", "2026-08-20", ["p1"], page_id="own"),
+                    _fake_task_page(
+                        "Noten kopieren", "2026-08-21", ["p1", "p2"], page_id="shared"
+                    ),
+                ]
+            )
+            self.assertEqual([t["id"] for t in get_exclusive_tasks("p1")], ["own"])
+
+    def test_it_pages_through_every_task(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.side_effect = [
+                _query_response(
+                    [_fake_task_page("Erste", "2026-08-20", ["p1"], page_id="t1")],
+                    has_more=True,
+                    next_cursor="cursor-1",
+                ),
+                _query_response(
+                    [_fake_task_page("Zweite", "2026-08-21", ["p1"], page_id="t2")]
+                ),
+            ]
+            self.assertEqual([t["id"] for t in get_exclusive_tasks("p1")], ["t1", "t2"])
+
+    def test_the_id_view_is_the_same_read(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.return_value = _query_response(
+                [
+                    _fake_task_page("Programm", "2026-08-20", ["p1"], page_id="own"),
+                    _fake_task_page(
+                        "Noten kopieren", "2026-08-21", ["p1", "p2"], page_id="shared"
+                    ),
+                ]
+            )
+            self.assertEqual(get_exclusive_task_ids("p1"), ["own"])
+
+    def test_it_translates_a_failure(self):
+        with patch("projects.notion.Client") as MockClient:
+            MockClient.return_value.databases.query.side_effect = RequestTimeoutError()
+            with self.assertRaises(NotionUnavailableError):
+                get_exclusive_tasks("p1")
 
 
 class GetUnassignedTasksTest(SimpleTestCase):

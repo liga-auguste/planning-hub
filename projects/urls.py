@@ -22,6 +22,13 @@ urlpatterns = [
         views.trash_project_view,
         name="trash_project",
     ),
+    # #283: the project level's second write. English path for the same
+    # reason project/<id>/trash/ has one.
+    path(
+        "project/<str:project_id>/reschedule/",
+        views.reschedule_project_view,
+        name="reschedule_project",
+    ),
     path(
         "task/<str:task_id>/reschedule/",
         views.reschedule_task_view,

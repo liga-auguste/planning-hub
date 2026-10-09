@@ -128,6 +128,58 @@ class ProjectDateBadgeTest(DemoModeTestCase):
         self.assertContains(response, 'class="project-date"')
 
 
+class ProjectDateIsAButtonTest(DemoModeTestCase):
+    """#283: the project header's date is a control now, the move #200 made
+    for the task row's date one level up. A <span> takes no focus, announces
+    nothing to a screen reader and answers no key.
+
+    Its rules stay in dashboard.html's extra_css, and that does not
+    contradict TheDateStylingLivesWithTheDateTest: the rule there is that
+    styling lives with the thing, and button.task-due moved into the
+    stylesheet because four surfaces render a task's date. Exactly one
+    surface renders a project's."""
+
+    STYLESHEET = Path(settings.BASE_DIR) / "projects/static/projects/css/dashboard.css"
+
+    RULES = (
+        # The reset restates what the span gave for free — a button brings
+        # its own font, background, border and padding.
+        "button.project-date { font: inherit;",
+        "button.project-date:hover { text-decoration: underline; }",
+        "button.project-date:focus-visible {",
+    )
+
+    def test_the_page_carries_them(self):
+        page = self.client.get(reverse("dashboard")).content.decode()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, page)
+
+    def test_the_shared_stylesheet_does_not(self):
+        # One surface, so the rules stay with it rather than joining the
+        # sheet four surfaces share.
+        css = self.STYLESHEET.read_text()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertNotIn(rule, css)
+
+    def test_the_confirmation_bar_states_its_hidden_state(self):
+        # display: flex is an author rule and beats the UA's own
+        # [hidden] { display: none } outright, so every project section
+        # would render the bar open — the same answer
+        # .task-menu-items[hidden] and .sim-lock-notice[hidden] needed.
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(".project-date-confirm { display: flex;", page)
+        self.assertIn(".project-date-confirm[hidden] { display: none; }", page)
+
+    def test_the_bar_borrows_the_pages_own_tokens(self):
+        page = self.client.get(reverse("dashboard")).content.decode()
+        self.assertIn(
+            ".project-date-confirm-text { color: var(--color-text-secondary);", page
+        )
+        self.assertIn("border: 1px solid var(--color-border-primary)", page)
+
+
 class ProjectHeaderMobileClearanceTest(DemoModeTestCase):
     """De-boxing .project-section (see ProjectSectionDeboxTest) took the
     20px inset that used to keep the header clear of the fixed mobile

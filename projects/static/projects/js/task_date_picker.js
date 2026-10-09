@@ -21,12 +21,18 @@
  *     openTaskDatePicker(displayEl, onPick)
  *     onPick(isoDate) -> Promise<boolean>
  *
- * is that same swap with no contract around it, for the one date on the page
- * that is not a task's date yet: the add row's (#279). It has no task id, so
- * it cannot be on the selector above — and must not be, or the surfaces'
- * bindTaskDatePickers() calls would claim it and hand a missing id to a
- * reschedule. What it asks for is identical all the same, which is why it
- * binds this itself (task_add_row.js) rather than growing its own swap.
+ * is that same swap with no contract around it, for the dates on the page
+ * that are not a task's: the add row's (#279) and the project header's event
+ * date (#283). Neither has a task id, so neither can be on the selector
+ * above — and must not be, or the surfaces' bindTaskDatePickers() calls
+ * would claim them and hand a missing id to a reschedule. What they ask for
+ * is identical all the same, which is why each binds this itself
+ * (task_add_row.js, dashboard.html) rather than growing its own swap.
+ *
+ * Their consequences are as different as the task surfaces': the add row
+ * keeps the answer and writes nothing until "Hinzufügen", while the project
+ * date opens a confirmation bar, because the move's reach — the project
+ * alone, or every open task under it — is the visitor's to decide.
  *
  * A falsy answer means the move did not happen. The display element goes back
  * either way — on a resolved answer, a falsy one and a thrown one alike — so

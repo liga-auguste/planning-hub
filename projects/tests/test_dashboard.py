@@ -967,13 +967,22 @@ class DashboardCacheVersionTest(SimpleTestCase):
     on a project_ref the resolver no longer reads, so every block would be
     dropped for want of a heading and the card would render its empty state
     over a summary that is right there. Under a new key the entry is not
-    found instead, and the page falls into #156's loading state."""
+    found instead, and the page falls into #156's loading state.
+
+    #283 (v13) is the hard kind one level up: every cached *project* gained
+    a shiftable_count, and the confirmation bar the new project-date write asks
+    through reads it off the rendered page. A pre-deploy entry carries no
+    such key, `Number('')` is 0, and a bar reading 0 offers no shift at all
+    — so the write would silently move nothing, indefinitely from
+    STALE_CACHE_KEY. The project-less pair gains nothing of its own and is
+    bumped all the same, which is the lockstep #19 established and every
+    bump since has applied."""
 
     def test_both_key_pairs_are_bumped_together(self):
-        self.assertEqual(CACHE_KEY, "dashboard_data_v12")
-        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v12")
-        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v7")
-        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v7")
+        self.assertEqual(CACHE_KEY, "dashboard_data_v13")
+        self.assertEqual(STALE_CACHE_KEY, "dashboard_data_stale_v13")
+        self.assertEqual(UNASSIGNED_CACHE_KEY, "dashboard_unassigned_v8")
+        self.assertEqual(STALE_UNASSIGNED_CACHE_KEY, "dashboard_unassigned_stale_v8")
 
 
 @override_settings(DEMO_MODE=False)

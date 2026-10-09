@@ -44,6 +44,7 @@ from .notion import (
     NotionUnavailableError,
     create_task,
     get_exclusive_task_ids,
+    get_exclusive_tasks,
     get_tasks_completed_in_range,
     get_tasks_created_in_range,
     get_unassigned_tasks,
@@ -53,6 +54,7 @@ from .notion import (
     toggle_task,
     trash_project,
     trash_task,
+    update_project_date,
     update_task_date,
 )
 
@@ -96,12 +98,20 @@ logger = logging.getLogger(__name__)
 # it by the #19 lockstep even though its own shape is unchanged — the two
 # are counted across each other everywhere, and a half-refreshed pair is the
 # state _patch_cached_tasks refuses to work with anyway.
-CACHE_KEY = "dashboard_data_v12"
+#
+# #283 (v13) is the same kind again, one level up: every cached project
+# gained a `shiftable_count`, and the confirmation bar the new write asks
+# through reads it off the rendered page. A pre-deploy entry carries no such
+# key, `Number('')` is 0, and a bar that reads 0 offers no shift at all — so
+# the write would silently move nothing. Mandatory, not cosmetic, for the
+# reason every bump above gives: the cache stores already-annotated projects
+# and does not re-annotate on a hit.
+CACHE_KEY = "dashboard_data_v13"
 CACHE_TTL = 60 * 60 * 8  # 8 hours
 # Written alongside CACHE_KEY on every successful fetch, never expired — the
 # fallback dashboard() serves when a fresh Notion read fails and the primary
 # entry has already expired. See DashboardNotionFailureTest.
-STALE_CACHE_KEY = "dashboard_data_stale_v12"
+STALE_CACHE_KEY = "dashboard_data_stale_v13"
 
 # #53: a separate key pair rather than folded into CACHE_KEY's tuple — this
 # is an independent Notion read (get_unassigned_tasks carries no AI summary,
@@ -115,9 +125,15 @@ STALE_CACHE_KEY = "dashboard_data_stale_v12"
 # #49: v7 — the summary half of CACHE_KEY's tuple changed shape, not this
 # one, which is the #145 case exactly; the lockstep is applied for the same
 # reason it was there.
-UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v7"
+# #283: v8 — and the *project* half changed shape (shiftable_count), not this
+# one, which is that same case from the other side. Bumped in lockstep again
+# rather than left behind: the lockstep is what #19 decided and every bump
+# since has applied, and its reason has not moved — the two entries are
+# counted across each other everywhere, and a half-refreshed pair is the
+# state _patch_cached_tasks refuses to work with anyway.
+UNASSIGNED_CACHE_KEY = "dashboard_unassigned_v8"
 UNASSIGNED_CACHE_TTL = 60 * 60 * 8  # 8 hours, same as CACHE_TTL
-STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v7"
+STALE_UNASSIGNED_CACHE_KEY = "dashboard_unassigned_stale_v8"
 
 # #216: the moment each live entry falls due, stamped when a fresh Notion
 # read fills it and never touched afterwards. Django's cache API offers no
@@ -568,6 +584,20 @@ def _annotate_tasks(projects, today):
         total_count = len(project["tasks"])
         project["done_count"] = done_count
         project["total_count"] = total_count
+        # #283: what a date change would move, which is not the same set as
+        # "not done". A completed task stays where it is — its date records
+        # when the work was due and met — and a task with no date has no
+        # date to shift, so neither belongs in the number the confirmation
+        # bar names. Hence this rather than total_count - done_count: a plan
+        # holding one undated task would otherwise ask about a task the
+        # write cannot touch, and the bar's number is a promise the write
+        # has to be able to keep (reschedule_project_view checks it).
+        # Counted here rather than in the template for done_count's reason —
+        # the server is the one place that gets to say what a count means
+        # (#210).
+        project["shiftable_count"] = sum(
+            1 for task in project["tasks"] if not task["done"] and task["due"]
+        )
         fraction = done_count / total_count if total_count else 0
         # An f-string, not Django's floatformat filter: USE_I18N = True could
         # make floatformat emit a comma decimal separator and corrupt this
@@ -2218,7 +2248,7 @@ def reschedule_task_view(request, task_id):
         # order this code no longer produces, so they cannot be rewritten
         # (the unversioned-prefix sweep planner_create does, kept for
         # exactly those).
-        numbered_after = _session_task_order(plan, effective_today)
+        numbered_after = _session_task_order(plan, timezone.localdate())
         for key in list(request.session.keys()):
             if key.startswith(SUMMARY_KEY):
                 request.session[key] = _remap_summary_refs(
@@ -2307,6 +2337,255 @@ def reschedule_task_view(request, task_id):
             **figures,
         }
     )
+
+
+def reschedule_project_view(request, project_id):
+    """#283: a project's event date, and — if that is what was asked for —
+    its tasks' dates with it.
+
+    Shifting a concert by a week shifts its posters, its press text and its
+    GEMA filing by a week too; correcting a date that was a day off must
+    touch nothing. Both are real, so the write does not guess: the client
+    asks first (the confirmation bar below `.project-header`,
+    dashboard.html) and `move_tasks` carries the answer. It must be a real
+    boolean — an absent one is a 400 rather than a default, because
+    defaulting it either way would move tasks nobody consented to or leave
+    behind tasks somebody did.
+
+    **The delta comes from the cache; the tasks come from Notion.** That
+    looks inconsistent and is the point. The visitor confirmed "+7 Tage, 12
+    Aufgaben" against the date the page showed them, which came out of
+    CACHE_KEY — a server that re-read Termin from Notion and recomputed the
+    difference would shift by an amount nobody agreed to. The *tasks* are
+    shifted relative to their own dates, so Notion's truth is the right base
+    there: a task somebody rescheduled in Notion's own UI since the entry
+    was read moves from its real date. A cold cache is therefore a 404, for
+    the reason trash_project_view gives one — the delta cannot be
+    reconstructed from anything the visitor saw.
+
+    Relative rather than recomputed from a lead time, because Notion stores
+    none: only the absolute Wann?. `new = due + delta` is the same
+    arithmetic the planner review does with `event_date - days_before`
+    (updateDates, planner_review.html), so a task rescheduled by hand keeps
+    its own offset either way. One difference, deliberate: the review clamps
+    to today and this does not. A task shifted into the past is overdue, and
+    _classify_due_urgency has an honest state for that; clamping would
+    silently collapse several tasks onto one date.
+
+    **Only open, dated tasks move.** A completed task's date records when
+    the work was due and met, and moving it rewrites the plan's own history;
+    an undated task has no date to shift. The green dots are unaffected
+    either way — "done this week" hangs off completed_date, not off the due
+    date (_annotate_tasks).
+
+    **The number the bar named comes back and is checked** (`shift_count`,
+    required exactly when move_tasks is true — with nothing moving there is
+    no count to consent to). The bar reads it off `shiftable_count` in a
+    CACHE_KEY entry up to eight hours old, while the tasks come from a read
+    taken now, so the two can genuinely disagree: a task created in Notion's
+    own UI inside that window would be shifted without ever having been
+    counted. A mismatch is a 409 carrying the true figure, before any write
+    — the question is asked again with a number that is right rather than
+    the write being carried out against a consent nobody gave. The client
+    re-words the bar and leaves it standing (commitProjectDate,
+    dashboard.html).
+
+    **Project first, and no order is repeatable.** Notion has no batch
+    update, so this is one write per page, in sequence. Project first and a
+    retry computes a zero delta; tasks first and a retry shifts twice what
+    already moved. There is no third option while Notion stores no lead time,
+    so the project — the write that was actually asked for — goes first and
+    the answer names how many tasks landed. Every task left behind is
+    individually fixable through the date control the row already carries.
+    Errs toward visible rather than tidy, which is trash_project_view's own
+    stance.
+
+    **The cache is busted, not patched.** A new event date can move the
+    project between month groups and changes the order of the project list
+    itself, which no existing write does — every one of them touches a task
+    *inside* a project. The order comes from Notion's own sort (Termin
+    ascending); reproducing it in Python, including how Notion orders equal
+    dates, is a rule this app has never had to own. So the client reloads,
+    which is #210 in its strongest form. How much is busted follows whether
+    the write landed, exactly as it does one level down: a confirmed write
+    takes the stale copy with it, a partial failure drops the fresh entries
+    and leaves the fallback, because an unreachable Notion is what
+    dashboard() renders that copy for.
+
+    Both worlds, unlike the trash. A demo session plan carries an
+    `event_date` and an `event_date_uncertain` of its own, and the planner's
+    fallback lead time is reachable there whenever the description held no
+    date — so the public demo renders "Termin unsicher" and, until now, no
+    way to answer it.
+
+    **Refused under a Zeitreise moment**, the way adding is and rescheduling
+    a single task is not, and the count is what decides it. A moment renders
+    every task due by sim_date as done (_simulated_project), so the page's
+    shiftable_count is the count *at that moment* while the write — which
+    must not depend on which moment somebody happens to be looking at, a
+    moment being a view and not a write (#217) — moves every open dated task
+    the plan holds. The two cannot both be right, and a question whose
+    number contradicts the dots beside it is worse than a question that is
+    not asked. reschedule_task_view asks no such question, which is why it
+    stays available there. The control is not rendered under a moment either
+    (dashboard.html), the way _task_add_row.html decides its own case.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    data, error = _parse_json_dict_body(request)
+    if error:
+        return error
+    # The same parser every task date goes through: one canonical spelling
+    # in, one order out (_parse_posted_task_date).
+    iso_date, error = _parse_posted_task_date(data)
+    if error:
+        return error
+    move_tasks = data.get("move_tasks")
+    if not isinstance(move_tasks, bool):
+        return JsonResponse({"error": "invalid move_tasks"}, status=400)
+    # The figure the bar named, carried back so the server can hold the
+    # write to it. Required exactly when it means something: "Nur Termin"
+    # moves nothing and so consents to no count. isinstance(True, int) is
+    # True in Python, hence the explicit bool rejection — a client sending
+    # the move_tasks flag twice by mistake would otherwise consent to 1.
+    shift_count = data.get("shift_count")
+    if move_tasks and (
+        isinstance(shift_count, bool)
+        or not isinstance(shift_count, int)
+        or shift_count < 0
+    ):
+        return JsonResponse({"error": "invalid shift_count"}, status=400)
+    new_date = date.fromisoformat(iso_date)
+
+    if settings.DEMO_MODE:
+        # A moment is a rendering of a date, and the count in the question
+        # is what makes this write unable to live inside one — see the
+        # docstring. Refused before anything is read, the way add_task_view
+        # refuses, so a direct POST gets the same answer the page gives by
+        # not offering the control.
+        if _get_sim_date(request)[0]:
+            return JsonResponse({"error": "simulated moment is read-only"}, status=404)
+        # Only the visitor's own session plan can be written to; the example
+        # projects come from get_demo_projects() and are in no session (#10
+        # §5), so a 404 rather than a cheerful ok for something that was
+        # never saved.
+        plan = request.session.get("demo_plan")
+        if not plan or project_id != "session-plan":
+            return JsonResponse({"error": "unknown project"}, status=404)
+        old_date = plan.get("event_date")
+        delta = new_date - date.fromisoformat(old_date) if old_date else None
+        if move_tasks and not delta:
+            return JsonResponse({"error": "no previous date"}, status=400)
+        # Only built when something is going to move: "Nur Termin" leaves
+        # every task alone, so the list is empty and the loop below a no-op.
+        movable = (
+            [t for t in plan["tasks"] if not t.get("done") and t.get("date")]
+            if move_tasks
+            else []
+        )
+        if move_tasks and len(movable) != shift_count:
+            # The same check production makes, for the narrower version of
+            # the same reason: the page this answer was given on can have
+            # been rendered before another tab added or checked off a task.
+            # Both worlds answer one write the same way.
+            return JsonResponse(
+                {"error": "count changed", "shift_count": len(movable)}, status=409
+            )
+        # Read before the shift, for _patch_cached_tasks' reason: the
+        # cached summaries' task_refs are positions in this order.
+        numbered_before = _session_task_order(plan, timezone.localdate())
+        plan["event_date"] = iso_date
+        # A picked date is a date somebody has looked at, which is what the
+        # flag asks about — the same answer clearDateUncertain() gives a
+        # manual edit in the planner review.
+        plan["event_date_uncertain"] = False
+        for task in movable:
+            task["date"] = (date.fromisoformat(task["date"]) + delta).isoformat()
+        moved = len(movable)
+        request.session["demo_plan"] = plan
+        # The shift moves only the open tasks, so it can re-order a plan
+        # whose done tasks stay put — rewritten rather than swept, the way
+        # a reschedule rewrites them (reschedule_task_view). An unchanged
+        # order is a no-op inside _remap_summary_refs, so this costs
+        # nothing in the common case. A leftover from an older summary
+        # format still goes: its refs were numbered against an order this
+        # code no longer produces.
+        numbered_after = _session_task_order(plan, timezone.localdate())
+        for key in list(request.session.keys()):
+            if key.startswith(SUMMARY_KEY):
+                request.session[key] = _remap_summary_refs(
+                    request.session[key], numbered_before, numbered_after
+                )
+            elif key.startswith("demo_plan_summary"):
+                del request.session[key]
+        return JsonResponse({"ok": True, "moved": moved, "partial": False})
+
+    cached = cache.get(CACHE_KEY)
+    project = next(
+        (p for p in (cached[0] if cached else []) if p["id"] == project_id), None
+    )
+    if project is None:
+        # Both a cold cache and an unknown project. The page that offered
+        # the control rendered from this entry and from no other (the date
+        # is a <span> in a stale render, dashboard.html), so a miss means
+        # the entry went cold or the project is gone — and the delta the
+        # visitor consented to was read off that entry, so there is nothing
+        # left to honour it against.
+        return JsonResponse({"error": "unknown project"}, status=404)
+    delta = new_date - project["event_date"] if project["event_date"] else None
+    if move_tasks and not delta:
+        # A project Notion holds with no Termin at all has no difference to
+        # shift by, and neither does a pick that lands on the date already
+        # there. The page offers neither case — a dateless project renders
+        # the span rather than the control, and an <input type="date"> fires
+        # no change for an unchanged value — so this is the direct POST.
+        return JsonResponse({"error": "no previous date"}, status=400)
+    try:
+        # Before any write, so a failed read costs the cache nothing — and
+        # asked of Notion rather than of the entry above for
+        # get_exclusive_tasks' own reason: that entry can be eight hours
+        # old, and a task created or moved in Notion's UI inside that window
+        # has to shift from its real date.
+        tasks = get_exclusive_tasks(project_id) if move_tasks else []
+    except NotionUnavailableError:
+        return JsonResponse(
+            {"error": "notion unavailable", "partial": False}, status=502
+        )
+    # The same rule _annotate_tasks counts by, so the figure checked below
+    # is the figure the bar named rather than a second reading of what
+    # "open" means.
+    movable = [task for task in tasks if not task["done"] and task["due"]]
+    if move_tasks and len(movable) != shift_count:
+        # Still before any write: the number the visitor agreed to was read
+        # off a cache entry up to eight hours old, and this read is of now.
+        # The question goes back with the true figure rather than the write
+        # going ahead against a consent for a different one.
+        return JsonResponse(
+            {"error": "count changed", "shift_count": len(movable)}, status=409
+        )
+    try:
+        update_project_date(project_id, iso_date)
+    except NotionUnavailableError:
+        # Nothing landed, so the entry this request read is still true.
+        return JsonResponse(
+            {"error": "notion unavailable", "partial": False}, status=502
+        )
+    moved = 0
+    try:
+        for task in movable:
+            update_task_date(task["id"], (task["due"] + delta).isoformat())
+            moved += 1
+    except NotionUnavailableError:
+        # The project date has already moved and some tasks may have, so the
+        # fresh entries go; the stale pair stays, since an unreachable
+        # Notion is what this failure is made of (_drop_fresh_dashboard_cache).
+        _drop_fresh_dashboard_cache()
+        return JsonResponse(
+            {"error": "notion unavailable", "partial": True, "moved": moved},
+            status=502,
+        )
+    _bust_dashboard_cache()
+    return JsonResponse({"ok": True, "moved": moved, "partial": False})
 
 
 def _closeout_dates(request):

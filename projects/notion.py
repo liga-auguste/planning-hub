@@ -379,9 +379,14 @@ def trash_task(task_id: str) -> None:
         _client().pages.update(page_id=task_id, archived=True)
 
 
-def get_exclusive_task_ids(project_id: str) -> list[str]:
-    """#284: the tasks that go into the trash with their project — read now,
-    and only the ones no other project holds.
+def get_exclusive_tasks(project_id: str) -> list[dict]:
+    """The project's own tasks — read now, and only the ones no other
+    project holds.
+
+    #284 asked this question to know what goes into the trash with a
+    project; #283 asks it to know what moves with a project's date. Both
+    want the same list for the same two reasons, so it is read once here and
+    get_exclusive_task_ids below is the id-only view of it.
 
     Read now, because the dashboard cache is not a source of truth for this.
     CACHE_KEY lives up to eight hours, and a task created in Notion's own UI
@@ -410,7 +415,12 @@ def get_exclusive_task_ids(project_id: str) -> list[str]:
     (_query_all_pages). The relation is read off the page rather than off a
     parsed task: _parse_task_page does not carry it, and giving it one would
     change the shape of every cached dashboard entry (#19's lockstep) for a
-    value only this write needs.
+    value only these two writes need.
+
+    The tasks themselves come back through _parse_task_page, so a caller
+    reads `due` and `done` in exactly the shape every other read path hands
+    them over in — #283 needs both, because it shifts a task from its own
+    date and leaves a completed one where it is.
     """
     with translate_notion_errors():
         pages = _query_all_pages(
@@ -426,8 +436,14 @@ def get_exclusive_task_ids(project_id: str) -> list[str]:
         relation = page["properties"].get("Related to Projekte", {}).get("relation", [])
         # Found by relation.contains, so one of those entries is this project.
         if len(relation) <= 1:
-            exclusive.append(page["id"])
+            exclusive.append(_parse_task_page(page))
     return exclusive
+
+
+def get_exclusive_task_ids(project_id: str) -> list[str]:
+    """The ids alone, for #284's trash — which addresses pages and needs
+    nothing else off them."""
+    return [task["id"] for task in get_exclusive_tasks(project_id)]
 
 
 def trash_project(project_id: str) -> None:
@@ -567,6 +583,38 @@ def create_project(name: str, event_date: date, date_uncertain: bool = False) ->
             },
         )
         return response["id"]
+
+
+def update_project_date(project_id: str, new_date: str) -> None:
+    """#283: a project's event date, changed from the app.
+
+    Termin and "Termin unsicher" in one pages.update, the way toggle_task
+    writes Done and "Erledigt am" together: they change together here too. A
+    date somebody has just picked is a date somebody has looked at, which is
+    exactly what the checkbox asks about ("Kein Termin erkannt — automatisch
+    geschätzt, bitte prüfen"), and the planner review settled the same
+    question the same way — clearDateUncertain() drops the flag on a manual
+    edit there (planner_review.html).
+
+    Nothing else. Status/Aufgaben and the name are other writes' business,
+    and the name in particular: the maintainer's Notion habit appends the
+    date to it ("Adventssingen am Do, 17. Dezember 2026"), so after a change
+    the stored name still names the old date. _strip_trailing_date keeps the
+    display right; rewriting the property would mean parsing and re-composing
+    a name this app deliberately does not own. Named as a consequence in
+    docs/dashboard-write-paths.md rather than solved here.
+
+    The tasks do not follow by themselves — see reschedule_project_view
+    (views.py), which asks first and then pays one update_task_date per task.
+    """
+    with translate_notion_errors():
+        _client().pages.update(
+            page_id=project_id,
+            properties={
+                "Termin": {"date": {"start": new_date}},
+                "Termin unsicher": {"checkbox": False},
+            },
+        )
 
 
 def create_task(project_id: str, name: str, task_date: str) -> None:

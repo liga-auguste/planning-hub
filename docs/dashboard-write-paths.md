@@ -61,6 +61,7 @@ read falls back to.
 | Reschedule → postpone counter | patched in place | already dropped | full bust |
 | Move a task to the trash | full bust | full bust | — |
 | Move a project to the trash | full bust | full bust | — |
+| Change a project's event date | full bust | full bust | — |
 | Add a task to a plan | full bust | full bust | — |
 | Create a project (planner) | full bust | full bust | — |
 
@@ -231,6 +232,16 @@ either way, so a click never has to be interpreted.
 | A demo session under a Zeitreise moment, on the dashboard (`task/<id>/toggle/`) | no — read-only, 404 (#217) | yes | no — read-only, 404 (#217) |
 | A demo session under a Zeitreise moment, on `/mein-plan/` (`session-task/<id>/toggle/`) | yes — the page renders the real date (#246) | yes | no — the moment is in the same session, and the endpoint reads it (#217) |
 
+The project level has two writes of its own, and they answer the same question differently:
+
+| Situation | Trash the project (`project/<id>/trash/`) | Change its event date (`project/<id>/reschedule/`) |
+|---|---|---|
+| Production, a Notion project | yes | yes |
+| A demo session's own plan | no — nothing to archive, 404 (#284) | yes — the plan carries its own `event_date` |
+| A demo example project | no — in no session, 404 (#10 §5) | no — in no session, 404 (#10 §5) |
+| A demo session under a Zeitreise moment | no — not offered there either | yes — a moved date visibly moves the tasks (#217's reschedule rule) |
+| A stale render | no — the write cannot land | no — the write cannot land; the date stays a `<span>` |
+
 ### The project level, since #284
 
 The table above is about tasks, which is what every write was until #284 added
@@ -281,8 +292,120 @@ call per task, serially, is what the API gives — there is no batch archive —
 `nginx.conf` states a `proxy_read_timeout` rather than living with the 60s default: a long
 project would otherwise hand the browser a failure for a write the server then completes.
 
-Changing a project's event date ([#283](https://github.com/liga-auguste/planning-hub/issues/283))
-is the other half of the project level and is not built.
+### Changing a project's event date, since #283
+
+The project level's second write, and the first one on it that is offered in **both**
+worlds. The trash above is production-only because that is what the write *is*; this one
+is not, and for the same kind of reason read the other way: a demo session plan carries an
+`event_date` and an `event_date_uncertain` of its own, and the planner's fallback lead time
+is reachable there whenever the description held no date — so the public demo rendered
+"Termin unsicher" with no way at all to answer it. The two writes therefore part company
+inside one menu: the wrapper's condition is `not stale`, and the trash item carries its own
+`not demo_mode`.
+
+**The lead times move with the date, after asking.** Shifting a concert by a week shifts
+its posters, its press text and its GEMA filing by a week too; correcting a date that was a
+day off must touch nothing. Both cases are real, so the write does not guess — the client
+asks first and `move_tasks` carries the answer. An absent `move_tasks` is a 400, not a
+default: defaulting it to true would move tasks nobody consented to, and to false would
+leave behind tasks somebody did. This also decides the shape of the write: it is one
+project write plus *n* task writes, not a single property update.
+
+**The delta comes from the cache; the tasks come from Notion.** That looks inconsistent and
+is the point. The visitor confirmed "+7 Tage, 12 Aufgaben" against the date the page showed
+them, which came out of `CACHE_KEY` — a server that re-read `Termin` from Notion and
+recomputed the difference would shift by an amount nobody agreed to. The *tasks* are
+shifted relative to their own dates, so Notion's truth is the right base there: a task
+somebody rescheduled in Notion's own UI since the entry was read moves from its real date.
+A cold cache is therefore a 404, for the reason `trash_project_view` gives one — the delta
+cannot be reconstructed from anything the visitor saw. `get_exclusive_tasks` answers which
+tasks, and its two halves are #284's unchanged: read now rather than off the entry, and
+only the ones no other project holds.
+
+Relative rather than recomputed from a lead time, because Notion stores none — only the
+absolute `Wann?`. `new = due + delta` is the same arithmetic `updateDates()` does in the
+planner review with `event_date - days_before`, so an individually rescheduled task keeps
+its own offset either way. One difference is deliberate: the review clamps to today
+(`if (d <= today) dateInput.value = todayISO`) and this does not. A task shifted into the
+past is overdue, and `_classify_due_urgency` has an honest state for that; clamping would
+silently collapse several tasks onto one date.
+
+**Only open, dated tasks move.** A completed task's date records when the work was due and
+met, and moving it rewrites the plan's own history; an undated task has no date to shift
+from. The green dots are unaffected either way — "done this week" hangs off
+`completed_date`, not off the due date.
+
+That set is also what the bar's number is, which is why `shiftable_count` is not
+`total_count - done_count`: a plan holding one undated task would otherwise name a task the
+write cannot touch, and the bar's number is a promise rather than an estimate.
+
+**The number the bar named comes back and is checked.** `shift_count` travels with the
+answer it was given for, required exactly when `move_tasks` is true — "Nur Termin" moves
+nothing and so consents to no count. The bar read it off a `CACHE_KEY` entry up to eight
+hours old while the tasks come from a read taken now, so the two can genuinely disagree: a
+task created in Notion's own UI inside that window would be shifted without ever having
+been counted. A mismatch is a **409** carrying the true figure, before any write, and the
+client re-words the bar and leaves it standing. Asking again with a number that is right
+beats carrying out a write against a consent for a different one. The demo branch makes the
+same check against the session plan, so one write has one answer in both worlds.
+
+**Project first, and no order is repeatable.** Notion has no batch update (the official
+reference for *Update a page* takes one page id, and there is no bulk endpoint), so this is
+*n+1* sequential writes. Project first and a retry computes a zero delta; tasks first and a
+retry shifts twice what already moved. There is no third option while Notion stores no lead
+time, so the project — the write that was actually asked for — goes first, and the answer
+names how many tasks landed (`moved`, `partial`). Every task left behind is individually
+fixable through the date control its own row already carries. Errs toward visible rather
+than tidy, which is `trash_project_view`'s own stance.
+
+**The cache is busted, not patched**, and that is the pattern applied rather than a fresh
+question. A new event date can move the project between month groups and re-orders the
+project list itself, which no existing write does — every one of them touches a task
+*inside* a project. The order comes from Notion's own sort (`Termin ascending`);
+`_annotate_tasks` sorts tasks within a project and never the project list, so patching would
+mean reproducing that ordering rule in Python for the first time, including how Notion
+orders equal dates, and re-annotating both lists once per moved task. The client reloads,
+which is #210 in its strongest form. How much is busted follows whether the write landed,
+exactly as it does for the trash: a confirmed write takes the stale copy with it, a partial
+failure drops the fresh entries (`_drop_fresh_dashboard_cache`) and leaves the fallback,
+because an unreachable Notion is what `dashboard()` renders that copy for.
+
+Which is also why a partial failure is the one answer the client does **not** re-offer: the
+entry it dropped is the entry the delta is read off, so a second answer would find no
+cached project and get a 404. The page reloads once the flash has been seen
+(`ACTION_FAILED_MS`, `action_feedback.js`) instead, so it and Notion agree again and the
+tasks left behind are where their own rows can reach them.
+
+**The uncertainty flag goes with the date**, in the same `pages.update`, the way
+`toggle_task` writes `Done` and `Erledigt am` together. A date somebody has just picked is a
+date somebody has looked at, which is exactly what the checkbox asks about ("Kein Termin
+erkannt — automatisch geschätzt, bitte prüfen"). That is an established pattern rather than
+a new decision: `clearDateUncertain()` drops the flag on a manual edit in the planner
+review, with the reason already written there.
+
+**The confirmation is an inline bar, not a modal.** #239 rejected modals for this page
+outright ("would sit outside the page's own language and block everything behind it"), and
+the ⋮ menu's two-click arming cannot express a three-way answer. So: a bar below
+`.project-header` with "Mit Aufgaben" / "Nur Termin" / `×`, hidden until a pick. It names
+the **difference, not the new date** — a date would mean a second German date formatter in
+JavaScript, and `task_add_row.js` already carries the one `date_format.py` exists to keep
+single. With nothing open to move the bar does not appear at all: the question would have
+no second answer.
+
+The pick itself writes nothing, which is why `onPick` returns immediately instead of
+awaiting the answer — otherwise the date input would sit in the header wearing #198's
+`pending` mark while the visitor reads the question. The bar carries that mark instead,
+while the write runs.
+
+**The project date follows the toggle too, and the count is why.** A moment renders every
+task due by `sim_date` as done (`_simulated_project`), so the `shiftable_count` the page can
+name is the count *at that moment*, while the write moves every open dated task the plan
+holds — it has to, because a moment is a view and must not change what a write does. The
+two cannot both be right, and a question whose number contradicts the dots beside it is
+worse than a question that is not asked. So the date renders as a `<span>` under a moment,
+the menu names what it removed (#244), and `reschedule_project_view` refuses the same case
+server-side for both answers. A single task's reschedule stays available because it asks no
+such question.
 
 The add column follows the toggle rather than the reschedule, and for the toggle's own
 reason. A new date visibly moves a task, so a reschedule under a moment is neither
@@ -482,6 +605,8 @@ re-triggers `preloadAll()` against the fresh `precached_moments`.
 | Reschedule fails in Notion | 502 | undoes the drag / restores the date |
 | Add, either world | bare `{"ok": true}` | reloads — the cache was busted, so there are no figures to write |
 | Add fails in Notion | 502 | keeps what was typed, flashes the button |
+| Project date, either answer | `{"ok": true, "moved": n, "partial": false}` | reloads — the project list itself may have re-ordered |
+| Project date fails in Notion | 502, with `partial` | leaves the bar standing with its question, flashes it |
 | Zeitreise moment set | `{"ok": true}` | fades out and reloads — the whole page is a different date |
 | Zeitreise POST refused or never lands | 403 / 502 / nothing | **no reload** — takes the paint back, flashes the trigger, re-arms the preloads |
 
@@ -514,6 +639,7 @@ requests arriving and being refused.
 | `reschedule()` (`dashboard.html`) | same | flashes, restores the date |
 | Day-column drag (`dashboard.html`) | same | undoes the drag |
 | Rename, trash (`dashboard.html`) | same | flashes the name / the trigger |
+| `commitProjectDate()` (`dashboard.html`) | same | leaves the confirmation bar open, flashes it |
 | `my_plan.html` | same | reverts the optimistic toggle, flashes |
 | Triage `+7` and picker (`close_week_start.html`) | `reschedule()` answers `null` | flashes the button / the date (#233) |
 | `setSimDate` (`dashboard.html`) | same guard, same `catch` | no reload, paint undone, flashes the trigger (#233) |
@@ -645,6 +771,16 @@ onPick(taskId, isoDate, dueEl, row) -> Promise<boolean>
 | Dashboard AI summary | reloads — the prose makes urgency claims a new date invalidates, and `task_refs` are positions in an order the move just changed |
 | `/mein-plan/` | reloads — nothing there re-sorts the list, and badge, progress and summary are all server-rendered |
 | Close-out triage list | patches in place; a reload would drop the moved row and its `task_id` input out of the form that counts it |
+
+Two surfaces ask for a date that is not a task's and so cannot be *bound* by the selector
+above — that contract is a task id, and handing a missing one to a reschedule is what the
+split prevents. Both call `openTaskDatePicker()` themselves, and their consequences differ
+as much as the four above do:
+
+| Surface | After a pick |
+|---|---|
+| The add row (#279) | keeps the answer and writes nothing until "Hinzufügen" |
+| The project header's event date (#283) | opens the confirmation bar, because the reach of the move is the visitor's to decide; the write follows an answer, not the pick, and carries the count that answer was given for |
 
 `lastInputWasKeyboard` is the module's other export in practice. It is a top-level `let`
 rather than a parameter because two things outside the picker need the same answer —
@@ -845,6 +981,25 @@ These are decisions, not omissions.
   replaced was idempotent and self-correcting under the same interleaving, so this window
   is new. It wants the same write fence as the gap below, and production is one person
   behind a VPN — recorded rather than fenced.
+- **The project name keeps its old date in Notion.** The maintainer's Notion habit appends
+  the date to the project name ("Adventssingen am Do, 17. Dezember 2026"), and
+  `update_project_date` deliberately writes only `Termin` and `Termin unsicher`. Renaming
+  would mean parsing and re-composing a property this app does not own. The consequence is
+  confined to Notion itself — `_strip_trailing_date` goes on taking the date out of the
+  displayed name, so every surface in the app shows the new one — and as a footnote,
+  `find_project(name, old_date)` no longer matches a project whose date has changed, which
+  touches only the planner's idempotent retry of a save that died halfway.
+- **There is no control for confirming an event date that is already right.** "Termin
+  unsicher" asks the visitor to check a guessed date, and the only answer the app offers is
+  to change it: an `<input type="date">` fires no `change` event when the value is left
+  alone, so the picker route cannot reach "yes, that date is correct". The endpoint itself
+  handles it — a POST of the same date clears the flag and moves nothing — but nothing on
+  the page can send one. The badge as a button is the follow-up.
+- **A demo plan's Zeitreise moments keep their old dates after a shift.** They are generated
+  from the event date once (`timelapse_moments`) and are a garnish rather than data — a
+  moment is a label and a date to render *at*, and `_allowed_sim_dates` still gates which
+  ones are postable. Regenerating them would mean a Claude call per date change on the
+  public demo.
 - **A write landing during a cold-cache fetch is still lost.** `_fetch_fresh_data` is as
   slow as the Claude call above, and the branch that follows it writes the projects it
   just read from Notion. The re-read that fixes the regeneration branch cannot fix this
@@ -859,6 +1014,15 @@ Both key pairs went to `v9` / `v4` with #210, because every cached task dict gai
 a hit, so a pre-deploy entry would render an empty board — and the `STALE_*` entries never
 expire, so they would serve that shape indefinitely. A new derived field is a format
 change, and the bump is mandatory rather than cosmetic.
+
+`v13` / `v8` with #283, for the same reason one level up: every cached *project* gained a
+`shiftable_count`, and the confirmation bar the new write asks through reads it off the rendered
+page. A pre-deploy entry carries no such key, `Number('')` is 0, and a bar reading 0 offers
+no shift at all — so the write would silently move nothing, indefinitely from
+`STALE_CACHE_KEY`. The project-less pair gains nothing of its own and is bumped all the
+same, which is the lockstep #19 established and every bump since has applied: the two
+entries are counted across each other everywhere, and a half-refreshed pair is the state
+`_patch_cached_tasks` refuses to work with anyway.
 
 ## Verification
 
@@ -918,6 +1082,50 @@ change, and the bump is mandatory rather than cosmetic.
   and the focus move into the opened section with the modality flag it is gated on. The
   summary's own markup is asserted in `test_summary.py`, where the generator is stubbed and
   the block renders at all
+
+#283 adds six classes of its own, in the same file:
+
+- `ProjectDateReachesNotionTest` — the canonical ISO string reaching
+  `update_project_date`, the delta measured against the **cached** event date, a task
+  shifted from its own Notion date rather than the cached one, only open and dated tasks
+  moving, the project written before the tasks, `move_tasks: false` reading no tasks at all,
+  and the full bust
+- `ProjectDateFailureTest` — each refusal on its own and each asserted to land *before* any
+  write: a 502 on the project write answering `partial: false` with the cache untouched, a
+  502 on a task write answering `partial: true` with `moved` and dropping only the fresh
+  entries, a cold cache and an unknown project as 404s, a missing or non-boolean
+  `move_tasks` as a 400, a project Notion holds with no `Termin` at all, and the 405
+- `ProjectDateCountIsCheckedTest` — the figure the bar named held against the read taken
+  now: a 409 carrying the true count before any write, the count being of open *and* dated
+  tasks and no others, a missing or non-whole `shift_count` as a 400, and `move_tasks:
+  false` needing none
+- `ProjectDateDemoModeTest` — the session plan's `event_date` written and
+  `event_date_uncertain` cleared, open tasks shifting while a done and a dateless one stay,
+  a backwards shift deliberately not clamped to today, the cached summaries following the
+  move rather than being swept, both answers refused under a Zeitreise moment, a 409 on a
+  count the plan no longer matches, and the two 404s
+- `ProjectDateIsOfferedWhereItPersistsTest` — the date as a `<button>` in demo **and**
+  production and as a `<span>` under `stale`, under a moment and for a project with no
+  `Termin`, the moment naming what it removed from the menu, the menu offering the date in
+  demo mode where it does not offer the trash, both items in production, neither on a stale
+  render, and the menu item driving the control rather than a second picker
+- `ProjectDateConfirmsTheShiftTest` — `shiftable_count` coming from the server rather than
+  from a JavaScript count (`KanbanCountsComeFromTheServerTest`'s rule one level up), an
+  undated open task staying out of it, both answers and the way out, the label naming the
+  difference and pluralising both halves of it, no bar at a count of 0, the count travelling
+  back with the answer, a 409 re-asking instead of writing, a partial failure reloading
+  rather than re-offering the answer, Escape answering from where the focus is, the bar
+  announcing itself, and #198's mark on it while the write runs
+- `ProjectDateReusesThePickerTest` — the page calling `openTaskDatePicker` and defining no
+  second swap (the date input, `showPicker()` and the modality flag each asserted absent),
+  the module still holding exactly one swap, and the project date staying outside the
+  `data-task-id` contract `bindTaskDatePickers()` binds on
+
+`projects/tests/test_notion.py` carries the Notion half in `UpdateProjectDateTest` (the two
+properties written together, nothing else written, the failure translated) and
+`ExclusiveTasksCarryTheirDatesTest` (`id`, `due` and `done` per task, the exclusivity rule
+unchanged, pagination, and `get_exclusive_task_ids` as the id-only view of the same read).
+`projects/tests/test_design.py` carries the styling in `ProjectDateIsAButtonTest`.
 
 `projects/tests/test_timelapse.py` carries the moment half in
 `NoToggleDuringAMomentTest`, where the `sim_date` fixtures already live: the 404 and the
