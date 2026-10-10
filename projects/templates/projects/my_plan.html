@@ -164,7 +164,7 @@ is gone; the sidebar already covers that.
     {% endcomment %}
     {% if sim_date %}
     <div class="sim-elsewhere-notice">
-        <span>Im Dashboard läuft gerade ein simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong>. Diese Liste zeigt den heutigen Stand.</span>
+        <span>Im Dashboard läuft gerade ein simulierter Zeitpunkt: <strong>{{ sim_date_display }}</strong>{{ sim_date_display|closing_period }} Diese Liste zeigt den heutigen Stand.</span>
         <a href="{% url 'dashboard' %}">Zum Dashboard →</a>
     </div>
     {% endif %}

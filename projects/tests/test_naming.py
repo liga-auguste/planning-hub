@@ -14,6 +14,7 @@ from django.template import (
     Context,
     Template,
 )
+from django.template.loader import render_to_string
 from django.test import (
     SimpleTestCase,
     TestCase,
@@ -412,6 +413,45 @@ class DateStyleTest(SimpleTestCase):
         template = Template('{% load planner_tags %}{{ v|plan_date:"row" }}')
         with override_settings(DATE_STYLE="no_weekday"):
             self.assertEqual(template.render(Context({"v": self.DAY})), "3. Mär")
+
+
+class SentenceFinalDateTest(SimpleTestCase):
+    """#192: a date that ends a sentence takes the sentence's period only
+    when it does not already end in one. "numeric" spells "03.03.", and a
+    literal period after it rendered "am 03.03.." — the existing sentence
+    tests could not see that, because they compose the expected string the
+    same way and only run under the default style."""
+
+    DAY = date(2026, 3, 3)
+
+    def test_the_filter_adds_a_period_only_where_none_ends_the_label(self):
+        render = Template("{% load planner_tags %}{{ v|closing_period }}").render
+        self.assertEqual(render(Context({"v": "3. März"})), ".")
+        self.assertEqual(render(Context({"v": "03.03."})), "")
+
+    def test_the_empty_summary_ends_each_sentence_once_in_every_style(self):
+        for style in DATE_STYLES:
+            with self.subTest(style=style), override_settings(DATE_STYLE=style):
+                html = render_to_string(
+                    "projects/_summary_empty.html",
+                    {"state": {"overdue_since": self.DAY, "next_due": self.DAY}},
+                )
+                note = format_date(self.DAY, role="note")
+                self.assertNotIn("..", html)
+                self.assertIn(f"Überfällig seit dem {note.rstrip('.')}.", html)
+                self.assertIn(f"Die nächste Aufgabe ist am {note.rstrip('.')}.", html)
+
+    def test_the_sim_notice_on_my_plan_goes_through_the_filter(self):
+        # Rendered only during a simulated moment in a demo session, so the
+        # template line is pinned rather than the page driven there.
+        source = (
+            Path(settings.BASE_DIR) / "projects/templates/projects/my_plan.html"
+        ).read_text()
+        self.assertIn(
+            "<strong>{{ sim_date_display }}</strong>"
+            "{{ sim_date_display|closing_period }} Diese Liste",
+            source,
+        )
 
 
 class PlanDateFilterTest(SimpleTestCase):

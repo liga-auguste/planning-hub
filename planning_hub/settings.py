@@ -41,8 +41,9 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
 # #192: how displayed dates are spelled — one of the named styles in
 # projects/date_format.py (DATE_STYLES): "standard", "numeric" or
-# "no_weekday". Deploy-time only; there is no UI for it. Not validated here:
-# date_format raises on an unknown style the first time a date is rendered.
+# "no_weekday". Deploy-time only; there is no UI for it. Validated at process
+# start by projects.startup.require_valid_date_style (called from wsgi.py),
+# not here: the valid names live in date_format, which settings cannot import.
 DATE_STYLE = os.environ.get("DATE_STYLE", "standard")
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost 127.0.0.1").split()

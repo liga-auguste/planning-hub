@@ -26,6 +26,16 @@ def plan_date(d, role="long"):
     return format_date(d, role)
 
 
+@register.filter
+def closing_period(label):
+    """The period that ends a sentence whose last word is a date label, or
+    nothing when the label already ends in one (#192). German does not
+    double it: under the "numeric" style a date reads "03.03.", and that
+    period closes the sentence too. Returns only the punctuation, so it also
+    works where markup sits between the label and the sentence's end."""
+    return "" if str(label).endswith(".") else "."
+
+
 # #279: the two name tables the add row's date has to compose a label from in
 # the client. Rendered from here rather than retyped in JavaScript, so
 # date_format stays the one place the German names live.
