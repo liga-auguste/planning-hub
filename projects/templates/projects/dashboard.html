@@ -28,13 +28,31 @@
            took the gap with it — the label then sat straight under the
            project name. Adjacent sibling, so it only fires in that case. */
         .ai-card-header + .ai-card-label { margin-top: 20px; }
-        /* All six levels: the summary is markdown.markdown() output, so the
-           heading depth is the model's to pick, not ours (#64). */
+        /* #288: the section is a real heading, the top of a ranking that
+           runs outside in — section 16px/600/primary, block heading 14px/600,
+           task 14px/400/tertiary. It used to be 13px quaternary over a 13px
+           bold block, so "Jetzt fällig" read as a caption under "Heute
+           erledigen" rather than the heading above it. 16px rather than the
+           15px .header-project step: one pixel over the 14px block heading
+           would leave size as a near-invisible sole carrier. The task keeps
+           its 14px (TaskLineScaleIsOneScaleTest), so the ranking is built
+           from above; the card label keeps its 11px label key, because it
+           names the card while the section names the time window.
+           All six levels: _ai_summary_body.html renders <h2> only, but the
+           reset in base.css zeroes margins only and leaves Reboot's sizes in place, and a
+           template that ever changes the level would get those instead. */
         .ai-card h1, .ai-card h2, .ai-card h3,
-        .ai-card h4, .ai-card h5, .ai-card h6 { font-size: 13px; font-weight: 600; color: var(--color-text-quaternary); margin-top: 28px; margin-bottom: 12px; }
+        .ai-card h4, .ai-card h5, .ai-card h6 { font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin-top: 28px; margin-bottom: 12px; }
         .ai-card hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 24px 0; }
         .ai-card ul { margin: 0; padding-left: 0; list-style: none; }
-        .ai-card ul > li { font-size: 13px; font-weight: 600; padding: 10px 0 2px; color: var(--color-text-primary); border-top: 1px solid var(--color-border-primary); }
+        /* #288: 400, not 600 — the li carries the assessment prose after
+           the heading, and at 600 the whole block line was a bold paragraph. */
+        .ai-card ul > li { font-size: 14px; font-weight: 400; padding: 10px 0 2px; color: var(--color-text-primary); border-top: 1px solid var(--color-border-primary); }
+        /* #288: stated, not inherited. Reboot sets `strong { font-weight:
+           bolder }`, which resolves relative to the parent — 900 under the
+           600 the li used to be, 700 under the 400 it is now. Neither is the
+           block heading's rank; .summary-box strong already says the same. */
+        .ai-card strong { font-weight: 600; }
         .ai-card ul > li:first-child { border-top: none; }
         .ai-card ul ul { padding-left: 0; margin: 4px 0 6px; }
         /* border-top: none — nested lis also match .ai-card ul > li above and

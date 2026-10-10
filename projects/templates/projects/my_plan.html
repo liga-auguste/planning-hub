@@ -64,10 +64,16 @@
        sits on the page rather than in a card, so it lines up with the
        heading above it and stops paying 28px of side padding for a frame. */
     .summary-box { padding: 0; margin-bottom: 24px; line-height: 1.7; font-size: 14px; }
-    /* All six levels: the summary is markdown.markdown() output, so the
-       heading depth is the model's to pick, not ours (#64). */
+    /* #288: the same section rank the dashboard's .ai-card headings carry
+       — 16px/600/primary over the box's 14px/600 block heading and 14px/400
+       task — so #92 inherits one ranking rather than two. It used to share
+       .summary-label's 11px uppercase key, and the two stacked 10px apart
+       read as one two-line label with the block heading outranking both.
+       All six levels: _my_plan_summary_body.html renders <h2> only, but the
+       reset in base.css zeroes margins only and leaves Reboot's sizes in place, and a
+       template that ever changes the level would get those instead. */
     .summary-box h1, .summary-box h2, .summary-box h3,
-    .summary-box h4, .summary-box h5, .summary-box h6 { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); letter-spacing: 0.07em; text-transform: uppercase; margin: 20px 0 10px; }
+    .summary-box h4, .summary-box h5, .summary-box h6 { font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin: 20px 0 10px; }
     .summary-box h1:first-child, .summary-box h2:first-child, .summary-box h3:first-child,
     .summary-box h4:first-child, .summary-box h5:first-child, .summary-box h6:first-child { margin-top: 0; }
     /* Same guard as .ai-card p on the dashboard: since #64 the reset in
