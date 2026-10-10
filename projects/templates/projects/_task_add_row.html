@@ -66,11 +66,11 @@ The two name tables travel as data attributes because the label has to be
 recomposed in the client after a pick: every other surface gets its new
 label from the write's own response, and this row's pick writes nothing.
 date_format.py stays the one source of the names (planner_tags.date_names),
-which hands over the tables that role spells with; what task_add_row.js owns
-is the composition alone, and that is one template literal for both roles
-because they differ in the month table and in nothing else.
+which hands over the tables that role spells with, and of the shape they go
+into (planner_tags.date_pattern), which is whatever DATE_STYLE resolves the
+role to (#192). What task_add_row.js owns is filling the pattern's tokens.
 {% endcomment %}{% load planner_tags %}{% if not viewing_demo_data and not sim_date %}
-<div class="task-add-row" data-project-id="{{ project_id }}" data-weekdays="{% date_names 'weekdays' date_role %}" data-months="{% date_names 'months' date_role %}">
+<div class="task-add-row" data-project-id="{{ project_id }}" data-weekdays="{% date_names 'weekdays' date_role %}" data-months="{% date_names 'months' date_role %}" data-date-pattern="{% date_pattern date_role %}">
     <input type="text" class="task-add-name" placeholder="Neue Aufgabe" aria-label="Neue Aufgabe">
     {% with today_display=today|plan_date:date_role %}<button type="button" class="task-due task-add-date" data-raw-date="{{ today|date:'Y-m-d' }}" title="Fälligkeitsdatum wählen" aria-label="Fällig am, aktuell {{ today_display }}">{{ today_display }}</button>{% endwith %}
     <button type="button" class="task-add-submit">Hinzufügen</button>

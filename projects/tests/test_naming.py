@@ -22,6 +22,7 @@ from django.test import (
 from django.urls import reverse
 
 from ..date_format import (
+    DATE_STYLES,
     format_date,
     format_week_range,
 )
@@ -325,6 +326,92 @@ class DateFormatModuleTest(SimpleTestCase):
             format_week_range(date(2026, 3, 30), date(2026, 4, 5)),
             "30. Mär – 5. April",
         )
+
+
+class DateStyleTest(SimpleTestCase):
+    """#192: settings.DATE_STYLE picks one of a fixed set of named styles,
+    and each style decides what every role resolves to. The role stays the
+    call site's choice — a style never changes which roles exist, only what
+    they produce."""
+
+    # A Tuesday, so the numeric forms show their zero padding and the
+    # weekday is not the table's first entry.
+    DAY = date(2026, 3, 3)
+
+    EXPECTED = {
+        "standard": {
+            "long": "Di, 3. März",
+            "row": "Di, 3. Mär",
+            "short": "03.03.",
+            "note": "3. März",
+        },
+        "numeric": {
+            "long": "Di, 03.03.",
+            "row": "Di, 03.03.",
+            "short": "03.03.",
+            "note": "03.03.",
+        },
+        "no_weekday": {
+            "long": "3. März",
+            "row": "3. Mär",
+            "short": "03.03.",
+            "note": "3. März",
+        },
+    }
+
+    def test_every_style_resolves_every_role(self):
+        for style, roles in self.EXPECTED.items():
+            for role, expected in roles.items():
+                with (
+                    self.subTest(style=style, role=role),
+                    override_settings(DATE_STYLE=style),
+                ):
+                    self.assertEqual(format_date(self.DAY, role=role), expected)
+
+    def test_the_table_above_covers_every_style_and_role(self):
+        # So a style or role added to date_format without a line here fails
+        # rather than going untested.
+        self.assertEqual(set(DATE_STYLES), set(self.EXPECTED))
+        for style, patterns in DATE_STYLES.items():
+            with self.subTest(style=style):
+                self.assertEqual(set(patterns), set(self.EXPECTED[style]))
+
+    def test_standard_is_what_the_app_rendered_before_the_setting(self):
+        with override_settings(DATE_STYLE="standard"):
+            self.assertEqual(format_date(date(2026, 6, 15)), "Mo, 15. Juni")
+
+    def test_the_setting_is_read_at_call_time(self):
+        # No import-time snapshot: a changed setting takes effect on the
+        # next render, with nothing cached in between (#189).
+        with override_settings(DATE_STYLE="standard"):
+            self.assertEqual(format_date(self.DAY), "Di, 3. März")
+        with override_settings(DATE_STYLE="numeric"):
+            self.assertEqual(format_date(self.DAY), "Di, 03.03.")
+
+    def test_an_unknown_style_is_an_error_not_a_fallback(self):
+        # Same reasoning as an unknown role: a typo in .env would otherwise
+        # render the default and look like the setting had no effect.
+        with override_settings(DATE_STYLE="numerisch"):
+            with self.assertRaises(ValueError) as caught:
+                format_date(self.DAY)
+            self.assertIn("numerisch", str(caught.exception))
+            with self.assertRaises(ValueError):
+                format_date(None)
+
+    def test_the_week_range_does_not_follow_the_style(self):
+        # It also goes into the close-out prompt (ai.py), whose dates the
+        # setting must not reach.
+        for style in DATE_STYLES:
+            with self.subTest(style=style), override_settings(DATE_STYLE=style):
+                self.assertEqual(
+                    format_week_range(date(2026, 3, 2), date(2026, 3, 8)),
+                    "2.–8. März",
+                )
+
+    def test_the_template_filter_follows_the_style(self):
+        template = Template('{% load planner_tags %}{{ v|plan_date:"row" }}')
+        with override_settings(DATE_STYLE="no_weekday"):
+            self.assertEqual(template.render(Context({"v": self.DAY})), "3. Mär")
 
 
 class PlanDateFilterTest(SimpleTestCase):

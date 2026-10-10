@@ -819,17 +819,18 @@ two ways in.
 The one thing the add row composes for itself is the label after a pick. Every other
 surface reads its new label off the write's own response (`due_display_row`); this one
 writes nothing when a date is picked, so it has no response to read. The German names still
-come from `date_format.py`, handed to the partial by `planner_tags.date_names`, so what is
-duplicated is a single template literal — and a test composes it in Python against those
-tables and compares the result with `format_date()`.
+come from `date_format.py`, handed to the partial by `planner_tags.date_names`, and since
+#192 so does the shape: `planner_tags.date_pattern` hands over the pattern the configured
+`DATE_STYLE` resolves the role to. What is duplicated is the set of tokens the client fills
+— and a test reads that set out of the module, composes the label in Python for every
+style and both roles, and compares the result with `format_date()`.
 
 Which *form* it composes is the including surface's, passed as `date_role` beside
 `project_id`: #238 settled the display form per surface, so the dashboard's rows abbreviate
 the month and `/mein-plan/`'s list writes it out, and a row pinned to one of the two would
 be the odd date on the other page — the very defect #279 is about. It costs one include
-argument and nothing in the client, because the two roles differ in the month table and in
-nothing else: `date_names` hands over the table that role spells with, and the one template
-literal serves both.
+argument and nothing in the client: `date_names` hands over the table that role spells
+with, `date_pattern` the shape, and the same token filling serves both.
 
 The stage class is *not* duplicated: urgency belongs to a task that exists, and re-deriving
 `_classify_due_urgency` in the client is the half of #198 that was settled the other way.

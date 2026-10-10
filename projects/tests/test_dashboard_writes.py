@@ -21,10 +21,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..ai import AIUnavailableError
-from ..date_format import format_date
+from ..date_format import DATE_STYLES, format_date
 from ..dates import iso_week_bounds
 from ..notion import NotionUnavailableError
-from ..templatetags.planner_tags import date_names
+from ..templatetags.planner_tags import date_names, date_pattern
 from ..views import (
     _URGENCY_RANK,
     CACHE_DEADLINE_KEY,
@@ -2249,17 +2249,16 @@ class TheAddRowsLabelMirrorsItsSurfacesRoleTest(DemoModeTestCase):
     that: painting a rescheduled row's *stage*, which meant re-deriving
     #169's calendar-week urgency rule in JavaScript. There is no urgency
     here, and the names still come from date_format.py — handed to the
-    partial by planner_tags.date_names, so #192 finds both halves.
+    partial by planner_tags.date_names.
 
-    One literal, two roles. "long" and "row" differ in the month table and in
-    nothing else, so the surface's role decides which table travels and the
-    composition in the client is the same either way — which is what lets the
-    add row follow the list it closes instead of being the odd date on one of
-    the two pages."""
+    Since #192 the shape travels too: planner_tags.date_pattern hands over
+    whatever DATE_STYLE resolves the surface's role to, and the client fills
+    its tokens. What the module owns is the token set, which is what these
+    tests pin — so the add row follows the list it closes in every style
+    instead of being the odd date on one of the two pages."""
 
     TEMPLATES = Path(settings.BASE_DIR) / "projects/templates/projects"
     MODULE = Path(settings.BASE_DIR) / "projects/static/projects/js/task_add_row.js"
-    LITERAL = re.compile(r"return `([^`]+)`;")
 
     def test_the_names_are_rendered_from_the_server(self):
         self.given_session_plan()
@@ -2284,38 +2283,73 @@ class TheAddRowsLabelMirrorsItsSurfacesRoleTest(DemoModeTestCase):
         partial = (self.TEMPLATES / "_task_add_row.html").read_text()
         self.assertIn("{% date_names 'weekdays' date_role %}", partial)
         self.assertIn("{% date_names 'months' date_role %}", partial)
+        self.assertIn("{% date_pattern date_role %}", partial)
 
     def test_the_module_carries_no_name_list_of_its_own(self):
         # The duplication that would actually cost something: a second table
-        # drifts silently when #192 or a typo changes the first. Both months
+        # drifts silently when a style or a typo changes the first. Both months
         # tables, since either role's can be the one handed over.
         source = self.MODULE.read_text()
         for name in ("'Jan'", "'Mo'", "'Dez'", "'So'", "'Januar'", "'Dezember'"):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    # Each entry of the module's `parts` object, as the JavaScript it is
+    # written in, and the value that expression takes for a given date and
+    # name tables. Read out of the module rather than restated, so a token
+    # renamed or added on either side fails here.
+    PARTS = re.compile(r"const parts = \{(.*?)\};", re.DOTALL)
+    PART = re.compile(r"(\w+): (.+?),\s*$", re.MULTILINE)
+    PART_VALUES = {
+        "WEEKDAYS[(d.getDay() + 6) % 7]": lambda d, w, m: w[d.weekday()],
+        "String(d.getDate())": lambda d, w, m: str(d.day),
+        "String(d.getDate()).padStart(2, '0')": lambda d, w, m: f"{d.day:02d}",
+        "String(d.getMonth() + 1).padStart(2, '0')": (lambda d, w, m: f"{d.month:02d}"),
+        "MONTHS[d.getMonth()]": lambda d, w, m: m[d.month - 1],
+    }
+
+    def client_parts(self):
+        match = self.PARTS.search(self.MODULE.read_text())
+        self.assertIsNotNone(match, "formatRowDate's parts object moved")
+        return dict(self.PART.findall(match.group(1)))
+
+    def test_the_client_fills_every_token_a_style_uses(self):
+        tokens = set(self.client_parts())
+        for style, patterns in DATE_STYLES.items():
+            for role, pattern in patterns.items():
+                with self.subTest(style=style, role=role):
+                    used = set(re.findall(r"\{(\w+)\}", pattern))
+                    self.assertLessEqual(used, tokens)
+
     def test_the_composed_label_is_the_role_the_surface_passed(self):
-        # The template literal is read out of the module and composed in
-        # Python against the tables the tag hands over, so the client's
-        # format, date_names and format_date cannot drift apart without this
-        # failing — for either role the add row can be included under.
+        # The parts object is read out of the module and evaluated in Python
+        # against the tables and pattern the tags hand over, so the client's
+        # format, date_names, date_pattern and format_date cannot drift apart
+        # without this failing — for every style, and for either role the
+        # add row can be included under.
         d = date(2026, 12, 15)
-        match = self.LITERAL.search(self.MODULE.read_text())
-        self.assertIsNotNone(match, "formatRowDate's template literal moved")
-        for role in ("row", "long"):
-            with self.subTest(role=role):
-                weekdays = date_names("weekdays", role).split(",")
-                months = date_names("months", role).split(",")
-                composed = match.group(1)
-                for placeholder, value in (
-                    ("${WEEKDAYS[(d.getDay() + 6) % 7]}", weekdays[d.weekday()]),
-                    ("${d.getDate()}", str(d.day)),
-                    ("${MONTHS[d.getMonth()]}", months[d.month - 1]),
+        parts = self.client_parts()
+        for style in DATE_STYLES:
+            for role in ("row", "long"):
+                with (
+                    self.subTest(style=style, role=role),
+                    override_settings(DATE_STYLE=style),
                 ):
-                    self.assertIn(placeholder, composed)
-                    composed = composed.replace(placeholder, value)
-                self.assertNotIn("${", composed)
-                self.assertEqual(composed, format_date(d, role=role))
+                    weekdays = date_names("weekdays", role).split(",")
+                    months = date_names("months", role).split(",")
+                    values = {
+                        token: self.PART_VALUES[expression](d, weekdays, months)
+                        for token, expression in parts.items()
+                    }
+                    composed = date_pattern(role).format(**values)
+                    self.assertEqual(composed, format_date(d, role=role))
+
+    def test_the_rendered_pattern_follows_the_setting(self):
+        self.given_session_plan()
+        for style in DATE_STYLES:
+            with self.subTest(style=style), override_settings(DATE_STYLE=style):
+                html = self.client.get(reverse("dashboard")).content.decode()
+                self.assertIn(f'data-date-pattern="{DATE_STYLES[style]["row"]}"', html)
 
     def test_an_unknown_name_table_or_role_raises(self):
         # format_date's reason: both are named as bare strings from a
@@ -2336,6 +2370,8 @@ class TheAddRowsLabelMirrorsItsSurfacesRoleTest(DemoModeTestCase):
                 format_date(date(2026, 12, 15), role=role)
             with self.subTest(role=role), self.assertRaises(ValueError):
                 date_names("months", role)
+            with self.subTest(role=role), self.assertRaises(ValueError):
+                date_pattern(role)
 
 
 class TheAddRowSendsIsoTest(DemoModeTestCase):

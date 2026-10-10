@@ -53,18 +53,28 @@ function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {}) {
         // value that is sent is never parsed out of a formatted label.
         let iso = dateEl.dataset.rawDate;
 
-        // The "row" role of date_format.py, in the client. The names come
-        // from the server (the partial's data-weekdays/data-months), so what
-        // is duplicated is this one template literal and nothing else — a
-        // test pins it against format_date(..., role="row"). getDay() counts
+        // The surface's date role, in the client. Both the names and the
+        // pattern come from the server (the partial's data-weekdays,
+        // data-months and data-date-pattern), so the configured DATE_STYLE
+        // reaches this label the same way it reaches every other (#192).
+        // What is duplicated is the token set below and nothing else — a
+        // test pins it against date_format.DATE_STYLES. getDay() counts
         // from Sunday and WEEKDAYS_SHORT from Monday, hence the shift.
         const WEEKDAYS = row.dataset.weekdays.split(',');
         const MONTHS = row.dataset.months.split(',');
+        const PATTERN = row.dataset.datePattern;
         const formatRowDate = isoDate => {
             // Noon, so a UTC-negative offset cannot land the parsed date on
             // the previous day the way midnight would.
             const d = new Date(isoDate + 'T12:00:00');
-            return `${WEEKDAYS[(d.getDay() + 6) % 7]}, ${d.getDate()}. ${MONTHS[d.getMonth()]}`;
+            const parts = {
+                weekday: WEEKDAYS[(d.getDay() + 6) % 7],
+                day: String(d.getDate()),
+                dd: String(d.getDate()).padStart(2, '0'),
+                mm: String(d.getMonth() + 1).padStart(2, '0'),
+                month: MONTHS[d.getMonth()],
+            };
+            return PATTERN.replace(/\{(\w+)\}/g, (_, token) => parts[token]);
         };
 
         dateEl.addEventListener('click', () => {

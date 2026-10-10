@@ -6,7 +6,13 @@ module is autodiscovered — templates only need `{% load planner_tags %}`.
 
 from django import template
 
-from ..date_format import MONTHS_DE, MONTHS_SHORT, WEEKDAYS_SHORT, format_date
+from ..date_format import (
+    MONTHS_DE,
+    MONTHS_SHORT,
+    WEEKDAYS_SHORT,
+    format_date,
+    role_pattern,
+)
 
 register = template.Library()
 
@@ -22,14 +28,12 @@ def plan_date(d, role="long"):
 
 # #279: the two name tables the add row's date has to compose a label from in
 # the client. Rendered from here rather than retyped in JavaScript, so
-# date_format stays the one place the German names live and #192 finds them
-# all in it.
+# date_format stays the one place the German names live.
 #
 # Per role, because which form a surface spells a date in is a statement about
 # that surface (#238) and the add row follows the list it closes: the
-# dashboard's rows abbreviate the month, /mein-plan/'s write it out. The roles
-# differ in nothing else — same weekdays, same shape — which is why one
-# template literal in the client serves both and only the tables travel.
+# dashboard's rows abbreviate the month, /mein-plan/'s write it out. The shape
+# the names go into travels separately, through date_pattern below (#192).
 #
 # Ordered as the client indexes them: weekdays from Monday (the order
 # WEEKDAYS_SHORT is already in), months from January.
@@ -63,3 +67,20 @@ def date_names(table, role):
             f"for one of {', '.join(sorted(_NAME_TABLES))}"
         ) from None
     return ",".join(names)
+
+
+@register.simple_tag
+def date_pattern(role):
+    """The pattern the configured DATE_STYLE resolves a role to, for the add
+    row to fill in the client (#192). Handed over rather than mirrored in
+    JavaScript, so a style is written once, in date_format.DATE_STYLES.
+
+    Limited to the roles date_names serves, and for its reason: the client
+    can only fill a pattern whose names it was handed. An unknown role
+    raises."""
+    if role not in _NAME_TABLES:
+        raise ValueError(
+            f"no client date pattern for role {role!r} — expected one of "
+            f"{', '.join(sorted(_NAME_TABLES))}"
+        )
+    return role_pattern(role)
