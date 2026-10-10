@@ -13,7 +13,10 @@ Aufgabe ist am …": a date already gone is not the next task, and naming it
 as one would be the same failure this note exists to prevent. It cannot
 meet "Diese Woche steht nichts an." — an overdue task is what makes that
 first sentence false.
+
+closing_period rather than a literal period after the date (#192): under the
+"numeric" style the date already ends in one.
 {% endcomment %}
 {% if state.week_is_clear %}Diese Woche steht nichts an.{% endif %}
-{% if state.overdue_since %}Überfällig seit dem {{ state.overdue_since|plan_date:"note" }}.{% endif %}
-{% if state.next_due %}Die nächste Aufgabe ist am {{ state.next_due|plan_date:"note" }}.{% endif %}
+{% if state.overdue_since %}{% with label=state.overdue_since|plan_date:"note" %}Überfällig seit dem {{ label }}{{ label|closing_period }}{% endwith %}{% endif %}
+{% if state.next_due %}{% with label=state.next_due|plan_date:"note" %}Die nächste Aufgabe ist am {{ label }}{{ label|closing_period }}{% endwith %}{% endif %}

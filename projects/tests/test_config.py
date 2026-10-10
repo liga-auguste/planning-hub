@@ -30,10 +30,13 @@ from django.urls import reverse
 
 from planning_hub.env import apply_credentials
 
+from ..date_format import DATE_STYLES
 from ..models import DemoEvent
 from ..startup import (
+    InvalidDateStyleError,
     MissingAPIKeyError,
     require_api_keys,
+    require_valid_date_style,
 )
 from .base import DemoModeTestCase
 
@@ -510,6 +513,37 @@ class RequiredApiKeysTest(SimpleTestCase):
             require_api_keys()
         self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
         self.assertIn("NOTION_API_KEY", str(ctx.exception))
+
+
+class RequiredDateStyleTest(SimpleTestCase):
+    """#192: wsgi.py checks DATE_STYLE before serving, for RequiredApiKeysTest's
+    reason and one of its own: no deploy check renders a date, so the raise in
+    date_format alone would let a typo deploy green and fail every dashboard
+    request afterwards."""
+
+    def test_every_named_style_passes(self):
+        for style in DATE_STYLES:
+            with self.subTest(style=style), override_settings(DATE_STYLE=style):
+                require_valid_date_style()
+
+    def test_a_typo_raises_and_names_the_value(self):
+        with (
+            override_settings(DATE_STYLE="no-weekday"),
+            self.assertRaises(InvalidDateStyleError) as ctx,
+        ):
+            require_valid_date_style()
+        self.assertIn("no-weekday", str(ctx.exception))
+
+    def test_an_empty_value_raises_rather_than_meaning_the_default(self):
+        with (
+            override_settings(DATE_STYLE=""),
+            self.assertRaises(InvalidDateStyleError),
+        ):
+            require_valid_date_style()
+
+    def test_wsgi_calls_it(self):
+        source = (settings.BASE_DIR / "planning_hub/wsgi.py").read_text()
+        self.assertIn("require_valid_date_style()", source)
 
 
 class NginxDemoRateLimitTest(SimpleTestCase):
