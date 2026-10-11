@@ -15,6 +15,9 @@ uses in the templates are fully numeric, locale-invariant formats. Removing
 these would buy nothing.
 """
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from django.conf import settings
 
 MONTHS_DE = {
@@ -49,7 +52,8 @@ WEEKDAYS_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 
 # #192: every display date is a role (chosen per call site, below) resolved
-# through a style (chosen once, settings.DATE_STYLE). The two axes stay
+# through a style (chosen on /regeln/, settings.DATE_STYLE by default —
+# see active_style). The two axes stay
 # separate because the surfaces need different densities whatever the style
 # — a calendar card has no room for a weekday in any of them.
 #
@@ -107,8 +111,37 @@ _ROLE_MONTHS = {
 }
 
 
+# #192 option 2: which style this request renders in. Set per request by
+# display_style.DateStyleMiddleware to a zero-argument callable, so the stored
+# choice is only looked up once something actually formats a date. Unset
+# outside a request (management commands, tests calling format_date
+# directly), where settings.DATE_STYLE decides. A ContextVar rather than a
+# request argument: format_date is reached from templates and JSON responses
+# alike, and threading a request through every call site would change all of
+# them for a value that is the same everywhere within one request.
+_style_resolver = ContextVar("date_style_resolver", default=None)
+
+
+@contextmanager
+def style_resolver(resolve):
+    """Makes format_date resolve its style through `resolve` (a zero-argument
+    callable) inside the block, and restores the previous resolver after."""
+    token = _style_resolver.set(resolve)
+    try:
+        yield
+    finally:
+        _style_resolver.reset(token)
+
+
+def active_style():
+    """The style this request renders in: the one chosen on /regeln/ if any,
+    otherwise settings.DATE_STYLE."""
+    resolver = _style_resolver.get()
+    return resolver() if resolver else settings.DATE_STYLE
+
+
 def role_pattern(role):
-    """The pattern the configured style resolves a role to.
+    """The pattern the active style resolves a role to.
 
     An unknown role raises rather than falling back to "long": callers pass
     the role as a bare string, including from templates, so a typo has no
@@ -117,10 +150,10 @@ def role_pattern(role):
     a typo in .env would otherwise render the default and look like the
     setting had no effect.
 
-    The setting is read on every call, not once at import, so a changed
-    DATE_STYLE takes effect on the next render.
+    The style is resolved on every call, not once at import, so a changed
+    choice takes effect on the next render.
     """
-    style = settings.DATE_STYLE
+    style = active_style()
     try:
         patterns = DATE_STYLES[style]
     except KeyError:
@@ -149,7 +182,7 @@ def _date_parts(d, role):
 
 def format_date(d, role="long"):
     """A display date in the format the given role calls for, in the
-    configured style.
+    active style.
 
     The role argument exists because no single format serves every surface:
     a task row wants the weekday but not the spelled-out month ("Mo, 15.

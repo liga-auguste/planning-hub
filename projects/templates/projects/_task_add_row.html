@@ -67,8 +67,8 @@ recomposed in the client after a pick: every other surface gets its new
 label from the write's own response, and this row's pick writes nothing.
 date_format.py stays the one source of the names (planner_tags.date_names),
 which hands over the tables that role spells with, and of the shape they go
-into (planner_tags.date_pattern), which is whatever DATE_STYLE resolves the
-role to (#192). What task_add_row.js owns is filling the pattern's tokens.
+into (planner_tags.date_pattern), which is whatever the active style resolves
+the role to (#192). What task_add_row.js owns is filling the pattern's tokens.
 {% endcomment %}{% load planner_tags %}{% if not viewing_demo_data and not sim_date %}
 <div class="task-add-row" data-project-id="{{ project_id }}" data-weekdays="{% date_names 'weekdays' date_role %}" data-months="{% date_names 'months' date_role %}" data-date-pattern="{% date_pattern date_role %}">
     <input type="text" class="task-add-name" placeholder="Neue Aufgabe" aria-label="Neue Aufgabe">

@@ -6,13 +6,15 @@ from urllib.parse import urlencode
 import markdown as md
 from django.conf import settings
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from . import display_style
 from . import rules as rules_store
 from .ai import KONTEXTE, AIUnavailableError
+from .date_format import DATE_STYLES, format_date, style_resolver
 from .demo_data import get_demo_history
 from .models import DemoEvent
 from .notion import (
@@ -521,8 +523,46 @@ def rules_list(request):
             "back_type_label": next(
                 (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
             ),
+            "date_styles": _date_style_options(request),
         },
     )
+
+
+def _date_style_options(request):
+    """One entry per style for the /regeln/ form, each with today in that
+    style's two most visible roles, so the choice is made between real
+    dates rather than between names (#192)."""
+    current = display_style.get_style(request)
+    today = timezone.localdate()
+    options = []
+    for style in DATE_STYLES:
+        # The example has to render in the style it illustrates, not in the
+        # one this request is set to — hence the patterns are filled
+        # directly rather than through format_date.
+        options.append(
+            {
+                "value": style,
+                "label": display_style.STYLE_LABELS[style],
+                "examples": [
+                    _format_in_style(today, style, role) for role in ("long", "row")
+                ],
+                "checked": style == current,
+            }
+        )
+    return options
+
+
+def _format_in_style(d, style, role):
+    with style_resolver(lambda: style):
+        return format_date(d, role=role)
+
+
+def date_style_update(request):
+    if request.method != "POST":
+        return redirect("rules_list")
+    if not display_style.set_style(request, request.POST.get("date_style", "")):
+        return HttpResponseBadRequest("unknown date style")
+    return redirect("rules_list")
 
 
 def rule_add(request):

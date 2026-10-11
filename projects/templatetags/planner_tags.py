@@ -81,7 +81,7 @@ def date_names(table, role):
 
 @register.simple_tag
 def date_pattern(role):
-    """The pattern the configured DATE_STYLE resolves a role to, for the add
+    """The pattern the active date style resolves a role to, for the add
     row to fill in the client (#192). Handed over rather than mirrored in
     JavaScript, so a style is written once, in date_format.DATE_STYLES.
 

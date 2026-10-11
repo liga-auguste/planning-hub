@@ -820,8 +820,8 @@ The one thing the add row composes for itself is the label after a pick. Every o
 surface reads its new label off the write's own response (`due_display_row`); this one
 writes nothing when a date is picked, so it has no response to read. The German names still
 come from `date_format.py`, handed to the partial by `planner_tags.date_names`, and since
-#192 so does the shape: `planner_tags.date_pattern` hands over the pattern the configured
-`DATE_STYLE` resolves the role to. What is duplicated is the set of tokens the client fills
+#192 so does the shape: `planner_tags.date_pattern` hands over the pattern the active
+style (chosen on `/regeln/`, else `DATE_STYLE`) resolves the role to. What is duplicated is the set of tokens the client fills
 — and a test reads that set out of the module, composes the label in Python for every
 style and both roles, and compares the result with `format_date()`.
 
