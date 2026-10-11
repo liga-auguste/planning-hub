@@ -87,3 +87,16 @@ class RulesSeeded(models.Model):
     defaults on the next deploy."""
 
     seeded_at = models.DateTimeField(auto_now_add=True)
+
+
+class DisplaySetting(models.Model):
+    """The date style chosen on /regeln/ in production (#192 option 2). One
+    row at most, always pk=1: the deployment has one maintainer and no user
+    model, so the choice is global, like PlannerRule. No row means nothing
+    was chosen and settings.DATE_STYLE decides. Demo mode keeps the choice in
+    the session instead (display_style.py)."""
+
+    date_style = models.CharField("Datumsformat", max_length=20)
+
+    def __str__(self):
+        return self.date_style

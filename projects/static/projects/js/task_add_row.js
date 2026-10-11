@@ -55,7 +55,7 @@ function bindTaskAddRows(csrfToken, {serialize = fn => fn()} = {}) {
 
         // The surface's date role, in the client. Both the names and the
         // pattern come from the server (the partial's data-weekdays,
-        // data-months and data-date-pattern), so the configured DATE_STYLE
+        // data-months and data-date-pattern), so the active date style
         // reaches this label the same way it reaches every other (#192).
         // What is duplicated is the token set below and nothing else — a
         // test pins it against date_format.DATE_STYLES. getDay() counts

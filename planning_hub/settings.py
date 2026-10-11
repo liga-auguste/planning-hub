@@ -41,7 +41,8 @@ DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
 # #192: how displayed dates are spelled — one of the named styles in
 # projects/date_format.py (DATE_STYLES): "standard", "numeric" or
-# "no_weekday". Deploy-time only; there is no UI for it. Validated at process
+# "no_weekday". The default: a style chosen on /regeln/ overrides it
+# (projects/display_style.py). Validated at process
 # start by projects.startup.require_valid_date_style (called from wsgi.py),
 # not here: the valid names live in date_format, which settings cannot import.
 DATE_STYLE = os.environ.get("DATE_STYLE", "standard")
@@ -144,6 +145,8 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # #192 option 2: after SessionMiddleware, which the demo backend reads.
+    "projects.display_style.DateStyleMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 

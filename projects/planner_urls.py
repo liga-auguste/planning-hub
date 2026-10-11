@@ -13,4 +13,9 @@ urlpatterns = [
     path("regeln/update/<int:rule_id>/", planner_views.rule_update, name="rule_update"),
     path("regeln/delete/<int:rule_id>/", planner_views.rule_delete, name="rule_delete"),
     path("regeln/reorder/", planner_views.rule_reorder, name="rule_reorder"),
+    path(
+        "regeln/date-style/",
+        planner_views.date_style_update,
+        name="date_style_update",
+    ),
 ]

@@ -5,14 +5,17 @@ from urllib.parse import urlencode
 
 import markdown as md
 from django.conf import settings
+from django.contrib import messages
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from . import display_style
 from . import rules as rules_store
 from .ai import KONTEXTE, AIUnavailableError
+from .date_format import DATE_STYLES, format_date, style_resolver
 from .demo_data import get_demo_history
 from .models import DemoEvent
 from .notion import (
@@ -509,6 +512,24 @@ def planner_create(request):
 # --- Rule management ---
 
 
+# The query value the sidebar's link to /regeln/ carries, so the page can
+# offer the way back to where the visitor came from: the dashboard, rather
+# than the planner every other entry point is part of (#192).
+FROM_DASHBOARD = "dashboard"
+
+
+def _came_from_dashboard(request):
+    return (request.GET.get("from") or request.POST.get("from")) == FROM_DASHBOARD
+
+
+def _rules_url(request, anchor=""):
+    """/regeln/, keeping the way back a visitor arrived with across a save."""
+    url = reverse("rules_list")
+    if _came_from_dashboard(request):
+        url += f"?from={FROM_DASHBOARD}"
+    return url + anchor
+
+
 def rules_list(request):
     project_type = request.session.get("demo_project_type", "")
     return render(
@@ -521,8 +542,52 @@ def rules_list(request):
             "back_type_label": next(
                 (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
             ),
+            "date_styles": _date_style_options(request),
+            "from_dashboard": _came_from_dashboard(request),
         },
     )
+
+
+def _date_style_options(request):
+    """One entry per style for the /regeln/ form, each with today in that
+    style's two most visible roles, so the choice is made between real
+    dates rather than between names (#192)."""
+    current = display_style.get_style(request)
+    today = timezone.localdate()
+    options = []
+    for style in DATE_STYLES:
+        # The example has to render in the style it illustrates, not in the
+        # one this request is set to — hence the patterns are filled
+        # directly rather than through format_date.
+        options.append(
+            {
+                "value": style,
+                "label": display_style.STYLE_LABELS[style],
+                "examples": [
+                    _format_in_style(today, style, role) for role in ("long", "row")
+                ],
+                "checked": style == current,
+            }
+        )
+    return options
+
+
+def _format_in_style(d, style, role):
+    with style_resolver(lambda: style):
+        return format_date(d, role=role)
+
+
+def date_style_update(request):
+    if request.method != "POST":
+        return redirect(_rules_url(request))
+    if not display_style.set_style(request, request.POST.get("date_style", "")):
+        return HttpResponseBadRequest("unknown date style")
+    # The page looks the same after a save — the choice was already marked
+    # and the examples never change — so without a note a save reads as a
+    # click that did nothing. The anchor scrolls back to the section, where
+    # the note renders, instead of to the top of the page.
+    messages.success(request, "Datumsformat gespeichert.")
+    return redirect(_rules_url(request, "#datumsformat"))
 
 
 def rule_add(request):
@@ -530,7 +595,7 @@ def rule_add(request):
         text = request.POST.get("text", "").strip()
         if text:
             rules_store.add_rule(request, text, request.POST.getlist("project_types"))
-    return redirect("rules_list")
+    return redirect(_rules_url(request))
 
 
 def rule_toggle(request, rule_id):

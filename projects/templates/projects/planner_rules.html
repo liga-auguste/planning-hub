@@ -54,6 +54,18 @@
     .btn-add { background: var(--color-solid-bg); border: none; border-radius: var(--radius-pill); padding: 11px 22px; color: var(--color-solid-text); font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; align-self: flex-end; }
     .btn-add:hover { opacity: 0.85; }
     .empty { color: var(--color-text-quaternary); padding: 16px 0; }
+    /* #192: the date style. Below the rules, under the same small heading as
+       "Neue Regel", because it is a setting of the same weight: one choice,
+       made rarely. */
+    .date-style-section { margin-top: 36px; }
+    .date-style-section h2 { font-size: 13px; font-weight: 600; color: var(--color-text-quaternary); margin-bottom: 4px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .date-style-section .hint { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 12px; line-height: 1.5; }
+    .date-style-option { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--color-border-primary); cursor: pointer; }
+    .date-style-option input { flex-shrink: 0; }
+    .date-style-name { font-weight: 600; min-width: 120px; }
+    .date-style-examples { color: var(--color-text-quaternary); }
+    .date-style-form .btn-add { margin-top: 14px; }
+    .date-style-saved { background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
 
     /* This page is the one planner page built on Bootstrap's .card rather
        than .planner-card, so it does not include _planner_css.html and has
@@ -89,7 +101,9 @@
 
 {% block content %}
 <div class="card"><div class="card-body">
-    {% if back_type %}
+    {% if from_dashboard %}
+    <a href="{% url 'dashboard' %}" class="back">← Dashboard</a>
+    {% elif back_type %}
     <a href="{% url 'planner_start' %}?type={{ back_type|urlencode }}" class="back">← Planer</a>
     {% else %}
     <a href="{% url 'planner_start' %}" class="back">← Planer</a>
@@ -131,9 +145,28 @@
         <h2>Neue Regel</h2>
         <form method="post" action="{% url 'rule_add' %}" class="add-form">
             {% csrf_token %}
+            {% if from_dashboard %}<input type="hidden" name="from" value="dashboard">{% endif %}
             <textarea name="text"
                 placeholder="z.B. Bei externen Dienstleistern immer Angebot und Vertrag einplanen"></textarea>
             <button type="submit" class="btn-add">Hinzufügen</button>
+        </form>
+    </div>
+
+    <div class="date-style-section" id="datumsformat">
+        <h2>Datumsformat</h2>
+        {% for message in messages %}<p class="date-style-saved" role="status">{{ message }}</p>{% endfor %}
+        <p class="hint">So erscheinen Termine und Fälligkeiten in der App, gezeigt am heutigen Datum.{% if demo_mode %} Im Demo-Modus gilt die Auswahl nur für diesen Besuch.{% endif %}</p>
+        <form method="post" action="{% url 'date_style_update' %}" class="date-style-form">
+            {% csrf_token %}
+            {% if from_dashboard %}<input type="hidden" name="from" value="dashboard">{% endif %}
+            {% for option in date_styles %}
+            <label class="date-style-option">
+                <input type="radio" name="date_style" value="{{ option.value }}"{% if option.checked %} checked{% endif %}>
+                <span class="date-style-name">{{ option.label }}</span>
+                <span class="date-style-examples">{{ option.examples|join:" · " }}</span>
+            </label>
+            {% endfor %}
+            <button type="submit" class="btn-add">Speichern</button>
         </form>
     </div>
 </div></div>
