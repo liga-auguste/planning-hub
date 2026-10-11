@@ -1525,13 +1525,26 @@ class ProductionRulesSidebarLinkTest(TestCase):
             ),
         ):
             response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, f'href="{reverse("rules_list")}"')
+        self.assertContains(response, f'href="{reverse("rules_list")}?from=dashboard"')
 
 
 class DemoRulesSidebarLinkTest(DemoModeTestCase):
-    def test_dashboard_does_not_link_to_the_rules_page(self):
+    """#192: the rules page holds the date style too, so the demo links to it
+    — reversing #105, under production's name for the same page."""
+
+    def test_dashboard_links_to_the_rules_page(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertNotContains(response, f'href="{reverse("rules_list")}"')
+        self.assertContains(
+            response, f'href="{reverse("rules_list")}?from=dashboard"', count=1
+        )
+        self.assertContains(response, "</span>Planungsregeln")
+
+    def test_the_standalone_pages_link_to_it_too(self):
+        self.given_session_plan()
+        for name in ("my_plan", "close_week_start"):
+            with self.subTest(page=name):
+                response = self.client.get(reverse(name))
+                self.assertContains(response, "</span>Planungsregeln")
 
 
 @override_settings(DEMO_MODE=False)

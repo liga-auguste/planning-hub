@@ -65,6 +65,7 @@
     .date-style-name { font-weight: 600; min-width: 120px; }
     .date-style-examples { color: var(--color-text-quaternary); }
     .date-style-form .btn-add { margin-top: 14px; }
+    .date-style-saved { background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 12px; }
 
     /* This page is the one planner page built on Bootstrap's .card rather
        than .planner-card, so it does not include _planner_css.html and has
@@ -100,7 +101,9 @@
 
 {% block content %}
 <div class="card"><div class="card-body">
-    {% if back_type %}
+    {% if from_dashboard %}
+    <a href="{% url 'dashboard' %}" class="back">← Dashboard</a>
+    {% elif back_type %}
     <a href="{% url 'planner_start' %}?type={{ back_type|urlencode }}" class="back">← Planer</a>
     {% else %}
     <a href="{% url 'planner_start' %}" class="back">← Planer</a>
@@ -142,17 +145,20 @@
         <h2>Neue Regel</h2>
         <form method="post" action="{% url 'rule_add' %}" class="add-form">
             {% csrf_token %}
+            {% if from_dashboard %}<input type="hidden" name="from" value="dashboard">{% endif %}
             <textarea name="text"
                 placeholder="z.B. Bei externen Dienstleistern immer Angebot und Vertrag einplanen"></textarea>
             <button type="submit" class="btn-add">Hinzufügen</button>
         </form>
     </div>
 
-    <div class="date-style-section">
+    <div class="date-style-section" id="datumsformat">
         <h2>Datumsformat</h2>
+        {% for message in messages %}<p class="date-style-saved" role="status">{{ message }}</p>{% endfor %}
         <p class="hint">So erscheinen Termine und Fälligkeiten in der App, gezeigt am heutigen Datum.{% if demo_mode %} Im Demo-Modus gilt die Auswahl nur für diesen Besuch.{% endif %}</p>
         <form method="post" action="{% url 'date_style_update' %}" class="date-style-form">
             {% csrf_token %}
+            {% if from_dashboard %}<input type="hidden" name="from" value="dashboard">{% endif %}
             {% for option in date_styles %}
             <label class="date-style-option">
                 <input type="radio" name="date_style" value="{{ option.value }}"{% if option.checked %} checked{% endif %}>

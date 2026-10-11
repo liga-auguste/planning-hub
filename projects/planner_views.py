@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 import markdown as md
 from django.conf import settings
+from django.contrib import messages
 from django.core.cache import cache
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import redirect, render
@@ -511,6 +512,24 @@ def planner_create(request):
 # --- Rule management ---
 
 
+# The query value the sidebar's link to /regeln/ carries, so the page can
+# offer the way back to where the visitor came from: the dashboard, rather
+# than the planner every other entry point is part of (#192).
+FROM_DASHBOARD = "dashboard"
+
+
+def _came_from_dashboard(request):
+    return (request.GET.get("from") or request.POST.get("from")) == FROM_DASHBOARD
+
+
+def _rules_url(request, anchor=""):
+    """/regeln/, keeping the way back a visitor arrived with across a save."""
+    url = reverse("rules_list")
+    if _came_from_dashboard(request):
+        url += f"?from={FROM_DASHBOARD}"
+    return url + anchor
+
+
 def rules_list(request):
     project_type = request.session.get("demo_project_type", "")
     return render(
@@ -524,6 +543,7 @@ def rules_list(request):
                 (t["label"] for t in PLANNER_TILES if t["type"] == project_type), ""
             ),
             "date_styles": _date_style_options(request),
+            "from_dashboard": _came_from_dashboard(request),
         },
     )
 
@@ -559,10 +579,15 @@ def _format_in_style(d, style, role):
 
 def date_style_update(request):
     if request.method != "POST":
-        return redirect("rules_list")
+        return redirect(_rules_url(request))
     if not display_style.set_style(request, request.POST.get("date_style", "")):
         return HttpResponseBadRequest("unknown date style")
-    return redirect("rules_list")
+    # The page looks the same after a save — the choice was already marked
+    # and the examples never change — so without a note a save reads as a
+    # click that did nothing. The anchor scrolls back to the section, where
+    # the note renders, instead of to the top of the page.
+    messages.success(request, "Datumsformat gespeichert.")
+    return redirect(_rules_url(request, "#datumsformat"))
 
 
 def rule_add(request):
@@ -570,7 +595,7 @@ def rule_add(request):
         text = request.POST.get("text", "").strip()
         if text:
             rules_store.add_rule(request, text, request.POST.getlist("project_types"))
-    return redirect("rules_list")
+    return redirect(_rules_url(request))
 
 
 def rule_toggle(request, rule_id):

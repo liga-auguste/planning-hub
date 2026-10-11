@@ -99,9 +99,28 @@ class ChoosingOnTheRulesPageTest(DemoModeTestCase):
         response = self.client.post(
             reverse("date_style_update"), {"date_style": "no_weekday"}
         )
-        self.assertRedirects(response, reverse("rules_list"))
+        self.assertRedirects(response, reverse("rules_list") + "#datumsformat")
         options = self.client.get(reverse("rules_list")).context["date_styles"]
         self.assertEqual([o["value"] for o in options if o["checked"]], ["no_weekday"])
+
+    def test_a_save_says_so_once(self):
+        # The page looks the same after a save, so the note is the only sign
+        # the click did anything — and it belongs to that save, not to every
+        # later visit.
+        response = self.client.post(
+            reverse("date_style_update"), {"date_style": "numeric"}, follow=True
+        )
+        self.assertContains(response, "Datumsformat gespeichert.")
+        self.assertContains(response, 'id="datumsformat"')
+        self.assertNotContains(
+            self.client.get(reverse("rules_list")), "Datumsformat gespeichert."
+        )
+
+    def test_a_refused_style_says_nothing_was_saved(self):
+        self.client.post(reverse("date_style_update"), {"date_style": "numerisch"})
+        self.assertNotContains(
+            self.client.get(reverse("rules_list")), "Datumsformat gespeichert."
+        )
 
     def test_an_unknown_style_is_refused(self):
         response = self.client.post(
@@ -143,3 +162,43 @@ class TheChoiceReachesEveryRenderTest(DemoModeTestCase):
         self.choose("numeric")
         self.client.get(reverse("dashboard"))
         self.assertEqual(active_style(), "standard")
+
+
+class TheWayBackTest(DemoModeTestCase):
+    """#192: /regeln/ is reached from the sidebar as well as from the planner,
+    so its back link names where the visitor came from — and keeps naming it
+    after a save, which redirects back to the page."""
+
+    dashboard_back = '<a href="/dashboard/" class="back">← Dashboard</a>'
+
+    def test_from_the_sidebar_it_leads_back_to_the_dashboard(self):
+        response = self.client.get(reverse("rules_list") + "?from=dashboard")
+        self.assertContains(response, self.dashboard_back)
+        self.assertNotContains(response, "← Planer")
+
+    def test_otherwise_it_leads_back_to_the_planner(self):
+        response = self.client.get(reverse("rules_list"))
+        self.assertContains(response, "← Planer")
+        self.assertNotContains(response, self.dashboard_back)
+
+    def test_a_date_style_save_keeps_it(self):
+        response = self.client.post(
+            reverse("date_style_update"),
+            {"date_style": "numeric", "from": "dashboard"},
+        )
+        self.assertRedirects(
+            response, reverse("rules_list") + "?from=dashboard#datumsformat"
+        )
+
+    def test_a_rule_add_keeps_it(self):
+        response = self.client.post(
+            reverse("rule_add"), {"text": "Neue Regel", "from": "dashboard"}
+        )
+        self.assertRedirects(response, reverse("rules_list") + "?from=dashboard")
+
+    def test_an_unknown_origin_is_ignored(self):
+        response = self.client.post(
+            reverse("date_style_update"),
+            {"date_style": "numeric", "from": "https://example.com"},
+        )
+        self.assertRedirects(response, reverse("rules_list") + "#datumsformat")

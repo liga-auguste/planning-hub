@@ -118,7 +118,17 @@ page is marked active instead, since there's no JS toggle to do it.
     {% endif %}
 {% endif %}
 
-<a class="sidebar-item" href="{% url 'index' %}" style="color: var(--color-text-quaternary); font-size: 12px; margin-top: 16px;">
+{% comment %}
+#192: the rules page now also holds the date style, which a visitor should be
+able to find, so the demo links to it too. #105 had kept this link out of
+the demo so it would not invite repeated (costly) plan generation; reversed
+deliberately, under the same name as production's entry — one page, one
+name.
+{% endcomment %}
+<a class="sidebar-item" href="{% url 'rules_list' %}?from=dashboard" style="color: var(--color-text-tertiary); margin-top: 16px;">
+    <span class="sidebar-icon">⚙</span>Planungsregeln
+</a>
+<a class="sidebar-item" href="{% url 'index' %}" style="color: var(--color-text-quaternary); font-size: 12px;">
     <span class="sidebar-icon">←</span>Zurück zur Startseite
 </a>
 <button type="button" class="sidebar-item" id="about-open" style="color:var(--color-text-tertiary);">
@@ -146,7 +156,7 @@ page is marked active instead, since there's no JS toggle to do it.
     <span class="sidebar-icon" style="font-size: 15px; line-height: 1;">+</span>
     Neue Veranstaltung
 </a>
-<a class="sidebar-item" href="{% url 'rules_list' %}" style="color: var(--color-text-tertiary);">
+<a class="sidebar-item" href="{% url 'rules_list' %}?from=dashboard" style="color: var(--color-text-tertiary);">
     <span class="sidebar-icon">⚙</span>Planungsregeln
 </a>
 <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
