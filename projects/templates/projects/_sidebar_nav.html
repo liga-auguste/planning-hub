@@ -35,9 +35,12 @@ page and /mein-plan/'s CTA have no sidebar and no group heading, so their
 link text has to name the view and the data at once. That is the wording
 #48 settled on, from before this partial had groups to lean on.
 
-Known and deliberate for now: the icon still differs between the states (a
-dot where the entry is the toggle, the grid glyph where it is the jump-in
-link). Left for a separate pass.
+The icon names the data, like the group heading: the dot is always the
+visitor's own project, the grid glyph always the example projects — whether
+the entry is the toggle or a link to the other view. It used to follow the
+state instead (a dot wherever the entry was the toggle), so the example
+projects' "Dashboard" changed its icon between pages and could carry the
+same dot as "Dein Projekt" right above it.
 
 Every view that includes this partial owes it three flags: demo_mode,
 has_session_plan and plan_exists. Missing ones resolve to falsy in a
@@ -101,7 +104,7 @@ page is marked active instead, since there's no JS toggle to do it.
 {% else %}
     {% if not active_nav %}
     <button type="button" class="sidebar-item active" id="nav-overview">
-        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>
+        <span class="sidebar-icon">⊞</span>
         Dashboard
     </button>
     <button type="button" class="sidebar-item" id="nav-today">
@@ -110,7 +113,7 @@ page is marked active instead, since there's no JS toggle to do it.
     </button>
     {% else %}
     <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi" style="color: var(--color-text-tertiary);">
-        <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
+        <span class="sidebar-icon">⊞</span>Dashboard
     </a>
     <a class="sidebar-item" href="{% url 'dashboard' %}?mode=multi&view=today" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>Heute

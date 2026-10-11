@@ -1377,6 +1377,7 @@ class SidebarIconSlotWidthTest(DemoModeTestCase):
         self.assertContains(response, 'class="dot urgent " title="Abhaken"')
 
     def test_the_overview_dot_is_wrapped(self):
+        self.given_session_plan()
         response = self.client.get("/dashboard/")
         self.assertContains(
             response,
@@ -1526,6 +1527,39 @@ class ProductionRulesSidebarLinkTest(TestCase):
         ):
             response = self.client.get(reverse("dashboard"))
         self.assertContains(response, f'href="{reverse("rules_list")}?from=dashboard"')
+
+
+class DashboardIconNamesTheDataTest(DemoModeTestCase):
+    """The dot is always "Dein Projekt", the grid glyph always the example
+    projects — on every page and whichever view is on screen, so the two
+    "Dashboard" entries never share an icon."""
+
+    DOT = (
+        '<span class="sidebar-icon"><span class="sidebar-dot" '
+        'style="background: var(--color-solid-bg);"></span></span>'
+    )
+    GRID = '<span class="sidebar-icon">⊞</span>'
+
+    def demo_group(self, response):
+        html = response.content.decode()
+        start = html.index(">Demo-Projekte</div>")
+        return html[start : html.index("Zurück zur Startseite", start)]
+
+    def test_example_projects_use_the_grid_everywhere(self):
+        pages = {
+            "dashboard without a plan": (False, reverse("dashboard")),
+            "dashboard, own plan": (True, reverse("dashboard")),
+            "dashboard, example projects": (True, reverse("dashboard") + "?mode=multi"),
+            "plan as list": (True, reverse("my_plan")),
+            "close week": (True, reverse("close_week_start")),
+        }
+        for label, (with_plan, url) in pages.items():
+            with self.subTest(page=label):
+                if with_plan:
+                    self.given_session_plan()
+                group = self.demo_group(self.client.get(url))
+                self.assertIn(self.GRID, group)
+                self.assertNotIn(self.DOT, group)
 
 
 class DemoRulesSidebarLinkTest(DemoModeTestCase):
