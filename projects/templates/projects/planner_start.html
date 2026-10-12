@@ -58,8 +58,10 @@
             <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></symbol>
         </svg>
         <a href="{% url 'index' %}" class="back">← Startseite</a>
-        <h1>Welche Art von Projekt?</h1>
-        <p class="subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
+        <div class="page-header">
+            <h1 class="page-title">Welche Art von Projekt?</h1>
+            <p class="page-subtitle">Wähle einen Projekttyp — die KI passt die Rückfragen und den Plan darauf an.</p>
+        </div>
         {% if replaces_plan %}
         <p class="replace-notice">Du hast bereits einen Plan: <a href="{% url 'my_plan' %}">{{ replaces_plan }}</a>. Ein neuer Plan ersetzt ihn.</p>
         {% endif %}
@@ -88,8 +90,10 @@
 {% else %}
     <div class="planner-card">
         <a href="{% url 'planner_start' %}" class="back">← Projekttyp</a>
-        <h1>Neues Projekt planen</h1>
-        <p class="subtitle">Beschreibe kurz das Projekt — Typ, Datum, Beteiligte.</p>
+        <div class="page-header">
+            <h1 class="page-title">Neues Projekt planen</h1>
+            <p class="page-subtitle">Beschreibe kurz das Projekt — Typ, Datum, Beteiligte.</p>
+        </div>
         {% if error %}
         <p class="error-notice">Die Klärungsfragen konnten gerade nicht erstellt werden. Deine Beschreibung ist erhalten geblieben — bitte versuche es gleich noch einmal.</p>
         {% endif %}

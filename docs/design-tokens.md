@@ -150,8 +150,87 @@ The surface-specific overrides stay with their surface (`.ai-card span.dot`,
 `.task-due`'s: `.task-row .dot` lives in `dashboard.css`, because `.task-row` is spelled
 by the dashboard and by `/mein-plan/` alike and would otherwise be typed out twice.
 
+## Page skeleton
+
+[#298](https://github.com/liga-auguste/planning-hub/issues/298). Colours had rules;
+the structure of a page had none. Every page defined its own title in its own `<style>`
+block — six definitions of one role, 20 to 28px, weight 600 or 700, margins from 4 to
+8px — so a new page copied whichever page it started from. The skeleton is now one rule
+per part in `base.css`, which both base templates load:
+
+```css
+.page-header   { margin-bottom: 28px; }
+.page-title    { font-size: 24px; font-weight: 600; line-height: 1.2;
+                 letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+.page-subtitle { font-size: 13px; line-height: 1.5; color: var(--color-text-tertiary); margin: 4px 0 0; }
+.section-label { font-size: 11px; font-weight: 600; line-height: 1.5; color: var(--color-text-tertiary);
+                 text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.list-row      { display: flex; align-items: center; gap: 12px; padding: 11px 0;
+                 border-bottom: 1px solid var(--color-border-primary); }
+.list-row:last-child { border-bottom: none; }
+```
+
+Every property Bootstrap's Reboot sets on `h1` and `p` is stated, so the classes look
+the same on any element.
+
+| Part | What it is for | Used by |
+|---|---|---|
+| Page header | `<div class="page-header">` around an `<h1 class="page-title">` and an optional `<p class="page-subtitle">` — the page's name and the line under it: a date (dashboard), a meta line (`/mein-plan/`), a week (close-out, review) or an explanatory sentence (stats, rules, planner, error pages) | Dashboard (both views, via `_page_heading.html`), `/mein-plan/`, Woche abschließen, Wochenrückblick, Statistik, Planungsregeln, the four planner titles, Impressum, Datenschutz, 404, 500 |
+| Section label | The small uppercase heading above a block | None yet — #92 is the first adopter |
+| List row | The row a list of tasks or rules is built from: height, padding, divider. `flex-wrap` is not part of it; it stays with the surfaces that need it | None yet — #92 is the first adopter |
+
+Why these values:
+
+- **24px, weight 600.** 24px was already the size on `/mein-plan/`, the close-out and
+  the review, and sits a clear step above #288's 16px section heading. 600 is what every
+  title except the dashboard's used.
+- **The planner's headline treatment is the app's.** #72 gave the planner title the
+  landing headline's tracking and balanced wrapping. "No page redefines the title" rules
+  out a planner exception, so the shared rule took the treatment and the planner gave up
+  its 28px. `text-wrap: balance` needs Safari 17.5; older versions wrap normally.
+- **Subtitle and label are `--color-text-tertiary`.** Quaternary, which nearly every copy
+  used, misses WCAG's 4.5:1 for text this size on three of the four surfaces it sits on;
+  tertiary clears all four:
+
+  |  | light page | light card | dark card | dark page |
+  |---|---|---|---|---|
+  | tertiary | 4.75 | 5.03 | 6.49 | 7.76 |
+  | quaternary | 3.48 | 3.68 | 3.82 | 4.57 |
+
+- **4px title to subtitle, 28px header to content** — the most common value of each. The
+  4px sits on the subtitle, so a title without one carries no stray margin; inside the
+  dashboard's wrapping heading row, a margin on the title would leave the date line flush
+  under the project name once the row wraps at phone width.
+- **Section label and list row** take the values most live copies already render:
+  `.kanban-col-header`/`.timelapse-label` for the label, `.task-row` for the row. They are
+  defined ahead of their adopters, so the rules describe something that renders today.
+
+Decisions that look like oversights:
+
+- **The wrapper is a `<div>`, not a `<header>`.** Outside `<main>`, a `<header>` is
+  exposed as the page's `banner` landmark.
+- **A page may pad `.page-header`; it may not give it a margin.** The 44px launcher
+  clearance stays per page, as `MobileLauncherClearanceTest` requires — only where the
+  header collides with the fixed ☰ at rest. On `/mein-plan/` the header is not at the
+  top, and a shared reservation would shorten its title for nothing.
+- **The landing headline stays outside.** It is the 42px poster cut #72 kept apart, not
+  a page title; `landing.html` is the one template allowed a bare `h1` rule.
+- **`.ai-card h1:not(.page-title)`.** The dashboard title sits inside `.ai-card`, where
+  the summary's markdown headings are styled, and at (0,1,1) that rule beat the shared
+  (0,1,0) title down to 16px until the `:not()` excluded it.
+
+`PageSkeletonTest` holds all of this: the rules carry these values exactly once; no
+template defines `.page-title`, `.page-subtitle`, `.section-label` or `.list-row`, styles
+a bare `h1`, or puts a margin on `.page-header`; every page template renders its title
+through the rule; every rendered page has exactly one; and the subtitle and label grey is
+computed against both surfaces in both themes.
+
 ## Rule
 
 **No new hex literals in templates.** If a color isn't one of the tokens above, either
 reuse the closest existing token or add a new one here — don't reach for a raw hex
 value in a template or a `style="..."` attribute.
+
+**No page template defines its own title, subtitle, section label or list row.** Use
+the page skeleton above; a page that needs something different changes the shared rule
+and this document, not its own `<style>` block.

@@ -454,7 +454,7 @@ docs/
   demo-mode.md                  # Demo-mode navigation states, sidebar links, banner
   planner-step-navigation.md    # One-step-back stepper links, session-backed draft state
   production-readiness.md       # Favicon, social tags, error pages, robots.txt, health check
-  design-tokens.md              # The token set, the palette, and what each token is for
+  design-tokens.md              # The token set, the palette, what each token is for, and the page skeleton
   test-suite-layout.md          # Which subject lives in which test module, and why
   wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
   screenshots/                  # README images

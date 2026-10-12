@@ -7,8 +7,6 @@
        which already provides its own outer padding — .page only needs to
        constrain and center the width, matching planner_rules.html's 960px. */
     .page { width: 100%; max-width: 960px; margin: 0 auto; }
-    .page-title { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
-    .page-subtitle { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 28px; }
     .review-stats { display: flex; gap: 12px; margin-bottom: 28px; }
     .review-stat { flex: 1; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 10px; padding: 16px; text-align: center; }
     .review-stat-value { font-size: 24px; font-weight: 700; }
@@ -35,8 +33,10 @@ docs/wochenabschluss.md.
 
 {% block content %}
 <div class="page">
-    <div class="page-title">Wochenrückblick</div>
-    <div class="page-subtitle">KW {{ closeout.iso_week }}/{{ closeout.iso_year }}</div>
+    <div class="page-header">
+        <h1 class="page-title">Wochenrückblick</h1>
+        <p class="page-subtitle">KW {{ closeout.iso_week }}/{{ closeout.iso_year }}</p>
+    </div>
 
     {% comment %}
     #215: every tile in this row measures the ISO week in the subtitle above.

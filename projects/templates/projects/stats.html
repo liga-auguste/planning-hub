@@ -7,8 +7,6 @@
     /* .page already pads horizontally; keep the footer aligned with the content */
     .page-footer { padding-left: 0; padding-right: 0; }
     .back { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; display: block; margin-bottom: 32px; }
-    h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
-    .subtitle { color: var(--color-text-quaternary); margin-bottom: 36px; }
     .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 36px; }
     /* .card reads all of these except the spacers, which .card-body reads.
        --bs-card-color is needed because .card sets its own colour instead of
@@ -44,8 +42,10 @@
         <a href="/" style="font-size:11px; font-weight:600; color:var(--color-text-quaternary); letter-spacing:0.1em; text-transform:uppercase; text-decoration:none;">Planning Hub</a>
         <a href="{% url 'dashboard' %}" style="color:var(--color-text-quaternary); font-size:13px; text-decoration:none;">← Dashboard</a>
     </div>
-    <h1>Nutzungsübersicht</h1>
-    <p class="subtitle">Anonyme Ereignisse — kein Inhalt, keine personenbezogenen Daten.</p>
+    <div class="page-header">
+        <h1 class="page-title">Nutzungsübersicht</h1>
+        <p class="page-subtitle">Anonyme Ereignisse — kein Inhalt, keine personenbezogenen Daten.</p>
+    </div>
 
     <div class="cards">
         <div class="card"><div class="card-body">

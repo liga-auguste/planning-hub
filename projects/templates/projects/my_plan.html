@@ -22,9 +22,9 @@
        is never under it. */
     .sim-elsewhere-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--color-notice-bg); color: var(--color-notice-text); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 24px; }
     .sim-elsewhere-notice a { color: inherit; text-decoration: underline; white-space: nowrap; }
-    .project-header { margin-bottom: 32px; }
-    .project-name { font-size: 24px; font-weight: 600; margin-bottom: 6px; }
-    .project-meta { color: var(--color-text-quaternary); font-size: 13px; display: flex; gap: 16px; }
+    /* #298: the header, title and the meta line under it are the shared page
+       skeleton in base.css. What stays here is the meta line's own layout. */
+    .project-meta { display: flex; gap: 16px; }
     /* #212: the track moved off --color-border-primary, against which the
        accent fill below reaches only 2.95:1 in dark mode — under the 3:1
        floor for non-text UI. On --color-bg-tertiary, the token the
@@ -169,9 +169,9 @@ is gone; the sidebar already covers that.
     </div>
     {% endif %}
 
-    <div class="project-header">
-        <div class="project-name">{{ project.display_name }}</div>
-        <div class="project-meta">
+    <div class="page-header">
+        <h1 class="page-title">{{ project.display_name }}</h1>
+        <div class="page-subtitle project-meta">
             <span>{{ project.event_date_display }}</span>
             {% if project.event_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
             <span><span id="done-count">{{ done_count }}</span> / {{ total }} erledigt</span>

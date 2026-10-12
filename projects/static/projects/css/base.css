@@ -199,6 +199,43 @@ body {
     fill: none; stroke: currentColor; stroke-width: 2;
     stroke-linecap: round; stroke-linejoin: round;
 }
+/* The page skeleton (#298): page header, section label and list row, each
+   one rule. Before this every page wrote its own title in its own <style>
+   block — six definitions for one role, 20 to 28px, weight 600 or 700 — so
+   a new page copied whichever one it started from. Here rather than in
+   dashboard.css because both bases render page titles: the planner, the
+   rules page, the legal pages and the error pages are public-side.
+
+   Every property Reboot sets on h1 and p (size, weight, line height,
+   margins) is stated, so the classes look the same on any element.
+
+   The title is the planner headline #72 gave the landing page's tracking
+   and wrapping to, at 24px rather than 28 — the size three pages already
+   used, a clear step above #288's 16px section heading. The 4px between
+   title and subtitle sits on the subtitle, so a title without one carries
+   no stray margin; inside the dashboard's wrapping heading row a margin on
+   the title would leave the date flush under the project name once the row
+   wraps. A page may pad .page-header (the 44px launcher clearance is per
+   page, see MobileLauncherClearanceTest); it may not space it.
+
+   Subtitle and label are --color-text-tertiary, not the quaternary most
+   copies used: quaternary misses 4.5:1 at this size on three of the four
+   surfaces it sits on (3.48 to 4.57), tertiary clears all four (4.75 to
+   7.76). PageSkeletonTest computes that.
+
+   .section-label and .list-row are defined ahead of their adopters: the
+   values are the ones .kanban-col-header and .task-row already render,
+   and #92 is the first page built on them. docs/design-tokens.md has the
+   whole picture. */
+.page-header { margin-bottom: 28px; }
+.page-title { font-size: 24px; font-weight: 600; line-height: 1.2;
+              letter-spacing: -0.02em; text-wrap: balance; margin: 0; }
+.page-subtitle { font-size: 13px; line-height: 1.5; color: var(--color-text-tertiary); margin: 4px 0 0; }
+.section-label { font-size: 11px; font-weight: 600; line-height: 1.5; color: var(--color-text-tertiary);
+                 text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+.list-row { display: flex; align-items: center; gap: 12px; padding: 11px 0;
+            border-bottom: 1px solid var(--color-border-primary); }
+.list-row:last-child { border-bottom: none; }
 /* The task status dot (#289 part 4). In base.css rather than in
    dashboard.css because the landing page draws it too, and base_public.html
    never loads that sheet — so the geometry and the four state colours, which

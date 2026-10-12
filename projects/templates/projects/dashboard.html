@@ -14,20 +14,15 @@
         /* The heading row, shared by the overview and the Heute view
            (_page_heading.html). It was inline styles on two elements before
            the two views started sharing it; a media rule cannot reach those,
-           and a third copy was one view away. */
+           and a third copy was one view away. The title in it and the date
+           under it are the shared page skeleton in base.css (#298). */
         .page-heading-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; row-gap: 2px; margin-bottom: 4px; }
-        .page-heading { font-size: 22px; font-weight: 700; }
         .header-project { font-size: 15px; font-weight: 600; color: var(--color-text-primary); }
         /* nowrap: the date is one phrase, and at phone width it broke after
            the day number and left the month on a line of its own. */
         .header-project-date { font-weight: 400; color: var(--color-text-quaternary); font-size: 13px; white-space: nowrap; }
         .refresh-form { margin-left: auto; align-self: center; }
         .refresh-btn { font-size: 12px; font-weight: 500; color: var(--color-text-tertiary); background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
-        /* The 20px above the label normally comes from the date line between
-           the two. #153 drops that line while a moment is simulated, and
-           took the gap with it — the label then sat straight under the
-           project name. Adjacent sibling, so it only fires in that case. */
-        .ai-card-header + .ai-card-label { margin-top: 20px; }
         /* #288: the section is a real heading, the top of a ranking that
            runs outside in — section 16px/600/primary, block heading 14px/600,
            task 14px/400/tertiary. It used to be 13px quaternary over a 13px
@@ -40,8 +35,11 @@
            names the card while the section names the time window.
            All six levels: _ai_summary_body.html renders <h2> only, but the
            reset in base.css zeroes margins only and leaves Reboot's sizes in place, and a
-           template that ever changes the level would get those instead. */
-        .ai-card h1, .ai-card h2, .ai-card h3,
+           template that ever changes the level would get those instead.
+           The page title is an h1 inside .ai-card too since #298, and at
+           (0,1,1) this rule would beat the shared .page-title — hence the
+           :not(). */
+        .ai-card h1:not(.page-title), .ai-card h2, .ai-card h3,
         .ai-card h4, .ai-card h5, .ai-card h6 { font-size: 16px; font-weight: 600; color: var(--color-text-primary); margin-top: 28px; margin-bottom: 12px; }
         .ai-card hr { border: none; border-top: 1px solid var(--color-border-primary); margin: 24px 0; }
         .ai-card ul { margin: 0; padding-left: 0; list-style: none; }
@@ -624,15 +622,7 @@
         {% include "projects/_status_banners.html" %}
 
         <div class="ai-card">
-            {% include "projects/_page_heading.html" with title="Dashboard" show_refresh=True %}
-            {% comment %}
-            Hidden while a moment is simulated (#153): the sim banner is the
-            single date authority then — the real date next to it read as a
-            contradiction, not context.
-            {% endcomment %}
-            {% if not sim_date %}
-            <div style="font-size: 13px; color: var(--color-text-quaternary); margin-bottom: 20px;">{{ today_display }}</div>
-            {% endif %}
+            {% include "projects/_page_heading.html" with title="Dashboard" show_refresh=True show_date=True %}
             <div class="ai-card-label">KI-{% if sim_date %}Simulation{% else %}Wochenübersicht{% endif %}</div>
             {% comment %}
             #156: the element the fetched fragment replaces. data-summary-url
