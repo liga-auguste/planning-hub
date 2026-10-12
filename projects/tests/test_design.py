@@ -1582,7 +1582,10 @@ class BaseResetParityTest(DemoModeTestCase):
 
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
-        self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
+        # :not(.page-subtitle) since #298, see PageSkeletonTest.
+        self.assertContains(
+            response, ".ai-card p:not(.page-subtitle) { margin: 0 0 8px; }"
+        )
 
     def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
         self.given_session_plan()
@@ -3594,6 +3597,16 @@ class PageSkeletonTest(DemoModeTestCase):
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, ".ai-card h1:not(.page-title), .ai-card h2")
         self.assertNotContains(response, ".ai-card h1,")
+
+    def test_the_summary_paragraphs_leave_the_dashboard_date_alone(self):
+        """The same collision one element down: `.ai-card p` is (0,1,1) and
+        overrode the date line's margin with 0 0 8px. Margin collapsing hid
+        it — the heading row's own 4px stood in for the subtitle's — so it
+        would have surfaced only once that row margin went as redundant."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".ai-card p:not(.page-subtitle) {")
+        self.assertNotContains(response, ".ai-card p {")
 
     def test_every_rendered_page_has_exactly_one_title(self):
         pages = TemplateCommentsNeverReachThePageTest.pages(self)

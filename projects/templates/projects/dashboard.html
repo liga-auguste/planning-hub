@@ -78,8 +78,11 @@
            the bullets above, the numbers carry the ordering. */
         .ai-card ol { margin: 0 0 8px; padding-left: 20px; }
         /* Guard against a stray paragraph in the summary — since #64 the reset
-           in base_dashboard zeroes it, so the spacing has to be stated (#20). */
-        .ai-card p { margin: 0 0 8px; }
+           in base_dashboard zeroes it, so the spacing has to be stated (#20).
+           The date line under the title is a <p> inside .ai-card since #298;
+           at (0,1,1) this rule would override the shared .page-subtitle
+           margin, the same collision as the h1 rule above. */
+        .ai-card p:not(.page-subtitle) { margin: 0 0 8px; }
         .ai-project-link { cursor: pointer; }
         .ai-project-link:hover { text-decoration: underline; }
         /* #49: the › that decorated the summary's heading is gone with the
