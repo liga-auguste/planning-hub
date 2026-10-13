@@ -1,9 +1,10 @@
 :root {
-    /* The sidebar's width is one number three rules depend on: the panel
-       itself, .main's margin-left (the width plus the fixed gap, #96) and
-       the day columns' 100vw-based width in dashboard.html. It lives here
-       so all three read the same value, and so _sidebar_preload.html can
-       set a stored drag width in <head>, before the first paint (#236).
+    /* The sidebar's width is one number two rules depend on: the panel
+       itself and .main's margin-left (the width plus the fixed gap, #96).
+       The day columns in dashboard.html read it too until #296 let them
+       widen with .main instead. It lives here so both read the same value,
+       and so _sidebar_preload.html can set a stored drag width in <head>,
+       before the first paint (#236).
 
        Two properties rather than one, on purpose: the head script writes
        only --sidebar-width-stored, and it writes it inline on <html>. An
@@ -14,6 +15,10 @@
        nothing left to clear. */
     --sidebar-width: var(--sidebar-width-stored, 260px);
     --sidebar-gap: 24px;
+    /* .main's reading width. The Heute view lifts .main's cap and puts it
+       back on everything but the week board (dashboard.html, #296), and the
+       footer keeps it either way, so the number has three readers. */
+    --reading-width: 920px;
 }
 /* The state class sits on <html>, not on .sidebar: it has to be set before
    the first paint, and in <head> neither .sidebar nor .main exists yet. */
@@ -174,7 +179,7 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
    the mobile override even though its own text stays untouched. */
 .main {
     margin-left: calc(var(--sidebar-width) + var(--sidebar-gap));
-    max-width: 920px;
+    max-width: var(--reading-width);
     transition: margin-left 0.2s ease;
     flex: 1; display: flex; flex-direction: column;
 }
@@ -296,7 +301,10 @@ button.sidebar-item:focus-visible { outline: 2px solid var(--color-accent); outl
 }
 /* flex: 1 pins the footer below; the inner layout stays a block context */
 .content-body { padding: 40px 48px; flex: 1; }
+/* The cap is the footer's own, so it holds on every page. Outside the
+   Heute view's wide .main (#296) .main's cap already makes it a no-op. */
 .page-footer {
+    max-width: var(--reading-width);
     margin-top: auto; padding: 20px 48px 32px;
     border-top: 1px solid var(--color-border-primary);
     display: flex; gap: 16px; flex-wrap: wrap; align-items: center;

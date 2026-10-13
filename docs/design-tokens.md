@@ -59,12 +59,13 @@ didn't name.
 ## Layout properties
 
 Not colours, but the same mechanism and the same reason: one name for a number several
-rules depend on. Both live on `:root` in `dashboard.css` (#236).
+rules depend on. All three live on `:root` in `dashboard.css` (#236, #296).
 
 ```css
 :root {
     --sidebar-width: var(--sidebar-width-stored, 260px);
     --sidebar-gap: 24px;
+    --reading-width: 920px;
 }
 :root.sidebar-collapsed { --sidebar-width: 48px; }
 ```
@@ -73,16 +74,18 @@ rules depend on. Both live on `:root` in `dashboard.css` (#236).
 |---|---|
 | `--sidebar-width` | The sidebar's own width, and the basis of every rule that has to keep clear of it |
 | `--sidebar-gap` | The fixed 24px between the floating sidebar and the content (#96): 12px viewport inset + 12px breathing room |
+| `--reading-width` | `.main`'s cap, which the Heute view lifts for the week board and puts back on everything else in it, and the footer's (#296) |
 
-Three rules read them, and before #236 all three carried the numbers by hand — 260px and
-48px in `dashboard.css`, 284px and 72px again for `.main`'s `margin-left`, and 284/72
-a third time in `dashboard.html`'s day-column width:
+Two rules read the sidebar properties, and before #236 both carried the numbers by hand —
+260px and 48px in `dashboard.css`, 284px and 72px again for `.main`'s `margin-left`:
 
 - `.sidebar { width: var(--sidebar-width) }`
 - `.main { margin-left: calc(var(--sidebar-width) + var(--sidebar-gap)) }`
-- `.day-columns { width: calc(100vw - var(--sidebar-width) - var(--sidebar-gap) - 68px) }`
-  (`dashboard.html`) — the easiest of the three to forget, and the most visible when it
-  lags behind the other two
+
+The day columns in `dashboard.html` were a third reader until #296: their width was
+`100vw` minus the sidebar, which jumped while `.main`'s `margin-left` slid and hung the
+board past the window mid-collapse. The board now stays inside `.main`, which drops its
+`--reading-width` cap in the Heute view, so it follows the sidebar through layout alone.
 
 ### Why the stored width is a second property
 

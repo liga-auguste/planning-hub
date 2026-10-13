@@ -1145,11 +1145,130 @@ class WeekViewIsAListBelowTheBreakpointTest(DemoModeTestCase):
             "gap: 8px; overflow-x: auto; }",
             css,
         )
+
+
+class WeekBoardStaysInsideMainTest(DemoModeTestCase):
+    """#296: the week board broke out of .main's reading width with a width
+    computed from 100vw minus the sidebar. Measured in Chrome at a 1439px
+    viewport with the sidebar transitions paused and stepped:
+
+    - at rest, open: board 332-1419px, .main 284-1204px, no page overflow;
+    - at rest, collapsed: board 120-1419px, .main 72-992px, no overflow;
+    - collapsing, t = 0-125ms: the board is already 1299px wide while its
+      left edge still slides 332 -> 120, so it hangs up to 192px past the
+      viewport and the page scrolls sideways;
+    - expanding, t = 0: the board is already 1087px, its right edge 212px
+      short of where it ends.
+
+    Nothing transitions --sidebar-width, so the board's width jumped while
+    .main's margin-left slid. In Safari, everything garbled lay outside
+    .main's 920px box. Now the board never leaves .main: the Heute view
+    lifts .main's cap and gives it back to everything but the board."""
+
+    def html(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def dashboard_css(self):
+        return (
+            settings.BASE_DIR / "projects/static/projects/css/dashboard.css"
+        ).read_text()
+
+    def desktop_block(self):
+        html = self.html()
+        start = html.index("@media (min-width: 769px) {\n            .main.wide")
+        # The block's own closing brace is the first one on a line of its own.
+        return html[start : html.index("\n        }\n", start)]
+
+    def test_the_viewport_arithmetic_is_gone(self):
+        self.assertNotIn("100vw - var(--sidebar-width)", self.html())
+
+    def test_the_reading_width_is_one_property(self):
+        css = self.dashboard_css()
+        root = css[css.index(":root {") : css.index("}", css.index(":root {"))]
+        self.assertIn("--reading-width: 920px;", root)
+        self.assertEqual(css.count("920px"), 1)
+        self.assertIn("max-width: var(--reading-width);\n    transition", css)
+        footer = css[
+            css.index(".page-footer {") : css.index("}", css.index(".page-footer {"))
+        ]
+        self.assertIn("max-width: var(--reading-width);", footer)
+
+    def test_only_the_desktop_widens(self):
+        block = self.desktop_block()
+        self.assertIn(".main.wide { max-width: none; }", block)
         self.assertIn(
-            ".day-columns { width: calc(100vw - var(--sidebar-width) "
-            "- var(--sidebar-gap) - 68px);",
-            css,
+            "#view-today > :not(.day-columns) "
+            "{ max-width: calc(var(--reading-width) - 96px); }",
+            block,
         )
+        self.assertIn(".day-columns { margin-right: -28px; }", block)
+
+    def test_only_the_today_view_widens_main(self):
+        # Sliced to each function's body, so a comment or the definition
+        # elsewhere cannot satisfy it.
+        html = self.html()
+        bodies = {
+            "showOverview": html[
+                html.index("function showOverview() {") : html.index(
+                    "function showToday() {"
+                )
+            ],
+            "showToday": html[
+                html.index("function showToday() {") : html.index(
+                    "function showProject(id) {"
+                )
+            ],
+            "showProject": html[
+                html.index("function showProject(id) {") : html.index(
+                    "window.addEventListener('popstate'"
+                )
+            ],
+        }
+        self.assertIn(
+            "document.getElementById('main').classList.add('wide');",
+            bodies["showToday"],
+        )
+        for name in ("showOverview", "showProject"):
+            with self.subTest(function=name):
+                self.assertIn(
+                    "document.getElementById('main').classList.remove('wide');",
+                    bodies[name],
+                )
+
+
+class WeekBoardFadesWhereItScrollsTest(DemoModeTestCase):
+    """#296: where seven 160px columns don't fit, the board scrolls on its
+    own overflow-x, and macOS overlay scrollbars show nothing until you
+    scroll — Sunday read as clipped. The edge with more days behind it
+    fades out, set from the board's scroll position, not from scrollbar
+    behaviour."""
+
+    def html(self):
+        return self.client.get(reverse("dashboard")).content.decode()
+
+    def test_both_edges_have_a_mask_in_both_spellings(self):
+        block = WeekBoardStaysInsideMainTest.desktop_block(self)
+        for rule in (".fade-start {", ".fade-end {", ".fade-start.fade-end {"):
+            body = block[block.index(".day-columns" + rule) :]
+            body = body[: body.index("}")]
+            with self.subTest(rule=rule):
+                self.assertIn("-webkit-mask-image: linear-gradient(", body)
+                self.assertIn(" mask-image: linear-gradient(", body)
+
+    def test_the_classes_follow_the_boards_own_scroll(self):
+        html = self.html()
+        self.assertIn(
+            "board.addEventListener('scroll', update, {passive: true});", html
+        )
+        self.assertIn("new ResizeObserver(update).observe(board);", html)
+
+    def test_the_demo_example_projects_get_it_too(self):
+        # The demo example render skips the Sortable block, so this proves
+        # the script sits outside that guard.
+        html = self.html()
+        self.assertNotIn("Sortable.min.js", html)
+        self.assertIn('id="day-columns"', html)
+        self.assertIn("new ResizeObserver(update)", html)
 
 
 class TaskActionsMenuTest(DemoModeTestCase):
