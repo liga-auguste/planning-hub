@@ -71,7 +71,17 @@ def main():
     # settings.py recognises a test run by sys.argv[1] == "test" (_TESTING)
     # and configures storage and HTTPS differently for it.
     # sys.argv itself is rewritten, because that is what settings.py reads.
-    sys.argv = [sys.argv[0], "test", *(sys.argv[1:] or ["projects"]), "--noinput"]
+    # "--parallel 1" comes last so it wins over one passed in: worker processes
+    # record into their own copy of `escaped`, which never reaches this one,
+    # and a parallel run would report clean whatever its tests did.
+    sys.argv = [
+        sys.argv[0],
+        "test",
+        *(sys.argv[1:] or ["projects"]),
+        "--noinput",
+        "--parallel",
+        "1",
+    ]
     try:
         execute_from_command_line(sys.argv)
         failed = False
