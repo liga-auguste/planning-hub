@@ -90,6 +90,11 @@ the same entry, one Claude call. The answer therefore carries no figures and the
 reloads, which is the rule above in its strongest form: nothing on the page is left to
 reconcile by hand.
 
+`_patch_cached_tasks`, `_remap_summary_refs`, the cache keys and everything else that
+reads or writes the dashboard cache live in `projects/dashboard_cache.py`. The views call into it,
+and it imports nothing from them
+([#302](https://github.com/liga-auguste/planning-hub/issues/302)).
+
 `_patch_cached_tasks(task_id, mutate, today)` applies `mutate` to
 every cached copy of one task and re-runs `_annotate_tasks` on top of it. Each
 `cache.get` hands back its own deserialized object graph, so all four entries are patched

@@ -126,3 +126,51 @@ the full original import list fails CI on F401.
 
 Near-duplicate classes noticed during the move are reported on the issue rather than
 merged here. A move that also changes behaviour cannot be reviewed by comparing lists.
+
+## Where a patch goes
+
+Added with [#302](https://github.com/liga-auguste/planning-hub/issues/302), which moved code
+out of `views.py` for the first time since `planner_views.py`.
+
+The suite replaces Notion and Claude with `patch("projects.<module>.<name>")`. A patch
+takes effect where the name is *looked up*, not where it is defined
+([unittest.mock: where to patch](https://docs.python.org/3/library/unittest.mock.html#where-to-patch)).
+`views.py` does `from .notion import get_upcoming_projects`, so the view looks the name up
+in `projects.views`, and that is the path the test has to patch. When a view moves to
+another module, its patches have to move with it. Re-exporting the names from `views.py`
+does not help, because the moved view no longer looks anything up there.
+
+A patch left on the old path fails in one of two ways:
+
+- **Loud.** The old module no longer imports the name, so `patch` raises `AttributeError`
+  and the test errors out.
+- **Silent.** The old module still imports the name for code that stayed behind, so the
+  patch succeeds and replaces something nobody calls. The moved view makes the real call.
+  Locally that call succeeds on the `.env` keys. In CI it fails on the throwaway key, often
+  with exactly the error the mock was meant to raise, so the test stays green there too.
+
+Searching for `"projects.views.` does not find every patch target, because some are built
+as f-strings. So the silent case is caught where it happens, by
+`tools/check_no_network_calls.py`. For the length of a run it replaces httpx's transport,
+which both SDKs send their requests through, and lists every test that reached the
+network. Run it the way CI runs the suite, past `manage.py` so no `.env` is read, once per
+backend:
+
+```bash
+ANTHROPIC_API_KEY=invalid-for-test NOTION_API_KEY=invalid-for-test \
+DEMO_MODE=true SECRET_KEY=ci-test-key \
+.venv/bin/python tools/check_no_network_calls.py
+```
+
+`DEMO_MODE=false` selects PostgreSQL. A clean run ends with `No request reached the
+network`. The tool does not find a *dead* patch: a mock that nothing consults any more
+still satisfies `assert_not_called()`. Only an inventory of the patch targets, made before
+the move, catches those.
+
+The modules split out of `views.py` so far, each owning its own patch targets:
+
+| Module | Holds | Patched in tests |
+|---|---|---|
+| `planner_views.py` | the four-step planner flow | `get_clarifying_questions`, `generate_plan`, its Notion calls |
+| `dashboard_cache.py` | the dashboard cache keys and every helper that reads, patches or busts them | `cache` (one spy in `PatchingDoesNotRenewTheReadWindowTest`) |
+| `annotate.py` | urgency, Kanban column, progress ring: the pure layer over every task list | nothing; it makes no calls |
