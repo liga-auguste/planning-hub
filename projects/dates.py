@@ -1,7 +1,8 @@
-"""Calendar-week comparisons shared by views.py and ai.py (#169).
+"""Calendar-week comparisons shared by the views, annotate.py and ai.py
+(#169).
 
-A separate module rather than living in either: views.py already imports
-from ai.py, so the reverse import would be circular.
+A separate module rather than living in any of them: views.py already
+imports from ai.py, so the reverse import would be circular.
 """
 
 from datetime import date, timedelta
