@@ -21,6 +21,7 @@ from ..ai import (
     AIUnavailableError,
     build_prompt,
 )
+from ..date_format import format_date
 from ..dates import is_same_iso_week
 from ..demo_data import get_demo_projects
 from .base import (
@@ -642,7 +643,7 @@ class PageHeadingProjectNameTest(DemoModeTestCase):
         overview = html[
             html.index('id="view-overview"') : html.index('class="project-section"')
         ]
-        self.assertIn('<div class="page-heading">Dashboard</div>', overview)
+        self.assertIn('<h1 class="page-title">Dashboard</h1>', overview)
         self.assertIn(plan["name"], overview)
 
     @override_settings(DEMO_MODE=False)
@@ -662,7 +663,7 @@ class PageHeadingProjectNameTest(DemoModeTestCase):
         today_view = html[
             html.index('id="view-today"') : html.index('class="project-section"')
         ]
-        self.assertIn('<div class="page-heading">Heute</div>', today_view)
+        self.assertIn('<h1 class="page-title">Heute</h1>', today_view)
         self.assertNotIn("header-project", today_view)
 
     def test_both_headings_come_from_one_partial(self):
@@ -688,11 +689,21 @@ class DashboardHeaderBreaksTest(DemoModeTestCase):
     the month on a line of its own — nowrap, the same fix the close-out
     triage date needed.
 
-    And the 20px above the "KI-Wochenübersicht" label normally comes from
+    And the 20px above the "KI-Wochenübersicht" label used to come from
     the date line between it and the header. #153 drops that line while a
     moment is simulated and took the gap with it, so the label sat straight
-    under the project name. An adjacent-sibling rule puts it back in exactly
-    that case."""
+    under the project name. Since #298 the date line is the page subtitle
+    inside the shared header, and the gap belongs to the header — so it is
+    there with or without the line, and the adjacent-sibling rule that
+    patched the one case is gone."""
+
+    def overview_header(self):
+        html = self.client.get(reverse("dashboard")).content.decode()
+        return html[
+            html.index('<div class="page-header">') : html.index(
+                '<div class="ai-card-label">'
+            )
+        ]
 
     def test_the_project_date_never_breaks(self):
         self.given_session_plan()
@@ -703,18 +714,29 @@ class DashboardHeaderBreaksTest(DemoModeTestCase):
             "white-space: nowrap; }",
         )
 
-    def test_the_label_keeps_its_gap_when_the_date_line_is_dropped(self):
+    def test_the_date_line_is_the_subtitle_inside_the_header(self):
         self.given_session_plan()
-        self.assertContains(
-            self.client.get(reverse("dashboard")),
-            ".ai-card-header + .ai-card-label { margin-top: 20px; }",
+        self.assertIn(
+            f'<p class="page-subtitle">{format_date(date.today())}</p>',
+            self.overview_header(),
         )
 
-    def test_the_date_line_still_carries_the_gap_outside_a_moment(self):
-        # The adjacent-sibling rule must not double it up on the normal path.
+    def test_during_a_moment_the_date_is_gone_and_the_label_follows_the_header(
+        self,
+    ):
         self.given_session_plan()
-        self.assertContains(
-            self.client.get(reverse("dashboard")), "margin-bottom: 20px;"
+        sim = (date.today() + timedelta(days=5)).isoformat()
+        self.given_timelapse_moments(sim)
+        session = self.client.session
+        session["demo_sim_date"] = sim
+        session.save()
+        header = self.overview_header()
+        self.assertNotIn("page-subtitle", header)
+        # Every <div> the slice opens it also closes: the label sits after
+        # the header, which is what carries the gap, not inside it.
+        self.assertEqual(header.count("<div"), header.count("</div>"))
+        self.assertNotContains(
+            self.client.get(reverse("dashboard")), ".ai-card-header + .ai-card-label"
         )
 
 
@@ -831,7 +853,9 @@ class CloseoutTriageListIsOneSurfaceTest(DemoModeTestCase):
         )
 
     def test_the_title_clears_the_launcher(self):
-        self.assertContains(self.triage_page(), ".page-title { padding-right: 44px; }")
+        # #298: on the header, not the title — a page may pad the shared
+        # wrapper, and the title itself is no template's to restyle.
+        self.assertContains(self.triage_page(), ".page-header { padding-right: 44px; }")
 
 
 class WeekNavigationStacksBelowTheBreakpointTest(DemoModeTestCase):
@@ -1558,7 +1582,10 @@ class BaseResetParityTest(DemoModeTestCase):
 
     def test_dashboard_summary_paragraphs_keep_their_spacing(self):
         response = self.client.get("/dashboard/")
-        self.assertContains(response, ".ai-card p { margin: 0 0 8px; }")
+        # :not(.page-subtitle) since #298, see PageSkeletonTest.
+        self.assertContains(
+            response, ".ai-card p:not(.page-subtitle) { margin: 0 0 8px; }"
+        )
 
     def test_my_plan_summary_keeps_its_list_indent_and_paragraph_spacing(self):
         self.given_session_plan()
@@ -1767,6 +1794,18 @@ def _wcag_contrast(hex_a, hex_b):
     return (lighter + 0.05) / (darker + 0.05)
 
 
+def _declared_value(css, token, theme):
+    """The value a token resolves to in one theme.
+
+    Light is declared in the first block and dark in the second, so the
+    two declarations of a token appear in that order — the same ordering
+    the sibling count assertions already rely on.
+    """
+    values = re.findall(rf"{token}:\s*(#[0-9a-fA-F]{{3,6}});", css)
+    assert len(values) == 2, f"{token} is not declared exactly twice"
+    return values[0 if theme == "light" else 1]
+
+
 class SignalColorContrastTest(SimpleTestCase):
     """#211: the traffic light is only worth reintroducing if every signal
     is actually visible. WCAG 2.1 puts the floor for non-text UI at 3:1, and
@@ -1825,31 +1864,20 @@ class SignalColorContrastTest(SimpleTestCase):
             Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
         ).read_text()
 
-    def declared_value(self, css, token, theme):
-        """The value a token resolves to in one theme.
-
-        Light is declared in the first block and dark in the second, so the
-        two declarations of a token appear in that order — the same ordering
-        the sibling count assertions already rely on.
-        """
-        values = re.findall(rf"{token}:\s*(#[0-9a-fA-F]{{3,6}});", css)
-        self.assertEqual(len(values), 2, f"{token} is not declared exactly twice")
-        return values[0 if theme == "light" else 1]
-
     def test_the_signal_colors_carry_the_computed_values(self):
         css = self.base_css()
         for token, (light, dark) in self.SIGNALS.items():
             for theme, expected in (("light", light), ("dark", dark)):
                 with self.subTest(token=token, theme=theme):
                     self.assertEqual(
-                        self.declared_value(css, token, theme).lower(), expected
+                        _declared_value(css, token, theme).lower(), expected
                     )
 
     def test_every_signal_clears_the_non_text_floor_on_both_surfaces(self):
         css = self.base_css()
         for token in self.SIGNALS:
             for theme, surfaces in self.SURFACES.items():
-                signal = self.declared_value(css, token, theme)
+                signal = _declared_value(css, token, theme)
                 for surface, background in surfaces.items():
                     with self.subTest(token=token, theme=theme, surface=surface):
                         self.assertGreaterEqual(
@@ -1879,7 +1907,7 @@ class SignalColorContrastTest(SimpleTestCase):
         )
         for token in self.RING_STROKES:
             for theme, surfaces in self.RING_SURFACES.items():
-                stroke = self.declared_value(css, token, theme)
+                stroke = _declared_value(css, token, theme)
                 for surface, background in surfaces.items():
                     with self.subTest(token=token, theme=theme, surface=surface):
                         self.assertGreaterEqual(
@@ -1893,10 +1921,10 @@ class SignalColorContrastTest(SimpleTestCase):
         # what still puts the accent on --color-bg-primary now that the
         # progress ring has gone back to the neutral gray.
         css = self.base_css()
-        accent = self.declared_value(css, "--color-accent", "light")
+        accent = _declared_value(css, "--color-accent", "light")
         self.assertEqual(accent.lower(), "#7070ff")
         for theme, surfaces in self.ACCENT_SURFACES.items():
-            accent = self.declared_value(css, "--color-accent", theme)
+            accent = _declared_value(css, "--color-accent", theme)
             for surface, background in surfaces.items():
                 with self.subTest(theme=theme, surface=surface):
                     self.assertGreaterEqual(
@@ -2320,18 +2348,27 @@ class PlannerVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
                 self.assertContains(response, "--bs-btn-font-weight: 600")
                 self.assertNotContains(response, "--bs-btn-border-radius: 6px")
 
+    # #298: the treatment moved into the shared page title in base.css, so
+    # it is read from there, and each step is held to wearing the classes.
+    def base_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+
     def test_every_step_carries_the_landing_headline_treatment(self):
+        title = re.search(r"\.page-title \{([^}]*)\}", self.base_css()).group(1)
+        self.assertIn("letter-spacing: -0.02em", title)
+        self.assertIn("text-wrap: balance", title)
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(response, "letter-spacing: -0.02em")
-                self.assertContains(response, "text-wrap: balance")
+                self.assertContains(response, '<h1 class="page-title">', count=1)
 
     def test_the_subtitle_is_body_text_not_label_grey(self):
+        subtitle = re.search(r"\.page-subtitle \{([^}]*)\}", self.base_css()).group(1)
+        self.assertIn("color: var(--color-text-tertiary)", subtitle)
         for step, response in self.steps().items():
             with self.subTest(step=step):
-                self.assertContains(
-                    response, ".subtitle { color: var(--color-text-tertiary)"
-                )
+                self.assertContains(response, '<p class="page-subtitle">', count=1)
 
 
 class StepperVisualLanguageTest(PlannerStepsMixin, DemoModeTestCase):
@@ -3392,3 +3429,209 @@ class TheSummaryLoadingStateIsOneLookTest(DemoModeTestCase):
         page = self.client.get(reverse("dashboard"))
         self.assertContains(page, 'aria-live="polite"')
         self.assertContains(page, 'aria-busy="true"')
+
+
+class PageSkeletonTest(DemoModeTestCase):
+    """#298: colours had rules and tests, the structure of a page had none.
+    Every page wrote its own title in its own <style> block — six
+    definitions of one role, 20 to 28px, weight 600 or 700 — so a new page
+    copied whichever one it started from and the pages drifted apart.
+
+    The skeleton is one rule per part in base.css: page header, title and
+    subtitle, section label, list row. These tests hold the values to the
+    ones docs/design-tokens.md documents, keep every template from taking a
+    copy back (extra_css renders after the linked sheets, so a copy wins the
+    cascade silently — SignalDotColorTest's reason, one component over), and
+    make every page render its title through the rule."""
+
+    TEMPLATE_ROOT = Path(settings.BASE_DIR) / "projects/templates"
+
+    # Whitespace-normalised, so a rule may wrap across lines in the sheet.
+    RULES = (
+        ".page-header { margin-bottom: 28px; }",
+        (
+            ".page-title { font-size: 24px; font-weight: 600; line-height: 1.2; "
+            "letter-spacing: -0.02em; text-wrap: balance; margin: 0; }"
+        ),
+        (
+            ".page-subtitle { font-size: 13px; line-height: 1.5; "
+            "color: var(--color-text-tertiary); margin: 4px 0 0; }"
+        ),
+        (
+            ".section-label { font-size: 11px; font-weight: 600; line-height: 1.5; "
+            "color: var(--color-text-tertiary); text-transform: uppercase; "
+            "letter-spacing: 0.06em; margin-bottom: 10px; }"
+        ),
+        (
+            ".list-row { display: flex; align-items: center; gap: 12px; "
+            "padding: 11px 0; border-bottom: 1px solid var(--color-border-primary); }"
+        ),
+        ".list-row:last-child { border-bottom: none; }",
+    )
+
+    # The shape of SignalDotColorTest.BARE_DOT_RULE: a selector starts at
+    # the beginning of a line or after a comma, may carry an element prefix
+    # and pseudo-classes, and a descendant selector is someone else's rule.
+    SKELETON_RULE = re.compile(
+        r"(?:^|,)\s*[\w-]*\.(?:page-title|page-subtitle|section-label|list-row)"
+        r"(?:[.:][\w-]+)*\s*(?=[,{])",
+        re.MULTILINE,
+    )
+    # A bare h1 rule is a page title by another name. `.ai-card h1` styles
+    # markdown content and is left alone.
+    BARE_H1_RULE = re.compile(r"(?:^|,)\s*h1(?:[.:][\w-]+)*\s*(?=[,{])", re.MULTILINE)
+    # The landing headline is the 42px poster cut #72 kept apart on purpose,
+    # not a page title.
+    H1_EXEMPT = ("landing.html",)
+    PAGE_HEADER_SELECTOR = re.compile(r"^[\w-]*\.page-header(?:[.:][\w-]+)*$")
+
+    def base_css(self):
+        return (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+
+    def templates(self):
+        """Every template, the error pages one directory up included — a
+        guard that only knew the pages in #298's table would already have
+        let the seventh copy through."""
+        return {
+            str(path.relative_to(self.TEMPLATE_ROOT)): path.read_text()
+            for path in sorted(self.TEMPLATE_ROOT.rglob("*.html"))
+        }
+
+    @staticmethod
+    def without_comments(source):
+        source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+        source = re.sub(
+            r"{% comment %}.*?{% endcomment %}", "", source, flags=re.DOTALL
+        )
+        return re.sub(r"{#.*?#}|{%.*?%}|{{.*?}}", "", source)
+
+    def page_header_bodies(self, source):
+        """The declarations of every rule whose subject is .page-header."""
+        for selectors, body in re.findall(r"([^{}]*)\{([^{}]*)\}", source):
+            parts = (part.strip() for part in selectors.split(","))
+            if any(self.PAGE_HEADER_SELECTOR.match(part) for part in parts):
+                yield body
+
+    def test_the_rules_carry_the_decided_values(self):
+        css = " ".join(self.base_css().split())
+        for rule in self.RULES:
+            with self.subTest(rule=rule.split(" {")[0]):
+                self.assertEqual(css.count(rule), 1)
+
+    def test_no_template_takes_a_copy_back(self):
+        for name, source in self.templates().items():
+            with self.subTest(template=name):
+                self.assertIsNone(
+                    self.SKELETON_RULE.search(self.without_comments(source))
+                )
+
+    def test_no_template_styles_a_bare_h1(self):
+        for name, source in self.templates().items():
+            if Path(name).name in self.H1_EXEMPT:
+                continue
+            with self.subTest(template=name):
+                self.assertIsNone(
+                    self.BARE_H1_RULE.search(self.without_comments(source))
+                )
+
+    def test_a_template_may_pad_the_header_but_not_space_it(self):
+        """The 44px launcher clearance is per page (MobileLauncherClearance-
+        Test); the gap under the header is the skeleton's."""
+        for name, source in self.templates().items():
+            with self.subTest(template=name):
+                for body in self.page_header_bodies(self.without_comments(source)):
+                    self.assertNotIn("margin", body)
+
+    def test_the_guards_catch_what_they_are_for(self):
+        """Without this, a guard that matched nothing would pass forever."""
+        for caught in (
+            ".page-title { font-size: 28px; }",
+            "h1.page-title { color: red; }",
+            ".foo, .page-title:hover { color: red; }",
+            "    .section-label { margin: 0; }",
+            "span.list-row:last-child { border: 0; }",
+        ):
+            with self.subTest(caught=caught):
+                self.assertIsNotNone(self.SKELETON_RULE.search(caught))
+        for allowed in (
+            ".page-header .stale-notice { margin-top: 4px; }",
+            '<h1 class="page-title">Heute</h1>',
+            ".page-header { padding-right: 44px; }",
+        ):
+            with self.subTest(allowed=allowed):
+                self.assertIsNone(self.SKELETON_RULE.search(allowed))
+        for caught in ("h1 { font-size: 22px; }", ".foo, h1:hover { color: red; }"):
+            with self.subTest(caught=caught):
+                self.assertIsNotNone(self.BARE_H1_RULE.search(caught))
+        for allowed in (".questions-box h1 { font-size: 15px; }", ".ai-card h1 {"):
+            with self.subTest(allowed=allowed):
+                self.assertIsNone(self.BARE_H1_RULE.search(allowed))
+        self.assertEqual(
+            list(self.page_header_bodies(".page-header { margin-bottom: 8px; }")),
+            [" margin-bottom: 8px; "],
+        )
+        self.assertEqual(
+            list(self.page_header_bodies(".page-header .stale-notice { margin: 0; }")),
+            [],
+        )
+
+    def test_every_page_renders_its_title_through_the_rule(self):
+        """What catches a new page that skips the skeleton altogether."""
+        for name, source in self.templates().items():
+            if "{% extends" not in source or Path(name).name in self.H1_EXEMPT:
+                continue
+            with self.subTest(template=name):
+                self.assertTrue(
+                    '<h1 class="page-title">' in source
+                    or "projects/_page_heading.html" in source
+                )
+
+    def test_the_summary_headings_leave_the_dashboard_title_alone(self):
+        """The dashboard title sits inside .ai-card, where the summary's
+        markdown headings are styled. `.ai-card h1` is (0,1,1) and beat the
+        shared (0,1,0) title down to 16px — caught in Chrome, not by a test,
+        which is why this one exists."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".ai-card h1:not(.page-title), .ai-card h2")
+        self.assertNotContains(response, ".ai-card h1,")
+
+    def test_the_summary_paragraphs_leave_the_dashboard_date_alone(self):
+        """The same collision one element down: `.ai-card p` is (0,1,1) and
+        overrode the date line's margin with 0 0 8px. Margin collapsing hid
+        it — the heading row's own 4px stood in for the subtitle's — so it
+        would have surfaced only once that row margin went as redundant."""
+        self.given_session_plan()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, ".ai-card p:not(.page-subtitle) {")
+        self.assertNotContains(response, ".ai-card p {")
+
+    def test_every_rendered_page_has_exactly_one_title(self):
+        pages = TemplateCommentsNeverReachThePageTest.pages(self)
+        del pages["index"]  # the landing headline, see H1_EXEMPT
+        pages["stats"] = self.client.get(reverse("stats"))
+        pages["not_found"] = self.client.get("/gibt-es-nicht/")
+        self.assertEqual(pages["not_found"].status_code, 404)
+        for name, response in pages.items():
+            with self.subTest(page=name):
+                html = response.content.decode()
+                self.assertEqual(html.count('<h1 class="page-title">'), 1)
+                self.assertEqual(html.count("<h1"), 1)
+
+    def test_the_subtitle_and_label_grey_clears_the_text_floor(self):
+        """WCAG 1.4.3: 4.5:1 for text this size. Quaternary, which nearly
+        every copy used, reaches 3.48 to 4.57 on these surfaces; tertiary
+        4.75 to 7.76. Read from the rules, so a later swap is measured
+        rather than trusted."""
+        css = self.base_css()
+        for rule in ("page-subtitle", "section-label"):
+            body = re.search(rf"\.{rule} \{{([^}}]*)\}}", css).group(1)
+            token = re.search(r"color: var\((--[\w-]+)\)", body).group(1)
+            for theme in ("light", "dark"):
+                text = _declared_value(css, token, theme)
+                for surface in ("--color-bg-primary", "--color-bg-secondary"):
+                    background = _declared_value(css, surface, theme)
+                    with self.subTest(rule=rule, theme=theme, surface=surface):
+                        self.assertGreaterEqual(_wcag_contrast(text, background), 4.5)

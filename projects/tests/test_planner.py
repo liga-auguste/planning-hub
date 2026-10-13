@@ -519,10 +519,17 @@ class ReviewStacksOnMobileTest(DemoModeTestCase):
     def test_the_sofort_marker_moves_from_the_cell_to_the_row(self):
         response = self.review_page()
         self.assertContains(response, "tr.sofort .col-name { box-shadow: none; }")
+        self.assertContains(response, "tr.sofort::before {")
+
+    def test_the_task_text_starts_on_the_content_edge(self):
+        """The row's 12px inset plus the field's 1px border and 8px padding
+        put every task ~21px right of the title and the fields above it."""
+        response = self.review_page()
         self.assertContains(
             response,
-            "tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }",
+            ".task-table tr { position: relative; padding: 12px 0; border-bottom:",
         )
+        self.assertContains(response, 'input[type="date"] { margin-left: -9px; }')
 
     def test_the_delete_button_leaves_the_flow(self):
         self.assertContains(

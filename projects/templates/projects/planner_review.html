@@ -60,7 +60,13 @@
     @media (max-width: 768px) {
         .task-table thead { display: none; }
         .task-table, .task-table tbody, .task-table tr, .task-table td { display: block; }
-        .task-table tr { position: relative; padding: 12px 0 12px 12px; border-bottom: 1px solid var(--color-border-primary); }
+        .task-table tr { position: relative; padding: 12px 0; border-bottom: 1px solid var(--color-border-primary); }
+        /* The text starts on the content edge, under the title and the
+           fields above. 9px is the field's own 8px padding plus its 1px
+           transparent border; the hover border lands in the card padding. */
+        .task-table textarea[name="task_name"],
+        .task-table input[type="date"] { margin-left: -9px; }
+        .task-table textarea[name="task_name"] { width: calc(100% + 9px); }
         .task-table td { width: auto; padding: 0; border: none; white-space: normal; }
         .task-table .col-name { margin-bottom: 8px; padding-right: 32px; }
         /* width: auto must repeat the two-class specificity: the td rule
@@ -73,18 +79,23 @@
         /* ~28px touch target */
         .btn-delete { padding: 4px 8px; font-size: 20px; }
         /* box-shadow on a display: table-row is not reliably painted — why
-           the marker sat on the first cell. As a block the row paints it,
-           and the bar spans the whole stacked task. */
+           the marker sat on the first cell. As a block the row spans the
+           whole stacked task, and the bar sits in the card padding left of
+           it: the row has no left inset any more, so an inset bar would run
+           into the text. 12px out fits the 20px padding the card keeps at
+           its narrowest. */
         tr.sofort .col-name { box-shadow: none; }
-        tr.sofort { box-shadow: inset 3px 0 0 var(--color-text-quaternary); }
+        tr.sofort::before { content: ""; position: absolute; left: -12px; top: 12px; bottom: 12px; width: 3px; background: var(--color-text-quaternary); }
     }
 {% endblock %}
 
 {% block content %}
 <div class="planner-card">
     <a href="{% url 'planner_questions' %}" class="back">← Klärung</a>
-    <h1>Plan reviewen</h1>
-    <p class="subtitle">{{ description }}{% if redisplay %}<br><span class="draft-notice">So hattest du es zuletzt gespeichert.</span>{% endif %}</p>
+    <div class="page-header">
+        <h1 class="page-title">Plan reviewen</h1>
+        <p class="page-subtitle">{{ description }}{% if redisplay %}<br><span class="draft-notice">So hattest du es zuletzt gespeichert.</span>{% endif %}</p>
+    </div>
 
     {% if error %}
     <p class="error-notice">Der Plan konnte nicht gespeichert werden. Deine Aufgaben sind unten erhalten geblieben — bitte versuche es gleich noch einmal.</p>

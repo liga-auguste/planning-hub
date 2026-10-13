@@ -6,10 +6,9 @@
        hoisted rule would silently land under theirs. Maps 1:1 onto a future
        planner stylesheet once the inline CSS moves out (#32). */
     .planner-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 12px; padding: 40px; }
-    /* The landing page's headline treatment at working-surface size: same
-       weight, tracking and tight leading, not the 42px poster cut. */
-    h1 { font-size: 28px; font-weight: 600; line-height: 1.15; letter-spacing: -0.02em; text-wrap: balance; margin-bottom: 8px; }
-    .subtitle { color: var(--color-text-tertiary); line-height: 1.65; margin-bottom: 28px; }
+    /* The title and the line under it are the shared page skeleton in
+       base.css (#298), which took over the landing headline treatment #72
+       gave this page — tracking and balanced wrapping — at 24px. */
     /* Marks a GET-redisplayed step (stepper back-link, refresh) apart from
        one just rendered fresh off a POST — same quiet weight as .ps-label,
        not .error-notice: this isn't a warning, #124 already guarantees the
@@ -67,10 +66,8 @@
     }
     .btn-primary:hover, .btn-primary:active { opacity: 0.85; }
     @media (max-width: 768px) {
-        h1 { font-size: 24px; }
         .planner-card { padding: 28px; }
     }
     @media (max-width: 560px) {
-        h1 { font-size: 22px; }
         .planner-card { padding: 20px; }
     }

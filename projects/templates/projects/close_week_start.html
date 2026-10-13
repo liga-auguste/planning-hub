@@ -8,8 +8,6 @@
        which already provides its own outer padding — .page only needs to
        constrain and center the width, matching planner_rules.html's 960px. */
     .page { width: 100%; max-width: 960px; margin: 0 auto; }
-    .page-title { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
-    .page-subtitle { color: var(--color-text-quaternary); font-size: 13px; margin-bottom: 28px; }
     /* De-boxed like the app's other task lists: one surface with a hairline
        between the rows, not a card. The border and its 16px inset cost width
        and read as a second frame inside a page that already has one. */
@@ -50,6 +48,9 @@
        partial is bound to the dashboard's own stale/data_unavailable
        flags, which this page does not have. */
     .stale-notice { background: var(--color-overdue-tint); color: var(--color-overdue); border-radius: 6px; padding: 8px 14px; font-size: 12px; margin-bottom: 16px; }
+    /* Between the title and the week line, inside the page header (#298):
+       the 4px the subtitle would otherwise take from the title. */
+    .page-header .stale-notice { margin-top: 4px; }
     .btn-confirm { background: var(--color-solid-bg); color: var(--color-solid-text); border: none; border-radius: 6px; padding: 9px 20px; font-size: 13px; font-weight: 500; cursor: pointer; align-self: flex-start; }
     .btn-confirm:hover { opacity: 0.85; }
     .closeout-actions { display: flex; align-items: center; gap: 14px; }
@@ -62,7 +63,7 @@
            the second, the button against the right edge. It gives way to a
            "verschoben" badge once the move lands, so the badge has to sit
            where the button did. */
-        .page-title { padding-right: 44px; }
+        .page-header { padding-right: 44px; }
         .triage-task-name { flex-basis: 100%; }
         .triage-row .move-btn, .triage-row .badge-neutral { margin-left: auto; }
     }
@@ -84,15 +85,17 @@ app. See docs/wochenabschluss.md.
 
 {% block content %}
 <div class="page">
-    <div class="page-title">Woche abschließen</div>
-    {% if read_failed %}
-    <div class="stale-notice">Der Wochenabschluss konnte nicht gespeichert werden — Notion war gerade nicht erreichbar. Deine Aufgaben sind unverändert, versuch es in Kürze noch einmal.</div>
-    {% endif %}
-    {% if already_closed and not tasks %}
-    <div class="page-subtitle">{{ week_display }} — bereits abgeschlossen</div>
-    {% else %}
-    <div class="page-subtitle">{{ week_display }} — noch offene Aufgaben dieser Woche</div>
-    {% endif %}
+    <div class="page-header">
+        <h1 class="page-title">Woche abschließen</h1>
+        {% if read_failed %}
+        <div class="stale-notice">Der Wochenabschluss konnte nicht gespeichert werden — Notion war gerade nicht erreichbar. Deine Aufgaben sind unverändert, versuch es in Kürze noch einmal.</div>
+        {% endif %}
+        {% if already_closed and not tasks %}
+        <p class="page-subtitle">{{ week_display }} — bereits abgeschlossen</p>
+        {% else %}
+        <p class="page-subtitle">{{ week_display }} — noch offene Aufgaben dieser Woche</p>
+        {% endif %}
+    </div>
 
     {% comment %}
     #263: the week is a parameter now, so it can be browsed — and the review

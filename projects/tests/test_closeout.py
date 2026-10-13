@@ -404,7 +404,7 @@ class CloseWeekStartDemoModeTest(DemoModeTestCase):
         self.assertNotContains(response, "Woche abschließen</button>")
         # The subtitle used to say "noch offene Aufgaben dieser Woche" even
         # here — the same contradiction as the empty-state text, one line up.
-        self.assertContains(response, "bereits abgeschlossen</div>")
+        self.assertContains(response, "bereits abgeschlossen</p>")
         self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 
@@ -611,7 +611,7 @@ class CloseWeekStartProductionTest(TestCase):
         self.assertContains(response, "Rückblick aktualisieren</button>")
         self.assertNotContains(response, "Woche abschließen</button>")
         self.assertContains(response, "→ Rückblick ansehen")
-        self.assertContains(response, "bereits abgeschlossen</div>")
+        self.assertContains(response, "bereits abgeschlossen</p>")
         self.assertNotContains(response, "noch offene Aufgaben dieser Woche")
 
 

@@ -14,8 +14,6 @@
         --bs-card-spacer-x: 40px;
         --bs-card-spacer-y: 40px;
     }
-    h1 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
-    .subtitle { color: var(--color-text-quaternary); margin-bottom: 28px; line-height: 1.5; }
     .back { color: var(--color-text-quaternary); font-size: 13px; text-decoration: none; display: block; margin-bottom: 24px; }
     #rules-list { list-style: none; padding: 0; margin: 0; }
     .rule-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--color-border-primary); }
@@ -108,17 +106,19 @@
     {% else %}
     <a href="{% url 'planner_start' %}" class="back">← Planer</a>
     {% endif %}
-    <h1>Planungsregeln</h1>
-    <p class="subtitle">
-        Diese Regeln fließen in den Plan des jeweils passenden Projekttyps ein.<br>
-        Eine ausgeschaltete Regel bleibt in der Liste, geht aber nicht in den Plan ein.
-        {% if demo_mode %}<br>
-        Im Demo-Modus gehören diese Regeln nur zu diesem Besuch und wirken sich ausschließlich auf deine eigenen Pläne aus.
-        {% endif %}
-        {% if back_type_label %}<br>
-        Angezeigt werden nur Regeln für „{{ back_type_label }}" sowie Regeln, die für alle Projekttypen gelten.
-        {% endif %}
-    </p>
+    <div class="page-header">
+        <h1 class="page-title">Planungsregeln</h1>
+        <p class="page-subtitle">
+            Diese Regeln fließen in den Plan des jeweils passenden Projekttyps ein.<br>
+            Eine ausgeschaltete Regel bleibt in der Liste, geht aber nicht in den Plan ein.
+            {% if demo_mode %}<br>
+            Im Demo-Modus gehören diese Regeln nur zu diesem Besuch und wirken sich ausschließlich auf deine eigenen Pläne aus.
+            {% endif %}
+            {% if back_type_label %}<br>
+            Angezeigt werden nur Regeln für „{{ back_type_label }}" sowie Regeln, die für alle Projekttypen gelten.
+            {% endif %}
+        </p>
+    </div>
 
     <ul id="rules-list">
         {% for rule in rules %}

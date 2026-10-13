@@ -8,21 +8,37 @@ view spans every project at once, and its overview's projects carry their
 date in their own Notion name already.
 
 `title` is passed by the caller; everything else comes from the context
-dashboard() already sets for the overview.
+dashboard() already sets for the overview. `show_date` puts today's date
+under the title, which only the overview does.
+
+#298: the wrapper and the title are the shared page skeleton in base.css.
+.ai-card-header stays on the row as the hook for the phone launcher
+clearance, which is this page's to reserve.
 {% endcomment %}
-<div class="ai-card-header page-heading-row">
-    <div class="page-heading">{{ title }}</div>
-    {% if demo_project_name %}
-    <div class="header-project">
-        {{ demo_project_name }}
-        <span class="header-project-date">— {{ demo_project_date }}</span>
-        {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
+<div class="page-header">
+    <div class="ai-card-header page-heading-row">
+        <h1 class="page-title">{{ title }}</h1>
+        {% if demo_project_name %}
+        <div class="header-project">
+            {{ demo_project_name }}
+            <span class="header-project-date">— {{ demo_project_date }}</span>
+            {% if demo_project_date_uncertain %}<span class="date-uncertain-badge" title="Kein Termin erkannt — automatisch geschätzt, bitte prüfen.">Termin unsicher</span>{% endif %}
+        </div>
+        {% endif %}
+        {% if not demo_mode and show_refresh %}
+        <form method="post" action="{% url 'refresh' %}" class="refresh-form">
+            {% csrf_token %}
+            <button type="submit" class="refresh-btn">↻ Aktualisieren</button>
+        </form>
+        {% endif %}
     </div>
-    {% endif %}
-    {% if not demo_mode and show_refresh %}
-    <form method="post" action="{% url 'refresh' %}" class="refresh-form">
-        {% csrf_token %}
-        <button type="submit" class="refresh-btn">↻ Aktualisieren</button>
-    </form>
+    {% comment %}
+    Hidden while a moment is simulated (#153): the sim banner is the single
+    date authority then — the real date next to it read as a contradiction,
+    not context. The header's own 28px still follows it, so the label below
+    keeps its gap either way.
+    {% endcomment %}
+    {% if show_date and not sim_date %}
+    <p class="page-subtitle">{{ today_display }}</p>
     {% endif %}
 </div>
