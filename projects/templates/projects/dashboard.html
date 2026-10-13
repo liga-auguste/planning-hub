@@ -288,25 +288,40 @@
            (see the script guard below) — the grab cursor would otherwise
            promise a drag that just fails. */
         .day-task-card.no-drag { cursor: default; }
-        /* .main caps every other view at a comfortable 920px reading width
-           (dashboard.css) — sensible for prose and task lists, but a
-           7-column calendar grid benefits from the rest of a wide monitor
-           instead of sitting inside that same cap. Breaking just this
-           element out needs the sidebar's own footprint (its width plus the
-           fixed 24px gap, i.e. exactly .main's margin-left — both read the
-           same --sidebar-width / --sidebar-gap that dashboard.css defines
-           on :root, so this follows a collapse and a drag on its own)
-           subtracted from 100vw, plus .main's own 48px left inset (measured,
-           not itself a token anywhere — this rule doesn't move the grid's
-           left edge, only how far right it's allowed to stretch) and a 20px
-           right-hand margin against the raw viewport edge, matching the
-           20px inset already used elsewhere in this file (e.g.
-           .sidebar-toggle-mobile's right offset). Skipped below 769px: the
-           mobile block further down replaces grid-template-columns entirely
-           with its own swipe-scroll sizing, so a viewport-based width here
-           would only fight it. */
+        /* .main caps every view at a reading width (--reading-width in
+           dashboard.css) — right for prose and task lists, but a 7-column
+           calendar grid wants the rest of a wide monitor. Until #296 the
+           board broke out of that cap on its own, with a width computed from
+           100vw minus the sidebar. Nothing transitions --sidebar-width, so
+           that width jumped while .main's margin-left slid for 200ms: on a
+           collapse the board hung up to 192px past the window and the page
+           scrolled sideways, and Safari left stale paint in whatever the
+           board drew outside .main.
+
+           So the board no longer leaves .main. In the Heute view .main
+           drops its cap (.wide, set by showToday()), everything in the view
+           except the board gets the reading width back, and the board fills
+           the content box. Its width now comes from layout: it follows the
+           slide frame by frame, never paints outside .main, and measures
+           from the real content box, so a classic scrollbar is accounted
+           for. The -28px is .content-body's 48px right padding minus the
+           20px the board keeps from the window edge. The cap on the other
+           children is the reading width minus .content-body's 2 × 48px.
+
+           Where seven 160px columns still don't fit, the board scrolls
+           sideways on its own overflow-x. Overlay scrollbars show nothing
+           until you scroll, so the edge with more days behind it fades out
+           (.fade-start / .fade-end, set from the board's scroll position by
+           the script at the end of this page) — the mask .seq-plan on the
+           landing page uses. Skipped below 769px: there the board is a
+           vertical list and .main is full-bleed already. */
         @media (min-width: 769px) {
-            .day-columns { width: calc(100vw - var(--sidebar-width) - var(--sidebar-gap) - 68px); max-width: none; }
+            .main.wide { max-width: none; }
+            #view-today > :not(.day-columns) { max-width: calc(var(--reading-width) - 96px); }
+            .day-columns { margin-right: -28px; }
+            .day-columns.fade-start { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px); mask-image: linear-gradient(to right, transparent, #000 40px); }
+            .day-columns.fade-end { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+            .day-columns.fade-start.fade-end { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
         }
         .day-task-card.sortable-ghost { opacity: 0.3; }
         .day-task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1001,6 +1016,7 @@ the wording either way.
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-overview').classList.add('active');
+        document.getElementById('main').classList.remove('wide');
         if (!syncingHistory) history.pushState({}, '', window.location.pathname);
     }
 
@@ -1010,6 +1026,7 @@ the wording either way.
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-today').classList.add('active');
+        document.getElementById('main').classList.add('wide');
         if (!syncingHistory) history.pushState({view: 'today'}, '', '?view=today');
     }
 
@@ -1019,6 +1036,7 @@ the wording either way.
         document.querySelectorAll('.project-section').forEach(el => el.style.display = 'none');
         const section = document.getElementById('project-' + id);
         section.style.display = 'block';
+        document.getElementById('main').classList.remove('wide');
         document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
         document.getElementById('nav-' + id).classList.add('active');
         // #200: opening a project from a task row hides the row the button
@@ -2486,6 +2504,23 @@ document.querySelectorAll('.task-menu-item').forEach(item => {
         }
     });
 });
+</script>
+<script>
+// #296: the week board scrolls sideways where seven columns don't fit, and
+// overlay scrollbars don't say so until you scroll. Fade the edge that has
+// more days behind it. Read from the board's own scroll position rather
+// than left to scrollbar heuristics, and outside the Sortable guard below,
+// because the demo's example projects show the board too.
+(() => {
+    const board = document.getElementById('day-columns');
+    if (!board) return;  // a demo session plan renders no Heute view
+    const update = () => {
+        board.classList.toggle('fade-start', board.scrollLeft > 1);
+        board.classList.toggle('fade-end', board.scrollWidth - board.clientWidth - board.scrollLeft > 1);
+    };
+    board.addEventListener('scroll', update, {passive: true});
+    new ResizeObserver(update).observe(board);
+})();
 </script>
 {% if not viewing_demo_data %}
 {% comment %}

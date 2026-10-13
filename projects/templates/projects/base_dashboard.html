@@ -60,8 +60,9 @@ const root = document.documentElement;
 // first paint (#236). Everything below is the live toggling only.
 //
 // Both live as CSS on :root: the class decides --sidebar-width, and the
-// three rules that used to hard-code 260/48/284/72px read that one property
-// (.sidebar, .main's margin-left, and the day columns in dashboard.html).
+// rules that used to hard-code 260/48/284/72px read that one property
+// (.sidebar and .main's margin-left; the day columns in dashboard.html
+// follow .main since #296).
 // Nothing here writes a width onto an element any more, so #137's inline
 // styles — and the clearInlineWidth() / applySavedWidth() pair that had to
 // undo them on every collapse path — are gone rather than honoured.
