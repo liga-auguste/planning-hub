@@ -21,12 +21,12 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..ai import AIUnavailableError
+from ..annotate import _URGENCY_RANK, _annotate_tasks
 from ..date_format import DATE_STYLES, format_date
 from ..dates import iso_week_bounds
 from ..notion import NotionUnavailableError
 from ..templatetags.planner_tags import date_names, date_pattern
 from ..views import (
-    _URGENCY_RANK,
     CACHE_DEADLINE_KEY,
     CACHE_KEY,
     CACHE_TTL,
@@ -35,7 +35,6 @@ from ..views import (
     SUMMARY_KEY,
     UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
-    _annotate_tasks,
     _build_session_project,
     _bust_dashboard_cache,
     _cache_fresh_read,

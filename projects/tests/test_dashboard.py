@@ -20,18 +20,15 @@ from django.test import (
 from django.urls import reverse
 
 from ..ai import AIUnavailableError
+from ..annotate import _KANBAN_COLUMN, _URGENCY_RANK, _annotate_tasks, _kanban_column
 from ..date_format import format_date
 from ..notion import NotionUnavailableError
 from ..views import (
-    _KANBAN_COLUMN,
-    _URGENCY_RANK,
     CACHE_KEY,
     STALE_CACHE_KEY,
     STALE_UNASSIGNED_CACHE_KEY,
     SUMMARY_KEY,
     UNASSIGNED_CACHE_KEY,
-    _annotate_tasks,
-    _kanban_column,
 )
 from .base import (
     DemoModeTestCase,
