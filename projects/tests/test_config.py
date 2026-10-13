@@ -374,15 +374,18 @@ class NoDateTodayCallsTest(SimpleTestCase):
     """#85: date.today() reads the container's system clock, not
     settings.TIME_ZONE — near midnight, that can land "today" on the wrong
     calendar day relative to Europe/Berlin. Pinned to timezone.localdate()
-    at all 4 call-site files so this can't quietly regress."""
+    so this can't quietly regress.
 
-    FILES = ["views.py", "ai.py", "demo_data.py", "planner_views.py"]
+    Every module of the app rather than a list of the original four call
+    sites (#302): a list is what code moved out of views.py silently falls
+    out of, and no module has a legitimate date.today() call to exempt."""
 
     def test_no_bare_date_today_remains(self):
-        for name in self.FILES:
-            with self.subTest(file=name):
-                source = (settings.BASE_DIR / "projects" / name).read_text()
-                self.assertNotIn("date.today()", source)
+        files = sorted((settings.BASE_DIR / "projects").glob("*.py"))
+        self.assertIn("views.py", [path.name for path in files])
+        for path in files:
+            with self.subTest(file=path.name):
+                self.assertNotIn("date.today()", path.read_text())
 
 
 class DemoEventLocalTimeTest(SimpleTestCase):
