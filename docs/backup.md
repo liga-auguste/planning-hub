@@ -38,10 +38,13 @@ Not in a dump, and none of it irreplaceable:
    on every exit path) gets the dump through the [restore command](#restore) below, the
    same one this runbook uses. Then every table is checksummed on both sides, in UTC, and
    compared with the live database. A mismatch names the table.
-3. **Keep it**: the `.partial` is renamed to `planning_hub-YYYY-MM-DD_HHMMSS.dump`.
-4. **Prune** to the newest `BACKUP_KEEP` (default 90) by name. This runs only after a
-   successful run, and it counts dumps rather than measuring age: if the job fails for
-   weeks, pruning by age would delete every good backup.
+3. **Keep it**: the `.partial` is renamed to `planning_hub-YYYY-MM-DD_HHMMSS.dump`, and
+   the restored side's per-table checksums go next to it as `<dump>.sums`. At this
+   moment they equal live, and they are what `--verify` checks the dump against later.
+4. **Prune** to the newest `BACKUP_KEEP` (default 90) by name, each dump with its
+   `.sums`. This runs only after a successful run, and it counts dumps rather than
+   measuring age: if the job fails for weeks, pruning by age would delete every good
+   backup.
 5. **Record it** in `last-success`: one line with a timestamp and the file name.
 
 Any failed step exits non-zero, leaves no `.partial` behind and does not touch
@@ -63,6 +66,7 @@ would bring a newer one.
 | Where | What |
 |---|---|
 | `~/Backups/planning-hub/planning_hub-*.dump` | the dumps, `pg_dump` custom format |
+| `~/Backups/planning-hub/planning_hub-*.dump.sums` | each dump's per-table checksums, for `--verify` |
 | `~/Backups/planning-hub/last-success` | the newest good run |
 | `~/Backups/planning-hub/backup.log` | the LaunchAgent's output, one timestamped line per step |
 | `backup/backup.env` | optional, gitignored; `BACKUP_DIR` and `BACKUP_KEEP` (see `backup/backup.env.example`) |
@@ -175,9 +179,8 @@ project**, which gets its own volume.
 > production volume, and the restore replaces the live database with the dump: the very
 > loss this runbook exists for.
 
-Start with a fresh backup and drill with the dump it names (the `kept …` line). The
-comparisons below are against the *current* live database, so they only hold for a dump
-taken after the last write.
+The drill compares one table's row count with the live database, so take a fresh backup
+first and drill with the dump it names (the `kept …` line).
 
 ```sh
 backup/backup.sh
@@ -191,17 +194,13 @@ docker compose -p planninghub-drill down -v
 ```
 
 The two counts match, and `--verify` ends in `done`. `--verify` restores the given dump
-into its own throwaway and compares every table with the live database. It writes
-nothing.
+into its own throwaway and compares every table with `<dump>.sums`, the checksums
+recorded when the dump was taken. It does not look at the live data, so it works for a
+dump of any age, and it writes nothing. A dump without its `.sums` is refused.
 
-**`--verify` compares with the live database as it is now, not as it was when the dump
-was taken.** A dump older than the last write (a rule edited, a week closed) reports a
-mismatch even though it is intact. A mismatch on an old dump says nothing about the
-dump; only a mismatch on a fresh one does.
-
-The same holds within a normal run: a write to the live database between the dump and
-the live checksum (the throwaway's start and the restore lie in between) makes that run
-report a mismatch. That includes the run before a deploy. Running it again resolves it.
+A normal run compares with the live database instead: a write between the dump and the
+live checksum (the throwaway's start and the restore lie in between) makes that run report
+a mismatch. That includes the run before a deploy. Running it again resolves it.
 
 ### Drill log
 

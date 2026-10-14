@@ -129,6 +129,12 @@ class ARunLeavesADumpTest(BackupScriptCase):
         self.assertEqual((self.backup_dir / name).read_text(), "PGDMP-fake-archive")
         self.assertIn(name, self.last_success())
 
+    def test_the_run_records_the_restored_checksums_next_to_the_dump(self):
+        self.run_backup()
+
+        [name] = self.dumps()
+        self.assertEqual((self.backup_dir / f"{name}.sums").read_text(), LIVE_SUMS)
+
     def test_the_dump_call_is_binary_safe_and_skips_rebuildable_rows(self):
         self.run_backup()
 
@@ -158,6 +164,7 @@ class AFailedDumpLeavesNothingTest(BackupScriptCase):
 
         self.assert_failed_cleanly(result, last_success_before="earlier\n")
         self.assertEqual(self.dumps(), [])
+        self.assertEqual(list(self.backup_dir.glob("*.sums")), [])
 
 
 class TheVerificationRestoresTest(BackupScriptCase):
@@ -202,6 +209,13 @@ class TheVerificationRestoresTest(BackupScriptCase):
 
         self.assert_failed_cleanly(result)
         self.assertEqual(self.dumps(), [])
+
+    def test_a_run_that_fails_the_comparison_records_no_checksums(self):
+        self.stub_state(restored_sums="auth_user|zzz\n")
+
+        self.run_backup()
+
+        self.assertEqual(list(self.backup_dir.glob("*.sums")), [])
 
     def test_a_mismatch_names_its_table(self):
         self.stub_state(
@@ -255,9 +269,15 @@ class TheThrowawayIsAlwaysRemovedTest(BackupScriptCase):
 
 
 class VerifyAGivenDumpTest(BackupScriptCase):
-    def test_verify_restores_and_compares_without_writing(self):
+    def fetched_dump(self, sums=LIVE_SUMS):
         dump = self.tmp / "fetched.dump"
         dump.write_text("PGDMP-from-elsewhere")
+        if sums is not None:
+            (self.tmp / "fetched.dump.sums").write_text(sums)
+        return dump
+
+    def test_verify_restores_and_compares_without_writing(self):
+        dump = self.fetched_dump()
 
         result = self.run_backup("--verify", str(dump))
 
@@ -268,15 +288,40 @@ class VerifyAGivenDumpTest(BackupScriptCase):
         self.assertEqual(self.calls_with("pg_dump"), [])
         self.assertFalse(self.backup_dir.exists())
 
-    def test_verify_reports_a_mismatch(self):
-        dump = self.tmp / "fetched.dump"
-        dump.write_text("PGDMP-from-elsewhere")
-        self.stub_state(restored_sums="auth_user|zzz\n")
+    def test_verify_compares_with_the_recorded_sums_not_with_live(self):
+        # The live data has moved on since the dump was taken: a rule edited,
+        # a week closed. That says nothing about the dump.
+        dump = self.fetched_dump()
+        self.stub_state(live_sums="auth_user|aaa\nprojects_plannerrule|new\n")
+
+        result = self.run_backup("--verify", str(dump))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        [psql] = self.calls_with("psql")
+        self.assertTrue(psql.startswith("exec "), psql)
+
+    def test_verify_reports_a_mismatch_with_the_recorded_sums(self):
+        dump = self.fetched_dump()
+        self.stub_state(
+            restored_sums=LIVE_SUMS.replace(
+                "projects_plannerrule|bbb", "projects_plannerrule|xxx"
+            )
+        )
 
         result = self.run_backup("--verify", str(dump))
 
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("projects_plannerrule", result.stderr)
         self.assertFalse(self.backup_dir.exists())
+
+    def test_verify_without_recorded_sums_fails_before_any_docker_call(self):
+        dump = self.fetched_dump(sums=None)
+
+        result = self.run_backup("--verify", str(dump))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fetched.dump.sums", result.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_verify_without_a_readable_file_fails(self):
         result = self.run_backup("--verify", str(self.tmp / "missing.dump"))
@@ -308,6 +353,7 @@ class RetentionTest(BackupScriptCase):
         self.backup_dir.mkdir()
         for name in self.OLD:
             (self.backup_dir / name).write_text("old")
+            (self.backup_dir / f"{name}.sums").write_text("old sums")
 
     def test_retention_keeps_the_newest_by_name(self):
         self.seed_old_dumps()
@@ -318,6 +364,14 @@ class RetentionTest(BackupScriptCase):
         dumps = self.dumps()
         self.assertEqual(len(dumps), 3)
         self.assertEqual(dumps[:2], self.OLD[3:])
+
+    def test_a_pruned_dump_takes_its_checksums_along(self):
+        self.seed_old_dumps()
+
+        self.run_backup(keep=3)
+
+        sums = sorted(p.name for p in self.backup_dir.glob("*.sums"))
+        self.assertEqual(sums, [f"{name}.sums" for name in self.dumps()])
 
     def test_a_failed_run_deletes_nothing(self):
         self.seed_old_dumps()
