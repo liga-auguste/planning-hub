@@ -9,6 +9,11 @@ staticfiles/
 # Real SSH targets/paths for the deploy skill. Holds infrastructure details
 # — belongs on the maintainer's machine, never in the repo.
 .claude/skills/deploy/hosts.md
+
+# Backup settings for one host (docs/backup.md): its paths, and from PR 2 on
+# the off-site target. Belongs on the production host, never in the repo.
+backup/backup.env
+
 demo.sqlite3
 # SQLite's own sidecars for the file above. They exist only while the demo
 # stack is running, and `git add -A` after a local run sweeps them in

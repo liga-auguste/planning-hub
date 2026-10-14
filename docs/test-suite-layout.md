@@ -34,13 +34,14 @@ test was added, renamed or removed.
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
 | `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| **total** | **364** | **1574** | |
+| `test_backup.py` | 12 | 39 | Production backups: the script against a stub `docker`, its launchd schedule, the runbook and the deploy step that calls it |
+| **total** | **376** | **1613** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-10-02 with #156 —
 they move with every branch, and a stale number here is a stale number, not a wrong rule. `test_language_eval.py`
-joined the list after the split (#248) and `test_prompt_voice.py` after #262; the seventeen modules above are all of
-them.
+joined the list after the split (#248), `test_prompt_voice.py` after #262 and `test_backup.py` after #300; the
+eighteen modules above are all of them.
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a
