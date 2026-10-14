@@ -7,3 +7,5 @@ __pycache__/
 *.sqlite3
 staticfiles/
 .DS_Store
+# Host-side backup tooling (docs/backup.md); the web image needs none of it.
+backup/
