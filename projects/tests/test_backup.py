@@ -236,7 +236,8 @@ class TheThrowawayIsAlwaysRemovedTest(BackupScriptCase):
     def assert_removed(self):
         [run] = self.calls_with("run ")
         name = re.search(r"--name (\S+)", run).group(1)
-        self.assertIn(f"rm -f {name}", self.calls())
+        # -v as well: the image's anonymous data volume outlives `rm -f`.
+        self.assertIn(f"rm -fv {name}", self.calls())
 
     def test_after_success(self):
         self.run_backup()

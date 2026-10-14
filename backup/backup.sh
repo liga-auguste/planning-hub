@@ -51,8 +51,10 @@ partial=
 workdir=
 
 cleanup() {
+    # -v: postgres:16 declares a VOLUME for its data directory, so every
+    # throwaway gets an anonymous volume that `rm -f` alone leaves behind.
     if [ -n "$container" ]; then
-        docker rm -f "$container" >/dev/null 2>&1 || true
+        docker rm -fv "$container" >/dev/null 2>&1 || true
     fi
     if [ -n "$partial" ]; then
         rm -f "$partial" "$BACKUP_DIR/last-success.partial"
@@ -151,7 +153,7 @@ verify() {
     fi
     log "verified $(wc -l < "$workdir/live" | tr -d ' ') tables"
 
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    docker rm -fv "$container" >/dev/null 2>&1 || true
     container=
 }
 

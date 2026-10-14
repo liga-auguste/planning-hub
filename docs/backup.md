@@ -131,10 +131,16 @@ docker compose exec -T db pg_restore --clean --if-exists --create --exit-on-erro
 
 ### After a broken deploy
 
-The deploy took a dump minutes before the pull. Use that one, the newest:
+The deploy took a dump minutes before the pull, and its report names the file (the
+`kept …` line). Restore **that file by name**, not the newest one. Any run after the
+deploy is newer and holds the already-migrated state: the 03:30 job when the breakage only
+shows the next morning, or the pre-pull backup of a second deploy that tried to fix it.
+Each of those verifies cleanly, because it faithfully captures the broken state.
+
+If the name is lost, take the newest dump whose timestamp lies *before* the deploy:
 
 ```sh
-ls -1 ~/Backups/planning-hub/planning_hub-*.dump | tail -1
+ls -1 ~/Backups/planning-hub/planning_hub-*.dump
 docker compose stop web nginx
 docker compose exec -T db pg_restore --clean --if-exists --create --exit-on-error -U liga -d postgres < <dump>
 ```
@@ -169,7 +175,12 @@ project**, which gets its own volume.
 > production volume, and the restore replaces the live database with the dump: the very
 > loss this runbook exists for.
 
+Start with a fresh backup and drill with the dump it names (the `kept …` line). The
+comparisons below are against the *current* live database, so they only hold for a dump
+taken after the last write.
+
 ```sh
+backup/backup.sh
 docker compose -p planninghub-drill up -d db
 docker compose -p planninghub-drill exec db pg_isready -h 127.0.0.1    # until ready
 docker compose -p planninghub-drill exec -T db pg_restore --clean --if-exists --create --exit-on-error -U liga -d postgres < <dump>
@@ -183,8 +194,14 @@ The two counts match, and `--verify` ends in `done`. `--verify` restores the giv
 into its own throwaway and compares every table with the live database. It writes
 nothing.
 
-A write to the live database while a run compares checksums makes that run report a
-mismatch. That includes the run before a deploy. Running it again resolves it.
+**`--verify` compares with the live database as it is now, not as it was when the dump
+was taken.** A dump older than the last write (a rule edited, a week closed) reports a
+mismatch even though it is intact. A mismatch on an old dump says nothing about the
+dump; only a mismatch on a fresh one does.
+
+The same holds within a normal run: a write to the live database between the dump and
+the live checksum (the throwaway's start and the restore lie in between) makes that run
+report a mismatch. That includes the run before a deploy. Running it again resolves it.
 
 ### Drill log
 

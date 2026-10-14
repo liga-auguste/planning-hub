@@ -111,11 +111,17 @@ the docker half, since the script calls `docker`. It runs the copy of the
 script the host already has, before the pull. That is why `--local-only` is
 an option the script has always accepted.
 
+**Carry the dump's file name into the deploy report** — the script's
+`kept …` line. Step 6 restores that file by name: any later run, the 03:30
+job or the backup of a second deploy, would be newer and already hold the
+migrated state.
+
 A failed or missing backup **stops the deploy**: report it with the log
 lines the script printed. Deploying anyway, say to ship a fix for the
 backup itself, is the maintainer's explicit call, never a default. A
-checksum mismatch can also come from a write during the run's comparison,
-so one rerun is fair before treating it as a real failure.
+checksum mismatch can also come from a write to the live database between
+the dump and the comparison, so one rerun is fair before treating it as a
+real failure.
 
 ### 3. Deploy
 
@@ -229,8 +235,9 @@ The code rollback: check out the previous commit on the host and rebuild.
 the dump step 2 took minutes before the pull is the one to use. Restore it
 *before* the code rollback's rebuild starts `web` again, following
 `docs/backup.md`, "After a broken deploy": stop `web` and `nginx`, restore
-the newest dump with the runbook's one restore command, then check out the
-previous commit and rebuild. Code alone is enough when the deploy carried no
+the dump step 2 named, **by its file name and not as the newest**, with the
+runbook's one restore command, then check out the previous commit and
+rebuild. Code alone is enough when the deploy carried no
 migration.
 
 ```bash
