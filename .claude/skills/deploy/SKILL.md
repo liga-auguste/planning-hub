@@ -98,6 +98,25 @@ ssh <host> 'cd <path> && git status'
   entry names — `git checkout <branch>` — once you know why the rollback
   was still there.
 
+**Production only: take a backup before pulling.** A broken migration can
+then roll back to a few minutes before the deploy instead of to the nightly
+03:30 run (`docs/backup.md`):
+
+```bash
+ssh <host> 'cd <path> && sh backup/backup.sh --local-only'
+```
+
+On a stack with a `Shell`, run it through the wrapper the way step 3 runs
+the docker half, since the script calls `docker`. It runs the copy of the
+script the host already has, before the pull. That is why `--local-only` is
+an option the script has always accepted.
+
+A failed or missing backup **stops the deploy**: report it with the log
+lines the script printed. Deploying anyway, say to ship a fix for the
+backup itself, is the maintainer's explicit call, never a default. A
+checksum mismatch can also come from a write during the run's comparison,
+so one rerun is fair before treating it as a real failure.
+
 ### 3. Deploy
 
 ```bash
@@ -204,9 +223,15 @@ code.
 Roll back only the stack that is actually broken — the two are independent
 deploys and a healthy one is not evidence about the other.
 
-The only rollback that exists today: check out the previous commit on the
-host and rebuild. Database backup/restore is out of scope (tracked
-separately).
+The code rollback: check out the previous commit on the host and rebuild.
+
+**On production, a broken migration also needs the data rolled back**, and
+the dump step 2 took minutes before the pull is the one to use. Restore it
+*before* the code rollback's rebuild starts `web` again, following
+`docs/backup.md`, "After a broken deploy": stop `web` and `nginx`, restore
+the newest dump with the runbook's one restore command, then check out the
+previous commit and rebuild. Code alone is enough when the deploy carried no
+migration.
 
 ```bash
 ssh <host> 'cd <path> && git log --oneline -5'   # find the last-known-good commit

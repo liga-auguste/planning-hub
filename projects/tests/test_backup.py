@@ -366,3 +366,29 @@ class HostConfigurationStaysOnTheHostTest(SimpleTestCase):
     def test_the_web_image_gets_none_of_it(self):
         lines = (REPO / ".dockerignore").read_text().splitlines()
         self.assertIn("backup/", lines)
+
+
+class TheRunbookTest(SimpleTestCase):
+    def test_the_runbook_holds_the_restore_command(self):
+        runbook = (REPO / "docs" / "backup.md").read_text()
+        self.assertIn(RESTORE_COMMAND, runbook)
+
+    def test_the_readme_production_section_links_it(self):
+        readme = (REPO / "README.md").read_text()
+        start = readme.index("### Docker (production)")
+        end = readme.index("## Project structure")
+        self.assertIn("docs/backup.md", readme[start:end])
+
+
+class ADeployBacksUpFirstTest(SimpleTestCase):
+    def setUp(self):
+        self.skill = (REPO / ".claude" / "skills" / "deploy" / "SKILL.md").read_text()
+
+    def test_the_backup_runs_before_the_pull(self):
+        backup = self.skill.index("backup/backup.sh --local-only")
+        pull = self.skill.index("git pull && docker compose")
+        self.assertLess(backup, pull)
+
+    def test_restore_is_no_longer_out_of_scope(self):
+        self.assertNotIn("out of scope", self.skill)
+        self.assertIn("docs/backup.md", self.skill)

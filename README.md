@@ -396,6 +396,10 @@ serving this domain. `SECURE_HSTS_INCLUDE_SUBDOMAINS` stays off — the other
 subdomains are not this app's to commit — which is why `security.W005` and
 `security.W021` are in `SILENCED_SYSTEM_CHECKS` with their reasoning.
 
+**Backups.** `backup/backup.sh` dumps the database nightly from a launchd agent and
+before every production deploy, and proves each dump restores before keeping it.
+Setup, the restore command and the drill are in [`docs/backup.md`](docs/backup.md).
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 
@@ -438,6 +442,7 @@ projects/
     test_rules.py      #   planning rules, both backends, seeding, migrations
     test_naming.py     #   display names and date formatting
     test_language_eval.py  # the eval's own checks — the eval itself is not run here
+    test_backup.py     #   production backups: the script, its schedule, the runbook
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 34 templates: the pages plus the partials they share
@@ -450,6 +455,10 @@ projects/
   management/commands/
     seed_rules.py               # Seed initial planner rules
     eval_language.py            # Run the language eval — real Claude calls, run by hand
+backup/
+  backup.sh                     # Dump, prove the restore, keep, prune — production host only
+  de.ligaauguste.planninghub.backup.plist  # LaunchAgent template, nightly at 03:30
+  backup.env.example            # Optional host settings: where dumps go, how many are kept
 docs/
   dashboard-write-paths.md      # Which write touches which cache, and which is offered where
   template-refactoring.md       # Base-template inheritance layout, as carried out
@@ -459,6 +468,7 @@ docs/
   design-tokens.md              # The token set, the palette, what each token is for, and the page skeleton
   test-suite-layout.md          # Which subject lives in which test module, and why
   wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
+  backup.md                     # Production backups: how they run, install, restore, drill
   screenshots/                  # README images
 ```
 
