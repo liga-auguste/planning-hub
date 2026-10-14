@@ -166,7 +166,7 @@ def _number_projects_and_tasks(projects: list) -> tuple[list, list]:
     number the moment a task is toggled between cache-write and render time,
     silently re-pointing the cached refs at the wrong tasks. Position depends
     only on task order, which is stable across a toggle. That order is the
-    chronological one _annotate_tasks (views.py) establishes before every
+    chronological one _annotate_tasks (annotate.py) establishes before every
     prompt build and every resolve, so both sides number the same list (#140).
 
     Each numbered task carries the project it came from (#49). A theme may

@@ -19,6 +19,10 @@ from django.test import (
 from django.urls import reverse
 
 from ..ai import AIUnavailableError
+from ..dashboard_cache import (
+    CACHE_KEY,
+    STALE_CACHE_KEY,
+)
 from ..demo_data import get_demo_history
 from ..notion import NotionUnavailableError
 from ..planner import (
@@ -31,8 +35,6 @@ from ..planner_views import (
     _parse_event_date,
 )
 from ..views import (
-    CACHE_KEY,
-    STALE_CACHE_KEY,
     SUMMARY_KEY,
 )
 from .base import (
@@ -1304,9 +1306,9 @@ class PlannerCreateNotionFailureTest(TestCase):
 
     def test_a_saved_plan_busts_the_dashboard_cache(self):
         """planner_create used to delete the cache by a hardcoded string —
-        a key bump in views.py would silently turn that into a no-op and a
-        freshly saved project would hide behind the 8h TTL. #37: the
-        never-expiring stale copy must go with it, or a Notion read that
+        a key bump in dashboard_cache.py would silently turn that into a
+        no-op and a freshly saved project would hide behind the 8h TTL. #37:
+        the never-expiring stale copy must go with it, or a Notion read that
         fails right after this save would serve the dashboard as it looked
         before the project existed."""
         self.addCleanup(cache.clear)

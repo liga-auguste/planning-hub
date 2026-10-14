@@ -16,7 +16,7 @@ awareness for tasks that keep getting pushed, riding the same reschedule call si
 ## Calendar-week urgency, not a rolling window
 
 `urgent` now means: due date falls in the same ISO calendar week (Monday–Sunday) as
-today. `projects/dates.py` holds the one comparison both `_annotate_tasks` (`views.py`)
+today. `projects/dates.py` holds the one comparison both `_annotate_tasks` (`annotate.py`)
 and `build_prompt` (`ai.py`) use:
 
 ```python

@@ -8,7 +8,7 @@ from datetime import (
     timedelta,
 )
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -21,27 +21,28 @@ from django.urls import reverse
 from django.utils import timezone
 
 from ..ai import AIUnavailableError
-from ..date_format import DATE_STYLES, format_date
-from ..dates import iso_week_bounds
-from ..notion import NotionUnavailableError
-from ..templatetags.planner_tags import date_names, date_pattern
-from ..views import (
-    _URGENCY_RANK,
+from ..annotate import _URGENCY_RANK, _annotate_tasks
+from ..dashboard_cache import (
     CACHE_DEADLINE_KEY,
     CACHE_KEY,
     CACHE_TTL,
     STALE_CACHE_KEY,
     STALE_UNASSIGNED_CACHE_KEY,
-    SUMMARY_KEY,
     UNASSIGNED_CACHE_DEADLINE_KEY,
     UNASSIGNED_CACHE_KEY,
-    _annotate_tasks,
-    _build_session_project,
     _bust_dashboard_cache,
     _cache_fresh_read,
+    _remap_summary_refs,
+)
+from ..date_format import DATE_STYLES, format_date
+from ..dates import iso_week_bounds
+from ..notion import NotionUnavailableError
+from ..templatetags.planner_tags import date_names, date_pattern
+from ..views import (
+    SUMMARY_KEY,
+    _build_session_project,
     _demo_completed_in_range,
     _derive_dashboard_figures,
-    _remap_summary_refs,
 )
 from .base import (
     DemoModeTestCase,
@@ -3329,13 +3330,20 @@ class PatchingDoesNotRenewTheReadWindowTest(TestCase):
         """The timeout every write to `keys` named while `action` ran.
 
         Django's cache API cannot report how long an entry has left, so
-        watching the writes from inside views is the only way to see the
-        difference between "put back" and "renewed"."""
-        with patch("projects.views.cache", wraps=cache) as views_cache:
+        watching the writes from inside the app is the only way to see the
+        difference between "put back" and "renewed". One spy under both
+        names the shared cache is looked up by (#302): the helpers that
+        re-write these entries live in dashboard_cache.py, and a write still
+        made from views.py must not drop out of the count unseen."""
+        spy = MagicMock(wraps=cache)
+        with (
+            patch("projects.dashboard_cache.cache", spy),
+            patch("projects.views.cache", spy),
+        ):
             action()
         return [
             call.args[2]
-            for call in views_cache.set.call_args_list
+            for call in spy.set.call_args_list
             if call.args[0] in keys and len(call.args) > 2
         ]
 

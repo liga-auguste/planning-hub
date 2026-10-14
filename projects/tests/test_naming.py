@@ -22,14 +22,16 @@ from django.test import (
 )
 from django.urls import reverse
 
+from ..dashboard_cache import (
+    CACHE_KEY,
+    UNASSIGNED_CACHE_KEY,
+)
 from ..date_format import (
     DATE_STYLES,
     format_date,
     format_week_range,
 )
 from ..views import (
-    CACHE_KEY,
-    UNASSIGNED_CACHE_KEY,
     _strip_trailing_date,
 )
 from .base import (

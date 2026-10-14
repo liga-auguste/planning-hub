@@ -15,6 +15,7 @@ from django.utils import timezone
 from . import display_style
 from . import rules as rules_store
 from .ai import KONTEXTE, AIUnavailableError
+from .dashboard_cache import _bust_dashboard_cache
 from .date_format import DATE_STYLES, format_date, style_resolver
 from .demo_data import get_demo_history
 from .models import DemoEvent
@@ -26,7 +27,7 @@ from .notion import (
     get_historical_projects,
 )
 from .planner import generate_plan, get_clarifying_questions
-from .views import _bust_dashboard_cache, _parse_json_dict_body, _strip_trailing_date
+from .views import _parse_json_dict_body, _strip_trailing_date
 
 logger = logging.getLogger(__name__)
 

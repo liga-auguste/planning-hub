@@ -1691,7 +1691,7 @@ if (TIMELAPSE_MOMENTS.length > 0) {
     buildTimelapseBar(TIMELAPSE_MOMENTS);
 }
 
-// Every stage _annotate_tasks (views.py) can put on a task, minus `done`,
+// Every stage _annotate_tasks (annotate.py) can put on a task, minus `done`,
 // which the toggle owns. The server answers a reschedule with the new one
 // rather than the client re-deriving it: the rule is calendar-week based
 // (#169) and, in a demo session, measured against the simulated date.

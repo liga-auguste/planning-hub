@@ -16,13 +16,13 @@ from django.test import (
 )
 from django.urls import reverse
 
+from ..annotate import _annotate_tasks
 from ..dates import (
     is_same_iso_week,
     iso_week_bounds,
 )
 from ..notion import NotionUnavailableError
 from ..views import (
-    _annotate_tasks,
     _bucket_by_day,
     _build_week_view,
     _count_done_in_range,

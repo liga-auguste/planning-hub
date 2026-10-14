@@ -18,9 +18,11 @@ from django.test import (
 )
 from django.urls import reverse
 
+from ..dashboard_cache import (
+    CACHE_KEY,
+)
 from ..models import WeekCloseout
 from ..notion import NotionUnavailableError
-from ..views import CACHE_KEY
 from .base import (
     CLOSEOUT_TODAY,
     DemoModeTestCase,

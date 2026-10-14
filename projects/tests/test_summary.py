@@ -35,15 +35,17 @@ from ..ai import (
     resolve_weekly_summary,
     summary_has_content,
 )
-from ..views import (
+from ..annotate import _annotate_tasks
+from ..dashboard_cache import (
     CACHE_DEADLINE_KEY,
     CACHE_KEY,
     CACHE_TTL,
-    DEMO_MULTI_SUMMARY_KEY,
     STALE_CACHE_KEY,
-    SUMMARY_KEY,
-    _annotate_tasks,
     _cache_fresh_read,
+)
+from ..views import (
+    DEMO_MULTI_SUMMARY_KEY,
+    SUMMARY_KEY,
     _summary_empty_state,
 )
 from .base import (
