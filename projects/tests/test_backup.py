@@ -42,7 +42,7 @@ case "$*" in
     cat > "$STUB_DIR/restore-input"
     exit "$(cat "$STUB_DIR/restore-exit")" ;;
   compose\ *psql*) cat > /dev/null; cat "$STUB_DIR/live-sums" ;;
-  exec\ *psql*) cat > /dev/null; cat "$STUB_DIR/restored-sums" ;;
+  exec\ *psql*) cat > "$STUB_DIR/checksum-sql"; cat "$STUB_DIR/restored-sums" ;;
   rm\ *) ;;
   *) echo "stub docker: unexpected call: $*" >&2; exit 99 ;;
 esac
@@ -201,6 +201,15 @@ class TheVerificationRestoresTest(BackupScriptCase):
         self.assertEqual(len(psql), 2)
         for call in psql:
             self.assertIn("PGTZ=UTC", call)
+
+    def test_rows_are_sorted_by_byte_order(self):
+        self.run_backup()
+
+        # The database's collation comes from the image's libc, and a
+        # re-pulled image could sort differently: the .sums would then fail
+        # an intact dump on --verify.
+        sql = (self.stub / "checksum-sql").read_text()
+        self.assertIn('ORDER BY t::text COLLATE "C"', sql)
 
     def test_a_dump_that_does_not_restore_is_not_a_backup(self):
         self.stub_state(restore_exit="1")

@@ -91,8 +91,12 @@ done
 
 # One "table|md5" line per table, in name order. Every row is rendered as
 # text and sorted, so the sum depends on the data, not on physical order.
+# Sorted by byte order (COLLATE "C"), not by the database's en_US.utf8: that
+# order comes from the libc in the postgres:16 image, so a re-pulled image
+# could sort differently and fail --verify on an intact dump. Changing the
+# sort later would invalidate every .sums already written.
 checksum_sql() {
-    printf '%s\n' "SELECT format('SELECT %L, md5(coalesce(string_agg(t::text, E''\\n'' ORDER BY t::text), '''')) FROM %I.%I t', tablename, schemaname, tablename) FROM pg_tables WHERE schemaname = 'public'"
+    printf '%s\n' "SELECT format('SELECT %L, md5(coalesce(string_agg(t::text, E''\\n'' ORDER BY t::text COLLATE \"C\"), '''')) FROM %I.%I t', tablename, schemaname, tablename) FROM pg_tables WHERE schemaname = 'public'"
     for table in $SKIP_DATA; do
         printf "  AND tablename <> '%s'\n" "$table"
     done

@@ -36,8 +36,10 @@ Not in a dump, and none of it irreplaceable:
    matters: without it compose allocates a TTY, and a TTY corrupts a binary stream.
 2. **Prove it restores.** A throwaway `postgres:16` container (`--network none`, removed
    on every exit path) gets the dump through the [restore command](#restore) below, the
-   same one this runbook uses. Then every table is checksummed on both sides, in UTC, and
-   compared with the live database. A mismatch names the table.
+   same one this runbook uses. Then every table is checksummed on both sides, in UTC and
+   with rows sorted by byte order (`COLLATE "C"`), and compared with the live database. A
+   mismatch names the table. Byte order keeps the sums independent of the libc in the
+   image, so a re-pulled `postgres:16` cannot fail an intact dump on `--verify`.
 3. **Keep it**: the `.partial` is renamed to `planning_hub-YYYY-MM-DD_HHMMSS.dump`, and
    the restored side's per-table checksums go next to it as `<dump>.sums`. At this
    moment they equal live, and they are what `--verify` checks the dump against later.
