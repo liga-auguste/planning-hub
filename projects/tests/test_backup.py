@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from django.conf import settings
@@ -607,6 +608,18 @@ class ReceiverCase(SimpleTestCase):
             check=False,
         )
 
+    def copies(self, stamp, days_ago, count=5):
+        """`count` stored copies, named from `stamp`, `days_ago` old by mtime."""
+        self.store.mkdir(exist_ok=True)
+        when = time.time() - days_ago * 86400
+        names = []
+        for d in range(1, count + 1):
+            path = self.store / f"planning_hub-{stamp.format(d)}.dump.age"
+            path.write_bytes(b"real copy")
+            os.utime(path, (when, when))
+            names.append(path.name)
+        return names
+
     def stored(self):
         if not self.store.exists():
             return []
@@ -662,11 +675,8 @@ class TheReceiverTest(ReceiverCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.stored()), 1)
 
-    def test_it_prunes_to_the_newest_after_storing(self):
-        self.store.mkdir()
-        old = [f"planning_hub-2026-01-0{d}_013000.dump.age" for d in range(1, 6)]
-        for name in old:
-            (self.store / name).write_bytes(b"old")
+    def test_it_prunes_old_copies_beyond_the_newest_after_storing(self):
+        old = self.copies("2026-01-0{}_013000", days_ago=120)
         self.freeze_clock("2026-10-15_013000")
 
         self.receive(b"new", keep=3)
@@ -675,11 +685,56 @@ class TheReceiverTest(ReceiverCase):
             self.stored(), [*old[3:], "planning_hub-2026-10-15_013000.dump.age"]
         )
 
-    def test_a_rejected_upload_prunes_nothing(self):
+    def test_a_flood_of_uploads_cannot_push_out_recent_copies(self):
+        # The upload key sits on the production host without a passphrase.
+        # Pruned by count alone, a burst of tiny uploads from whoever took
+        # that host would evict every real copy in about a minute and a half.
+        real = self.copies("2026-10-0{}_013000", days_ago=10)
+
+        for second in range(10, 15):
+            self.freeze_clock(f"2026-10-15_0130{second}")
+            self.receive(b"x", keep=3)
+
+        for name in real:
+            self.assertEqual((self.store / name).read_bytes(), b"real copy")
+
+    def test_old_copies_stay_while_they_are_among_the_newest(self):
+        # The job may fail for months: age alone would then delete every copy.
+        old = self.copies("2026-01-0{}_013000", days_ago=200, count=2)
+        self.freeze_clock("2026-10-15_013000")
+
+        self.receive(b"new", keep=3)
+
+        self.assertEqual(
+            self.stored(), [*old, "planning_hub-2026-10-15_013000.dump.age"]
+        )
+
+    def test_a_full_store_refuses_rather_than_prunes(self):
         self.store.mkdir()
-        old = [f"planning_hub-2026-01-0{d}_013000.dump.age" for d in range(1, 6)]
-        for name in old:
-            (self.store / name).write_bytes(b"old")
+        names = [f"planning_hub-2026-10-01_{n:06d}.dump.age" for n in range(400)]
+        for name in names:
+            (self.store / name).write_bytes(b"c")
+
+        result = self.receive(b"new")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("400", result.stderr.decode())
+        self.assertEqual(self.stored(), names)
+
+    def test_the_store_is_capped_at_1_gib(self):
+        self.store.mkdir()
+        big = self.store / "planning_hub-2026-10-01_013000.dump.age"
+        # Sparse: the size counts, the disk is not filled.
+        with big.open("wb") as f:
+            f.truncate(1024 * 1024 * 1024 - 5)
+
+        result = self.receive(b"123456")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.stored(), [big.name])
+
+    def test_a_rejected_upload_prunes_nothing(self):
+        old = self.copies("2026-01-0{}_013000", days_ago=120)
 
         self.receive(b"", keep=3)
 

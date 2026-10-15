@@ -88,7 +88,7 @@ before the pull that would bring a newer one.
 | `~/Backups/planning-hub/last-success` | the newest good run |
 | `~/Backups/planning-hub/backup.log` | the LaunchAgent's output, one timestamped line per step |
 | `backup/backup.env` | gitignored; `BACKUP_DIR` and `BACKUP_KEEP` (optional), the three off-site settings (required without `--local-only`); see `backup/backup.env.example` |
-| VPS: `/home/planninghub-backup/planning-hub/planning_hub-*.dump.age` | the off-site copies, newest 90 by name, pruned by the receiver |
+| VPS: `/home/planninghub-backup/planning-hub/planning_hub-*.dump.age` | the off-site copies; the receiver prunes only what is beyond the newest 90 *and* older than 90 days |
 | VPS: `/usr/local/bin/planninghub-receive` | the receiver, a root-owned copy of `backup/receive.sh` |
 
 `~/Backups` is deliberately outside Desktop, Documents and Downloads. macOS guards those
@@ -203,6 +203,13 @@ chmod 0644 /home/planninghub-backup/.ssh/authorized_keys
   which key gets in.
 - The receiver is a **copy**. A change to `backup/receive.sh` needs the `install` line
   again; a deploy does not do it.
+- The upload key sits on the production host without a passphrase, so whoever takes
+  that host can upload too. The receiver therefore never prunes a copy younger than 90
+  days, however many uploads follow it, and refuses an upload once it holds 400 copies
+  or 1 GiB. A flood of uploads then fails the nightly run instead of evicting the
+  history. If that happens, find out why before deleting anything on the VPS: the junk
+  is the newest files, the real copies are the ones the log's `off-site: stored …`
+  lines name.
 
 **5. Trigger a run through launchd** (see above) and check both sides:
 
