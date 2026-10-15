@@ -421,6 +421,25 @@ class TheOffsiteCopyTest(BackupScriptCase):
             (self.stub / "ssh-input").read_text(), "age-encrypted:PGDMP-fake-archive"
         )
 
+    def test_a_stalled_connection_cannot_hang_the_run(self):
+        # launchd starts no new run while one is alive, so a hung upload
+        # would stop the local dumps too. TCP keepalive never fires while the
+        # peer's kernel still answers; these bound the wait in seconds.
+        self.run_backup()
+
+        [ssh] = self.stub_calls("ssh")
+        self.assertIn("-o ConnectTimeout=", ssh)
+        self.assertIn("-o ServerAliveInterval=", ssh)
+        self.assertIn("-o ServerAliveCountMax=", ssh)
+
+    def test_no_pty_is_requested(self):
+        # Without -T, ssh logs an untimestamped "Pseudo-terminal will not be
+        # allocated" line to stderr, i.e. into backup.log, on every run.
+        self.run_backup()
+
+        [ssh] = self.stub_calls("ssh")
+        self.assertTrue(ssh.startswith("-T "), ssh)
+
     def test_the_receivers_answer_is_logged(self):
         result = self.run_backup()
 

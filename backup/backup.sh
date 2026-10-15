@@ -200,8 +200,15 @@ offsite() {
 
     # BatchMode: no prompt, and an unknown host key is refused rather than
     # learned. The receiver names the file and answers with that name.
+    # ConnectTimeout and ServerAlive*: a peer that stalls (no banner, a frozen
+    # session) would otherwise hold this run forever, and launchd starts no
+    # new run while one is alive, so the local dumps would stop as well. TCP
+    # keepalive is no substitute: it never fires while the peer's kernel
+    # still answers. -T: no PTY request, so ssh writes no untimestamped
+    # "Pseudo-terminal will not be allocated" line into the log.
     log "sending the encrypted copy to $BACKUP_REMOTE"
-    receipt=$(ssh -i "$BACKUP_SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+    receipt=$(ssh -T -i "$BACKUP_SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+        -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
         "$BACKUP_REMOTE" < "$encrypted") \
         || fail "the upload to $BACKUP_REMOTE failed"
     log "off-site: $receipt"
