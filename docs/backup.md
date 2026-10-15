@@ -1,8 +1,14 @@
 # Production backups
 
-Implements [Issue #300](https://github.com/liga-auguste/planning-hub/issues/300), first half:
-the local tier with a proven restore. The encrypted off-site copy follows in a second PR, and
-the sections that depend on it say so.
+Implements [Issue #300](https://github.com/liga-auguste/planning-hub/issues/300). Two tiers,
+one script:
+
+- **Local**, on the production host: a dump every night and before every deploy, each one
+  proven to restore before it is kept. It covers a broken migration, a `docker compose
+  down -v` and a damaged Docker VM disk, without any network.
+- **Off-site**, on the demo VPS: the same dump, encrypted with
+  [age](https://github.com/FiloSottile/age). It covers what takes the production host with
+  it: a failed disk, theft, fire. Neither host holds the key that decrypts it.
 
 Every command below runs **on the production host, in the checkout**, unless it says
 otherwise. They are written to be copied in an emergency, so each one is complete.
@@ -43,14 +49,22 @@ Not in a dump, and none of it irreplaceable:
 3. **Keep it**: the `.partial` is renamed to `planning_hub-YYYY-MM-DD_HHMMSS.dump`, and
    the restored side's per-table checksums go next to it as `<dump>.sums`. At this
    moment they equal live, and they are what `--verify` checks the dump against later.
-4. **Prune** to the newest `BACKUP_KEEP` (default 90) by name, each dump with its
+4. **Send it off-site.** `age -r <recipient>` encrypts the dump to a temporary file,
+   which is checked and then sent with a plain `ssh … < file` to the backup user on the
+   VPS. That user's key can do one thing: run the receiver (`backup/receive.sh`), which
+   stores stdin under a name taken from **the VPS's own clock, in UTC**, so the off-site
+   name is not the local one. The run logs both (`encrypting …`, `off-site: stored …`).
+   No ciphertext stays on the production host.
+5. **Prune** to the newest `BACKUP_KEEP` (default 90) by name, each dump with its
    `.sums`. This runs only after a successful run, and it counts dumps rather than
    measuring age: if the job fails for weeks, pruning by age would delete every good
    backup.
-5. **Record it** in `last-success`: one line with a timestamp and the file name.
+6. **Record it** in `last-success`: one line with a timestamp and the file name.
 
 Any failed step exits non-zero, leaves no `.partial` behind and does not touch
-`last-success`. **`last-success` is the contract with
+`last-success`. A failed upload keeps the local dump: the local tier is good, only the
+off-site one is missing. A missing off-site setting fails the same way, after the local
+dump is kept, and names the setting. **`last-success` is the contract with
 [#303](https://github.com/liga-auguste/planning-hub/issues/303)**: once that lands, a file
 older than about 26 hours raises an alert. Until then the log is the only signal.
 
@@ -61,9 +75,11 @@ When it runs:
   `backup/backup.sh --local-only` ahead of `git pull`. A broken migration can then roll
   back to a few minutes before the deploy, not to 03:30.
 
-`--local-only` does nothing extra yet. It will skip the off-site leg, and it is accepted
-already because a deploy runs the script the host *already has*, before the pull that
-would bring a newer one.
+The deploy's run is `--local-only`: dump, prove, keep, prune, no off-site copy. It
+**leaves `last-success` alone**, because that file promises an off-site copy too; a deploy
+must not refresh it and hide a nightly off-site leg that is failing. The option has been
+accepted since the first version, because a deploy runs the script the host *already has*,
+before the pull that would bring a newer one.
 
 | Where | What |
 |---|---|
@@ -71,7 +87,9 @@ would bring a newer one.
 | `~/Backups/planning-hub/planning_hub-*.dump.sums` | each dump's per-table checksums, for `--verify` |
 | `~/Backups/planning-hub/last-success` | the newest good run |
 | `~/Backups/planning-hub/backup.log` | the LaunchAgent's output, one timestamped line per step |
-| `backup/backup.env` | optional, gitignored; `BACKUP_DIR` and `BACKUP_KEEP` (see `backup/backup.env.example`) |
+| `backup/backup.env` | gitignored; `BACKUP_DIR` and `BACKUP_KEEP` (optional), the three off-site settings (required without `--local-only`); see `backup/backup.env.example` |
+| VPS: `/home/planninghub-backup/planning-hub/planning_hub-*.dump.age` | the off-site copies, newest 90 by name, pruned by the receiver |
+| VPS: `/usr/local/bin/planninghub-receive` | the receiver, a root-owned copy of `backup/receive.sh` |
 
 `~/Backups` is deliberately outside Desktop, Documents and Downloads. macOS guards those
 folders per app, and a launchd job cannot answer a permission prompt.
@@ -80,6 +98,8 @@ The log grows by a few lines a night and is not rotated. At that rate it does no
 be.
 
 ## Install
+
+### The schedule
 
 Once, on the production host:
 
@@ -114,6 +134,85 @@ reinstall. A change to the plist template does:
 launchctl bootout gui/$(id -u)/de.ligaauguste.planninghub.backup
 # then the sed and bootstrap lines above again
 ```
+
+### The off-site copy
+
+Do this in one session, before the next 03:30 run. Once the deploy has brought the
+off-site leg, a nightly run without the settings below fails closed, as designed.
+
+**1. The age key pair, on the maintainer's MacBook.** The identity (the private key) never
+goes to either host:
+
+```sh
+mkdir -p ~/.config/age
+age-keygen -o ~/.config/age/planninghub-backup.txt    # prints "Public key: age1…"
+```
+
+Store the identity file's content in the password manager as well. Without it the
+off-site copies cannot be read by anyone, so the MacBook alone is one disk away from
+losing them.
+
+**2. On the production host**: `age`, an SSH key for the upload, and the VPS's host key.
+
+```sh
+brew install age
+ssh-keygen -t ed25519 -N '' -C planninghub-backup -f ~/.ssh/planninghub_backup_ed25519
+ssh-keyscan -t ed25519 <vps> > ~/vps-hostkey
+ssh-keygen -lf ~/vps-hostkey
+```
+
+On the VPS, as root, print the fingerprint the host itself holds:
+
+```sh
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Only if the two fingerprints match, pin it and remove the scratch file:
+
+```sh
+cat ~/vps-hostkey >> ~/.ssh/known_hosts && rm ~/vps-hostkey
+```
+
+A first connection cannot store it instead: `BatchMode=yes` refuses an unknown host key,
+and an interactive login with the restricted key would only run the receiver.
+
+Then `backup/backup.env`, from `backup/backup.env.example`, with the three off-site
+settings: the recipient from step 1, `planninghub-backup@<vps>`, and
+`$HOME/.ssh/planninghub_backup_ed25519`.
+
+**3. Deploy both stacks**, demo first: its pull brings `backup/receive.sh` into the VPS
+checkout.
+
+**4. On the VPS, as root**: the user, the receiver and the one key.
+
+```sh
+adduser --disabled-password --gecos '' --shell /bin/sh planninghub-backup
+install -o root -g root -m 0755 <checkout>/backup/receive.sh /usr/local/bin/planninghub-receive
+install -d -o root -g root -m 0755 /home/planninghub-backup/.ssh
+printf 'restrict,command="/usr/local/bin/planninghub-receive" %s\n' '<contents of planninghub_backup_ed25519.pub>' \
+    > /home/planninghub-backup/.ssh/authorized_keys
+chmod 0644 /home/planninghub-backup/.ssh/authorized_keys
+```
+
+- The user gets a real login shell. sshd runs a forced command through the user's shell
+  with `-c`, so with `nologin` the receiver would never run. The restriction is the
+  `authorized_keys` line: `command=` replaces whatever the client asks to run, and
+  `restrict` turns off port forwarding, agent forwarding and the PTY. Without a PTY the
+  channel stays 8-bit clean for the binary upload.
+- `.ssh` and `authorized_keys` belong to root, so not even the receiver could change
+  which key gets in.
+- The receiver is a **copy**. A change to `backup/receive.sh` needs the `install` line
+  again; a deploy does not do it.
+
+**5. Trigger a run through launchd** (see above) and check both sides:
+
+```sh
+tail ~/Backups/planning-hub/backup.log           # "off-site: stored planning_hub-….dump.age", then "done"
+cat ~/Backups/planning-hub/last-success
+ssh root@<vps> 'ls -l /home/planninghub-backup/planning-hub'
+```
+
+Then run the [off-site drill](#off-site-drill).
 
 ## Restore
 
@@ -169,8 +268,19 @@ docker compose up --build -d
 
 ### After a lost host
 
-This case needs the off-site copy, which comes with the second PR of #300. Until it lands,
-a failed disk on the production host takes the dumps with it.
+The local dumps are gone with it; the off-site copies are not. On the maintainer's MacBook,
+fetch the newest one and decrypt it with the identity:
+
+```sh
+ssh root@<vps> 'ls -1 /home/planninghub-backup/planning-hub | tail -1'
+scp root@<vps>:/home/planninghub-backup/planning-hub/<name>.dump.age .
+age -d -i ~/.config/age/planninghub-backup.txt -o planning_hub.dump <name>.dump.age
+```
+
+On the new host: Docker, the checkout and a new `.env` (see [What a dump
+contains](#what-a-dump-contains)), then the same steps as [after a lost
+volume](#after-a-lost-volume) with `planning_hub.dump`. Install the schedule and the
+off-site copy again afterwards; the new host needs a new upload key.
 
 ## Restore drill
 
@@ -185,7 +295,7 @@ The drill compares one table's row count with the live database, so take a fresh
 first and drill with the dump it names (the `kept …` line).
 
 ```sh
-backup/backup.sh
+backup/backup.sh --local-only
 docker compose -p planninghub-drill up -d db
 docker compose -p planninghub-drill exec db pg_isready -h 127.0.0.1    # until ready
 docker compose -p planninghub-drill exec -T db pg_restore --clean --if-exists --create --exit-on-error -U liga -d postgres < <dump>
@@ -204,8 +314,36 @@ A normal run compares with the live database instead: a write between the dump a
 live checksum (the throwaway's start and the restore lie in between) makes that run report
 a mismatch. That includes the run before a deploy. Running it again resolves it.
 
+## Off-site drill
+
+Proves that an off-site copy can be read with a key that lives on neither host, and that
+what comes out is the dump that was verified. Run it right after a full run, so the newest
+file on each side belongs to the same run; the log names the pair (`encrypting <dump>`,
+then `off-site: stored <name>.dump.age`).
+
+On the maintainer's MacBook:
+
+```sh
+scp root@<vps>:/home/planninghub-backup/planning-hub/<name>.dump.age .
+age -d -i ~/.config/age/planninghub-backup.txt -o offsite.dump <name>.dump.age
+scp offsite.dump <production-host>:
+```
+
+On the production host, `--verify` the decrypted file against the checksums its local
+twin recorded. The `.sums` stay on the production host and are not sent off-site, so the
+drill borrows them:
+
+```sh
+cp ~/Backups/planning-hub/<dump>.sums ~/offsite.dump.sums
+backup/backup.sh --verify ~/offsite.dump
+cmp ~/offsite.dump ~/Backups/planning-hub/<dump> && rm ~/offsite.dump ~/offsite.dump.sums
+```
+
+`--verify` ends in `done` and `cmp` prints nothing. Delete the plain dump on the MacBook
+as well: it is the one unencrypted copy outside the production host.
+
 ### Drill log
 
-| Date | Dump | Result |
-|---|---|---|
-| | | No drill yet. The first one runs after the first scheduled backup. |
+| Date | Drill | Dump | Result |
+|---|---|---|---|
+| | | | No drill yet. The first one runs after the first scheduled backup. |
