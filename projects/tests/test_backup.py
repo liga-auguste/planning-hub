@@ -1,9 +1,11 @@
-"""Production backups: the backup script, its schedule and the runbook (#300).
+"""Production backups: the scripts, the schedule and the runbook (#300).
 
-The script runs as a subprocess under `sh`, with a stub `docker` first on
-PATH. The stub records every call and answers with canned output, so no test
-touches Docker or a database. CI's `sh` is dash, so the suite also proves the
-script is POSIX: it runs under macOS's `/bin/sh` in production.
+Both scripts run as subprocesses under `sh`. The backup script gets stub
+`docker`, `age` and `ssh` first on PATH; they record every call and answer
+with canned output, so no test touches Docker, a database, a key or a network.
+CI's `sh` is dash, so the suite also proves both scripts are POSIX: the backup
+script runs under macOS's `/bin/sh` in production, the receiver under the
+VPS's dash.
 """
 
 import os
@@ -19,6 +21,7 @@ from django.test import SimpleTestCase
 
 REPO = Path(settings.BASE_DIR)
 SCRIPT = REPO / "backup" / "backup.sh"
+RECEIVER = REPO / "backup" / "receive.sh"
 PLIST = REPO / "backup" / "de.ligaauguste.planninghub.backup.plist"
 
 RESTORE_COMMAND = "pg_restore --clean --if-exists --create --exit-on-error"
@@ -48,6 +51,31 @@ case "$*" in
 esac
 """
 
+# `age -r RECIPIENT -o OUT IN`: writes a recognisable "ciphertext" to OUT.
+STUB_AGE = r"""#!/bin/sh
+printf '%s\n' "$*" >> "$STUB_DIR/age-calls"
+out=
+while [ $# -gt 1 ]; do
+  case $1 in
+    -o) out=$2; shift ;;
+  esac
+  shift
+done
+[ "$(cat "$STUB_DIR/age-exit")" = 0 ] || exit 1
+{ printf 'age-encrypted:'; cat "$1"; } > "$out"
+"""
+
+# Stores what arrives on stdin and answers the way the receiver does.
+STUB_SSH = r"""#!/bin/sh
+printf '%s\n' "$*" >> "$STUB_DIR/ssh-calls"
+cat > "$STUB_DIR/ssh-input"
+echo "stored planning_hub-2026-10-15_013000.dump.age (42 bytes)"
+exit "$(cat "$STUB_DIR/ssh-exit")"
+"""
+
+RECIPIENT = "age1testrecipientxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+REMOTE = "planninghub-backup@vps.example"
+
 
 class BackupScriptCase(SimpleTestCase):
     """Runs backup/backup.sh against a stub docker in a scratch directory."""
@@ -57,16 +85,30 @@ class BackupScriptCase(SimpleTestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.stub = self.tmp / "stub"
         self.stub.mkdir()
-        docker = self.stub / "docker"
-        docker.write_text(STUB_DOCKER)
-        docker.chmod(0o755)
+        for name, body in (
+            ("docker", STUB_DOCKER),
+            ("age", STUB_AGE),
+            ("ssh", STUB_SSH),
+        ):
+            stub = self.stub / name
+            stub.write_text(body)
+            stub.chmod(0o755)
         self.backup_dir = self.tmp / "backups"
+        self.ssh_key = self.tmp / "backup_ed25519"
+        self.ssh_key.write_text("private key")
+        self.offsite = {
+            "BACKUP_AGE_RECIPIENT": RECIPIENT,
+            "BACKUP_REMOTE": REMOTE,
+            "BACKUP_SSH_KEY": str(self.ssh_key),
+        }
         self.stub_state(
             dump_bytes="PGDMP-fake-archive",
             dump_exit="0",
             restore_exit="0",
             live_sums=LIVE_SUMS,
             restored_sums=LIVE_SUMS,
+            age_exit="0",
+            ssh_exit="0",
         )
 
     def stub_state(self, **files):
@@ -81,6 +123,7 @@ class BackupScriptCase(SimpleTestCase):
             "BACKUP_DIR": str(self.backup_dir),
             # Never the host's real settings, whatever machine runs the suite.
             "BACKUP_ENV": str(self.tmp / "no-such-backup.env"),
+            **self.offsite,
         }
         if keep is not None:
             env["BACKUP_KEEP"] = str(keep)
@@ -100,6 +143,10 @@ class BackupScriptCase(SimpleTestCase):
 
     def calls_with(self, needle):
         return [c for c in self.calls() if needle in c]
+
+    def stub_calls(self, name):
+        path = self.stub / f"{name}-calls"
+        return path.read_text().splitlines() if path.exists() else []
 
     def dumps(self):
         if not self.backup_dir.exists():
@@ -355,6 +402,113 @@ class OptionsAreCheckedTest(BackupScriptCase):
         self.assertEqual(self.calls(), [])
 
 
+class TheOffsiteCopyTest(BackupScriptCase):
+    def test_the_dump_is_encrypted_then_sent(self):
+        result = self.run_backup()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        [name] = self.dumps()
+        [age] = self.stub_calls("age")
+        self.assertIn(f"-r {RECIPIENT} -o ", age)
+        self.assertTrue(age.endswith(f"/{name}"), age)
+        [ssh] = self.stub_calls("ssh")
+        self.assertIn(f"-i {self.ssh_key}", ssh)
+        self.assertIn("-o BatchMode=yes", ssh)
+        self.assertIn("-o IdentitiesOnly=yes", ssh)
+        self.assertTrue(ssh.endswith(REMOTE), ssh)
+        # The ciphertext goes over the wire, never the plain dump.
+        self.assertEqual(
+            (self.stub / "ssh-input").read_text(), "age-encrypted:PGDMP-fake-archive"
+        )
+
+    def test_the_receivers_answer_is_logged(self):
+        result = self.run_backup()
+
+        self.assertIn("stored planning_hub-2026-10-15_013000.dump.age", result.stdout)
+
+    def test_no_ciphertext_is_left_on_the_host(self):
+        self.run_backup()
+
+        self.assertEqual(list(self.backup_dir.glob("*.age")), [])
+
+    def test_a_failed_upload_is_a_failed_run(self):
+        self.backup_dir.mkdir()
+        (self.backup_dir / "last-success").write_text("earlier\n")
+        self.stub_state(ssh_exit="1")
+
+        result = self.run_backup()
+
+        self.assert_failed_cleanly(result, last_success_before="earlier\n")
+        self.assertIn(REMOTE, result.stderr)
+        # The local tier is still good: the dump stays, with its checksums.
+        [name] = self.dumps()
+        self.assertTrue((self.backup_dir / f"{name}.sums").exists())
+
+    def test_a_failed_encryption_sends_nothing(self):
+        self.stub_state(age_exit="1")
+
+        result = self.run_backup()
+
+        self.assert_failed_cleanly(result)
+        self.assertEqual(self.stub_calls("ssh"), [])
+
+    def test_a_failed_upload_prunes_nothing(self):
+        self.backup_dir.mkdir()
+        for day in range(1, 6):
+            (self.backup_dir / f"planning_hub-2026-01-0{day}_033000.dump").write_text(
+                "old"
+            )
+        self.stub_state(ssh_exit="1")
+
+        self.run_backup(keep=3)
+
+        self.assertEqual(len(self.dumps()), 6)
+
+    def test_a_missing_setting_fails_closed_and_names_it(self):
+        # A silent local-only "success" is exactly the failure #303 would
+        # never see.
+        for setting in self.offsite:
+            with self.subTest(setting=setting):
+                shutil.rmtree(self.backup_dir, ignore_errors=True)
+                saved = self.offsite.pop(setting)
+                try:
+                    result = self.run_backup()
+                finally:
+                    self.offsite[setting] = saved
+
+                self.assert_failed_cleanly(result)
+                self.assertIn(setting, result.stderr)
+                self.assertEqual(self.stub_calls("ssh"), [])
+
+    def test_an_unreadable_key_fails_closed(self):
+        self.offsite["BACKUP_SSH_KEY"] = str(self.tmp / "no-such-key")
+
+        result = self.run_backup()
+
+        self.assert_failed_cleanly(result)
+        self.assertIn("BACKUP_SSH_KEY", result.stderr)
+        self.assertEqual(self.stub_calls("ssh"), [])
+
+    def test_local_only_skips_the_offsite_leg(self):
+        self.offsite.clear()
+
+        result = self.run_backup("--local-only")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.stub_calls("age"), [])
+        self.assertEqual(self.stub_calls("ssh"), [])
+
+    def test_local_only_does_not_count_as_a_complete_run(self):
+        # last-success promises an off-site copy too, so a deploy's backup
+        # must not refresh it and hide a nightly off-site leg that is failing.
+        self.backup_dir.mkdir()
+        (self.backup_dir / "last-success").write_text("earlier\n")
+
+        self.run_backup("--local-only")
+
+        self.assertEqual(self.last_success(), "earlier\n")
+
+
 class RetentionTest(BackupScriptCase):
     OLD = [f"planning_hub-2026-01-0{d}_033000.dump" for d in range(1, 6)]
 
@@ -398,6 +552,119 @@ class RetentionTest(BackupScriptCase):
         self.run_backup(keep=3)
 
         self.assertEqual(len(self.dumps()), 3)
+
+
+class ReceiverCase(SimpleTestCase):
+    """Runs backup/receive.sh the way sshd's forced command would."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.store = self.tmp / "store"
+        self.stub = self.tmp / "stub"
+        self.stub.mkdir()
+
+    def freeze_clock(self, stamp):
+        date = self.stub / "date"
+        date.write_text(f"#!/bin/sh\necho {stamp}\n")
+        date.chmod(0o755)
+
+    def receive(self, data, keep=None, command="rm -rf /"):
+        env = {
+            "PATH": f"{self.stub}:{os.environ['PATH']}",
+            "HOME": str(self.tmp),
+            "RECEIVE_DIR": str(self.store),
+            # What the client asked to run; a forced command must ignore it.
+            "SSH_ORIGINAL_COMMAND": command,
+        }
+        if keep is not None:
+            env["RECEIVE_KEEP"] = str(keep)
+        return subprocess.run(
+            ["sh", str(RECEIVER)],
+            input=data,
+            env=env,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+
+    def stored(self):
+        if not self.store.exists():
+            return []
+        return sorted(p.name for p in self.store.iterdir())
+
+
+class TheReceiverTest(ReceiverCase):
+    def test_it_names_the_file_by_its_own_clock(self):
+        result = self.receive(b"ciphertext", command="planning_hub-1999.dump.age")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        [name] = self.stored()
+        self.assertRegex(name, r"^planning_hub-\d{4}-\d{2}-\d{2}_\d{6}\.dump\.age$")
+        self.assertEqual((self.store / name).read_bytes(), b"ciphertext")
+        self.assertIn(name, result.stdout.decode())
+
+    def test_it_keeps_binary_data_intact(self):
+        data = bytes(range(256)) * 64
+
+        self.receive(data)
+
+        [name] = self.stored()
+        self.assertEqual((self.store / name).read_bytes(), data)
+
+    def test_it_rejects_an_empty_upload(self):
+        result = self.receive(b"")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.stored(), [])
+
+    def test_it_never_reuses_a_name(self):
+        self.freeze_clock("2026-10-15_013000")
+        self.receive(b"first")
+
+        result = self.receive(b"second")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.stored(), ["planning_hub-2026-10-15_013000.dump.age"])
+        self.assertEqual(
+            (self.store / "planning_hub-2026-10-15_013000.dump.age").read_bytes(),
+            b"first",
+        )
+
+    def test_it_caps_the_size_at_50_mb(self):
+        result = self.receive(b"x" * (50 * 1024 * 1024 + 1))
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.stored(), [])
+
+    def test_50_mb_itself_is_accepted(self):
+        result = self.receive(b"x" * (50 * 1024 * 1024))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.stored()), 1)
+
+    def test_it_prunes_to_the_newest_after_storing(self):
+        self.store.mkdir()
+        old = [f"planning_hub-2026-01-0{d}_013000.dump.age" for d in range(1, 6)]
+        for name in old:
+            (self.store / name).write_bytes(b"old")
+        self.freeze_clock("2026-10-15_013000")
+
+        self.receive(b"new", keep=3)
+
+        self.assertEqual(
+            self.stored(), [*old[3:], "planning_hub-2026-10-15_013000.dump.age"]
+        )
+
+    def test_a_rejected_upload_prunes_nothing(self):
+        self.store.mkdir()
+        old = [f"planning_hub-2026-01-0{d}_013000.dump.age" for d in range(1, 6)]
+        for name in old:
+            (self.store / name).write_bytes(b"old")
+
+        self.receive(b"", keep=3)
+
+        self.assertEqual(self.stored(), old)
 
 
 class TheScheduleTest(SimpleTestCase):
