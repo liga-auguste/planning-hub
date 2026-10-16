@@ -353,4 +353,6 @@ as well: it is the one unencrypted copy outside the production host.
 
 | Date | Drill | Dump | Result |
 |---|---|---|---|
-| | | | No drill yet. The first one runs after the first scheduled backup. |
+| 2026-10-17 | Off-site | `planning_hub-2026-10-16_155330.dump`, sent as `planning_hub-2026-10-16_225334.dump.age` | Passed. Decrypted on the MacBook, `--verify` matched 14 tables, `cmp` identical. First run through real `age`, `ssh` and the receiver. |
+
+The restore drill has not run yet.
