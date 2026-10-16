@@ -397,8 +397,10 @@ subdomains are not this app's to commit — which is why `security.W005` and
 `security.W021` are in `SILENCED_SYSTEM_CHECKS` with their reasoning.
 
 **Backups.** `backup/backup.sh` dumps the database nightly from a launchd agent and
-before every production deploy, and proves each dump restores before keeping it.
-Setup, the restore command and the drill are in [`docs/backup.md`](docs/backup.md).
+before every production deploy, and proves each dump restores before keeping it. The
+nightly run also sends an [age](https://github.com/FiloSottile/age)-encrypted copy to the
+demo VPS, which can store it but not read it.
+Setup, the restore command and the drills are in [`docs/backup.md`](docs/backup.md).
 
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
@@ -442,7 +444,7 @@ projects/
     test_rules.py      #   planning rules, both backends, seeding, migrations
     test_naming.py     #   display names and date formatting
     test_language_eval.py  # the eval's own checks — the eval itself is not run here
-    test_backup.py     #   production backups: the script, its schedule, the runbook
+    test_backup.py     #   production backups: both scripts, the schedule, the runbook
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 34 templates: the pages plus the partials they share
@@ -456,9 +458,10 @@ projects/
     seed_rules.py               # Seed initial planner rules
     eval_language.py            # Run the language eval — real Claude calls, run by hand
 backup/
-  backup.sh                     # Dump, prove the restore, keep, prune — production host only
+  backup.sh                     # Dump, prove the restore, keep, send off-site, prune — production host only
+  receive.sh                    # The VPS side: stores one encrypted upload, nothing else
   de.ligaauguste.planninghub.backup.plist  # LaunchAgent template, nightly at 03:30
-  backup.env.example            # Optional host settings: where dumps go, how many are kept
+  backup.env.example            # Host settings: where dumps go, how many are kept, the off-site target
 docs/
   dashboard-write-paths.md      # Which write touches which cache, and which is offered where
   template-refactoring.md       # Base-template inheritance layout, as carried out

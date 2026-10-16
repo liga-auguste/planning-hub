@@ -34,8 +34,8 @@ test was added, renamed or removed.
 | `test_naming.py` | 13 | 49 | Display names and date formatting — what something is *called* on screen |
 | `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
 | `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
-| `test_backup.py` | 12 | 39 | Production backups: the script against a stub `docker`, its launchd schedule, the runbook and the deploy step that calls it |
-| **total** | **376** | **1613** | |
+| `test_backup.py` | 15 | 63 | Production backups: the script against stub `docker`, `age` and `ssh`, the off-site receiver, the launchd schedule, the runbook and the deploy step that calls it |
+| **total** | **379** | **1637** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-10-02 with #156 —

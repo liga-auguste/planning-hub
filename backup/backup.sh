@@ -1,14 +1,17 @@
 #!/bin/sh
 # Back up the production database and prove the dump restores (#300).
 #
-#   backup/backup.sh                 dump, verify, keep, prune
-#   backup/backup.sh --local-only    the same; skips the off-site copy (PR 2)
+#   backup/backup.sh                 dump, verify, keep, send an encrypted
+#                                    copy off-site, prune, record success
+#   backup/backup.sh --local-only    dump, verify, keep, prune; no off-site
+#                                    copy, and last-success stays as it is
 #   backup/backup.sh --verify FILE   restore FILE into a throwaway and compare
 #                                    it with FILE.sums, the checksums recorded
 #                                    when it was taken; writes nothing
 #
 # Runs on the production host, from launchd at 03:30 and from the deploy
-# skill before every pull. The runbook is docs/backup.md.
+# skill before every pull (--local-only). The off-site copy goes to the VPS,
+# where backup/receive.sh takes it. The runbook is docs/backup.md.
 #
 # POSIX sh on purpose: macOS's /bin/sh in production, dash in CI. No
 # `pipefail` exists there, so no pipeline below carries an exit status that
@@ -75,8 +78,8 @@ local_only=
 verify_file=
 while [ $# -gt 0 ]; do
     case $1 in
-        # Accepted from PR 1 on: the deploy calls it with the script the host
-        # already has, before pulling the one that adds the off-site leg.
+        # Accepted from the first version on: the deploy calls it with the
+        # script the host already has, before the pull.
         --local-only) local_only=1 ;;
         --verify)
             [ $# -ge 2 ] || fail "--verify needs a file"
@@ -87,8 +90,6 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-: "$local_only"
-
 # One "table|md5" line per table, in name order. Every row is rendered as
 # text and sorted, so the sum depends on the data, not on physical order.
 # Sorted by byte order (COLLATE "C"), not by the database's en_US.utf8: that
@@ -177,6 +178,42 @@ verify() {
     container=
 }
 
+# Encrypt $1 for the age recipient and send it to the receiver on the VPS.
+# The host holds only the recipient (the public key), so neither it nor the
+# VPS can read the copy. Written to a file, checked, then sent: no pipeline,
+# since without `pipefail` a failed `age` would go unnoticed.
+offsite() {
+    # Fail closed: a run that silently skipped the off-site copy would look
+    # like success, and #303 would never see it.
+    [ -n "${BACKUP_AGE_RECIPIENT:-}" ] \
+        || fail "BACKUP_AGE_RECIPIENT is not set; the off-site copy needs it (or use --local-only)"
+    [ -n "${BACKUP_REMOTE:-}" ] \
+        || fail "BACKUP_REMOTE is not set; the off-site copy needs it (or use --local-only)"
+    [ -n "${BACKUP_SSH_KEY:-}" ] \
+        || fail "BACKUP_SSH_KEY is not set; the off-site copy needs it (or use --local-only)"
+    [ -r "$BACKUP_SSH_KEY" ] || fail "cannot read BACKUP_SSH_KEY: $BACKUP_SSH_KEY"
+
+    encrypted="$workdir/$(basename "$1").age"
+    log "encrypting $(basename "$1") for the off-site copy"
+    age -r "$BACKUP_AGE_RECIPIENT" -o "$encrypted" "$1" || fail "age failed"
+    [ -s "$encrypted" ] || fail "age wrote nothing"
+
+    # BatchMode: no prompt, and an unknown host key is refused rather than
+    # learned. The receiver names the file and answers with that name.
+    # ConnectTimeout and ServerAlive*: a peer that stalls (no banner, a frozen
+    # session) would otherwise hold this run forever, and launchd starts no
+    # new run while one is alive, so the local dumps would stop as well. TCP
+    # keepalive is no substitute: it never fires while the peer's kernel
+    # still answers. -T: no PTY request, so ssh writes no untimestamped
+    # "Pseudo-terminal will not be allocated" line into the log.
+    log "sending the encrypted copy to $BACKUP_REMOTE"
+    receipt=$(ssh -T -i "$BACKUP_SSH_KEY" -o BatchMode=yes -o IdentitiesOnly=yes \
+        -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+        "$BACKUP_REMOTE" < "$encrypted") \
+        || fail "the upload to $BACKUP_REMOTE failed"
+    log "off-site: $receipt"
+}
+
 if [ -n "$verify_file" ]; then
     [ -r "$verify_file" ] || fail "cannot read $verify_file"
     [ -r "$verify_file.sums" ] \
@@ -212,6 +249,13 @@ partial=
 sums=
 log "kept $BACKUP_DIR/$name ($(wc -c < "$BACKUP_DIR/$name" | tr -d ' ') bytes)"
 
+# A failed upload leaves the dump above in place: the local tier is good.
+if [ -n "$local_only" ]; then
+    log "skipping the off-site copy (--local-only)"
+else
+    offsite "$BACKUP_DIR/$name"
+fi
+
 # Retention by count and by name, after success only: if the job fails for
 # weeks, pruning by age would delete every good backup.
 count=0
@@ -226,7 +270,13 @@ for f in "$BACKUP_DIR"/planning_hub-*.dump; do
     excess=$((excess - 1))
 done
 
-# The contract with #303: written only when every step succeeded.
+# The contract with #303: written only when every step succeeded, the
+# off-site copy included. A --local-only run did not make one, so it leaves
+# the file alone rather than hide a failing nightly off-site leg.
+if [ -n "$local_only" ]; then
+    log "done (local only; last-success unchanged)"
+    exit 0
+fi
 partial="$BACKUP_DIR/last-success.partial"
 printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$name" > "$partial"
 mv "$partial" "$BACKUP_DIR/last-success"
