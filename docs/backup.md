@@ -145,8 +145,10 @@ goes to either host:
 
 ```sh
 mkdir -p ~/.config/age
-age-keygen -o ~/.config/age/planninghub-backup.txt    # prints "Public key: age1…"
+age-keygen -o ~/.config/age/planninghub-backup.txt
 ```
+
+It prints `Public key: age1…`: that is the recipient.
 
 Store the identity file's content in the password manager as well. Without it the
 off-site copies cannot be read by anyone, so the MacBook alone is one disk away from
@@ -214,10 +216,12 @@ chmod 0644 /home/planninghub-backup/.ssh/authorized_keys
 **5. Trigger a run through launchd** (see above) and check both sides:
 
 ```sh
-tail ~/Backups/planning-hub/backup.log           # "off-site: stored planning_hub-….dump.age", then "done"
+tail ~/Backups/planning-hub/backup.log
 cat ~/Backups/planning-hub/last-success
 ssh root@<vps> 'ls -l /home/planninghub-backup/planning-hub'
 ```
+
+The log ends in `off-site: stored planning_hub-….dump.age`, then `done`.
 
 Then run the [off-site drill](#off-site-drill).
 
@@ -268,10 +272,12 @@ otherwise migrate and seed an empty database first.
 
 ```sh
 docker compose up -d db
-docker compose exec db pg_isready -h 127.0.0.1    # repeat until "accepting connections"
+docker compose exec db pg_isready -h 127.0.0.1
 docker compose exec -T db pg_restore --clean --if-exists --create --exit-on-error -U liga -d postgres < <dump>
 docker compose up --build -d
 ```
+
+Repeat `pg_isready` until it prints `accepting connections` before restoring.
 
 ### After a lost host
 
@@ -304,7 +310,7 @@ first and drill with the dump it names (the `kept …` line).
 ```sh
 backup/backup.sh --local-only
 docker compose -p planninghub-drill up -d db
-docker compose -p planninghub-drill exec db pg_isready -h 127.0.0.1    # until ready
+docker compose -p planninghub-drill exec db pg_isready -h 127.0.0.1
 docker compose -p planninghub-drill exec -T db pg_restore --clean --if-exists --create --exit-on-error -U liga -d postgres < <dump>
 docker compose -p planninghub-drill exec db psql -U liga -d planning_hub -c 'SELECT count(*) FROM projects_plannerrule'
 docker compose exec db psql -U liga -d planning_hub -c 'SELECT count(*) FROM projects_plannerrule'
@@ -312,7 +318,8 @@ backup/backup.sh --verify <dump>
 docker compose -p planninghub-drill down -v
 ```
 
-The two counts match, and `--verify` ends in `done`. `--verify` restores the given dump
+Repeat `pg_isready` until it prints `accepting connections` before restoring. The two
+counts match, and `--verify` ends in `done`. `--verify` restores the given dump
 into its own throwaway and compares every table with `<dump>.sums`, the checksums
 recorded when the dump was taken. It does not look at the live data, so it works for a
 dump of any age, and it writes nothing. A dump without its `.sums` is refused.
@@ -354,5 +361,4 @@ as well: it is the one unencrypted copy outside the production host.
 | Date | Drill | Dump | Result |
 |---|---|---|---|
 | 2026-10-17 | Off-site | `planning_hub-2026-10-16_155330.dump`, sent as `planning_hub-2026-10-16_225334.dump.age` | Passed. Decrypted on the MacBook, `--verify` matched 14 tables, `cmp` identical. First run through real `age`, `ssh` and the receiver. |
-
-The restore drill has not run yet.
+| 2026-10-17 | Restore | `planning_hub-2026-10-17_132822.dump` | Passed. Restored into `-p planninghub-drill` with the runbook's command, `projects_plannerrule` 4 rows on both sides, `--verify` matched 14 tables; drill volume removed, production volume and containers untouched. |
