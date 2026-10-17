@@ -175,3 +175,4 @@ The modules split out of `views.py` so far, each owning its own patch targets:
 | `planner_views.py` | the four-step planner flow | `get_clarifying_questions`, `generate_plan`, its Notion calls |
 | `dashboard_cache.py` | the dashboard cache keys and every helper that reads, patches or busts them | `cache` (one spy in `PatchingDoesNotRenewTheReadWindowTest`) |
 | `annotate.py` | urgency, Kanban column, progress ring: the pure layer over every task list | nothing; it makes no calls |
+| `closeout_views.py` | the week close-out pages (triage, confirm, review) and the sidebar list they render | `get_upcoming_projects`, `get_tasks_completed_in_range`, `get_tasks_created_in_range`, `generate_closeout_summary` (also in `AI_STUBS`) |

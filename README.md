@@ -418,12 +418,13 @@ projects/
   rules.py           # Planning rules: database in production, session in demo mode
   closeout.py        # Wochenabschluss storage: table in production, session in demo mode
   dates.py           # ISO calendar-week comparisons, shared by the views, annotate.py and ai.py
-  date_format.py     # German date display, shared by views.py and the planner_tags filter
+  date_format.py     # German date display, shared by the views, ai.py and the planner_tags filter
   language_eval.py   # Language eval for Claude's German prose — real API calls, so not a test
   views.py           # Dashboard, the task writes, time-lapse, stats, health check
   annotate.py        # Urgency, Kanban column, progress ring: derived on every task list
   dashboard_cache.py # The dashboard cache: its keys, patched or busted after every write
   planner_views.py   # 4-step planner flow
+  closeout_views.py  # Wochenabschluss pages: triage, confirm, review
   models.py          # DemoEvent, WeekCloseout, PlannerRule, RulesSeeded
   startup.py         # Fail-fast API-key checks at server start
   tests/             # Test suite, fully offline (Claude stubbed), split by subject:
