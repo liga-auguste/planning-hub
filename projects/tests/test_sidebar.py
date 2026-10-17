@@ -957,7 +957,7 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
         self, mock_localdate
     ):
         mock_localdate.return_value = CLOSEOUT_TODAY
-        with patch("projects.views.get_upcoming_projects", return_value=[]):
+        with patch("projects.closeout_views.get_upcoming_projects", return_value=[]):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, 'class="sidebar-header"')
         self.assertContains(
@@ -984,7 +984,7 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
             added_count=0,
             summary_text="Text.",
         )
-        with patch("projects.views.get_upcoming_projects", return_value=[]):
+        with patch("projects.closeout_views.get_upcoming_projects", return_value=[]):
             response = self.client.get(reverse("week_review"))
         self.assertContains(response, 'class="sidebar-header"')
         self.assertNotContains(response, "Über dieses Projekt")
@@ -993,7 +993,9 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
     def test_close_week_start_shows_the_project_list_sidebar(self, mock_localdate):
         mock_localdate.return_value = CLOSEOUT_TODAY
         project = _fake_upcoming_project_with_task()
-        with patch("projects.views.get_upcoming_projects", return_value=[project]):
+        with patch(
+            "projects.closeout_views.get_upcoming_projects", return_value=[project]
+        ):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(
             response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
@@ -1013,7 +1015,9 @@ class SidebarNavOnStandalonePagesProductionTest(TestCase):
             summary_text="Text.",
         )
         project = _fake_upcoming_project_with_task()
-        with patch("projects.views.get_upcoming_projects", return_value=[project]):
+        with patch(
+            "projects.closeout_views.get_upcoming_projects", return_value=[project]
+        ):
             response = self.client.get(reverse("week_review"))
         self.assertContains(
             response, '<div class="sidebar-title" style="margin-top: 16px;">Projekte'
@@ -1049,7 +1053,7 @@ class SidebarProjectsCacheTest(TestCase):
     def test_reuses_the_warm_dashboard_cache(self):
         project = _fake_upcoming_project_with_task()
         cache.set(CACHE_KEY, ([project], _summary_data()), 60)
-        with patch("projects.views.get_upcoming_projects") as mock_fetch:
+        with patch("projects.closeout_views.get_upcoming_projects") as mock_fetch:
             response = self.client.get(reverse("week_review"))
         mock_fetch.assert_not_called()
         self.assertContains(response, project["name"])
@@ -1057,7 +1061,7 @@ class SidebarProjectsCacheTest(TestCase):
     def test_falls_back_to_a_direct_fetch_on_a_cold_cache(self):
         project = _fake_upcoming_project_with_task()
         with patch(
-            "projects.views.get_upcoming_projects", return_value=[project]
+            "projects.closeout_views.get_upcoming_projects", return_value=[project]
         ) as mock_fetch:
             response = self.client.get(reverse("week_review"))
         mock_fetch.assert_called_once()
@@ -1083,7 +1087,7 @@ class SidebarProjectsCacheTest(TestCase):
 
     def test_degrades_to_an_empty_project_list_on_notion_failure(self):
         with patch(
-            "projects.views.get_upcoming_projects",
+            "projects.closeout_views.get_upcoming_projects",
             side_effect=NotionUnavailableError("boom"),
         ):
             response = self.client.get(reverse("week_review"))
@@ -1114,7 +1118,7 @@ class SidebarProjectsSingleFetchTest(TestCase):
 
     def test_close_week_start_fetches_once_on_a_cold_cache(self):
         with patch(
-            "projects.views.get_upcoming_projects",
+            "projects.closeout_views.get_upcoming_projects",
             return_value=[_fake_upcoming_project_with_task()],
         ) as mock_fetch:
             response = self.client.get(reverse("close_week_start"))
@@ -1131,7 +1135,7 @@ class SidebarProjectsSingleFetchTest(TestCase):
         fresh = _fake_upcoming_project_with_task()
         fresh["name"] = "Frisch aus Notion"
         with patch(
-            "projects.views.get_upcoming_projects", return_value=[fresh]
+            "projects.closeout_views.get_upcoming_projects", return_value=[fresh]
         ) as mock_fetch:
             response = self.client.get(reverse("close_week_start"))
         mock_fetch.assert_called_once()

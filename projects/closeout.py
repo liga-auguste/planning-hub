@@ -4,11 +4,11 @@ Two backends behind one interface, the same shape as rules.py: production
 persists to the WeekCloseout table; demo mode keeps the visitor's own latest
 close-out in the session instead — the same per-session stance as demo_plan
 and friends, and, like the close-out flow itself, only ever offered to a
-visitor with a session plan (see views.close_week_start). Every public
-function takes the request first and branches on DEMO_MODE, so the views
-never learn which backend they are talking to. get_closeout and
-get_latest_closeout return the same plain dict shape from either backend, so
-week_review.html does not need to know either.
+visitor with a session plan (see closeout_views.close_week_start). Every
+public function takes the request first and branches on DEMO_MODE, so the
+views never learn which backend they are talking to. get_closeout and
+get_latest_closeout return the same plain dict shape from either backend,
+so week_review.html does not need to know either.
 """
 
 from django.conf import settings

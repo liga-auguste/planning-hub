@@ -578,7 +578,8 @@ class CloseWeekStartProductionTest(TestCase):
             ),
         ]
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project(tasks)
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project(tasks),
         ):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, "Diese Woche")
@@ -586,7 +587,7 @@ class CloseWeekStartProductionTest(TestCase):
 
     def test_notion_failure_redirects_to_dashboard(self):
         with patch(
-            "projects.views.get_upcoming_projects",
+            "projects.closeout_views.get_upcoming_projects",
             side_effect=NotionUnavailableError("boom"),
         ):
             response = self.client.get(reverse("close_week_start"))
@@ -604,7 +605,8 @@ class CloseWeekStartProductionTest(TestCase):
             iso_year=2026, iso_week=25, completed_count=3, rescheduled_count=1
         )
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             response = self.client.get(reverse("close_week_start"))
         self.assertContains(response, "Diese Woche hast du schon abgeschlossen.")
@@ -970,7 +972,7 @@ class CloseWeekConfirmDemoModeTest(DemoModeTestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         self.given_session_plan(tasks=[])
         self.ai_mocks[
-            "projects.views.generate_closeout_summary"
+            "projects.closeout_views.generate_closeout_summary"
         ].side_effect = AIUnavailableError("boom")
         response = self.client.post(reverse("close_week_confirm"), data={"task_id": []})
         self.assertRedirects(response, f"{reverse('week_review')}?week=2026-W25")
@@ -1107,11 +1109,12 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         longer says anything about the numbers."""
         return (
             patch(
-                "projects.views.get_tasks_completed_in_range",
+                "projects.closeout_views.get_tasks_completed_in_range",
                 return_value=list(completed),
             ),
             patch(
-                "projects.views.get_tasks_created_in_range", return_value=list(created)
+                "projects.closeout_views.get_tasks_created_in_range",
+                return_value=list(created),
             ),
         )
 
@@ -1126,12 +1129,14 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         )
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read,
             created_read,
             patch(
-                "projects.views.generate_closeout_summary", return_value="Rückschau."
+                "projects.closeout_views.generate_closeout_summary",
+                return_value="Rückschau.",
             ),
         ):
             response = self.client.post(
@@ -1165,7 +1170,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         )
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read,
             created_read,
@@ -1181,7 +1187,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         completed_read, created_read = self._week_reads()
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read as completed_mock,
             created_read as created_mock,
@@ -1200,7 +1207,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         completed_read, created_read = self._week_reads()
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read as completed_mock,
             created_read as created_mock,
@@ -1228,12 +1236,14 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         completed_read, created_read = self._week_reads()
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read,
             created_read,
             patch(
-                "projects.views.generate_closeout_summary", return_value="KW 25 also."
+                "projects.closeout_views.generate_closeout_summary",
+                return_value="KW 25 also.",
             ),
         ):
             response = self.client.post(
@@ -1252,10 +1262,11 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             patch(
-                "projects.views.get_tasks_completed_in_range",
+                "projects.closeout_views.get_tasks_completed_in_range",
                 side_effect=NotionUnavailableError("boom"),
             ),
         ):
@@ -1274,17 +1285,18 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         target — ticket and all, which is what a browser would follow."""
         stubs = {
             "get_upcoming_projects": patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             "get_tasks_completed_in_range": patch(
-                "projects.views.get_tasks_completed_in_range", return_value=[]
+                "projects.closeout_views.get_tasks_completed_in_range", return_value=[]
             ),
             "get_tasks_created_in_range": patch(
-                "projects.views.get_tasks_created_in_range", return_value=[]
+                "projects.closeout_views.get_tasks_created_in_range", return_value=[]
             ),
         }
         stubs[failing_read] = patch(
-            f"projects.views.{failing_read}",
+            f"projects.closeout_views.{failing_read}",
             side_effect=NotionUnavailableError("boom"),
         )
         with (
@@ -1304,7 +1316,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         landing = self._failing_close_out()
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
@@ -1316,7 +1329,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         landing = self._failing_close_out()
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             first = self.client.get(landing)
             second = self.client.get(landing)
@@ -1332,7 +1346,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         landing = self._failing_close_out()
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             other_tab = self.client.get(reverse("close_week_start"))
             failed_tab = self.client.get(landing)
@@ -1344,7 +1359,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         self._failing_close_out()
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             guessed = self.client.get(
                 reverse("close_week_start") + "?notice=nicht-das-ticket"
@@ -1358,7 +1374,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         mock_localdate.return_value = CLOSEOUT_TODAY
         landing = self._failing_close_out(failing_read="get_upcoming_projects")
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
@@ -1374,7 +1391,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         landing = self._failing_close_out(data={"week": "2026-W24"})
         self.assertIn("week=2026-W24", landing)
         with patch(
-            "projects.views.get_upcoming_projects", return_value=self._project([])
+            "projects.closeout_views.get_upcoming_projects",
+            return_value=self._project([]),
         ):
             landed = self.client.get(landing)
         self.assertContains(landed, "Notion war gerade nicht erreichbar")
@@ -1404,7 +1422,8 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
         completed_read, created_read = self._week_reads()
         with (
             patch(
-                "projects.views.get_upcoming_projects", return_value=self._project([])
+                "projects.closeout_views.get_upcoming_projects",
+                return_value=self._project([]),
             ),
             completed_read,
             created_read,
@@ -1428,12 +1447,15 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
             completed_read, created_read = self._week_reads()
             with (
                 patch(
-                    "projects.views.get_upcoming_projects",
+                    "projects.closeout_views.get_upcoming_projects",
                     return_value=self._project([]),
                 ),
                 completed_read,
                 created_read,
-                patch("projects.views.generate_closeout_summary", return_value=text),
+                patch(
+                    "projects.closeout_views.generate_closeout_summary",
+                    return_value=text,
+                ),
             ):
                 self.client.post(reverse("close_week_confirm"), data={"task_id": []})
         self.assertEqual(WeekCloseout.objects.count(), 1)
@@ -1454,12 +1476,15 @@ class CloseWeekConfirmProductionTest(AiStubMixin, TestCase):
             completed_read, created_read = self._week_reads(completed=completed)
             with (
                 patch(
-                    "projects.views.get_upcoming_projects",
+                    "projects.closeout_views.get_upcoming_projects",
                     return_value=self._project([]),
                 ),
                 completed_read,
                 created_read,
-                patch("projects.views.generate_closeout_summary", return_value="Text."),
+                patch(
+                    "projects.closeout_views.generate_closeout_summary",
+                    return_value="Text.",
+                ),
             ):
                 self.client.post(reverse("close_week_confirm"), data={"task_id": []})
         self.assertEqual(WeekCloseout.objects.count(), 1)
@@ -1517,14 +1542,22 @@ class CloseWeekWeekScopedCountTest(AiStubMixin, TestCase):
             self._task("t-3", "Drei", CLOSEOUT_TODAY + timedelta(days=2), done=True),
         ]
         upcoming = patch(
-            "projects.views.get_upcoming_projects",
+            "projects.closeout_views.get_upcoming_projects",
             return_value=[self._project(finished)],
         )
         with (
             upcoming,
-            patch("projects.views.get_tasks_completed_in_range", return_value=finished),
-            patch("projects.views.get_tasks_created_in_range", return_value=[]),
-            patch("projects.views.generate_closeout_summary", return_value="Text."),
+            patch(
+                "projects.closeout_views.get_tasks_completed_in_range",
+                return_value=finished,
+            ),
+            patch(
+                "projects.closeout_views.get_tasks_created_in_range", return_value=[]
+            ),
+            patch(
+                "projects.closeout_views.generate_closeout_summary",
+                return_value="Text.",
+            ),
         ):
             start = self.client.get(reverse("close_week_start"))
             posted = self._posted_ids(start)
@@ -1546,12 +1579,19 @@ class CloseWeekWeekScopedCountTest(AiStubMixin, TestCase):
         ]
         with (
             # An empty upcoming read is exactly what the two filters produce.
-            patch("projects.views.get_upcoming_projects", return_value=[]),
+            patch("projects.closeout_views.get_upcoming_projects", return_value=[]),
             patch(
-                "projects.views.get_tasks_completed_in_range", return_value=invisible
+                "projects.closeout_views.get_tasks_completed_in_range",
+                return_value=invisible,
             ),
-            patch("projects.views.get_tasks_created_in_range", return_value=invisible),
-            patch("projects.views.generate_closeout_summary", return_value="Text."),
+            patch(
+                "projects.closeout_views.get_tasks_created_in_range",
+                return_value=invisible,
+            ),
+            patch(
+                "projects.closeout_views.generate_closeout_summary",
+                return_value="Text.",
+            ),
         ):
             start = self.client.get(reverse("close_week_start"))
             self.client.post(
@@ -1574,12 +1614,19 @@ class CloseWeekWeekScopedCountTest(AiStubMixin, TestCase):
         moved = self._task("t-move", "Verschieben", CLOSEOUT_TODAY + timedelta(days=2))
         with (
             patch(
-                "projects.views.get_upcoming_projects",
+                "projects.closeout_views.get_upcoming_projects",
                 return_value=[self._project([moved])],
             ),
-            patch("projects.views.get_tasks_completed_in_range", return_value=[]),
-            patch("projects.views.get_tasks_created_in_range", return_value=[]),
-            patch("projects.views.generate_closeout_summary", return_value="Text."),
+            patch(
+                "projects.closeout_views.get_tasks_completed_in_range", return_value=[]
+            ),
+            patch(
+                "projects.closeout_views.get_tasks_created_in_range", return_value=[]
+            ),
+            patch(
+                "projects.closeout_views.generate_closeout_summary",
+                return_value="Text.",
+            ),
         ):
             start = self.client.get(reverse("close_week_start"))
             posted = self._posted_ids(start)
@@ -1621,7 +1668,7 @@ class WeekReviewProductionTest(TestCase):
         # The sidebar project list (#185) makes this view fetch Notion on a
         # cold cache — stubbed here so the assertions below stay about the
         # closeout, not about project data this test never sets up.
-        with patch("projects.views.get_upcoming_projects", return_value=[]):
+        with patch("projects.closeout_views.get_upcoming_projects", return_value=[]):
             response = self.client.get(reverse("week_review"))
         self.assertContains(response, "Gute Woche.")
         self.assertContains(response, "KW 25/2026")
@@ -1636,7 +1683,7 @@ class WeekReviewProductionTest(TestCase):
         WeekCloseout.objects.create(
             iso_year=2026, iso_week=25, summary_text="Die spätere Woche."
         )
-        with patch("projects.views.get_upcoming_projects", return_value=[]):
+        with patch("projects.closeout_views.get_upcoming_projects", return_value=[]):
             named = self.client.get(f"{reverse('week_review')}?week=2026-W24")
             latest = self.client.get(reverse("week_review"))
         self.assertContains(named, "Die frühere Woche.")
@@ -1647,7 +1694,7 @@ class WeekReviewProductionTest(TestCase):
         WeekCloseout.objects.create(
             iso_year=2026, iso_week=25, summary_text="Die einzige Woche."
         )
-        with patch("projects.views.get_upcoming_projects", return_value=[]):
+        with patch("projects.closeout_views.get_upcoming_projects", return_value=[]):
             for raw in ("2026-W24", "nonsense", "2026-W99"):
                 with self.subTest(week=raw):
                     response = self.client.get(f"{reverse('week_review')}?week={raw}")
