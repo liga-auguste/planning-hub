@@ -260,7 +260,7 @@ pages) renders a real link into `{% url 'dashboard' %}?project=<id>` instead —
 own deep-link handling already opens the right project detail from that query param, so no new
 client-side code was needed on the standalone pages.
 
-`views._sidebar_projects()` supplies `month_groups`/`years` to `close_week_start()` and
+`closeout_views._sidebar_projects()` supplies `month_groups`/`years` to `close_week_start()` and
 `week_review()`, mirroring what `dashboard()` already builds for itself: the visitor's own
 session plan in demo mode (never the example catalog — that state isn't reachable from these
 pages), or production's real projects. `my_plan()` builds its single-entry list inline, since it

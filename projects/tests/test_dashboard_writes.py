@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from ..ai import AIUnavailableError
 from ..annotate import _URGENCY_RANK, _annotate_tasks
+from ..closeout_views import _demo_completed_in_range
 from ..dashboard_cache import (
     CACHE_DEADLINE_KEY,
     CACHE_KEY,
@@ -41,7 +42,6 @@ from ..templatetags.planner_tags import date_names, date_pattern
 from ..views import (
     SUMMARY_KEY,
     _build_session_project,
-    _demo_completed_in_range,
     _derive_dashboard_figures,
 )
 from .base import (

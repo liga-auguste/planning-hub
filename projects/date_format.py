@@ -1,4 +1,4 @@
-"""German display formatting for dates, shared by views.py and the
+"""German display formatting for dates, shared by the views, ai.py and the
 planner_tags template filter (#189).
 
 A separate module rather than living in views.py: the template filter needs
