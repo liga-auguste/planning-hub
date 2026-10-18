@@ -55,7 +55,8 @@ old label and only the future-due boundary changes.
 | `wochenrueckblick/` | `week_review` | GET: one close-out + stats + AI text, `?week=YYYY-Www` (default: the latest close-out) |
 
 German paths, English `{% url %}` names — the project's #15 convention for a page a
-visitor navigates to.
+visitor navigates to. The three views and the helpers only they use live in
+`projects/closeout_views.py` (#302), next to the storage in `projects/closeout.py`.
 
 ### The week is a parameter, and the form wins (#263)
 

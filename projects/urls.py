@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import closeout_views, views
 
 urlpatterns = [
     path("", views.index, name="index"),
@@ -53,13 +53,15 @@ urlpatterns = [
         views.preload_timelapse_summary,
         name="preload_timelapse_summary",
     ),
-    path("woche-abschliessen/", views.close_week_start, name="close_week_start"),
+    path(
+        "woche-abschliessen/", closeout_views.close_week_start, name="close_week_start"
+    ),
     path(
         "woche-abschliessen/bestaetigen/",
-        views.close_week_confirm,
+        closeout_views.close_week_confirm,
         name="close_week_confirm",
     ),
-    path("wochenrueckblick/", views.week_review, name="week_review"),
+    path("wochenrueckblick/", closeout_views.week_review, name="week_review"),
     path("impressum/", views.impressum, name="impressum"),
     path("datenschutz/", views.datenschutz, name="datenschutz"),
     path("health/", views.health, name="health"),

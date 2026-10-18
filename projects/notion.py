@@ -242,7 +242,7 @@ def get_tasks_completed_in_range(start: date, end: date) -> list:
     Known floor, not a bug: a task checked off directly in Notion, or before
     "Erledigt am" existed in the schema, has "Done" without a date and
     cannot be placed in any week. It is missing from this read by
-    construction. See the count in views.close_week_confirm.
+    construction. See the count in closeout_views.close_week_confirm.
     """
     with translate_notion_errors():
         pages = _query_all_pages(
