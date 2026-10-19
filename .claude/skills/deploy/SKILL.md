@@ -71,12 +71,10 @@ needs, and the one that is easiest to lose halfway through a pair of
 deploys.
 
 Read the target stack's entry in `hosts.md` for its SSH target, path, URL,
-compose file, branch, and its optional `Shell` (step 3). Required `.env`
-keys on the host, already documented in the README's "Docker (demo)" /
-"Docker (production)" sections:
-
-- **demo**: `DEMO_MODE=true`, `ALLOWED_HOSTS`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
-- **production**: `DEMO_MODE=false`, `SECRET_KEY`, `ANTHROPIC_API_KEY`, `NOTION_API_KEY`, `DB_PASSWORD`, `DB_HOST`
+compose file, branch, and its optional `Shell` (step 3). The host's `.env`
+needs every active line of its stack's example file, `.env.demo.example` or
+`.env.production.example`; that file is the one list, so it is not repeated
+here (#301).
 
 Check the host's checkout before pulling. Two different things can be
 wrong with it, and one command shows both:

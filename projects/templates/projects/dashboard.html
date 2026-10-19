@@ -1390,13 +1390,16 @@ if (simLockNotice) {
     simLockNotice.addEventListener('pointerleave', armSimLockNotice);
 }
 </script>
+{# #301: data blocks rather than JSON written into the script. A moment's label is Claude's text, and a `</script>` inside it ended the block it was written into. #}
+{{ timelapse_moments|json_script:"timelapse-moments" }}
+{{ precached_moments|json_script:"precached-moments" }}
 <script>
 const TODAY = '{{ today_iso }}';
 // let, not const: buildTimelapseBar rewrites it when the moments arrive on
 // their own request, and preloadAll() reads it afterwards (#156).
-let TIMELAPSE_MOMENTS = {{ timelapse_moments|safe }};
+let TIMELAPSE_MOMENTS = JSON.parse(document.getElementById('timelapse-moments').textContent);
 const TIMELAPSE_PENDING = {{ timelapse_pending|yesno:"true,false" }};
-const PRECACHED_MOMENTS = {{ precached_moments|safe }};
+const PRECACHED_MOMENTS = JSON.parse(document.getElementById('precached-moments').textContent);
 const SIM_DATE = '{{ sim_date }}';
 
 function formatMomentDate(isoStr) {
@@ -1641,7 +1644,15 @@ function buildTimelapseBar(moments) {
             btn.className = 'moment-btn' + (SIM_DATE === m.date ? ' active' : '') + (PRECACHED_MOMENTS.includes(m.date) ? ' moment-preloaded' : '');
             btn.title = m.description;
             btn.dataset.momentDate = m.date;
-            btn.innerHTML = `<div class="moment-title">${m.label}</div><div class="moment-date">${formatMomentDate(m.date)}</div>`;
+            // Built from text nodes, never parsed as markup (#301): moments also arrive
+            // from POST /timelapse/moments/, which never passes the template.
+            const title = document.createElement('div');
+            title.className = 'moment-title';
+            title.textContent = m.label;
+            const when = document.createElement('div');
+            when.className = 'moment-date';
+            when.textContent = formatMomentDate(m.date);
+            btn.append(title, when);
             btn.addEventListener('click', () => setSimDate(m.date, btn));
             container.appendChild(btn);
         });

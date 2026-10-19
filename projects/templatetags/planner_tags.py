@@ -4,7 +4,9 @@
 module is autodiscovered — templates only need `{% load planner_tags %}`.
 """
 
+import nh3
 from django import template
+from django.utils.safestring import mark_safe
 
 from ..date_format import (
     MONTHS_DE,
@@ -15,6 +17,38 @@ from ..date_format import (
 )
 
 register = template.Library()
+
+# What Python-Markdown core emits for the clarifying questions, and no
+# attributes: it puts none on any of these, not even `start` on a list that
+# begins at 3 (#301). Python-Markdown passes raw HTML through, and it turns
+# `[x](javascript:…)` into a working link however the text was escaped
+# beforehand, so only an allow-list on its output closes that. No `a` and no
+# `img`: a question has no reason to link anywhere, and an image from a
+# third-party host would be fetched by the visitor's browser, which is a
+# /datenschutz/ question as well as an XSS one. A dropped tag keeps its text.
+# nh3 (Rust's ammonia) rather than Bleach, which is no longer maintained.
+_QUESTIONS_CLEANER = nh3.Cleaner(
+    tags={
+        "p",
+        "br",
+        "strong",
+        "em",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "code",
+        "pre",
+        "hr",
+    },
+    attributes={},
+)
 
 
 @register.filter
@@ -94,3 +128,12 @@ def date_pattern(role):
             f"{', '.join(sorted(_NAME_TABLES))}"
         )
     return role_pattern(role)
+
+
+@register.filter
+def clean_html(html):
+    """Claude's converted Markdown, reduced to the allow-list above. Applied
+    at the output rather than when the questions are created, so a draft
+    stored in a session before #301 is cleaned on its redisplay too. The one
+    `mark_safe` in the app; NothingBypassesAutoescapingTest holds it there."""
+    return mark_safe(_QUESTIONS_CLEANER.clean(html or ""))
