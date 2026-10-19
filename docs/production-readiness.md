@@ -44,8 +44,9 @@ a `web` container that isn't ready yet.
 
 **Operational gotcha, found on the first real demo deploy:** the healthcheck command
 requests `http://localhost:8000/health/`, and Django validates the `Host` header
-against `ALLOWED_HOSTS` before the request ever reaches the view. `.env.example` has
-always included `localhost` there, but the already-deployed demo host's `.env`
+against `ALLOWED_HOSTS` before the request ever reaches the view. The example env
+file has always included `localhost` there (one per stack since #301:
+`.env.demo.example` and `.env.production.example`), but the already-deployed demo host's `.env`
 predated this feature and had `ALLOWED_HOSTS` set to only its public hostname —
 so the check failed with a 400 and `web` reported `unhealthy`, even though the app
 itself was serving correctly (nginx still resolved the `web` service by name).

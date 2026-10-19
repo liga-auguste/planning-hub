@@ -278,9 +278,13 @@ python manage.py runserver
 ### Docker (demo)
 
 ```bash
-cp .env.example .env  # fill in ANTHROPIC_API_KEY + SECRET_KEY
+cp .env.demo.example .env
 docker compose -f docker-compose.demo.yml up --build -d
 ```
+
+Before the first start, fill in `SECRET_KEY` and `ANTHROPIC_API_KEY`, and replace
+`your-domain.example` with the demo's domain in both `ALLOWED_HOSTS` and
+`CSRF_TRUSTED_ORIGINS`. Every active line in that file is needed on this stack.
 
 **TLS renewal goes through the running nginx, not around it.** The nginx
 container holds ports 80 and 443 continuously, so certbot's `standalone`
@@ -342,10 +346,14 @@ the stack rather than around it, and the stack stays up.
 ### Docker (production)
 
 ```bash
-cp .env.example .env  # fill in all keys including NOTION_API_KEY + DB_PASSWORD
-htpasswd -c .htpasswd admin  # Basic Auth login, prompts for the password
+cp .env.production.example .env
+htpasswd -c .htpasswd admin
 docker compose up --build -d
 ```
+
+Fill in every key in `.env` before the first start, including `NOTION_API_KEY` and
+`DB_PASSWORD`, and put the host's LAN address into `ALLOWED_HOSTS`. `htpasswd`
+creates the Basic Auth login and prompts for its password.
 
 `.htpasswd` has to exist before the first start: `nginx.conf` checks passwords
 against it and `docker-compose.yml` mounts it into the nginx container, but the
@@ -354,8 +362,8 @@ Compose creates a missing bind-mount source as an empty directory rather than
 failing outright, so a forgotten file surfaces as a confusing nginx error, not
 as "no such file".
 
-`ALLOWED_HOSTS` must include `localhost` on both stacks, matching
-`.env.example` — the `web` service's own `healthcheck:` calls `/health/` as
+`ALLOWED_HOSTS` must include `localhost` on both stacks, as both example files
+do — the `web` service's own `healthcheck:` calls `/health/` as
 `http://localhost:8000`, and Django's host validation runs before that request
 ever reaches the view. Without it, `docker compose ps` reports `web` as
 `unhealthy` and `nginx`'s `depends_on: condition: service_healthy` blocks it
@@ -381,7 +389,8 @@ TLS. A browser discards a `Secure`-flagged cookie on such a connection, which
 would take sessions and every CSRF-protected POST with it, so `check --deploy`
 keeps reporting those warnings here. That is a true statement about this
 deployment rather than a gap — the demo, which does terminate TLS, reports
-none.
+none. What makes it sound, and what would end it, is written down in
+[Network boundary](docs/production-readiness.md#network-boundary).
 
 When switching an existing host, **write the line before pulling and
 rebuilding.** In the other order the container comes up with secure cookies
@@ -453,7 +462,7 @@ projects/
     action_feedback.js          #   how a failed write reports itself
     task_date_picker.js         #   asking for a date; each surface owns the consequence
     task_add_row.js             #   adding a task; one consequence, so the module owns it
-  templatetags/planner_tags.py  # The one filter: plan_date, so a template can format at render time
+  templatetags/planner_tags.py  # Render-time formatting (plan_date, …) and clean_html, the one sanitizer
   templates/404.html, 500.html  # Custom error pages (top level, not projects/)
   management/commands/
     seed_rules.py               # Seed initial planner rules
