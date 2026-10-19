@@ -514,12 +514,19 @@ class TimelapsePrecachedMomentsTest(DemoModeTestCase):
         session[f"{SUMMARY_KEY}_2026-09-05"] = "<p>cached</p>"
         session.save()
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, 'const PRECACHED_MOMENTS = ["2026-09-05"]')
+        self.assertContains(
+            response,
+            '<script id="precached-moments" type="application/json">'
+            '["2026-09-05"]</script>',
+        )
 
     def test_a_moment_without_a_cached_summary_is_not_precached(self):
         self.given_timelapse_moments("2026-09-05")
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "const PRECACHED_MOMENTS = []")
+        self.assertContains(
+            response,
+            '<script id="precached-moments" type="application/json">[]</script>',
+        )
 
     def test_malformed_session_moments_do_not_break_the_dashboard(self):
         session = self.client.session
@@ -545,7 +552,13 @@ class TimelapsePreloadMarkupTest(DemoModeTestCase):
 
     def test_template_seeds_preloaded_from_precached_moments(self):
         response = self.client.get(reverse("dashboard"))
-        self.assertContains(response, "const PRECACHED_MOMENTS = ")
+        # #301: read from a json_script block, not written into the script
+        # through |safe.
+        self.assertContains(
+            response,
+            "const PRECACHED_MOMENTS = JSON.parse("
+            "document.getElementById('precached-moments').textContent);",
+        )
         self.assertContains(response, "const preloaded = new Set(PRECACHED_MOMENTS);")
 
     def test_sim_date_awaits_preload_before_reloading(self):
@@ -1516,3 +1529,40 @@ class TheBarIsBuiltFromWhicheverMomentsArriveTest(DemoModeTestCase):
         js = self.dashboard_js(pending=True)
         bar = js[js.index("function buildTimelapseBar(moments) {") :]
         self.assertIn("setTimeout(() => preloadAll().catch(() => {}), 800);", bar)
+
+
+class AMomentLabelStaysTextTest(DemoModeTestCase):
+    """#301: a moment's label is Claude's output, and a visitor's description
+    steers it. It reached the page through two doors. `|safe` wrote the
+    session's moments straight into a script block, where a `</script>` in a
+    label ended the block and whatever followed ran as script. And
+    buildTimelapseBar wrote the label through innerHTML, which is also the
+    path for moments that arrive from POST /timelapse/moments/ and never pass
+    through the template. Closing one door leaves the other open."""
+
+    PAYLOAD = "</script><script>console.log(1)</script>"
+
+    def test_a_label_cannot_close_the_data_block(self):
+        session = self.client.session
+        session["demo_timelapse_moments"] = [
+            {"date": "2026-09-05", "label": self.PAYLOAD, "description": "x"}
+        ]
+        session.save()
+        response = self.client.get(reverse("dashboard"))
+        self.assertNotContains(response, self.PAYLOAD)
+        html = response.content.decode()
+        block = html[
+            html.index('<script id="timelapse-moments" type="application/json">') :
+        ]
+        block = block[: block.index("</script>")]
+        self.assertIn("\\u003C/script\\u003E\\u003Cscript\\u003Econsole.log(1)", block)
+
+    def test_the_moment_button_is_built_from_text(self):
+        """A JS-source contract, the suite's pattern for client behaviour.
+        The runtime half, a label shown literally with a quiet console, is
+        the browser pass."""
+        js = self.client.get(reverse("dashboard")).content.decode()
+        body = js[js.index("function buildTimelapseBar(moments) {") :]
+        body = body[: body.index("\n}")]
+        self.assertNotIn("innerHTML", body)
+        self.assertIn(".textContent = m.label;", body)

@@ -990,6 +990,66 @@ class QuestionsLayoutTest(DemoModeTestCase):
         self.assertNotContains(response, 'input[type="text"]')
 
 
+class TheQuestionsAreSanitizedTest(DemoModeTestCase):
+    """#301: the clarifying questions are Claude's Markdown, converted to HTML
+    and rendered with `|safe`. Python-Markdown passes raw HTML through, and
+    escaping the text before the conversion would not help either: it turns
+    `[klick](javascript:alert(1))` into a working `javascript:` link however
+    the text was escaped. An allow-list on the output decides what survives."""
+
+    def questions_box(self, markdown_text):
+        self.ai_mocks[
+            "projects.planner_views.get_clarifying_questions"
+        ].return_value = markdown_text
+        response = self.client.post(
+            reverse("planner_start"),
+            data={"description": "Konzert am 15. September 2026"},
+        )
+        return self.box_of(response)
+
+    def box_of(self, response):
+        html = response.content.decode()
+        box = html[html.index('<div class="questions-box">') :]
+        return box[: box.index("</div>")]
+
+    def test_raw_html_in_the_questions_is_not_rendered(self):
+        box = self.questions_box(
+            "Wie viele Gäste?\n\n"
+            "<script>console.log(1)</script>\n\n"
+            '<img src=x onerror="console.log(2)">'
+        )
+        self.assertIn("Wie viele Gäste?", box)
+        self.assertNotIn("<script", box)
+        self.assertNotIn("<img", box)
+        self.assertNotIn("onerror", box)
+
+    def test_a_markdown_link_cannot_carry_a_script_url(self):
+        box = self.questions_box("Siehe [klick](javascript:alert(1))")
+        self.assertNotIn("javascript:", box)
+        self.assertIn("klick", box)
+
+    def test_the_formatting_claude_uses_survives(self):
+        box = self.questions_box(
+            "### Kopf\n\n1. **Wann?**\n2. *Wo?*\n\nDazu:\n\n- a\n- b"
+        )
+        for tag in ("<h3>", "<ol>", "<ul>", "<li>", "<strong>", "<em>"):
+            with self.subTest(tag=tag):
+                self.assertIn(tag, box)
+
+    def test_a_draft_stored_before_the_fix_is_cleaned_on_redisplay(self):
+        # The session keeps the converted HTML, so a draft written before the
+        # deploy reaches the page through the GET redisplay, never through
+        # the conversion. Sanitizing at the output covers it; sanitizing at
+        # creation would not.
+        session = self.client.session
+        session["planner_description"] = "Konzert am 5. September"
+        session["planner_questions_html"] = "<p>Frage?</p><script>x</script>"
+        session.save()
+        box = self.box_of(self.client.get(reverse("planner_questions")))
+        self.assertIn("<p>Frage?</p>", box)
+        self.assertNotIn("<script>x", box)
+
+
 class ParseEventDateTest(SimpleTestCase):
     def test_explicit_year_is_used(self):
         self.assertEqual(
