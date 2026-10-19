@@ -61,6 +61,48 @@ app's static pipeline (`collectstatic`, content hashing) shouldn't depend on a
 directory GitHub renders separately and that isn't guaranteed to exist in every
 checkout shape.
 
+## Network boundary
+
+Added in [#301](https://github.com/liga-auguste/planning-hub/issues/301). Production
+opts out of HTTPS (`HTTPS_ONLY=false`, see the README's "Docker (production)"
+section), and that opt-out is only sound because of where the stack can be reached
+from. This section writes that down.
+
+**The VPN is the only route from outside.** A WireGuard VPN that ends at the home
+router is the one way to reach the production host from outside the home network.
+Nothing else on the router may lead to it: no port forward, no "exposed host", for
+IPv4 **and** IPv6. The line is dual-stack, so the host has a globally routable IPv6
+address, and the router's firewall is the boundary for that address as much as for
+IPv4.
+
+**Checked on 2026-10-18, after a finding.** The router check that #301 required
+before this section could be written found two active port forwards for TCP 80 to
+the production host, one over IPv4 and one over IPv6. They most likely dated from
+the first week, before the VPN was the way in. Both are disabled. Afterwards port 80
+did not answer from outside the home network over either protocol, while the LAN
+still got the Basic Auth prompt. Whether anyone reached the stack while the forwards
+existed cannot be told from the logs: every request in the nginx access log carries
+Docker Desktop's internal gateway address, not the client's. That gap belongs to
+[#303](https://github.com/liga-auguste/planning-hub/issues/303).
+
+**What is assumed of the LAN.** `docker-compose.yml` publishes port 80 as `"80:80"`,
+which binds every interface of the host. Any device on the home network therefore
+reaches the login prompt. Basic Auth crosses the LAN base64-encoded, which is
+readable by anyone who can see the traffic, not encrypted. The LAN is trusted on
+that basis.
+
+**Why `check --deploy` keeps warning here.** W004 (no HSTS), W008 (no HTTPS
+redirect), W012 and W016 (session and CSRF cookies not marked `Secure`) all describe
+a stack without TLS, which this one is. Silencing them would make the check claim
+something untrue about the deployment. The demo, which terminates TLS, reports none
+of them.
+
+**What would change all of this.** Any access that does not go through the VPN,
+whether a port forward, a tunnel or a reverse proxy on a public host, means HTTPS
+comes first: a certificate, `HTTPS_ONLY` back at its default, and these four
+warnings gone. Until then the boundary is the router, and the router check above
+is what has to be repeated whenever its configuration changes.
+
 ## Not covered here
 
 - Favicon rendering, the social preview card, and the healthcheck's
