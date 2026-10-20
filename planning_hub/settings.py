@@ -66,7 +66,9 @@ _TESTING = sys.argv[1:2] == ["test"]
 # own, defaulting the safe way round: a fresh checkout with DEBUG=false gets
 # the whole set, and the one deployment that cannot have it opts out in its own
 # .env with HTTPS_ONLY=false. `check --deploy` keeps warning there, which is
-# simply the truth about that deployment.
+# simply the truth about that deployment. What stands in for TLS there, and
+# what would change it, is "Network boundary" in docs/production-readiness.md
+# (#301).
 #
 # DEBUG wins either way — this is an opt-*out* for a TLS-less deployment, never
 # an opt-in that could make a local runserver hand out Secure cookies.

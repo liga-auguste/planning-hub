@@ -3754,3 +3754,29 @@ class PageSkeletonTest(DemoModeTestCase):
                     background = _declared_value(css, surface, theme)
                     with self.subTest(rule=rule, theme=theme, surface=surface):
                         self.assertGreaterEqual(_wcag_contrast(text, background), 4.5)
+
+
+class NothingBypassesAutoescapingTest(SimpleTestCase):
+    """#301: three bypasses carried text from Claude into a page unescaped,
+    two `|safe` on data blocks and one on the clarifying questions. After the
+    fix the only way past autoescaping is the sanitizer filter. A new bypass
+    then has to be added on purpose, by editing this test, rather than
+    arriving as a one-word filter."""
+
+    TEMPLATES = Path(settings.BASE_DIR) / "projects/templates"
+    PROJECTS = Path(settings.BASE_DIR) / "projects"
+
+    def test_no_template_turns_autoescaping_off(self):
+        pattern = re.compile(r"\|\s*safe(seq)?\b|{%\s*autoescape\s+off")
+        for path in sorted(self.TEMPLATES.rglob("*.html")):
+            with self.subTest(template=path.name):
+                self.assertIsNone(pattern.search(path.read_text()))
+
+    def test_mark_safe_appears_only_in_the_sanitizer_filter(self):
+        uses = [
+            path.relative_to(self.PROJECTS).as_posix()
+            for path in sorted(self.PROJECTS.rglob("*.py"))
+            if "tests" not in path.parts
+            for _ in re.findall(r"\bmark_safe\(", path.read_text())
+        ]
+        self.assertEqual(uses, ["templatetags/planner_tags.py"])

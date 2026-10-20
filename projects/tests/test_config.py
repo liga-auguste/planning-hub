@@ -283,9 +283,8 @@ class DebugDefaultConfTest(SimpleTestCase):
     defaulted to True, rendering full tracebacks (settings values, installed
     apps, stack trace) on any unhandled exception — a fresh clone without
     .env, an incomplete deploy step, or a misconfigured container all hit
-    this silently. .env.example already documents DEBUG=false for both
-    deployment paths; this pins the code to match when that step is
-    skipped."""
+    this silently. Both stacks' example files document DEBUG=false; this pins
+    the code to match when that step is skipped."""
 
     def test_debug_defaults_to_false_when_env_var_unset(self):
         # django.conf.settings copied its values at process startup —
@@ -312,31 +311,115 @@ class DebugDefaultConfTest(SimpleTestCase):
 
 class EnvExampleConfTest(SimpleTestCase):
     """#24: settings.py reads CSRF_TRUSTED_ORIGINS from the environment, but
-    .env.example never documented it, so a fresh deploy that only copies
-    .env.example starts with an empty value and nothing errors — the failure
-    surfaces later as a rejected POST behind the reverse proxy. This guards
-    every settings.py env var against the same drift, not just this one
-    key."""
+    the example file never documented it, so a fresh deploy that only copied
+    it started with an empty value and nothing errored. The failure surfaced
+    later as a rejected POST behind the reverse proxy.
 
-    def test_env_example_documents_every_settings_env_var(self):
-        settings_source = (
-            settings.BASE_DIR / "planning_hub" / "settings.py"
+    #301 widened the rule. There is one example file per stack, because the
+    single `.env.example` was the production file, and followed literally it
+    started the demo in production mode. The scan also missed the variables
+    `entrypoint.sh` reads, which is how GUNICORN_WORKERS and GUNICORN_THREADS
+    went undocumented without a red test. Every variable read by settings.py,
+    projects/startup.py and entrypoint.sh is now named in the example file of
+    every stack that reads it. A commented line counts: it shows the default
+    (`# GUNICORN_WORKERS=2`)."""
+
+    # Read only outside DEMO_MODE: settings.py configures PostgreSQL and
+    # startup.py requires the Notion key for production alone. The demo stack
+    # has no database service, so these lines would only mislead there.
+    PRODUCTION_ONLY_KEYS = {
+        "DB_NAME",
+        "DB_USER",
+        "DB_PASSWORD",
+        "DB_HOST",
+        "DB_PORT",
+        "NOTION_API_KEY",
+    }
+
+    def read_keys(self):
+        base = settings.BASE_DIR
+        python_sources = (base / "planning_hub" / "settings.py").read_text() + (
+            base / "projects" / "startup.py"
         ).read_text()
-        read_keys = set(
-            re.findall(r'os\.environ(?:\.get\(|\[)"([A-Z_]+)"', settings_source)
-        )
+        keys = set(re.findall(r'os\.environ(?:\.get\(|\[)"([A-Z_]+)"', python_sources))
+        entrypoint = (base / "entrypoint.sh").read_text()
+        keys |= set(re.findall(r"\$\{([A-Z_]+)", entrypoint))
+        return keys
 
-        env_example_source = (settings.BASE_DIR / ".env.example").read_text()
-        documented_keys = set(
-            re.findall(r"^([A-Z_]+)=", env_example_source, re.MULTILINE)
-        )
+    def documented_keys(self, name):
+        source = (settings.BASE_DIR / name).read_text()
+        return set(re.findall(r"^(?:# )?([A-Z_]+)=", source, re.MULTILINE))
 
-        undocumented = read_keys - documented_keys
-        self.assertEqual(
-            undocumented,
-            set(),
-            f".env.example is missing: {sorted(undocumented)}",
-        )
+    def test_the_scan_finds_the_entrypoint_variables(self):
+        self.assertTrue({"GUNICORN_WORKERS", "GUNICORN_THREADS"} <= self.read_keys())
+
+    def test_each_stacks_example_file_is_complete(self):
+        expected = {
+            ".env.demo.example": self.read_keys() - self.PRODUCTION_ONLY_KEYS,
+            ".env.production.example": self.read_keys(),
+        }
+        for name, keys in expected.items():
+            with self.subTest(file=name):
+                missing = keys - self.documented_keys(name)
+                self.assertEqual(
+                    missing, set(), f"{name} is missing: {sorted(missing)}"
+                )
+
+    def test_the_demo_example_cannot_switch_https_off(self):
+        source = (settings.BASE_DIR / ".env.demo.example").read_text()
+        self.assertRegex(source, r"(?m)^DEMO_MODE=true$")
+        self.assertNotRegex(source, r"(?m)^HTTPS_ONLY=")
+
+    def test_the_production_example_states_its_opt_out(self):
+        source = (settings.BASE_DIR / ".env.production.example").read_text()
+        self.assertRegex(source, r"(?m)^DEMO_MODE=false$")
+        self.assertRegex(source, r"(?m)^HTTPS_ONLY=false$")
+
+    def test_every_setup_copies_the_file_for_its_stack(self):
+        readme = (settings.BASE_DIR / "README.md").read_text()
+        demo = readme[readme.index("### Docker (demo)") :]
+        demo = demo[: demo.index("### Docker (production)")]
+        production = readme[readme.index("### Docker (production)") :]
+        production = production[: production.index("\n## ")]
+        self.assertIn("cp .env.demo.example .env", demo)
+        self.assertIn("cp .env.production.example .env", production)
+
+    def test_the_single_example_file_is_named_nowhere(self):
+        # `backup/backup.env.example` is another file; the lookbehind keeps
+        # its name from matching.
+        base = settings.BASE_DIR
+        paths = [
+            base / "README.md",
+            base / ".claude" / "skills" / "deploy" / "SKILL.md",
+            *sorted((base / "docs").glob("*.md")),
+        ]
+        for path in paths:
+            with self.subTest(file=path.name):
+                self.assertNotRegex(path.read_text(), r"(?<![\w.])\.env\.example")
+        self.assertFalse((base / ".env.example").exists())
+
+
+class NetworkBoundaryDocumentedTest(SimpleTestCase):
+    """#301: production opts out of HTTPS because the VPN is its boundary, and
+    that boundary was written down nowhere. The opt-out and the reason for it
+    belong together, so the settings comment points at the section that
+    states the boundary and the four `check --deploy` warnings it keeps."""
+
+    def test_the_readiness_doc_has_a_network_boundary_section(self):
+        doc = (settings.BASE_DIR / "docs" / "production-readiness.md").read_text()
+        section = doc[doc.index("\n## Network boundary") :]
+        next_heading = section.find("\n## ", 1)
+        if next_heading != -1:
+            section = section[:next_heading]
+        for warning in ("W004", "W008", "W012", "W016"):
+            with self.subTest(warning=warning):
+                self.assertIn(warning, section)
+
+    def test_the_https_block_in_settings_points_at_it(self):
+        source = (settings.BASE_DIR / "planning_hub" / "settings.py").read_text()
+        block = source[: source.index("HTTPS_ONLY = not DEBUG")]
+        block = block[block.rindex("# #157") :]
+        self.assertIn("docs/production-readiness.md", block)
 
 
 class LocaleAndTimeZoneConfTest(SimpleTestCase):
@@ -927,7 +1010,10 @@ class HttpsOnlySettingsConfTest(SimpleTestCase):
         # The rollout order matters on the Mac Mini (HTTPS_ONLY=false before
         # the pull), so the switch has to be discoverable from the files a
         # deploy reads, not only from the issue.
-        self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / ".env.example").read_text())
+        self.assertIn(
+            "HTTPS_ONLY",
+            (settings.BASE_DIR / ".env.production.example").read_text(),
+        )
         self.assertIn("HTTPS_ONLY", (settings.BASE_DIR / "README.md").read_text())
 
 
