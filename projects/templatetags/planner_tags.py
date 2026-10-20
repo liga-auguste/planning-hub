@@ -47,7 +47,9 @@ _QUESTIONS_CLEANER = nh3.Cleaner(
         "pre",
         "hr",
     },
-    attributes={},
+    # "*" empties ammonia's generic list too, which otherwise keeps `title`
+    # and `lang` on every tag.
+    attributes={"*": set()},
 )
 
 

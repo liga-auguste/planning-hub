@@ -1023,6 +1023,12 @@ class TheQuestionsAreSanitizedTest(DemoModeTestCase):
         self.assertNotIn("<img", box)
         self.assertNotIn("onerror", box)
 
+    def test_no_attribute_survives_on_an_allowed_tag(self):
+        # ammonia keeps `title` and `lang` on every tag unless the generic
+        # list is emptied as well; `attributes={}` alone leaves them.
+        box = self.questions_box('<p title="t" lang="de" class="c">Frage?</p>')
+        self.assertIn("<p>Frage?</p>", box)
+
     def test_a_markdown_link_cannot_carry_a_script_url(self):
         box = self.questions_box("Siehe [klick](javascript:alert(1))")
         self.assertNotIn("javascript:", box)
