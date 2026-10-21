@@ -1393,6 +1393,7 @@ if (simLockNotice) {
 {# #301: data blocks rather than JSON written into the script. A moment's label is Claude's text, and a `</script>` inside it ended the block it was written into. #}
 {{ timelapse_moments|json_script:"timelapse-moments" }}
 {{ precached_moments|json_script:"precached-moments" }}
+{{ sim_date|json_script:"sim-date" }}
 <script>
 const TODAY = '{{ today_iso }}';
 // let, not const: buildTimelapseBar rewrites it when the moments arrive on
@@ -1400,7 +1401,7 @@ const TODAY = '{{ today_iso }}';
 let TIMELAPSE_MOMENTS = JSON.parse(document.getElementById('timelapse-moments').textContent);
 const TIMELAPSE_PENDING = {{ timelapse_pending|yesno:"true,false" }};
 const PRECACHED_MOMENTS = JSON.parse(document.getElementById('precached-moments').textContent);
-const SIM_DATE = '{{ sim_date }}';
+const SIM_DATE = JSON.parse(document.getElementById('sim-date').textContent);
 
 function formatMomentDate(isoStr) {
     const d = new Date(isoStr + 'T12:00:00');
