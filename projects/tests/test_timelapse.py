@@ -1566,3 +1566,39 @@ class AMomentLabelStaysTextTest(DemoModeTestCase):
         body = body[: body.index("\n}")]
         self.assertNotIn("innerHTML", body)
         self.assertIn(".textContent = m.label;", body)
+
+
+class SimDateReachesTheScriptAsJsonTest(MomentFixtureMixin, DemoModeTestCase):
+    """#313: SIM_DATE was written into a JS string literal, so with no moment
+    active Django rendered `None` as the text 'None'. A non-empty string is
+    truthy, `if (!SIM_DATE)` never ran, and "Heute" was never highlighted.
+    json_script, like its two neighbours since #301, turns None into null."""
+
+    def test_no_moment_arrives_as_null(self):
+        self.given_two_tasks_around_a_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response, '<script id="sim-date" type="application/json">null</script>'
+        )
+        self.assertNotContains(response, "const SIM_DATE = 'None'")
+
+    def test_an_active_moment_arrives_as_its_date(self):
+        moment = self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            f'<script id="sim-date" type="application/json">"{moment.isoformat()}"</script>',
+        )
+
+    def test_the_script_reads_the_data_block(self):
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(
+            response,
+            "const SIM_DATE = JSON.parse(document.getElementById('sim-date').textContent);",
+        )
+
+    def test_the_banner_carries_no_emoji(self):
+        self.given_active_moment()
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, "Simulierter Zeitpunkt")
+        self.assertNotContains(response, "⏱")

@@ -351,7 +351,7 @@ The sidebar's progress ring reads `timezone.localdate()` on the three standalone
 simulated moment active it shows *real* progress there while `dashboard()`'s own ring shows the
 simulated one. This is deliberate, not an oversight to fix later:
 
-- The Zeitreise bar, the "⏱ Simulierter Zeitpunkt" banner and its "Zurück zu heute" reset all
+- The Zeitreise bar, the "Simulierter Zeitpunkt" banner and its "Zurück" reset all
   live on `dashboard.html` only. A simulated ring on a page with no banner and no way back would
   be a state the visitor can see but not explain or leave.
 - `my_plan()` has always rendered its task list and its "x von y" count against the real date.
