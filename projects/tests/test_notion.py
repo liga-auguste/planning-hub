@@ -1,6 +1,7 @@
 """notion.py directly: the read and write paths against the API, mocked."""
 
 import os
+import threading
 from datetime import date
 from unittest.mock import Mock, patch
 
@@ -709,6 +710,60 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
             )
         created = instance.pages.create.call_args.kwargs["properties"]
         self.assertEqual(created["Kontext"], {"multi_select": [{"name": "Büro"}]})
+
+    def test_writes_not_yet_started_are_skipped_after_a_failure(self):
+        # #197: a hanging Notion would otherwise cost one client timeout per
+        # queued write. One worker makes the order fixed: the first write
+        # fails before the others are picked up, so neither may be sent.
+        with (
+            patch("projects.notion.Client") as MockClient,
+            patch("projects.notion._CREATE_TASKS_MAX_WORKERS", 1),
+        ):
+            instance = MockClient.return_value
+            instance.databases.query.return_value = _query_response([])
+            instance.pages.create.side_effect = RequestTimeoutError()
+            with self.assertRaises(NotionUnavailableError):
+                create_tasks(
+                    "project-id",
+                    [
+                        {"name": "Programm festlegen", "date": "2026-08-20"},
+                        {"name": "Plakate aushängen", "date": "2026-08-27"},
+                        {"name": "Technik prüfen", "date": "2026-08-28"},
+                    ],
+                )
+        self.assertEqual(instance.pages.create.call_count, 1)
+
+    def test_a_write_in_flight_when_another_fails_is_still_awaited(self):
+        # #197: skipping stops new writes, not running ones — a write still
+        # in flight when create_tasks returns could land after a retry's
+        # idempotency read and be written twice. "Programm festlegen" holds
+        # its worker until "Plakate aushängen" has failed on another one.
+        other_failed = threading.Event()
+        finished = []
+
+        def create_side_effect(**kwargs):
+            name = kwargs["properties"]["Aufgabe"]["title"][0]["text"]["content"]
+            if name == "Plakate aushängen":
+                other_failed.set()
+                raise RequestTimeoutError()
+            other_failed.wait(timeout=5)
+            finished.append(name)
+            return {"id": f"page-{name}"}
+
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = _query_response([])
+            instance.pages.create.side_effect = create_side_effect
+            with self.assertRaises(NotionUnavailableError):
+                create_tasks(
+                    "project-id",
+                    [
+                        {"name": "Programm festlegen", "date": "2026-08-20"},
+                        {"name": "Plakate aushängen", "date": "2026-08-27"},
+                    ],
+                )
+        self.assertTrue(other_failed.is_set())
+        self.assertIn("Programm festlegen", finished)
 
 
 def _fake_project_page(page_id, name, iso_date):
