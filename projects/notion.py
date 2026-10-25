@@ -1,5 +1,6 @@
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import date
 
@@ -19,6 +20,11 @@ TASKS_DB = "f22abd16a92d48598c04be76f35c6b1d"
 # ~50 closed projects a year, so every season and every recurring event
 # appears at least twice as a calibration reference.
 HISTORY_PROJECT_LIMIT = 40
+
+# Notion rate-limits at an average of 3 requests/second per integration
+# (developers.notion.com/reference/request-limits) — a modest concurrency
+# cap, not precise pacing (#197).
+_CREATE_TASKS_MAX_WORKERS = 3
 
 
 class NotionUnavailableError(Exception):
@@ -649,28 +655,38 @@ def create_task(project_id: str, name: str, task_date: str) -> None:
         )
 
 
+def _create_task_page(client, project_id: str, task: dict) -> None:
+    client.pages.create(
+        parent={"database_id": TASKS_DB},
+        properties={
+            "Aufgabe": {"title": [{"text": {"content": task["name"]}}]},
+            "Wann?": {"date": {"start": task["date"]}},
+            "Done": {"checkbox": False},
+            "Kontext": {"multi_select": [{"name": k} for k in task.get("kontext", [])]},
+            "Related to Projekte": {"relation": [{"id": project_id}]},
+        },
+    )
+
+
 def create_tasks(project_id: str, tasks: list) -> None:
     client = _client()
     with translate_notion_errors():
-        # A failed attempt may have written part of this list already (the
-        # loop below is one API call per task) — skip what already exists so
-        # a retry from planner_create is idempotent instead of duplicating.
+        # A failed attempt may have written part of this list already (one
+        # API call per task) — skip what already exists so a retry from
+        # planner_create is idempotent instead of duplicating.
         existing = {
             (t["name"], t["due"].isoformat() if t["due"] else None)
             for t in _get_tasks(project_id)
         }
-        for task in tasks:
-            if (task["name"], task["date"]) in existing:
-                continue
-            client.pages.create(
-                parent={"database_id": TASKS_DB},
-                properties={
-                    "Aufgabe": {"title": [{"text": {"content": task["name"]}}]},
-                    "Wann?": {"date": {"start": task["date"]}},
-                    "Done": {"checkbox": False},
-                    "Kontext": {
-                        "multi_select": [{"name": k} for k in task.get("kontext", [])]
-                    },
-                    "Related to Projekte": {"relation": [{"id": project_id}]},
-                },
-            )
+        remaining = [t for t in tasks if (t["name"], t["date"]) not in existing]
+        # #197: the writes run concurrently on one shared client (httpx.Client
+        # is thread-safe). as_completed surfaces the first failure as soon as
+        # it happens; leaving the with-block still waits for every other
+        # submitted write, so a failure never cuts the rest short.
+        with ThreadPoolExecutor(max_workers=_CREATE_TASKS_MAX_WORKERS) as executor:
+            futures = [
+                executor.submit(_create_task_page, client, project_id, task)
+                for task in remaining
+            ]
+            for future in as_completed(futures):
+                future.result()
