@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from datetime import date
@@ -680,13 +681,28 @@ def create_tasks(project_id: str, tasks: list) -> None:
         }
         remaining = [t for t in tasks if (t["name"], t["date"]) not in existing]
         # #197: the writes run concurrently on one shared client (httpx.Client
-        # is thread-safe). as_completed surfaces the first failure as soon as
-        # it happens; leaving the with-block still waits for every other
-        # submitted write, so a failure never cuts the rest short.
+        # is thread-safe). After the first failure, writes that have not
+        # started yet are skipped: a hanging Notion would otherwise cost one
+        # 60s client timeout per queued write, three at a time, and outlast
+        # nginx's 120s proxy_read_timeout (#284) — a 504 while the server
+        # goes on writing, which a retry could then duplicate. Cancelling the
+        # futures instead is not enough: an idle worker takes the next one
+        # off the queue before the main thread gets to cancel it. Writes
+        # already in flight are still awaited when the with-block exits, so
+        # nothing outlives the request and the retry's `existing` read sees
+        # everything that landed.
+        failed = threading.Event()
+
+        def write(task):
+            if failed.is_set():
+                return
+            try:
+                _create_task_page(client, project_id, task)
+            except Exception:
+                failed.set()
+                raise
+
         with ThreadPoolExecutor(max_workers=_CREATE_TASKS_MAX_WORKERS) as executor:
-            futures = [
-                executor.submit(_create_task_page, client, project_id, task)
-                for task in remaining
-            ]
+            futures = [executor.submit(write, task) for task in remaining]
             for future in as_completed(futures):
                 future.result()
