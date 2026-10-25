@@ -710,6 +710,33 @@ class CreateTasksIdempotencyTest(SimpleTestCase):
         created = instance.pages.create.call_args.kwargs["properties"]
         self.assertEqual(created["Kontext"], {"multi_select": [{"name": "Büro"}]})
 
+    def test_a_failure_among_several_does_not_stop_the_others_from_being_attempted(
+        self,
+    ):
+        # #197: the writes run concurrently, so one failed page must not keep
+        # the rest from being tried. A pure function of its own arguments, not
+        # a shared counter, so the outcome does not depend on thread order.
+        def create_side_effect(**kwargs):
+            name = kwargs["properties"]["Aufgabe"]["title"][0]["text"]["content"]
+            if name == "Plakate aushängen":
+                raise RequestTimeoutError()
+            return {"id": f"page-{name}"}
+
+        with patch("projects.notion.Client") as MockClient:
+            instance = MockClient.return_value
+            instance.databases.query.return_value = _query_response([])
+            instance.pages.create.side_effect = create_side_effect
+            with self.assertRaises(NotionUnavailableError):
+                create_tasks(
+                    "project-id",
+                    [
+                        {"name": "Programm festlegen", "date": "2026-08-20"},
+                        {"name": "Plakate aushängen", "date": "2026-08-27"},
+                        {"name": "Technik prüfen", "date": "2026-08-28"},
+                    ],
+                )
+        self.assertEqual(instance.pages.create.call_count, 3)
+
 
 def _fake_project_page(page_id, name, iso_date):
     # Shaped the way get_historical_projects/get_upcoming_projects parse a
