@@ -127,6 +127,26 @@ LABELS = (
 )
 
 
+STUB_BIN = None
+
+
+def setUpModule():
+    # Written once: macOS checks every new executable on its first run, which
+    # costs seconds per stub. Each test gets its own answers in STUB_DIR.
+    global STUB_BIN
+    STUB_BIN = Path(tempfile.mkdtemp())
+    bodies = {name: STUB.replace("{name}", name) for name in COMMANDS}
+    bodies.update(id=STUB_ID, ifconfig=STUB_IFCONFIG, docker=STUB_DOCKER)
+    for name, body in bodies.items():
+        path = STUB_BIN / name
+        path.write_text(body)
+        path.chmod(0o755)
+
+
+def tearDownModule():
+    shutil.rmtree(STUB_BIN)
+
+
 class HostCheckCase(SimpleTestCase):
     """Runs host/check.sh against stubs set up for a host where all is right."""
 
@@ -135,12 +155,6 @@ class HostCheckCase(SimpleTestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.stub = self.tmp / "stub"
         self.stub.mkdir()
-        bodies = {name: STUB.replace("{name}", name) for name in COMMANDS}
-        bodies.update(id=STUB_ID, ifconfig=STUB_IFCONFIG, docker=STUB_DOCKER)
-        for name, body in bodies.items():
-            path = self.stub / name
-            path.write_text(body)
-            path.chmod(0o755)
         self.stub_state(
             pmset_out=PMSET.format(autorestart=1, sleep=0),
             readlink_out="/var/db/timezone/zoneinfo/Europe/Berlin\n",
@@ -168,7 +182,7 @@ class HostCheckCase(SimpleTestCase):
         return subprocess.run(
             ["sh", str(SCRIPT)],
             env={
-                "PATH": f"{self.stub}:{os.environ['PATH']}",
+                "PATH": f"{STUB_BIN}:{os.environ['PATH']}",
                 "HOME": str(self.tmp),
                 "STUB_DIR": str(self.stub),
             },

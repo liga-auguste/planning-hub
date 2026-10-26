@@ -9,3 +9,5 @@ staticfiles/
 .DS_Store
 # Host-side backup tooling (docs/backup.md); the web image needs none of it.
 backup/
+# Host-side settings check (docs/production-host.md); the web image needs none of it.
+host/
