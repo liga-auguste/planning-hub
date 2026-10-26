@@ -93,13 +93,16 @@ fi
 # Docker documents settings-store.json but not its keys; AutoStart is what
 # Docker Desktop 4.80 writes. A renamed key fails here rather than passing.
 # `-o -` matters: without it plutil writes the extracted value over the file.
+# Over SSH, macOS refuses the read unless Remote Login grants full disk
+# access, so an unreadable file says so.
 label="Docker Desktop at sign-in"
 autostart=$(plutil -extract AutoStart raw -o - \
     "$HOME/Library/Group Containers/group.com.docker/settings-store.json" 2>/dev/null)
 if [ "$autostart" = "true" ]; then
     ok "$label"
 else
-    fail "$label" "AutoStart ${autostart:-unreadable}" \
+    fail "$label" \
+        "AutoStart ${autostart:-unreadable (over SSH: needs full disk access for remote users)}" \
         "Docker Desktop > Settings > General > Start Docker Desktop when you sign in"
 fi
 

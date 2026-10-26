@@ -100,7 +100,11 @@ How each value is read, where that is not obvious:
 - **Docker Desktop at sign-in** reads `AutoStart` from
   `~/Library/Group Containers/group.com.docker/settings-store.json`. Docker documents the
   file but not its keys; `AutoStart` is what Docker Desktop 4.80 writes. If an update
-  renames it, the check fails loudly rather than passing.
+  renames it, the check fails loudly rather than passing. Over SSH, macOS refuses the
+  read ("Operation not permitted") unless System Settings → General → Sharing → Remote
+  Login → (i) → "Allow full disk access for remote users" is on; the check then fails
+  with `AutoStart unreadable`. Observed on 26 October 2026, when the setting itself was
+  on.
 - **Hardware MAC on the network** reads the MAC of the default route's interface, so it
   stays right if the host moves to Ethernet. A private Wi-Fi address is random and
   locally administered: the IEEE 802 U/L bit, `0x02` in the first octet, is set. A
@@ -167,5 +171,7 @@ pkill caffeinate
 ### A new host
 
 A replacement machine needs every setting above, as well as Docker, the checkout, `.env`,
-`.htpasswd` and the backup install from [`docs/backup.md`](backup.md). It is done when the
+`.htpasswd` and the backup install from [`docs/backup.md`](backup.md). To run the check
+over SSH, it also needs full disk access for remote users (see [The check](#the-check)).
+It is done when the
 check prints only `ok` lines and the power test has passed.

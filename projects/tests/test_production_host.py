@@ -371,8 +371,12 @@ class DockerDesktopAtSignInTest(HostCheckCase):
         self.assert_fails(self.LABEL, self.FIX, found="false")
 
     def test_settings_file_unreadable(self):
+        # Over SSH, macOS refuses the read ("Operation not permitted") unless
+        # Remote Login grants full disk access, so the line names that too.
         self.stub_state(plutil_out="", plutil_exit="1")
-        self.assert_fails(self.LABEL, self.FIX)
+        self.assert_fails(
+            self.LABEL, self.FIX, found="full disk access for remote users"
+        )
 
 
 class HardwareMacTest(HostCheckCase):
