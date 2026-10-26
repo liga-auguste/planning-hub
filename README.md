@@ -411,6 +411,12 @@ nightly run also sends an [age](https://github.com/FiloSottile/age)-encrypted co
 demo VPS, which can store it but not read it.
 Setup, the restore command and the drills are in [`docs/backup.md`](docs/backup.md).
 
+**Host settings.** Production comes back after a power cut only if a handful of macOS
+settings on the host are right: restart after power loss, no idle sleep, the time zone,
+automatic login, Docker Desktop at sign-in, a fixed network address. `sh host/check.sh`
+reads them all in one run and prints the fix for each one that is wrong. The list, the
+reasons and the power test are in [`docs/production-host.md`](docs/production-host.md).
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 
@@ -455,6 +461,7 @@ projects/
     test_naming.py     #   display names and date formatting
     test_language_eval.py  # the eval's own checks — the eval itself is not run here
     test_backup.py     #   production backups: both scripts, the schedule, the runbook
+    test_production_host.py  # the production host's macOS settings and their check
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 34 templates: the pages plus the partials they share
@@ -472,6 +479,8 @@ backup/
   receive.sh                    # The VPS side: stores one encrypted upload, nothing else
   de.ligaauguste.planninghub.backup.plist  # LaunchAgent template, nightly at 03:30
   backup.env.example            # Host settings: where dumps go, how many are kept, the off-site target
+host/
+  check.sh                      # Read-only check of the production host's macOS settings and running state
 docs/
   dashboard-write-paths.md      # Which write touches which cache, and which is offered where
   template-refactoring.md       # Base-template inheritance layout, as carried out
@@ -482,6 +491,7 @@ docs/
   test-suite-layout.md          # Which subject lives in which test module, and why
   wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
   backup.md                     # Production backups: how they run, install, restore, drill
+  production-host.md            # The production host's macOS settings, their check, the power test
   screenshots/                  # README images
 ```
 
