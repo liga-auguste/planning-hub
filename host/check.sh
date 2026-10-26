@@ -50,16 +50,16 @@ else
     fail "$label" "${line:-no autorestart line in pmset -g}" "sudo pmset -a autorestart 1"
 fi
 
-# `sleep` is the system sleep timer, a stored setting. caffeinate only holds
-# it off for as long as its process lives, which is why the annotated line
-# fails as well.
+# `sleep` is the system sleep timer, a stored setting, and only its value
+# counts. pmset annotates the line whenever an assertion holds sleep off,
+# whatever the value, so `sleep 0 (sleep prevented by …)` passes, while
+# `sleep 1 (… caffeinate)` fails: caffeinate lasts only as long as its process.
 label="no idle sleep"
 line=$(pmset_line sleep)
-if [ "$line" = "sleep 0" ]; then
-    ok "$label"
-else
-    fail "$label" "${line:-no sleep line in pmset -g}" "sudo pmset -a sleep 0"
-fi
+case $line in
+    "sleep 0" | "sleep 0 "*) ok "$label" ;;
+    *) fail "$label" "${line:-no sleep line in pmset -g}" "sudo pmset -a sleep 0" ;;
+esac
 
 # Not `systemsetup -gettimezone`: without admin rights it prints a refusal
 # and still exits 0.

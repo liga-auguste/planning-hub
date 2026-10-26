@@ -297,6 +297,20 @@ class NoIdleSleepTest(HostCheckCase):
         )
         self.assert_fails(self.LABEL, self.FIX, found="caffeinate")
 
+    def test_sleep_off_while_something_holds_an_assertion(self):
+        # pmset annotates the line whatever the stored value is, so a host
+        # with the timer off still shows who holds sleep off right now.
+        self.stub_state(
+            pmset_out=PMSET.format(
+                autorestart=1, sleep="0 (sleep prevented by caffeinate, powerd)"
+            )
+        )
+
+        result = self.run_check()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.line_for(result, self.LABEL), f"ok   {self.LABEL}")
+
 
 class TimeZoneTest(HostCheckCase):
     def test_another_zone(self):

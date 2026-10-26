@@ -91,7 +91,9 @@ How each value is read, where that is not obvious:
 
 - **No idle sleep** reads the stored `sleep` value. A host kept awake by a `caffeinate`
   process still fails: `pmset -g` then prints `sleep 1 (sleep prevented by … caffeinate)`,
-  and that lasts only as long as the process.
+  and that lasts only as long as the process. The annotation itself does not fail the
+  check: `pmset` adds it whenever an assertion holds sleep off, whatever the value, so
+  `sleep 0 (sleep prevented by …)` passes.
 - **Time zone** reads `readlink /etc/localtime`, not `systemsetup -gettimezone`. Without
   admin rights `systemsetup` prints "You need administrator access to run this tool...
   exiting!" and still exits 0, so a check built on it would pass on a refusal.
