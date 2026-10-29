@@ -574,6 +574,17 @@
             .download-fab { width: 48px; height: 48px; padding: 0; border-radius: 50%; justify-content: center; gap: 0; font-size: 18px; bottom: 20px; right: 20px; }
             .download-fab-label { display: none; }
             .task-project { flex-shrink: 3; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+            /* #319: the rule above assumes a row that wraps, like .task-row.
+               A summary line cannot, so the label shrank to a character or
+               none. Here the line becomes a grid instead: the label takes a
+               line of its own under the name, starting at the name's edge,
+               and the dot and the date stay on the name's first line. The
+               label still ends in an ellipsis when that line is too short.
+               Only the label is placed: the markup keeps the desktop's order,
+               and the date, or the input that replaces it while it is edited,
+               flows into the free third column of the first line. */
+            .ai-card ul ul li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 12px; }
+            .ai-card ul ul li > .task-project { grid-column: 2; grid-row: 2; justify-self: start; max-width: 100%; text-align: left; }
         }
 {% endblock %}
 

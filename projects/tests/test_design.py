@@ -1551,6 +1551,59 @@ class TaskRowNeverCollidesTest(DemoModeTestCase):
         )
 
 
+class SummaryProjectLabelOnPhonesTest(DemoModeTestCase):
+    """#319: a summary line is a flex row that cannot wrap, so below the
+    breakpoint the `.task-project` rule above (flex-shrink: 3, min-width: 0)
+    shrank its project label to a character or none. The task rows wrap and
+    never had the problem. On a phone the summary line becomes a grid
+    instead: the label takes a line of its own under the name, starting at
+    the name's edge, while the dot and the date stay on the first line. Only
+    the label is placed; the date flows into the first line's free third
+    column, and so does the input that replaces it while it is edited."""
+
+    RULES = (
+        (
+            ".ai-card ul ul li { display: grid; "
+            "grid-template-columns: auto minmax(0, 1fr) auto; gap: 0 12px; }"
+        ),
+        (
+            ".ai-card ul ul li > .task-project { grid-column: 2; grid-row: 2; "
+            "justify-self: start; max-width: 100%; text-align: left; }"
+        ),
+    )
+
+    def split(self):
+        html = self.client.get(reverse("dashboard")).content.decode()
+        desktop, phone = html.split("@media (max-width: 768px) {", 1)
+        # Ends at the block's own closing brace, at its indentation. The
+        # rendered page has no {% endblock %} left to split on, and a rule
+        # after the brace applies at every width.
+        return desktop, phone.split("\n        }\n", 1)[0]
+
+    def test_the_label_gets_a_line_of_its_own_on_a_phone(self):
+        _, phone = self.split()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertIn(rule, phone)
+
+    def test_the_desktop_line_is_unchanged(self):
+        desktop, _ = self.split()
+        for rule in self.RULES:
+            with self.subTest(rule=rule):
+                self.assertNotIn(rule, desktop)
+
+    def test_the_summary_still_renders_the_label_after_the_name(self):
+        # The grid places the label by class, so the markup order stays
+        # what the desktop row reads in: dot, name, project, date.
+        body = (
+            settings.BASE_DIR / "projects/templates/projects/_ai_summary_body.html"
+        ).read_text()
+        self.assertLess(
+            body.index('class="task-name'), body.index('class="task-project')
+        )
+        self.assertLess(body.index('class="task-project'), body.index("_task_due.html"))
+
+
 class DeboxingRegressionTest(DemoModeTestCase):
     """#96: the sidebar-tile/.ai-card de-boxing explicitly left these boxed
     areas untouched — locked in before any code change so a later step
