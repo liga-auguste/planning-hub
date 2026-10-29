@@ -217,6 +217,11 @@ Prove the alert path end to end, and record each run below.
 
 | Date | Drill | Result |
 |---|---|---|
+| 29 October 2026 | Row 6 under launchd | A throwaway agent ran `check.sh` once: it finished at once, with `AutoStart unreadable`. The file exists; macOS refuses the read under launchd. No hang, so the watcher's filter covers it. |
+| 29 October 2026 | First run | From a `/tmp` copy (this branch's `watch.sh`, `main`'s `check.sh`), over SSH: all three checks "up". `nginx.log` reaches back to 20 August (2,467 lines), `web.log` to that morning's deploy. |
+| 29 October 2026 | Alert drill | `BACKUP_DIR=/nonexistent`: backup "down" with `FAIL backup fresh`, by email. The next normal run set it "up", by email. |
+| 29 October 2026 | Run through launchd | A temporary agent on the `/tmp` copy, kickstarted: exit 0, row 6 `AutoStart unreadable` left out, no `.check-failed`, no alert. |
+| 29 October 2026 | Missed-ping drill | Agent unloaded after the 10:55:37 ping: production "down" at 11:10:38, by email, with no body. Backup and errors stayed "up". The agent bootstrapped again ran with exit 0 and no alert. |
 
 ## Known limits
 
