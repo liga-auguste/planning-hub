@@ -387,8 +387,13 @@ class DockerDesktopAtSignInTest(HostCheckCase):
         # Over SSH, macOS refuses the read ("Operation not permitted") unless
         # Remote Login grants full disk access, so the line names that too.
         self.stub_state(plutil_out="", plutil_exit="1")
-        self.assert_fails(
+        result = self.assert_fails(
             self.LABEL, self.FIX, found="full disk access for remote users"
+        )
+        # host/watch.sh leaves out exactly this finding, by this prefix.
+        line = self.line_for(result, self.LABEL)
+        self.assertTrue(
+            line.startswith(f"FAIL {self.LABEL}: AutoStart unreadable"), line
         )
 
 

@@ -33,6 +33,7 @@ PLIST = REPO / "host" / "de.ligaauguste.planninghub.watch.plist"
 DOC = REPO / "docs" / "monitoring.md"
 
 PING = "https://hc-ping.com/production-uuid"
+BACKUP_PING = "https://hc-ping.com/backup-uuid"
 ERRORS_PING = "https://hc-ping.com/errors-uuid"
 
 # Every line the watcher can put into a ping body, by its label. The doc has
@@ -67,6 +68,7 @@ exit 1
 
 # Stands in for host/check.sh next to the copied watch.sh.
 STUB_CHECK = r"""#!/bin/sh
+printf 'check\n' >> "$STUB_DIR/calls"
 cat "$STUB_DIR/check-out"
 exit "$(cat "$STUB_DIR/check-exit")"
 """
@@ -75,6 +77,16 @@ CHECK_OK = "ok   Docker answers\nok   web healthy\n"
 CHECK_FAIL = (
     "ok   Docker answers\n"
     "FAIL web healthy: unhealthy. Fix: docker compose up -d, then docker compose logs web\n"
+)
+# Row 6 as check.sh prints it when macOS refuses the read (SSH, launchd).
+ROW_6_UNREADABLE = (
+    "FAIL Docker Desktop at sign-in: AutoStart unreadable (over SSH: needs full "
+    "disk access for remote users). Fix: Docker Desktop > Settings > General > "
+    "Start Docker Desktop when you sign in\n"
+)
+ROW_6_OFF = (
+    "FAIL Docker Desktop at sign-in: AutoStart false. Fix: Docker Desktop > "
+    "Settings > General > Start Docker Desktop when you sign in\n"
 )
 
 STUB_BIN = None
@@ -123,7 +135,8 @@ class WatchCase(SimpleTestCase):
         (self.checkout / "host").mkdir(parents=True)
         (self.checkout / "backup").mkdir()
         (self.checkout / "host" / "watch.env").write_text(
-            f"WATCH_PING_URL={PING}\nWATCH_ERRORS_PING_URL={ERRORS_PING}\n"
+            f"WATCH_PING_URL={PING}\nWATCH_BACKUP_PING_URL={BACKUP_PING}\n"
+            f"WATCH_ERRORS_PING_URL={ERRORS_PING}\n"
         )
         self.scripts = self.tmp / "scripts"
         self.scripts.mkdir()
@@ -155,10 +168,10 @@ class WatchCase(SimpleTestCase):
         moment = time.time() - hours * 3600
         os.utime(last, (moment, moment))
 
-    def run_watch(self, **extra_env):
+    def run_watch(self, *args, **extra_env):
         (self.stub / "calls").unlink(missing_ok=True)
         return subprocess.run(
-            ["sh", str(self.scripts / "watch.sh")],
+            ["sh", str(self.scripts / "watch.sh"), *args],
             env={
                 "PATH": f"{STUB_BIN}:{os.environ['PATH']}",
                 "HOME": str(self.home),
@@ -194,7 +207,9 @@ class WatchCase(SimpleTestCase):
 
     def assert_all_well(self, result):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.pings(), {PING: None, ERRORS_PING: None})
+        self.assertEqual(
+            self.pings(), {PING: None, BACKUP_PING: None, ERRORS_PING: None}
+        )
 
 
 class AllWellTest(WatchCase):
@@ -224,7 +239,8 @@ class CheckFailureTest(WatchCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
-            self.pings(), {f"{PING}/fail": "FAIL web healthy", ERRORS_PING: None}
+            self.pings(),
+            {f"{PING}/fail": "FAIL web healthy", BACKUP_PING: None, ERRORS_PING: None},
         )
 
     def test_a_recovery_clears_the_marker(self):
@@ -245,6 +261,30 @@ class CheckFailureTest(WatchCase):
 
         self.assertIn(f"{PING}/fail", self.pings())
 
+    def test_an_unreadable_row_6_alone_does_not_alert(self):
+        # macOS refuses the read over SSH and under launchd; that says
+        # nothing about the host.
+        self.check("ok   Docker answers\n" + ROW_6_UNREADABLE, 1)
+        self.run_watch()
+
+        self.assert_all_well(self.run_watch())
+
+    def test_an_unreadable_row_6_does_not_reach_the_body(self):
+        self.check(ROW_6_UNREADABLE + CHECK_FAIL, 1)
+        self.run_watch()
+
+        self.run_watch()
+
+        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL web healthy")
+
+    def test_row_6_found_switched_off_still_alerts(self):
+        self.check(ROW_6_OFF, 1)
+        self.run_watch()
+
+        self.run_watch()
+
+        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL Docker Desktop at sign-in")
+
 
 class BackupFreshnessTest(WatchCase):
     def test_25_hours_is_fine(self):
@@ -256,14 +296,14 @@ class BackupFreshnessTest(WatchCase):
 
         self.run_watch()
 
-        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL backup fresh")
+        self.assertEqual(self.pings()[f"{BACKUP_PING}/fail"], "FAIL backup fresh")
 
     def test_a_missing_last_success_alerts(self):
         (self.backups / "last-success").unlink()
 
         self.run_watch()
 
-        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL backup fresh")
+        self.assertEqual(self.pings()[f"{BACKUP_PING}/fail"], "FAIL backup fresh")
 
     def test_backup_dir_from_the_backup_settings_is_honoured(self):
         elsewhere = self.tmp / "elsewhere"
@@ -285,9 +325,11 @@ class BackupFreshnessTest(WatchCase):
 
         self.run_watch(BACKUP_DIR="/nonexistent")
 
-        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL backup fresh")
+        self.assertEqual(self.pings()[f"{BACKUP_PING}/fail"], "FAIL backup fresh")
 
-    def test_both_failures_share_one_body(self):
+    def test_a_stale_backup_does_not_hide_a_host_failure(self):
+        # Healthchecks.io notifies only when a check changes state, so on one
+        # shared check a day-long stale backup would swallow a web outage.
         self.set_backup_age(hours=27)
         self.check(CHECK_FAIL, 1)
         self.run_watch()
@@ -295,7 +337,12 @@ class BackupFreshnessTest(WatchCase):
         self.run_watch()
 
         self.assertEqual(
-            self.pings()[f"{PING}/fail"], "FAIL web healthy\nFAIL backup fresh"
+            self.pings(),
+            {
+                f"{PING}/fail": "FAIL web healthy",
+                f"{BACKUP_PING}/fail": "FAIL backup fresh",
+                ERRORS_PING: None,
+            },
         )
 
 
@@ -373,7 +420,11 @@ class AppErrorTest(AppRecordsMixin, WatchCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             self.pings(),
-            {PING: None, f"{ERRORS_PING}/fail": "1 unhandled errors (500)"},
+            {
+                PING: None,
+                BACKUP_PING: None,
+                f"{ERRORS_PING}/fail": "1 unhandled errors (500)",
+            },
         )
 
     def test_two_notion_failures_do_not_alert(self):
@@ -543,12 +594,20 @@ class FailClosedTest(WatchCase):
 
     def test_without_one_of_the_urls(self):
         env = self.checkout / "host" / "watch.env"
-        for setting, other in (
-            ("WATCH_PING_URL", f"WATCH_ERRORS_PING_URL={ERRORS_PING}"),
-            ("WATCH_ERRORS_PING_URL", f"WATCH_PING_URL={PING}"),
-        ):
+        settings = {
+            "WATCH_PING_URL": PING,
+            "WATCH_BACKUP_PING_URL": BACKUP_PING,
+            "WATCH_ERRORS_PING_URL": ERRORS_PING,
+        }
+        for setting in settings:
             with self.subTest(setting=setting):
-                env.write_text(f"{other}\n")
+                env.write_text(
+                    "".join(
+                        f"{name}={url}\n"
+                        for name, url in settings.items()
+                        if name != setting
+                    )
+                )
 
                 result = self.run_watch()
 
@@ -567,6 +626,88 @@ class FailClosedTest(WatchCase):
         (self.stub / "curl-exit").unlink()
         self.run_watch()
         self.assertEqual(len((self.logs / "nginx.log").read_text().splitlines()), 1)
+
+    def test_an_unknown_option(self):
+        result = self.run_watch("--bogus")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--bogus", result.stderr)
+        self.assertEqual(self.calls("curl"), [])
+
+
+class TheDeployRunTest(AppRecordsMixin, WatchCase):
+    """`--no-host-check`, the run the deploy skill makes before the pull."""
+
+    def test_it_collects_counts_and_reports_without_the_host_check(self):
+        self.serve("web", self.unhandled_error(1))
+        self.set_backup_age(hours=27)
+
+        result = self.run_watch("--no-host-check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls("check"), [])
+        self.assertEqual(
+            self.pings(),
+            {
+                f"{BACKUP_PING}/fail": "FAIL backup fresh",
+                f"{ERRORS_PING}/fail": "1 unhandled errors (500)",
+            },
+        )
+        self.assertTrue((self.logs / "web.log").exists())
+
+    def test_it_neither_starts_nor_clears_the_second_run_rule(self):
+        # Over SSH row 6 can fail on a healthy host; a deploy run must not
+        # make the agent's next run the second failure in a row.
+        self.check(CHECK_FAIL, 1)
+        self.run_watch()
+        self.run_watch("--no-host-check")
+
+        self.run_watch()
+
+        self.assertIn(f"{PING}/fail", self.pings())
+        (self.logs / ".check-failed").unlink()
+        self.run_watch("--no-host-check")
+        self.assertFalse((self.logs / ".check-failed").exists())
+
+
+class OneRunAtATimeTest(WatchCase):
+    def setUp(self):
+        super().setUp()
+        self.logs.mkdir(parents=True)
+        self.lock = self.logs / ".lock"
+
+    def test_a_run_waits_for_another_and_then_gives_up(self):
+        # A live process whose command line names watch.sh.
+        holder = subprocess.Popen(["sh", "-c", "sleep 30; :", "watch.sh"])
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.lock.symlink_to(str(holder.pid))
+
+        result = self.run_watch(WATCH_LOCK_SECONDS="1")
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"PID {holder.pid}", result.stderr)
+        self.assertEqual(self.calls("docker"), [])
+        self.assertEqual(self.calls("curl"), [])
+        self.assertTrue(self.lock.is_symlink())
+
+    def test_a_lock_whose_process_is_gone_is_stale(self):
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        self.lock.symlink_to(str(gone.pid))
+
+        self.assert_all_well(self.run_watch(WATCH_LOCK_SECONDS="0"))
+
+    def test_a_reused_pid_is_stale(self):
+        # After a power cut the PID can belong to another process.
+        self.lock.symlink_to(str(os.getpid()))
+
+        self.assert_all_well(self.run_watch(WATCH_LOCK_SECONDS="0"))
+
+    def test_the_lock_is_released(self):
+        self.run_watch()
+
+        self.assertFalse(self.lock.is_symlink())
 
 
 class TheWatcherIsReadOnlyTest(WatchCase):
@@ -669,7 +810,12 @@ class HostConfigurationStaysOnTheHostTest(SimpleTestCase):
 
     def test_the_example_names_every_setting(self):
         example = (REPO / "host" / "watch.env.example").read_text()
-        for setting in ("WATCH_PING_URL", "WATCH_ERRORS_PING_URL", "WATCH_LOG_DIR"):
+        for setting in (
+            "WATCH_PING_URL",
+            "WATCH_BACKUP_PING_URL",
+            "WATCH_ERRORS_PING_URL",
+            "WATCH_LOG_DIR",
+        ):
             with self.subTest(setting=setting):
                 self.assertIn(setting, example)
 
@@ -699,6 +845,6 @@ class TheDocTest(AppRecordsMixin, WatchCase):
 class ADeployCollectsTheLogsFirstTest(SimpleTestCase):
     def test_the_watcher_runs_before_the_pull(self):
         skill = (REPO / ".claude" / "skills" / "deploy" / "SKILL.md").read_text()
-        watch = skill.index("sh host/watch.sh")
+        watch = skill.index("sh host/watch.sh --no-host-check")
         pull = skill.index("git pull && docker compose")
         self.assertLess(watch, pull)

@@ -420,7 +420,7 @@ reasons and the power test are in [`docs/production-host.md`](docs/production-ho
 **Monitoring.** `host/watch.sh` runs on the host every five minutes. It copies the
 containers' logs into rotated files that outlive every deploy, runs `host/check.sh`,
 checks that last night's backup succeeded and counts unhandled 500s and repeated Notion
-or Claude failures. The result goes to two [Healthchecks.io](https://healthchecks.io/)
+or Claude failures. The result goes to three [Healthchecks.io](https://healthchecks.io/)
 checks, which also alert when the pings stop. The alerts, the logs and the install are in
 [`docs/monitoring.md`](docs/monitoring.md).
 
@@ -491,7 +491,7 @@ host/
   check.sh                      # Read-only check of the production host's macOS settings and running state
   watch.sh                      # Every five minutes: collect the logs, check, count errors, ping Healthchecks.io
   de.ligaauguste.planninghub.watch.plist  # LaunchAgent template, every 300 seconds
-  watch.env.example             # Host settings: the two ping URLs, where the logs go
+  watch.env.example             # Host settings: the three ping URLs, where the logs go
 docs/
   dashboard-write-paths.md      # Which write touches which cache, and which is offered where
   template-refactoring.md       # Base-template inheritance layout, as carried out

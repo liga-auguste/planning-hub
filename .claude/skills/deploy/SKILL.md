@@ -126,14 +126,18 @@ recreate `web`, and the container's logs go with it. The watcher copies
 them to the host first (`docs/monitoring.md`):
 
 ```bash
-ssh <host> 'cd <path> && sh host/watch.sh'
+ssh <host> 'cd <path> && sh host/watch.sh --no-host-check'
 ```
 
 On a stack with a `Shell`, run it through the wrapper like the backup. Its
 exit status does not stop the deploy: exit 1 means the watcher could not do
-its own job, so report its last line and go on. Nor does the deploy page
-anyone: a failing host check alerts only on the second run in a row, and
-`web` is back long before the LaunchAgent's next run.
+its own job, so report its last line and go on. `--no-host-check` keeps the
+deploy from paging anyone: over SSH a row of `host/check.sh` can fail on a
+healthy host, and that failure would make the LaunchAgent's next run, which
+may land mid-recreate, the second in a row. The flag skips the host check
+and leaves the second-run rule alone; the logs, the error count and the
+backup are reported as usual. If the LaunchAgent is mid-run, the watcher
+waits for it, at most a minute.
 
 ### 3. Deploy
 

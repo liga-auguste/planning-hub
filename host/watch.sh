@@ -2,13 +2,15 @@
 # Watch production and tell the maintainer when it fails (#303).
 #
 #   sh host/watch.sh
+#   sh host/watch.sh --no-host-check
 #
 # Each run collects the new `web` and `nginx` log lines into rotated files on
 # the host, runs host/check.sh, tests the backup's last-success, counts app
-# errors in the new `web` lines, and pings two Healthchecks.io checks with the
-# result. A LaunchAgent runs it every five minutes; the deploy skill runs it
-# before every pull. Run it from the checkout, like check.sh. The runbook is
-# docs/monitoring.md.
+# errors in the new `web` lines, and pings three Healthchecks.io checks with
+# the result. A LaunchAgent runs it every five minutes. The deploy skill runs
+# it before every pull with --no-host-check: that run only collects, counts
+# and reports errors and the backup, and leaves the host check to the agent.
+# Run it from the checkout, like check.sh. The runbook is docs/monitoring.md.
 #
 # Exit 1 means the watcher could not do its own job (settings missing, logs
 # unreadable, a ping not delivered). A failing host is reported by the ping,
@@ -28,8 +30,18 @@ export LC_ALL
 
 here=$(dirname "$0")
 
-# Fail closed: without both ping URLs no run can report anything, and a run
-# that pings only one check would look healthy on the other.
+host_check=yes
+case ${1:-} in
+    "") ;;
+    --no-host-check) host_check=no ;;
+    *)
+        echo "watch: unknown option $1, see docs/monitoring.md" >&2
+        exit 1
+        ;;
+esac
+
+# Fail closed: without every ping URL no run can report everything, and a
+# run that pings only some checks would look healthy on the others.
 WATCH_ENV=${WATCH_ENV:-host/watch.env}
 if [ ! -f "$WATCH_ENV" ]; then
     echo "watch: $WATCH_ENV missing, see docs/monitoring.md" >&2
@@ -37,7 +49,7 @@ if [ ! -f "$WATCH_ENV" ]; then
 fi
 # shellcheck disable=SC1090
 . "$WATCH_ENV"
-for setting in WATCH_PING_URL WATCH_ERRORS_PING_URL; do
+for setting in WATCH_PING_URL WATCH_BACKUP_PING_URL WATCH_ERRORS_PING_URL; do
     eval "value=\${$setting:-}"
     if [ -z "$value" ]; then
         echo "watch: $setting not set in $WATCH_ENV, see docs/monitoring.md" >&2
@@ -64,8 +76,30 @@ ROTATE_KEEP=5
 BACKUP_MAX_MINUTES=1560
 
 mkdir -p "$WATCH_LOG_DIR"
+
+# One run at a time: the deploy's run and the LaunchAgent's can meet, and two
+# runs on one cursor would store and count the same lines twice. A symlink
+# is created atomically and carries the holder's PID. A lock whose process is
+# gone, or is no longer a watcher (a PID reused after a power cut), is stale.
+WATCH_LOCK_SECONDS=${WATCH_LOCK_SECONDS:-60}
+lock="$WATCH_LOG_DIR/.lock"
+waited=0
+until ln -s "$$" "$lock" 2>/dev/null; do
+    holder=$(readlink "$lock" 2>/dev/null)
+    if ! ps -p "${holder:-0}" -o command= 2>/dev/null | grep -q 'watch\.sh'; then
+        rm -f "$lock"
+        continue
+    fi
+    if [ "$waited" -ge "$WATCH_LOCK_SECONDS" ]; then
+        echo "watch: another run (PID $holder) still holds $lock" >&2
+        exit 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+done
+
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work"; rm -f "$lock"' EXIT
 trap 'exit 1' HUP INT TERM
 
 status=0
@@ -124,28 +158,43 @@ collect nginx || status=1
 # against sending those over the internet, and the details are in the
 # collected logs on this host.
 production=
+backup=
 errors=
 
 # A state failure alerts only on the second run in a row: a deploy rebuilds
 # web within about a minute, and the host is back about five minutes after a
 # power cut. Neither should page anyone.
-check_out=$(sh "$here/check.sh" 2>&1)
-check_status=$?
-printf '%s\n' "$check_out"
-marker="$WATCH_LOG_DIR/.check-failed"
-if [ "$check_status" -eq 0 ]; then
-    rm -f "$marker"
-elif [ -f "$marker" ]; then
-    labels=$(printf '%s\n' "$check_out" | sed -n 's/^\(FAIL [^:]*\):.*/\1/p')
-    production=${labels:-FAIL host check}
-else
-    : >"$marker"
+#
+# Row 6 reads a file macOS guards per app. Over SSH and under launchd the read
+# can be refused ("Operation not permitted"), which says nothing about the
+# host, so that one finding is left out here; `sh host/check.sh` in a
+# Terminal still reports it. A setting found switched off still counts.
+if [ "$host_check" = yes ]; then
+    check_out=$(sh "$here/check.sh" 2>&1)
+    check_status=$?
+    printf '%s\n' "$check_out"
+    found=$(printf '%s\n' "$check_out" | grep '^FAIL ' |
+        grep -v '^FAIL Docker Desktop at sign-in: AutoStart unreadable')
+    if [ "$check_status" -ne 0 ] && [ -z "$found" ] &&
+        printf '%s\n' "$check_out" | grep -q '^FAIL '; then
+        check_status=0
+    fi
+    marker="$WATCH_LOG_DIR/.check-failed"
+    if [ "$check_status" -eq 0 ]; then
+        rm -f "$marker"
+    elif [ -f "$marker" ]; then
+        labels=$(printf '%s\n' "$found" | sed -n 's/^\(FAIL [^:]*\):.*/\1/p')
+        production=${labels:-FAIL host check}
+    else
+        : >"$marker"
+    fi
 fi
 
-# 26 hours is already slow, so a stale backup alerts on the first run.
+# A check of its own: a stale backup stays stale until the next good night,
+# and on the production check it would hide every host failure until then.
+# 26 hours is already slow, so it alerts on the first run.
 if [ -z "$(find "$BACKUP_DIR/last-success" -mmin "-$BACKUP_MAX_MINUTES" 2>/dev/null)" ]; then
-    production=${production:+$production
-}"FAIL backup fresh"
+    backup="FAIL backup fresh"
 fi
 
 count() {
@@ -181,7 +230,12 @@ ping() {
     fi
 }
 
-ping "$WATCH_PING_URL" "$production" production || status=1
+# Without the host check this run knows nothing about the production check,
+# and the LaunchAgent's next run reports it.
+if [ "$host_check" = yes ]; then
+    ping "$WATCH_PING_URL" "$production" production || status=1
+fi
+ping "$WATCH_BACKUP_PING_URL" "$backup" backup || status=1
 ping "$WATCH_ERRORS_PING_URL" "$errors" errors || status=1
 
 exit "$status"

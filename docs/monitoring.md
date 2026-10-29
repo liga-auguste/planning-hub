@@ -15,7 +15,7 @@ to look.
 2. **checks** the host with `host/check.sh` ([`docs/production-host.md`](production-host.md))
    and the backup's `last-success` ([`docs/backup.md`](backup.md));
 3. **counts app errors** in the `web` lines it just collected;
-4. **pings** two [Healthchecks.io](https://healthchecks.io/docs/) checks with the result.
+4. **pings** three [Healthchecks.io](https://healthchecks.io/docs/) checks with the result.
 
 Healthchecks.io is a dead man's switch: it alerts on an explicit `/fail` ping, and also
 when the pings stop. That covers the one failure the host cannot report itself: host
@@ -25,15 +25,18 @@ push, messenger) is set in Healthchecks.io and needs no code.
 Every command below runs **on the production host, in the checkout**, unless it says
 otherwise.
 
-## The two checks
+## The three checks
 
 | Check | Schedule | Goes down when |
 |---|---|---|
-| **production** | simple, period 5 min, grace 10 min | a host check fails twice in a row, the backup is stale, or the pings stop |
-| **errors** | simple, period 1 day, grace 1 day | a run counts app errors. Missing pings are the production check's job, so this one never goes down for that |
+| **production** | simple, period 5 min, grace 10 min | a host check fails twice in a row, or the pings stop |
+| **backup** | simple, period 1 day, grace 1 day | `last-success` is stale. Missing pings are the production check's job; this one goes down for them only after two days without any |
+| **errors** | simple, period 1 day, grace 1 day | a run counts app errors. Missing pings: as for backup |
 
-Two checks rather than one, so that a stale backup, which keeps one check down for hours,
-cannot hide a burst of 500s.
+Three checks rather than one, because Healthchecks.io notifies only when a check changes
+state: a `/fail` or a missed ping on a check that is already down sends nothing. A stale
+backup keeps its check down until the next good night, which can be a day or more; on a
+shared check it would hide every host failure and every burst of 500s in that time.
 
 ## What each alert means
 
@@ -41,9 +44,9 @@ A `/fail` ping carries a short body, one line per finding:
 
 | Line | Check | Meaning | Where to look |
 |---|---|---|---|
-| `FAIL <label>`, e.g. `FAIL web healthy` | production | that row of `host/check.sh` failed on two runs in a row | `sh host/check.sh` prints the found value and the fix. The labels are listed in [`docs/production-host.md`](production-host.md) |
+| `FAIL <label>`, e.g. `FAIL web healthy` | production | that row of `host/check.sh` failed on two runs in a row | `sh host/check.sh` prints the found value and the fix. The labels are listed in [`docs/production-host.md`](production-host.md). An unreadable Docker settings file (row 6) is left out, see below |
 | `FAIL host check` | production | `check.sh` failed twice without printing a `FAIL` line, so it did not run at all | `watch.log` |
-| `FAIL backup fresh` | production | `last-success` is older than 26 hours or missing: a nightly backup was missed | `~/Backups/planning-hub/backup.log` |
+| `FAIL backup fresh` | backup | `last-success` is older than 26 hours or missing: a nightly backup was missed | `~/Backups/planning-hub/backup.log` |
 | `<n> unhandled errors (500)` | errors | `n` unhandled exceptions since the last run. One is enough | `web.log`, search for `Internal Server Error:`; the traceback follows the line |
 | `<n> Notion failures` | errors | at least three failed Notion calls since the last run: an outage, or a broken key | `web.log`, search for `Notion call failed:` |
 | `<n> Claude failures` | errors | at least three failed Claude calls since the last run | `web.log`, search for `outcome=error` |
@@ -54,6 +57,15 @@ October 2026). Neither should page anyone, so a failing `check.sh` alerts on the
 run in a row: about ten minutes into a real outage. A stale backup alerts on the first
 run, since 26 hours is already late. App errors alert on the first run too: they are
 events, not states.
+
+**Why an unreadable row 6 does not alert.** Row 6 reads Docker Desktop's settings from a
+folder macOS guards per app. Terminal holds a permission of its own, but over SSH the read
+is refused ("Operation not permitted", [`docs/production-host.md`](production-host.md)),
+and a launchd job cannot answer the permission prompt. That refusal says nothing about the
+host, and every run would fail on it: from the second run on the production check would
+stay down for good, and no later outage would notify. So the watcher leaves out exactly
+the `AutoStart unreadable` finding. A setting found switched off still alerts, and
+`sh host/check.sh` in a Terminal still reports the unreadable file.
 
 **Why one Notion or Claude failure is not enough.** A single failure is something the user
 sees in the interface, with its own message. Three within five minutes are an outage or a
@@ -74,6 +86,7 @@ details are on the host, in the collected logs.
 | `~/Library/Logs/planning-hub/watch.log` | the watcher's own output: each run, `check.sh`'s lines, the alerts it sent |
 | `~/Library/Logs/planning-hub/.web.cursor`, `.nginx.cursor` | the timestamp of the newest stored line, so the next run stores only what is newer |
 | `~/Library/Logs/planning-hub/.check-failed` | present while the last run's `check.sh` failed (the second-run rule) |
+| `~/Library/Logs/planning-hub/.lock` | present while a run is in progress; it names that run's process |
 
 Every line starts with Docker's UTC timestamp. Each file rotates at 10 MB to `.1` … `.5`,
 so a file family holds at most 60 MB. At an estimated 1.5 MB a day that reaches back
@@ -100,10 +113,11 @@ Once, on the production host.
 1. Sign up at [healthchecks.io](https://healthchecks.io/) (the free plan has 20 checks).
 2. Create a check named **production**: schedule "Simple", period 5 minutes, grace time 10
    minutes.
-3. Create a check named **errors**: schedule "Simple", period 1 day, grace time 1 day.
-4. Under Integrations, add the channel the alerts should reach (email, ntfy, Telegram,
-   Signal, …) and enable it for both checks.
-5. Copy both ping URLs.
+3. Create a check named **backup**: schedule "Simple", period 1 day, grace time 1 day.
+4. Create a check named **errors**: schedule "Simple", period 1 day, grace time 1 day.
+5. Under Integrations, add the channel the alerts should reach (email, ntfy, Telegram,
+   Signal, …) and enable it for all three checks.
+6. Copy the three ping URLs.
 
 ### 2. The settings file
 
@@ -111,8 +125,8 @@ Once, on the production host.
 cp host/watch.env.example host/watch.env
 ```
 
-Set `WATCH_PING_URL` to the production check's URL and `WATCH_ERRORS_PING_URL` to the
-errors check's. A ping URL is a secret: whoever has it can report the check up or down.
+Set `WATCH_PING_URL` to the production check's URL, `WATCH_BACKUP_PING_URL` to the backup
+check's and `WATCH_ERRORS_PING_URL` to the errors check's. A ping URL is a secret: whoever has it can report the check up or down.
 `host/watch.env` is gitignored and stays on the host.
 
 ### 3. A first run by hand
@@ -122,8 +136,10 @@ sh host/watch.sh
 ls -la ~/Library/Logs/planning-hub/
 ```
 
-Expected: both checks turn "up" in Healthchecks.io, and the folder holds `web.log` and
-`nginx.log`. Exit status 1 means the watcher could not do its own job, and the line it
+Expected: all three checks turn "up" in Healthchecks.io, and the folder holds `web.log` and
+`nginx.log`. Row 13, `watch agent loaded`, fails until step 4 has installed the agent. The
+first run only notes that, so run it once here: a second run before step 4 would send
+`FAIL watch agent loaded`. Exit status 1 means the watcher could not do its own job, and the line it
 printed says which part: settings missing, logs unreadable, or a ping not delivered.
 
 ### 4. The schedule
@@ -165,8 +181,16 @@ and then the `sed` and `bootstrap` lines above again.
 
 ## Deploys
 
-The deploy skill runs `sh host/watch.sh` before it pulls, so the logs up to the recreate
-are collected. A deploy does not page: `web` is back before the second run.
+The deploy skill runs `sh host/watch.sh --no-host-check` before it pulls, so the logs up to
+the recreate are collected and counted. The flag skips `host/check.sh` and leaves the
+second-run rule alone: over SSH a row can fail on a healthy host, and that failure would
+make the LaunchAgent's next run, which may land mid-recreate, the second in a row. So a
+deploy does not page. Lines `web` writes between that run and the recreate, during the
+build, are lost with the container.
+
+Only one run works at a time. A run that finds another one holding the lock waits for it,
+at most a minute, and then exits 1 without pinging. A lock left behind by a run that is
+gone, after a power cut say, is taken over.
 
 ## Drills
 
@@ -178,7 +202,7 @@ Prove the alert path end to end, and record each run below.
    BACKUP_DIR=/nonexistent sh host/watch.sh
    ```
 
-   A "down" notification for production with `FAIL backup fresh` arrives. A normal
+   A "down" notification for backup with `FAIL backup fresh` arrives. A normal
    `sh host/watch.sh` afterwards sets it "up" again.
 2. **Missed-ping drill.** Unload the agent and run nothing for 20 minutes:
 
