@@ -47,13 +47,15 @@ done
 WATCH_LOG_DIR=${WATCH_LOG_DIR:-$HOME/Library/Logs/planning-hub}
 
 # The same settings file backup.sh reads, so the two never disagree on
-# where last-success lives.
+# where last-success lives. A BACKUP_DIR given on the command line still
+# wins, for the alert drill in docs/monitoring.md.
+given_backup_dir=${BACKUP_DIR:-}
 BACKUP_ENV=${BACKUP_ENV:-backup/backup.env}
 if [ -f "$BACKUP_ENV" ]; then
     # shellcheck disable=SC1090
     . "$BACKUP_ENV"
 fi
-BACKUP_DIR=${BACKUP_DIR:-$HOME/Backups/planning-hub}
+BACKUP_DIR=${given_backup_dir:-${BACKUP_DIR:-$HOME/Backups/planning-hub}}
 
 # Docker's `local` driver uses the same bounds (docker-compose.yml).
 ROTATE_BYTES=10485760

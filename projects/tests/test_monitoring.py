@@ -155,7 +155,7 @@ class WatchCase(SimpleTestCase):
         moment = time.time() - hours * 3600
         os.utime(last, (moment, moment))
 
-    def run_watch(self):
+    def run_watch(self, **extra_env):
         (self.stub / "calls").unlink(missing_ok=True)
         return subprocess.run(
             ["sh", str(self.scripts / "watch.sh")],
@@ -163,6 +163,7 @@ class WatchCase(SimpleTestCase):
                 "PATH": f"{STUB_BIN}:{os.environ['PATH']}",
                 "HOME": str(self.home),
                 "STUB_DIR": str(self.stub),
+                **extra_env,
             },
             cwd=self.checkout,
             capture_output=True,
@@ -274,6 +275,17 @@ class BackupFreshnessTest(WatchCase):
         )
 
         self.assert_all_well(self.run_watch())
+
+    def test_a_backup_dir_given_on_the_command_line_wins(self):
+        # The alert drill in docs/monitoring.md, on a host whose backup
+        # settings name the real folder.
+        (self.checkout / "backup" / "backup.env").write_text(
+            f"BACKUP_DIR={self.backups}\n"
+        )
+
+        self.run_watch(BACKUP_DIR="/nonexistent")
+
+        self.assertEqual(self.pings()[f"{PING}/fail"], "FAIL backup fresh")
 
     def test_both_failures_share_one_body(self):
         self.set_backup_age(hours=27)
