@@ -13,6 +13,7 @@ staticfiles/
 # Backup settings for one host (docs/backup.md): its paths, and from PR 2 on
 # the off-site target. Belongs on the production host, never in the repo.
 backup/backup.env
+host/watch.env
 
 demo.sqlite3
 # SQLite's own sidecars for the file above. They exist only while the demo

@@ -22,7 +22,7 @@ import anthropic
 import httpx
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
-from django.urls import path
+from django.urls import include, path
 
 from projects.ai import AIUnavailableError, log_claude_call
 from projects.notion import NotionUnavailableError, translate_notion_errors
@@ -291,7 +291,8 @@ def _boom(request):
     raise RuntimeError("SECRET-IN-TRACEBACK")
 
 
-urlpatterns = [path("boom/", _boom)]
+# The app's own routes as well: the 500 page links back into the app.
+urlpatterns = [path("boom/", _boom), path("", include(settings.ROOT_URLCONF))]
 
 
 class AppRecordsMixin:

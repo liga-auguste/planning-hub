@@ -103,7 +103,8 @@ esac
 # Answers per agent, so one can be loaded while the other is not.
 STUB_LAUNCHCTL = r"""#!/bin/sh
 printf 'launchctl %s\n' "$*" >> "$STUB_DIR/calls"
-agent=${1##*.}
+for target; do :; done
+agent=${target##*.}
 exit "$(cat "$STUB_DIR/launchctl-$agent-exit" 2>/dev/null || echo 0)"
 """
 

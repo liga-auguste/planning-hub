@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent for the production watcher (#303). A template: the install
+  step in docs/monitoring.md replaces __REPO__ with the checkout and __LOG__
+  with the log file, so no host path lives in the repository.
+  No RunAtLoad: man launchd.plist says it "should be avoided". After a
+  reboot the first run comes one interval after login, which is inside the
+  production check's grace time.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>de.ligaauguste.planninghub.watch</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>__REPO__/host/watch.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+</dict>
+</plist>
