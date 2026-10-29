@@ -1575,7 +1575,10 @@ class SummaryProjectLabelOnPhonesTest(DemoModeTestCase):
     def split(self):
         html = self.client.get(reverse("dashboard")).content.decode()
         desktop, phone = html.split("@media (max-width: 768px) {", 1)
-        return desktop, phone.split("{% endblock %}", 1)[0]
+        # Ends at the block's own closing brace, at its indentation. The
+        # rendered page has no {% endblock %} left to split on, and a rule
+        # after the brace applies at every width.
+        return desktop, phone.split("\n        }\n", 1)[0]
 
     def test_the_label_gets_a_line_of_its_own_on_a_phone(self):
         _, phone = self.split()
