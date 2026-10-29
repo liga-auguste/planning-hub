@@ -147,6 +147,7 @@ reservation should hold, but this test does not prove either.
 
 | Date | Result |
 |---|---|
+| 26 October 2026 | Passed. Plug pulled for 30 seconds, nothing touched: production answered `401` and every line of the check said `ok`. `caffeinate` was stopped beforehand; the 03:30 runs on 27, 28 and 29 October ended in `done`. |
 
 ## Notes
 
