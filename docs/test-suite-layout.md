@@ -35,14 +35,15 @@ test was added, renamed or removed.
 | `test_language_eval.py` | 12 | 37 | `language_eval.py`'s own checks and report — never the eval itself, which calls the real API |
 | `test_prompt_voice.py` | 7 | 22 | The shared voice and output-format instruction every Claude touchpoint sends, and that each rule is stated once |
 | `test_backup.py` | 15 | 63 | Production backups: the script against stub `docker`, `age` and `ssh`, the off-site receiver, the launchd schedule, the runbook and the deploy step that calls it |
-| `test_production_host.py` | 14 | 33 | The production host's macOS settings: `host/check.sh` against stubs of every command it reads, and the doc that lists what it checks |
-| **total** | **393** | **1670** | |
+| `test_production_host.py` | 14 | 34 | The production host's macOS settings: `host/check.sh` against stubs of every command it reads, and the doc that lists what it checks |
+| `test_monitoring.py` | 16 | 43 | Production monitoring: `host/watch.sh` against stub `docker` and `curl`, fed log lines built from the app's own records; the log settings, the compose log bounds, the schedule and the doc |
+| **total** | **409** | **1714** | |
 
 The subject column is the part that has to stay true: it is what decides where a new test
 goes. The two number columns are a count, retaken on 2026-10-02 with #156 —
 they move with every branch, and a stale number here is a stale number, not a wrong rule. `test_language_eval.py`
-joined the list after the split (#248), `test_prompt_voice.py` after #262, `test_backup.py` after #300 and `test_production_host.py` after #309; the
-nineteen modules above are all of them.
+joined the list after the split (#248), `test_prompt_voice.py` after #262, `test_backup.py` after #300, `test_production_host.py` after #309 and `test_monitoring.py` after #303; the
+twenty modules above are all of them.
 
 Two groups from the issue's suggested list are deliberately absent. There is no
 legal-pages module: `/impressum/` and `/datenschutz/` are never the subject, only ever a

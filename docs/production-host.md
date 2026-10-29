@@ -22,7 +22,10 @@ Production comes back on its own only if every link holds. The numbers are rows 
    a user session exists.
 3. Docker Desktop starts with that session (6).
 4. The containers come back through `restart: unless-stopped` in `docker-compose.yml`.
-5. The backup LaunchAgent ([`docs/backup.md`](backup.md)) loads with the session.
+5. The backup LaunchAgent ([`docs/backup.md`](backup.md)) and the watch LaunchAgent
+   ([`docs/monitoring.md`](monitoring.md)) load with the session. The watcher's first
+   run comes five minutes later and tells Healthchecks.io the host is back. If any link
+   above fails, its pings never come, and the missing pings are the alert.
 6. The host rejoins the network at the address the VPN route, the deploy target and every
    bookmark point to (7, 8).
 
@@ -50,6 +53,7 @@ Then the running state, which the check reads as well:
 | 10 | **web healthy** | the `web` container's health check passes. It is DB-aware, so this covers `db` as well |
 | 11 | **nginx answers 401** | `http://localhost/` answers with Basic Auth: nginx is up and in front of the app |
 | 12 | **backup agent loaded** | `launchctl print gui/<uid>/de.ligaauguste.planninghub.backup` finds the agent |
+| 13 | **watch agent loaded** | `launchctl print gui/<uid>/de.ligaauguste.planninghub.watch` finds the agent ([`docs/monitoring.md`](monitoring.md)) |
 
 ## The check
 
@@ -77,11 +81,13 @@ ok   Docker answers
 ok   web healthy
 ok   nginx answers 401
 ok   backup agent loaded
+ok   watch agent loaded
 ```
 
 The check only reads. It runs without `sudo`, never changes a setting, and prints the fix
-for each failure instead of applying it, so it is safe to run at any time.
-[#303](https://github.com/liga-auguste/planning-hub/issues/303) can call it later.
+for each failure instead of applying it, so it is safe to run at any time. The watcher
+(`host/watch.sh`, [`docs/monitoring.md`](monitoring.md)) runs it every five minutes and
+alerts when a check fails twice in a row.
 
 It fails closed: a value it cannot read counts as wrong. A `pmset -g` without an
 `autorestart` line, an unreadable Docker settings file or a missing default route each
@@ -172,7 +178,8 @@ pkill caffeinate
 ### A new host
 
 A replacement machine needs every setting above, as well as Docker, the checkout, `.env`,
-`.htpasswd` and the backup install from [`docs/backup.md`](backup.md). To run the check
+`.htpasswd`, the backup install from [`docs/backup.md`](backup.md) and the watcher
+install from [`docs/monitoring.md`](monitoring.md). To run the check
 over SSH, it also needs full disk access for remote users (see [The check](#the-check)).
 It is done when the
 check prints only `ok` lines and the power test has passed.

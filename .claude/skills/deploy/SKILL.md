@@ -121,6 +121,20 @@ checksum mismatch can also come from a write to the live database between
 the dump and the comparison, so one rerun is fair before treating it as a
 real failure.
 
+**Production only: collect the logs before pulling.** The pull and rebuild
+recreate `web`, and the container's logs go with it. The watcher copies
+them to the host first (`docs/monitoring.md`):
+
+```bash
+ssh <host> 'cd <path> && sh host/watch.sh'
+```
+
+On a stack with a `Shell`, run it through the wrapper like the backup. Its
+exit status does not stop the deploy: exit 1 means the watcher could not do
+its own job, so report its last line and go on. Nor does the deploy page
+anyone: a failing host check alerts only on the second run in a row, and
+`web` is back long before the LaunchAgent's next run.
+
 ### 3. Deploy
 
 ```bash
