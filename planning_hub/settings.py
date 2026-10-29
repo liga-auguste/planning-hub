@@ -310,6 +310,14 @@ LOGGING = {
             "level": "CRITICAL" if _TESTING else "INFO",
             "propagate": False,
         },
+        # Django's own console handler only runs with DEBUG=True, so without
+        # this a 500 in production leaves no line for host/watch.sh to count
+        # (#303). No propagation: under DEBUG=True it would print twice.
+        "django.request": {
+            "handlers": ["console"],
+            "level": "CRITICAL" if _TESTING else "ERROR",
+            "propagate": False,
+        },
     },
 }
 

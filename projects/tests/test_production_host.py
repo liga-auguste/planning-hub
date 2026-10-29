@@ -100,6 +100,14 @@ case "$*" in
 esac
 """
 
+# Answers per agent, so one can be loaded while the other is not.
+STUB_LAUNCHCTL = r"""#!/bin/sh
+printf 'launchctl %s\n' "$*" >> "$STUB_DIR/calls"
+for target; do :; done
+agent=${target##*.}
+exit "$(cat "$STUB_DIR/launchctl-$agent-exit" 2>/dev/null || echo 0)"
+"""
+
 COMMANDS = (
     "pmset",
     "readlink",
@@ -108,7 +116,6 @@ COMMANDS = (
     "plutil",
     "route",
     "curl",
-    "launchctl",
     "sudo",
 )
 
@@ -124,6 +131,7 @@ LABELS = (
     "web healthy",
     "nginx answers 401",
     "backup agent loaded",
+    "watch agent loaded",
 )
 
 
@@ -136,7 +144,9 @@ def setUpModule():
     global STUB_BIN
     STUB_BIN = Path(tempfile.mkdtemp())
     bodies = {name: STUB.replace("{name}", name) for name in COMMANDS}
-    bodies.update(id=STUB_ID, ifconfig=STUB_IFCONFIG, docker=STUB_DOCKER)
+    bodies.update(
+        id=STUB_ID, ifconfig=STUB_IFCONFIG, docker=STUB_DOCKER, launchctl=STUB_LAUNCHCTL
+    )
     for name, body in bodies.items():
         path = STUB_BIN / name
         path.write_text(body)
@@ -234,12 +244,15 @@ class EverySettingRightTest(HostCheckCase):
         self.assertIn("-extract AutoStart raw -o - ", plutil)
         self.assertTrue(plutil.endswith(f"{self.tmp}/{DOCKER_SETTINGS}"), plutil)
 
-    def test_the_backup_agent_is_looked_up_in_the_users_gui_domain(self):
+    def test_both_agents_are_looked_up_in_the_users_gui_domain(self):
         self.run_check()
 
         self.assertEqual(
             self.calls("launchctl"),
-            ["print gui/501/de.ligaauguste.planninghub.backup"],
+            [
+                "print gui/501/de.ligaauguste.planninghub.backup",
+                "print gui/501/de.ligaauguste.planninghub.watch",
+            ],
         )
 
     def test_the_mac_is_read_from_the_default_routes_interface(self):
@@ -374,8 +387,13 @@ class DockerDesktopAtSignInTest(HostCheckCase):
         # Over SSH, macOS refuses the read ("Operation not permitted") unless
         # Remote Login grants full disk access, so the line names that too.
         self.stub_state(plutil_out="", plutil_exit="1")
-        self.assert_fails(
+        result = self.assert_fails(
             self.LABEL, self.FIX, found="full disk access for remote users"
+        )
+        # host/watch.sh leaves out exactly this finding, by this prefix.
+        line = self.line_for(result, self.LABEL)
+        self.assertTrue(
+            line.startswith(f"FAIL {self.LABEL}: AutoStart unreadable"), line
         )
 
 
@@ -432,8 +450,18 @@ class RunningStateTest(HostCheckCase):
         )
 
     def test_backup_agent_not_loaded(self):
-        self.stub_state(launchctl_exit="113")
-        self.assert_fails("backup agent loaded", "docs/backup.md, Install")
+        self.stub_state(launchctl_backup_exit="113")
+        result = self.assert_fails("backup agent loaded", "docs/backup.md, Install")
+        self.assertEqual(
+            self.line_for(result, "watch agent loaded"), "ok   watch agent loaded"
+        )
+
+    def test_watch_agent_not_loaded(self):
+        self.stub_state(launchctl_watch_exit="113")
+        result = self.assert_fails("watch agent loaded", "docs/monitoring.md, Install")
+        self.assertEqual(
+            self.line_for(result, "backup agent loaded"), "ok   backup agent loaded"
+        )
 
 
 class EveryCheckRunsTest(HostCheckCase):

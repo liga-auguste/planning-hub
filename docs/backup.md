@@ -64,9 +64,10 @@ Not in a dump, and none of it irreplaceable:
 Any failed step exits non-zero, leaves no `.partial` behind and does not touch
 `last-success`. A failed upload keeps the local dump: the local tier is good, only the
 off-site one is missing. A missing off-site setting fails the same way, after the local
-dump is kept, and names the setting. **`last-success` is the contract with
-[#303](https://github.com/liga-auguste/planning-hub/issues/303)**: once that lands, a file
-older than about 26 hours raises an alert. Until then the log is the only signal.
+dump is kept, and names the setting. **`last-success` is the contract with the
+watcher** ([#303](https://github.com/liga-auguste/planning-hub/issues/303)): a file older
+than 26 hours, or none at all, sends a `FAIL backup fresh` alert within five minutes. See
+[`docs/monitoring.md`](monitoring.md).
 
 When it runs:
 

@@ -169,4 +169,11 @@ else
     fail "$label" "launchctl print failed" "docs/backup.md, Install"
 fi
 
+label="watch agent loaded"
+if launchctl print "gui/$(id -u)/de.ligaauguste.planninghub.watch" >/dev/null 2>&1; then
+    ok "$label"
+else
+    fail "$label" "launchctl print failed" "docs/monitoring.md, Install"
+fi
+
 exit "$failed"

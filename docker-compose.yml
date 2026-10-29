@@ -1,7 +1,17 @@
+# Docker's default json-file driver never rotates, so every service's logs
+# are bounded here (#303). On production host/watch.sh copies them out
+# before a recreate drops them.
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgres:16
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: planning_hub
       POSTGRES_USER: liga
@@ -12,6 +22,7 @@ services:
   web:
     build: .
     restart: unless-stopped
+    logging: *default-logging
     env_file: .env
     environment:
       DB_HOST: db
@@ -28,6 +39,7 @@ services:
   nginx:
     image: nginx:alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
     volumes:

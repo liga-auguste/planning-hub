@@ -417,6 +417,13 @@ automatic login, Docker Desktop at sign-in, a fixed network address. `sh host/ch
 reads them all in one run and prints the fix for each one that is wrong. The list, the
 reasons and the power test are in [`docs/production-host.md`](docs/production-host.md).
 
+**Monitoring.** `host/watch.sh` runs on the host every five minutes. It copies the
+containers' logs into rotated files that outlive every deploy, runs `host/check.sh`,
+checks that last night's backup succeeded and counts unhandled 500s and repeated Notion
+or Claude failures. The result goes to three [Healthchecks.io](https://healthchecks.io/)
+checks, which also alert when the pings stop. The alerts, the logs and the install are in
+[`docs/monitoring.md`](docs/monitoring.md).
+
 For deploying to either running stack (pulling, rebuilding, verifying) see
 `.claude/skills/deploy/SKILL.md`.
 
@@ -462,6 +469,7 @@ projects/
     test_language_eval.py  # the eval's own checks — the eval itself is not run here
     test_backup.py     #   production backups: both scripts, the schedule, the runbook
     test_production_host.py  # the production host's macOS settings and their check
+    test_monitoring.py #   the watcher: collected logs, alerts, the schedule, the log settings
   urls.py            # Dashboard, task actions, legal pages, health check
   planner_urls.py    # Planner flow + planning-rules routes
   templates/projects/           # 34 templates: the pages plus the partials they share
@@ -481,6 +489,9 @@ backup/
   backup.env.example            # Host settings: where dumps go, how many are kept, the off-site target
 host/
   check.sh                      # Read-only check of the production host's macOS settings and running state
+  watch.sh                      # Every five minutes: collect the logs, check, count errors, ping Healthchecks.io
+  de.ligaauguste.planninghub.watch.plist  # LaunchAgent template, every 300 seconds
+  watch.env.example             # Host settings: the three ping URLs, where the logs go
 docs/
   dashboard-write-paths.md      # Which write touches which cache, and which is offered where
   template-refactoring.md       # Base-template inheritance layout, as carried out
@@ -492,6 +503,7 @@ docs/
   wochenabschluss.md            # The close-out ritual: the flow, both backends, its summary
   backup.md                     # Production backups: how they run, install, restore, drill
   production-host.md            # The production host's macOS settings, their check, the power test
+  monitoring.md                 # What the watcher alerts on, where the logs are, install, drills
   screenshots/                  # README images
 ```
 

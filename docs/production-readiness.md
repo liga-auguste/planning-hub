@@ -82,8 +82,18 @@ the first week, before the VPN was the way in. Both are disabled. Afterwards por
 did not answer from outside the home network over either protocol, while the LAN
 still got the Basic Auth prompt. Whether anyone reached the stack while the forwards
 existed cannot be told from the logs: every request in the nginx access log carries
-Docker Desktop's internal gateway address, not the client's. That gap belongs to
-[#303](https://github.com/liga-auguste/planning-hub/issues/303).
+Docker Desktop's internal gateway address, not the client's.
+
+**Who reached the stack is the router's question, not nginx's.** Docker Desktop on
+macOS forwards published ports into its VM at layer 4, and its
+[networking docs](https://docs.docker.com/desktop/features/networking/) say nothing about
+keeping the client's address. None was ever observed: all 2,021 requests from August to
+18 October 2026 carry `192.168.65.1`. So the router's WireGuard connections and its
+port-forward settings are the record of who came in from outside. Decided in
+[#303](https://github.com/liga-auguste/planning-hub/issues/303): documented, not solved.
+An extra proxy in front of a stack that is reachable only over the VPN would buy an
+address nobody needs to act on. The logs that are kept are described in
+[`docs/monitoring.md`](monitoring.md).
 
 **What is assumed of the LAN.** `docker-compose.yml` publishes port 80 as `"80:80"`,
 which binds every interface of the host. Any device on the home network therefore
