@@ -293,7 +293,9 @@ age -d -i ~/.config/age/planninghub-backup.txt -o planning_hub.dump <name>.dump.
 On the new host: Docker, the checkout and a new `.env` (see [What a dump
 contains](#what-a-dump-contains)), then the same steps as [after a lost
 volume](#after-a-lost-volume) with `planning_hub.dump`. Install the schedule and the
-off-site copy again afterwards; the new host needs a new upload key.
+off-site copy again afterwards; the new host needs a new upload key. Its macOS settings
+are in [`docs/production-host.md`](production-host.md): without them it does not come back
+after a power cut.
 
 ## Restore drill
 
