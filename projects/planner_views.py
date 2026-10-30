@@ -558,15 +558,16 @@ def _date_style_options(request):
     options = []
     for style in DATE_STYLES:
         # The example has to render in the style it illustrates, not in the
-        # one this request is set to — hence the patterns are filled
-        # directly rather than through format_date.
+        # one this request is set to — hence _format_in_style pins that style
+        # with style_resolver around format_date. A style may resolve both
+        # roles to the same text ("numeric" does), so each example is kept
+        # once, in role order (#321).
+        examples = [_format_in_style(today, style, role) for role in ("long", "row")]
         options.append(
             {
                 "value": style,
                 "label": display_style.STYLE_LABELS[style],
-                "examples": [
-                    _format_in_style(today, style, role) for role in ("long", "row")
-                ],
+                "examples": list(dict.fromkeys(examples)),
                 "checked": style == current,
             }
         )
