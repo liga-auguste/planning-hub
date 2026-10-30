@@ -93,7 +93,17 @@ class ChoosingOnTheRulesPageTest(DemoModeTestCase):
             with self.subTest(style=option["value"]):
                 with style_resolver(lambda style=option["value"]: style):
                     expected = [format_date(today, "long"), format_date(today, "row")]
-                self.assertEqual(option["examples"], expected)
+                self.assertEqual(option["examples"], list(dict.fromkeys(expected)))
+
+    def test_no_style_shows_the_same_example_twice(self):
+        # #321: "numeric" resolves both roles to one pattern, which date_format
+        # allows, so the page has to say it once rather than "So, 11.10. ·
+        # So, 11.10.". Every style is checked, not just numeric, so the next
+        # style that resolves two roles alike is covered too.
+        options = self.client.get(reverse("rules_list")).context["date_styles"]
+        for option in options:
+            with self.subTest(style=option["value"]):
+                self.assertEqual(len(option["examples"]), len(set(option["examples"])))
 
     def test_saving_marks_the_choice_and_redirects_back(self):
         response = self.client.post(
