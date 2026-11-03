@@ -184,6 +184,18 @@
            is the part that identifies the task. */
         .task-name { font-size: 14px; flex: 1 1 auto; min-width: 0; overflow-wrap: break-word; }
         .task-name.done { color: var(--color-text-quaternary); text-decoration: line-through; }
+        /* #323: a wrapping row picks its line breaks from each item's size
+           before anything shrinks, and with flex-basis: auto that is the
+           name's whole text. A name wider than the room after the dot took
+           a line of its own and left the dot alone above it. A cap, not a
+           basis: max-width clamps the size line breaking uses, while the
+           basis stays the name's width, so the meta still wraps below a
+           name that leaves it no room. A fixed basis would keep the meta
+           beside every name and squeeze the name instead — #238's
+           one-word-per-line defect. 18px is the dot (base.css), 12px the
+           row's gap. Scoped to the row: the AI summary renders .task-name
+           in a grid on a phone (#319), where 100% is the grid column. */
+        .task-row .task-name { max-width: calc(100% - 18px - 12px); }
         /* #266: the date's own rules — .task-due, its urgency colours, the
            button reset and .task-due-input — moved to dashboard.css, where
            the three other surfaces rendering the same partial can reach
@@ -511,7 +523,9 @@
                short and stays on one line. */
             .moment-title { white-space: normal; }
             /* The row keeps the shape /mein-plan/ has always had: dot,
-               name, date, actions on one line, at every width. It stacked
+               name, date, actions on one line whenever they fit, at every
+               width; a name that leaves the meta no room pushes it to a
+               line of its own below (#323). It stacked
                below the breakpoint for a while, which gave a long name the
                full width and cost every short one a second line — and the
                two task lists in the app then read as one component on the

@@ -33,6 +33,16 @@ from .base import (
 )
 
 
+def split_at_breakpoint(response):
+    """The rendered dashboard's CSS before its phone block, and the phone
+    block itself."""
+    desktop, phone = response.content.decode().split("@media (max-width: 768px) {", 1)
+    # Ends at the block's own closing brace, at its indentation. The
+    # rendered page has no {% endblock %} left to split on, and a rule
+    # after the brace applies at every width.
+    return desktop, phone.split("\n        }\n", 1)[0]
+
+
 class BodyDynamicViewportHeightTest(SimpleTestCase):
     """#99: 100vh resolves to iOS Safari's large viewport (toolbar
     collapsed), so on load — toolbar visible, the default state — the
@@ -1478,7 +1488,9 @@ class TaskRowNeverCollidesTest(DemoModeTestCase):
     the part that identifies the task.
 
     The row keeps /mein-plan/'s shape — dot, name, date, actions on one
-    line — at every width. It stacked below the breakpoint for a while,
+    line — whenever they fit, at every width; a name that leaves the meta
+    no room pushes it to a line of its own below (#323). It stacked below
+    the breakpoint for a while,
     which gave a long name the full width and cost every short one a second
     line, and made the app's two task lists read as one component on the
     desktop and as two on a phone."""
@@ -1551,6 +1563,51 @@ class TaskRowNeverCollidesTest(DemoModeTestCase):
         )
 
 
+class TaskNameStaysBesideItsDotTest(DemoModeTestCase):
+    """#323: a name wider than the room left after the dot dropped below it.
+    A wrapping flex container picks its line breaks from each item's
+    hypothetical main size, before anything shrinks, and with flex: 1 1 auto
+    that size is the name's full max-content width. So the dot stood alone
+    on the first line, the name took the second and the meta the third.
+
+    The fix caps the name rather than replacing its basis. The cap clamps
+    the size line breaking uses, so a long name stays beside its dot, while
+    the basis stays the name's width and the meta still wraps below a name
+    that leaves it no room. A fixed basis would keep the meta beside every
+    name and squeeze the name instead, which is #238's one-word-per-line
+    defect."""
+
+    CAP = ".task-row .task-name { max-width: calc(100% - 18px - 12px); }"
+
+    def test_the_name_is_capped_at_the_room_beside_the_dot(self):
+        self.assertContains(self.client.get(reverse("dashboard")), self.CAP)
+
+    def test_the_cap_is_the_dot_plus_the_gap(self):
+        # A drift guard: if the dot or the gap changes, this fails instead
+        # of long names quietly dropping below their dot again.
+        base_css = (
+            Path(settings.BASE_DIR) / "projects/static/projects/css/base.css"
+        ).read_text()
+        dot = re.search(r"^\.dot \{[^}]*?\bwidth: (\d+)px", base_css, re.MULTILINE)
+        html = self.client.get(reverse("dashboard")).content.decode()
+        gap = re.search(r"\.task-row \{[^}]*?\bgap: (\d+)px", html)
+        self.assertIn(f"max-width: calc(100% - {dot[1]}px - {gap[1]}px); }}", self.CAP)
+
+    def test_the_cap_holds_at_every_width(self):
+        # The desktop has the same defect once a name is wider than the
+        # whole row, so the rule sits outside the phone block.
+        desktop, phone = split_at_breakpoint(self.client.get(reverse("dashboard")))
+        self.assertIn(self.CAP, desktop)
+        self.assertNotIn(self.CAP, phone)
+
+    def test_the_summary_name_is_not_capped(self):
+        # The AI summary renders .task-name too, and on a phone its line is
+        # a grid (#319), where a percentage resolves against the column: an
+        # unscoped cap would leave a dead strip beside every summary name.
+        html = self.client.get(reverse("dashboard")).content.decode()
+        self.assertEqual(html.count("max-width: calc(100% - 18px - 12px)"), 1)
+
+
 class SummaryProjectLabelOnPhonesTest(DemoModeTestCase):
     """#319: a summary line is a flex row that cannot wrap, so below the
     breakpoint the `.task-project` rule above (flex-shrink: 3, min-width: 0)
@@ -1573,12 +1630,7 @@ class SummaryProjectLabelOnPhonesTest(DemoModeTestCase):
     )
 
     def split(self):
-        html = self.client.get(reverse("dashboard")).content.decode()
-        desktop, phone = html.split("@media (max-width: 768px) {", 1)
-        # Ends at the block's own closing brace, at its indentation. The
-        # rendered page has no {% endblock %} left to split on, and a rule
-        # after the brace applies at every width.
-        return desktop, phone.split("\n        }\n", 1)[0]
+        return split_at_breakpoint(self.client.get(reverse("dashboard")))
 
     def test_the_label_gets_a_line_of_its_own_on_a_phone(self):
         _, phone = self.split()
