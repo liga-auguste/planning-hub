@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.conf import settings
+from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.test import (
     SimpleTestCase,
@@ -2186,7 +2187,9 @@ class TextGreyContrastTest(SimpleTestCase):
     # the count chips). --color-accent-tint is not in the list: only primary
     # text sits on it, the active .sidebar-item's name, and a tertiary or
     # quaternary text there would fail (tertiary 4.497:1 light), which is
-    # the point of keeping it out.
+    # the point of keeping it out. The sidebar links that carry an inline
+    # tertiary drop it while active, see
+    # test_an_active_sidebar_item_keeps_its_primary_text.
     SURFACES = ("--color-bg-primary", "--color-bg-secondary", "--color-bg-tertiary")
 
     CSS_ROOT = Path(settings.BASE_DIR) / "projects/static/projects/css"
@@ -2299,6 +2302,29 @@ class TextGreyContrastTest(SimpleTestCase):
         ):
             with self.subTest(allowed=allowed):
                 self.assertEqual(list(self.text_on_background(allowed)), [])
+
+    def test_an_active_sidebar_item_keeps_its_primary_text(self):
+        """The secondary sidebar links carry an inline tertiary, and an
+        inline style beats .sidebar-item.active's primary. Left on the
+        active item it put tertiary on --color-accent-tint at 4.497:1 light
+        — the pair SURFACES keeps out because nothing may render it. The
+        sweep cannot see it: the colour sits on the element, the background
+        comes from a class rule."""
+        contexts = (
+            {"demo_mode": True, "has_session_plan": True, "active_nav": "my_plan"},
+            {"demo_mode": True, "has_session_plan": True, "active_nav": "close_week"},
+            {"demo_mode": True, "plan_exists": True, "active_nav": "my_plan"},
+            {"demo_mode": True, "plan_exists": True, "active_nav": "close_week"},
+            {"demo_mode": False, "active_nav": "close_week"},
+        )
+        for context in contexts:
+            html = render_to_string("projects/_sidebar_nav.html", context)
+            active = re.findall(r'<a class="sidebar-item active"[^>]*>', html)
+            with self.subTest(**context):
+                # Without this the loop would pass on a branch that renders
+                # no active link at all.
+                self.assertEqual(len(active), 1)
+                self.assertNotIn("style=", active[0])
 
     def test_the_active_moment_date_has_a_grey_of_its_own(self):
         """The active Zeitreise moment is a solid fill, inverted against the

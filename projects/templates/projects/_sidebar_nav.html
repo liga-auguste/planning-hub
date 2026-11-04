@@ -70,20 +70,20 @@ page is marked active instead, since there's no JS toggle to do it.
         <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
     </a>
     {% endif %}
-    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}"{% if active_nav != 'my_plan' %} style="color: var(--color-text-tertiary);"{% endif %}>
         <span class="sidebar-icon">☰</span>Plan als Liste
     </a>
-    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}"{% if active_nav != 'close_week' %} style="color: var(--color-text-tertiary);"{% endif %}>
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
     </a>
 {% elif plan_exists %}
     <a class="sidebar-item" href="{% url 'dashboard' %}" style="color: var(--color-text-tertiary);">
         <span class="sidebar-icon"><span class="sidebar-dot" style="background: var(--color-solid-bg);"></span></span>Dashboard
     </a>
-    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}" style="color: var(--color-text-tertiary);">
+    <a class="sidebar-item{% if active_nav == 'my_plan' %} active{% endif %}" href="{% url 'my_plan' %}"{% if active_nav != 'my_plan' %} style="color: var(--color-text-tertiary);"{% endif %}>
         <span class="sidebar-icon">☰</span>Plan als Liste
     </a>
-    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+    <a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}"{% if active_nav != 'close_week' %} style="color: var(--color-text-tertiary);"{% endif %}>
         <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
     </a>
 {% else %}
@@ -162,7 +162,7 @@ name.
 <a class="sidebar-item" href="{% url 'rules_list' %}?from=dashboard" style="color: var(--color-text-tertiary);">
     <span class="sidebar-icon">⚙</span>Planungsregeln
 </a>
-<a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}" style="color: var(--color-text-tertiary);">
+<a class="sidebar-item{% if active_nav == 'close_week' %} active{% endif %}" href="{% url 'close_week_start' %}"{% if active_nav != 'close_week' %} style="color: var(--color-text-tertiary);"{% endif %}>
     <span class="sidebar-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span>Woche abschließen
 </a>
 {% endif %}
