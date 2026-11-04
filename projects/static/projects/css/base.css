@@ -19,7 +19,13 @@
     --color-text-primary: #282a30;
     --color-text-secondary: #3c4149;
     --color-text-tertiary: #6f6e77;
-    --color-text-quaternary: #86848d;
+    /* #325: equal to tertiary on purpose. No lighter grey reaches 4.5:1 on
+       --color-bg-tertiary (tertiary itself gets 4.51:1), so the light theme
+       has three text greys and size, weight, the strike-through and the
+       dot carry the ranking a fourth grey used to add. The token stays:
+       dark still separates the two, and quaternary is also the neutral
+       signal grey of the dots and the sidebar ring. */
+    --color-text-quaternary: #6f6e77;
     --color-accent: #7070ff;
     --color-accent-hover: #8989f0;
     /* #212: the quiet coloured surface behind the active sidebar item.
@@ -31,7 +37,8 @@
        The hue was picked by sweeping the full circle in 8° steps and taking
        the tone whose smallest ΔE2000 distance to the four colors already in
        play is largest — 80° wins at ΔE 35.3 to the overdue red, 32.5 to the
-       done green, 31.8 to the neutral gray and 61.0 to the accent. #170
+       done green, 31.8 to the neutral gray and 61.0 to the accent (#325
+       darkened the gray: ΔE 33.9 to it now, 33.5 in dark). #170
        failed because three warm tones competed in a narrow band, amber
        sitting ~ΔE 8 from the urgent orange; here red stays at hue 25° and
        nothing lives between the two, which is why the urgent stage keeps
@@ -60,6 +67,11 @@
        one gets its own, calmer dark-mode grey instead. */
     --color-solid-bg: #282a30;
     --color-solid-text: #fff;
+    /* #325: secondary text on a solid fill, such as the date in the active
+       Zeitreise moment. The text greys are built for the page and cannot
+       serve the inverted fill: quaternary reached 3.89:1 light and 2.49:1
+       dark on it. 4.73:1 here, 4.71:1 in dark. */
+    --color-solid-text-muted: #95939c;
     /* A banner/toast surface (cookie notice, simulated-date banner) that's
        deliberately dark in both themes, the way it was before dark mode
        existed — not defined again under [data-theme="dark"] below, on
@@ -103,7 +115,9 @@
     --color-text-primary: #f7f8f8;
     --color-text-secondary: #d0d6e0;
     --color-text-tertiary: #aeb1b8;
-    --color-text-quaternary: #83868d;
+    /* #325: the smallest lightening that clears all three surfaces: 5.25:1
+       on the card, 6.27:1 on the page, 4.54:1 on --color-bg-tertiary. */
+    --color-text-quaternary: #9b9fa6;
     --color-accent: #7170ff;
     --color-accent-hover: #828fff;
     --color-accent-tint: #18182f;
@@ -120,6 +134,7 @@
        text-secondary/bg-secondary values rather than a new hex. */
     --color-solid-bg: #d0d6e0;
     --color-solid-text: #08090a;
+    --color-solid-text-muted: #585a61;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -219,9 +234,11 @@ body {
    page, see MobileLauncherClearanceTest); it may not space it.
 
    Subtitle and label are --color-text-tertiary, not the quaternary most
-   copies used: quaternary misses 4.5:1 at this size on three of the four
+   copies used: quaternary missed 4.5:1 at this size on three of the four
    surfaces it sits on (3.48 to 4.57), tertiary clears all four (4.75 to
-   7.76). PageSkeletonTest computes that.
+   7.76). PageSkeletonTest computes that. #325 has since brought quaternary
+   over the floor too (4.75 to 6.27); the label stays tertiary, which is
+   the same grey in light and the stronger one in dark.
 
    .section-label and .list-row are defined ahead of their adopters: the
    values are the ones .kanban-col-header and .task-row already render,
