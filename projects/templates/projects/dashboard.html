@@ -287,7 +287,12 @@
            silently swallowed the drag. */
         .day-column { background: var(--color-bg-secondary); border-radius: 8px; padding: 8px; min-height: 72px; display: flex; flex-direction: column; }
         .day-column-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .day-column-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 6px; font-size: 10px; font-weight: 500; }
+        /* #325: the count chips sit on --color-bg-tertiary, not on
+           --color-border-primary, where no grey lighter than secondary
+           reaches 4.5:1. The pill outline against the column drops to about
+           1.05:1; it is decoration, the number is the content. Same for
+           .kanban-col-count below. */
+        .day-column-count { background: var(--color-bg-tertiary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 6px; font-size: 10px; font-weight: 500; }
         .day-column-body { min-height: 32px; flex: 1; }
         .day-task-card { display: flex; align-items: center; gap: 4px; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 14px; cursor: grab; }
         /* Same click target as every other .dot, just a tighter margin —
@@ -358,7 +363,7 @@
         .moment-btn { flex: 1 1 auto; background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 8px; padding: 10px 14px; cursor: pointer; text-align: left; transition: border-color 0.15s, box-shadow 0.15s; min-width: 0; position: relative; }
         .moment-btn:hover { border-color: var(--color-text-primary); box-shadow: var(--shadow-low); }
         .moment-btn.active { border-color: var(--color-solid-bg); background: var(--color-solid-bg); color: var(--color-solid-text); }
-        .moment-btn.active .moment-date { color: var(--color-text-quaternary); }
+        .moment-btn.active .moment-date { color: var(--color-solid-text-muted); }
         /* nowrap without a clip let a long label paint straight over the next
            card — the moment labels come back from Claude and are not length-
            bounded, and the active card is drawn later, so it swallowed the
@@ -391,7 +396,7 @@
         .kanban { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 12px; margin-top: 36px; overflow-x: auto; }
         .kanban-col { background: var(--color-bg-secondary); border-radius: 8px; padding: 12px; min-height: 120px; }
         .kanban-col-header { font-size: 11px; font-weight: 600; color: var(--color-text-quaternary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .kanban-col-count { background: var(--color-border-primary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 10px; font-weight: 500; }
+        .kanban-col-count { background: var(--color-bg-tertiary); color: var(--color-text-quaternary); border-radius: var(--radius-pill); padding: 1px 7px; font-size: 10px; font-weight: 500; }
         .kanban-col.col-done .kanban-col-header { color: var(--color-text-quaternary); }
         .kanban-card { background: var(--color-bg-primary); border: 1px solid var(--color-border-primary); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; line-height: 1.4; }
         .kanban-card:last-child { margin-bottom: 0; }
