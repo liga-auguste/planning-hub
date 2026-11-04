@@ -2058,7 +2058,8 @@ class SignalColorContrastTest(SimpleTestCase):
         "--color-overdue": ("#ef4444", "#f87171"),
         "--color-today": ("#b88402", "#f4b00c"),
         "--color-done": ("#46a015", "#7fd85d"),
-        "--color-text-quaternary": ("#86848d", "#83868d"),
+        # #325: light equals tertiary on purpose, see TextGreyContrastTest.
+        "--color-text-quaternary": ("#6f6e77", "#9b9fa6"),
     }
     SURFACES = {
         "light": {"--color-bg-primary": "#fff", "--color-bg-secondary": "#f9f8f9"},
@@ -2160,6 +2161,166 @@ class SignalColorContrastTest(SimpleTestCase):
         # make the assertions above pass silently.
         self.assertAlmostEqual(_wcag_contrast("#000", "#fff"), 21.0, places=2)
         self.assertAlmostEqual(_wcag_contrast("#fff", "#fff"), 1.0, places=2)
+
+
+class TextGreyContrastTest(SimpleTestCase):
+    """#325: every text grey reaches WCAG 1.4.3's 4.5:1 on every surface
+    text sits on. None of the uses is large text, so the floor is 4.5:1,
+    and it is not rounded: the Understanding of 1.4.3 says 4.499:1 does not
+    meet it.
+
+    Quaternary used to miss on every surface but the dark page (3.31 to
+    4.57). Light now gives it tertiary's value, since no lighter grey clears
+    the tinted surface; dark lightens it to the smallest value that clears
+    all three. Read from base.css, so a later token edit is measured rather
+    than trusted."""
+
+    FLOOR = 4.5
+    TEXT_GREYS = (
+        "--color-text-primary",
+        "--color-text-secondary",
+        "--color-text-tertiary",
+        "--color-text-quaternary",
+    )
+    # The page, the card and the tinted surface (badges, done Kanban cards,
+    # the count chips). --color-accent-tint is not in the list: only primary
+    # text sits on it, the active .sidebar-item's name, and a tertiary or
+    # quaternary text there would fail (tertiary 4.497:1 light), which is
+    # the point of keeping it out.
+    SURFACES = ("--color-bg-primary", "--color-bg-secondary", "--color-bg-tertiary")
+
+    CSS_ROOT = Path(settings.BASE_DIR) / "projects/static/projects/css"
+    TEMPLATE_ROOT = Path(settings.BASE_DIR) / "projects/templates"
+
+    # A rule's own declarations: the text colour and the background it puts
+    # that text on. `(?<![\w-])` keeps border-color out of the first.
+    TEXT_COLOR = re.compile(r"(?<![\w-])color:\s*var\((--color-text-[\w-]+)\)")
+    BACKGROUND = re.compile(
+        r"(?<![\w-])background(?:-color)?:\s*var\((--color-[\w-]+)\)"
+    )
+
+    def base_css(self):
+        return (self.CSS_ROOT / "base.css").read_text()
+
+    def stylesheets(self):
+        """Every place a rule can live: the three sheets, each template's
+        extra_css block, and inline style attributes, each wrapped as a
+        rule of its own. Templates are read the way PageSkeletonTest reads
+        them, error pages included."""
+        sources = {
+            name: (self.CSS_ROOT / name).read_text()
+            for name in ("base.css", "dashboard.css", "public.css")
+        }
+        for path in sorted(self.TEMPLATE_ROOT.rglob("*.html")):
+            name = str(path.relative_to(self.TEMPLATE_ROOT))
+            source = path.read_text()
+            sources[f"{name} <style>"] = "\n".join(
+                re.findall(r"{% block extra_css %}(.*?){% endblock", source, re.DOTALL)
+                + re.findall(r"<style[^>]*>(.*?)</style>", source, re.DOTALL)
+            )
+            sources[f'{name} style=""'] = "\n".join(
+                f"[inline] {{ {body} }}"
+                for body in re.findall(r'style="([^"]*)"', source)
+            )
+        return sources
+
+    def text_on_background(self, source):
+        """(selector, text token, background token) for every rule whose
+        own declarations pair a text grey with a background."""
+        source = PageSkeletonTest.without_comments(source)
+        for selectors, body in re.findall(r"([^{}]*)\{([^{}]*)\}", source):
+            text = self.TEXT_COLOR.search(body)
+            background = self.BACKGROUND.search(body)
+            if text and background:
+                yield " ".join(selectors.split()), text.group(1), background.group(1)
+
+    def test_every_text_grey_clears_the_floor_on_every_text_surface(self):
+        css = self.base_css()
+        for token in self.TEXT_GREYS:
+            for theme in ("light", "dark"):
+                text = _declared_value(css, token, theme)
+                for surface in self.SURFACES:
+                    background = _declared_value(css, surface, theme)
+                    with self.subTest(token=token, theme=theme, surface=surface):
+                        self.assertGreaterEqual(
+                            _wcag_contrast(text, background), self.FLOOR
+                        )
+
+    def test_every_rule_that_sets_its_own_background_clears_the_floor(self):
+        """The surfaces above are the common ones. A rule that paints its
+        own background is where a grey lands on something darker — the
+        count chips sat on --color-border-primary at 3.02:1. Limited to
+        --color-text-* on purpose: the signal colours as text are #327."""
+        css = self.base_css()
+        pairs = 0
+        for name, source in self.stylesheets().items():
+            for selector, text, background in self.text_on_background(source):
+                pairs += 1
+                for theme in ("light", "dark"):
+                    with self.subTest(
+                        source=name, rule=selector, text=text, theme=theme
+                    ):
+                        self.assertGreaterEqual(
+                            _wcag_contrast(
+                                _declared_value(css, text, theme),
+                                _declared_value(css, background, theme),
+                            ),
+                            self.FLOOR,
+                        )
+        # A sweep that matched nothing would pass forever.
+        self.assertGreater(pairs, 10)
+
+    def test_the_sweep_catches_what_it_is_for(self):
+        caught = list(
+            self.text_on_background(
+                ".chip { background: var(--color-border-primary); "
+                "color: var(--color-text-quaternary); }\n"
+                "[inline] {color: var(--color-text-tertiary); "
+                "background-color: var(--color-bg-tertiary)}"
+            )
+        )
+        self.assertEqual(
+            caught,
+            [
+                (".chip", "--color-text-quaternary", "--color-border-primary"),
+                ("[inline]", "--color-text-tertiary", "--color-bg-tertiary"),
+            ],
+        )
+        for allowed in (
+            (
+                ".a { border-color: var(--color-text-quaternary); "
+                "background: var(--color-bg-primary); }"
+            ),
+            ".a { color: var(--color-text-quaternary); }",
+            (
+                "/* .a { color: var(--color-text-quaternary); "
+                "background: var(--color-bg-tertiary); } */"
+            ),
+        ):
+            with self.subTest(allowed=allowed):
+                self.assertEqual(list(self.text_on_background(allowed)), [])
+
+    def test_the_active_moment_date_has_a_grey_of_its_own(self):
+        """The active Zeitreise moment is a solid fill, inverted against the
+        page. Quaternary reached 3.89:1 light and 2.49:1 dark on it; the
+        page greys cannot serve an inverted surface, so the date takes
+        --color-solid-text-muted."""
+        dashboard = (self.TEMPLATE_ROOT / "projects/dashboard.html").read_text()
+        rule = (
+            ".moment-btn.active .moment-date { color: var(--color-solid-text-muted); }"
+        )
+        # assertTrue, not assertIn: a failure would print the whole template.
+        self.assertTrue(rule in dashboard, rule)
+        css = self.base_css()
+        for theme in ("light", "dark"):
+            with self.subTest(theme=theme):
+                self.assertGreaterEqual(
+                    _wcag_contrast(
+                        _declared_value(css, "--color-solid-text-muted", theme),
+                        _declared_value(css, "--color-solid-bg", theme),
+                    ),
+                    self.FLOOR,
+                )
 
 
 class BrandAccentPlacementTest(DemoModeTestCase):
@@ -3845,10 +4006,10 @@ class PageSkeletonTest(DemoModeTestCase):
                 self.assertEqual(html.count("<h1"), 1)
 
     def test_the_subtitle_and_label_grey_clears_the_text_floor(self):
-        """WCAG 1.4.3: 4.5:1 for text this size. Quaternary, which nearly
-        every copy used, reaches 3.48 to 4.57 on these surfaces; tertiary
-        4.75 to 7.76. Read from the rules, so a later swap is measured
-        rather than trusted."""
+        """WCAG 1.4.3: 4.5:1 for text this size. Read from the rules, so a
+        later swap is measured rather than trusted. The numbers for every
+        text grey, and why quaternary failed here before #325, live in
+        TextGreyContrastTest."""
         css = self.base_css()
         for rule in ("page-subtitle", "section-label"):
             body = re.search(rf"\.{rule} \{{([^}}]*)\}}", css).group(1)
